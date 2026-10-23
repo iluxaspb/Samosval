@@ -492,7 +492,7 @@
       </div>
     </div>
     <div id="gaiReportToggleContainer" style="text-align: center; margin-bottom: 16px;">
-      <button class="btn btn-secondary btn-small" style="width: 100%; font-size: 14px;" onclick="toggleReportType()" id="toggleReportBtn">📄 Показать отчет ГАИ</button>
+      <button class="btn btn-secondary btn-small" style="width: 100%; font-size: 14px;" id="toggleReportBtn" aria-label="Дополнительный отчёт">📄</button>
     </div>
     
     <div class="action-row" style="margin-bottom: 12px; grid-template-columns: 1fr 1fr;">
@@ -1716,7 +1716,7 @@
     let gaiB = document.getElementById('gaiTableBody'), gaiH = document.getElementById('gaiTableHeadRow');
     document.getElementById('paperReportWrapper').style.display = showGAITable ? 'none' : 'block';
     document.getElementById('gaiReportWrapper').style.display = showGAITable ? 'block' : 'none';
-    document.getElementById('toggleReportBtn').textContent = showGAITable ? '📄 Обычный' : '📄 ГАИ';
+    document.getElementById('toggleReportBtn').textContent = '📄';
     pO.textContent = 'Объект: ' + (state.shift ? state.shift.objectName : '—'); pD.textContent = state.shift ? state.shift.startDate : '';
     gaiO.textContent = 'Объект: ' + (state.shift ? state.shift.objectName : '—'); gaiD.textContent = state.shift ? state.shift.startDate : '';
     if (!state.shift) { mB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; gaiB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; lC.innerHTML = '<div class="empty-state">Нет рейсов</div>'; pV.textContent='0 м³'; gaiV.textContent='0'; return; }
@@ -2720,6 +2720,51 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
   function render(){const list=document.getElementById('patchesListContainer');if(!list||document.getElementById('summary-viewer-toggle'))return;const row=document.createElement('div');row.id='summary-viewer-toggle';row.className='user-row';row.innerHTML='<div class="user-row-top"><strong>Сводка: просмотр листа (тест)</strong><label class="toggle-switch"><input type="checkbox"><span class="toggle-slider"></span></label></div><div style="font-size:11px;color:var(--muted);margin-top:8px">Без экспорта и рисования. Лист открывается поверх приложения с масштабированием и перемещением.</div>';const input=row.querySelector('input');input.checked=on;input.onchange=()=>{try{localStorage.setItem(key,input.checked?'1':'0');apply(input.checked);}catch(_){input.checked=on;}};list.prepend(row);}
   const previous=window.renderPatchesList;window.renderPatchesList=function(){const result=previous?.apply(this,arguments);render();return result;};
   apply(enabled());render();const list=document.getElementById('patchesListContainer');if(list)new MutationObserver(render).observe(list,{childList:true});
+})();
+</script>
+<script>
+
+(function () {
+  const button = document.getElementById('toggleReportBtn');
+  if (!button) return;
+  button.style.touchAction = 'none';
+  button.style.userSelect = 'none';
+  button.style.webkitUserSelect = 'none';
+  button.style.webkitTouchCallout = 'none';
+  let timer = null, pointer = null, startX = 0, startY = 0, heldKey = null;
+  function cancel() { clearTimeout(timer); timer = null; pointer = null; heldKey = null; }
+  function start() {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      if (document.hidden || !button.isConnected || !button.getClientRects().length) return;
+      toggleReportType();
+    }, 800);
+  }
+  button.addEventListener('click', e => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+  button.addEventListener('contextmenu', e => e.preventDefault());
+  button.addEventListener('pointerdown', e => {
+    if (!e.isPrimary || e.button !== 0) { cancel(); return; }
+    cancel(); pointer = e.pointerId; startX = e.clientX; startY = e.clientY;
+    button.setPointerCapture(e.pointerId); start();
+  });
+  button.addEventListener('pointermove', e => {
+    if (e.pointerId !== pointer) return;
+    const r = button.getBoundingClientRect();
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) > 12 ||
+        e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) cancel();
+  });
+  ['pointerup','pointercancel','lostpointercapture'].forEach(type => button.addEventListener(type, cancel));
+  button.addEventListener('keydown', e => {
+    if (e.key !== ' ' && e.key !== 'Enter') return;
+    e.preventDefault();
+    if (e.repeat || heldKey) return;
+    heldKey = e.key; start();
+  });
+  button.addEventListener('keyup', cancel);
+  button.addEventListener('blur', cancel);
+  window.addEventListener('blur', cancel);
+  document.addEventListener('visibilitychange', cancel);
 })();
 </script>
 </body>
