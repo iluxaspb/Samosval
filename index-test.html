@@ -2681,10 +2681,7 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
     .sheet-hint {font-size:12px;color:#94a3b8;padding:8px;text-align:center;padding-bottom:max(8px,env(safe-area-inset-bottom))}
   `;
   document.head.append(style);
-  const openButton = document.createElement('button');
-  openButton.id = 'summary-open-sheet'; openButton.className = 'btn btn-secondary';
-  openButton.textContent = '⛶ Открыть лист';
-  tab.insertBefore(openButton, document.getElementById('paperReportWrapper'));
+
   function close() { if (!dialog) return; observer?.disconnect(); dialog.close(); dialog.remove(); dialog=null; document.body.style.overflow=oldOverflow; opener?.focus(); }
   let oldOverflow='';
   function open() {
@@ -2717,7 +2714,6 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
     stage.addEventListener('wheel',e=>{e.preventDefault();const r=stage.getBoundingClientRect();zoom(scale*Math.exp(-e.deltaY*.002),e.clientX-r.left,e.clientY-r.top);},{passive:false});
     if(document.fonts)document.fonts.ready.then(()=>{if(dialog)paint();});
   }
-  openButton.onclick=open;
   tab.addEventListener('click',e=>{if(on&&e.target.closest('.paper-scroll-wrapper')){e.preventDefault();open();}},true);
   function apply(value){on=value;if(!on)close();document.body.classList.toggle('summary-viewer-on',on);if(on&&typeof drawMode!=='undefined'&&drawMode&&typeof toggleDrawMode==='function')toggleDrawMode();}
   function enabled(){try{return localStorage.getItem(key)==='1';}catch(_){return false;}}
