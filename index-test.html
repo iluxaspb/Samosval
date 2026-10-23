@@ -1599,7 +1599,7 @@
   function clearDrawingsArchive() { const c = document.getElementById('draw-canvas-archive'); if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height); showToastEl('🗑 Очищено', false); }
 
   // === ОТЧЕТ HTML ===
-  function buildReportHTML({ objectName, date, logs, activeLineIds, type, checkTTN }) {
+  function buildReportHTML({ objectName, date, logs, activeLineIds, type, checkTTN, isClosed = false, reportTtnStatus = null }) {
     const filteredLogs = type === 'gai' ? logs.filter(l => l.isGAI) : logs.filter(l => !l.isGAI);
     const activeIds = (activeLineIds || []).filter(id => { const t = findTruck(id); if (!t) return false; return type === 'gai' ? !!t.isGAI : !t.isGAI; });
     const truckIds = new Set(activeIds); filteredLogs.forEach(l => truckIds.add(l.truckId));
@@ -1615,7 +1615,8 @@
       const tLogs = filteredLogs.filter(l => l.truckId === t.id).slice().reverse();
       const sum = tLogs.reduce((s, l) => s + l.volume, 0);
       let st = state.truckStatus[t.id] || {};
-      let isDup = (tLogs.length > 0 && st.ttnStatus !== true);
+      let savedTtn = reportTtnStatus ? reportTtnStatus[t.id] : st.ttnStatus;
+      let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (isClosed && tLogs.length > 0 && savedTtn !== true && savedTtn !== 'pending') : (tLogs.length > 0 && st.ttnStatus !== true);
       let dupHtml = isDup ? ' <span style="color:red; font-size:10px; font-weight:bold;">ДУБЛИКАТ</span>' : '';
       const brandCell = type === 'gai' ? `${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tLogs.length}</span>${dupHtml}` : `${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³</span>${dupHtml}`;
       html += `<tr><td style="font-weight:bold;">${idx + 1}</td><td class="truck-cell"><div class="paper-truck-brand">${brandCell}</div>${t.number ? renderRussianPlate(t.number) : ''}</td>`;
@@ -1644,7 +1645,7 @@
     const safeDate = String(shift.startDate || '').replace(/[^\w]/g, '_');
     if (stdLogs.length > 0 && appConfig.notifyPdfMain) {
       try {
-        const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, logs: stdLogs, activeLineIds, type: 'regular', checkTTN: (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId });
+        const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, isClosed: true, logs: stdLogs, activeLineIds, type: 'regular', checkTTN: (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId });
         const canvas = document.getElementById('draw-canvas-main'); let finalHtml = html;
         if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
         const blob = await generatePDFFromHTML(finalHtml, 'report_regular.pdf'); const b64 = await blobToBase64(blob);
@@ -1653,7 +1654,7 @@
     }
     if (gaiLogs.length > 0 && appConfig.notifyPdfGai) {
       try {
-        const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, logs: gaiLogs, activeLineIds, type: 'gai', checkTTN: null });
+        const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, isClosed: true, logs: gaiLogs, activeLineIds, type: 'gai', checkTTN: null });
         const canvas = document.getElementById('draw-canvas-gai'); let finalHtml = html;
         if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
         const blob = await generatePDFFromHTML(finalHtml, 'report_gai.pdf'); const b64 = await blobToBase64(blob);
@@ -1698,7 +1699,7 @@
     const logs = (s.logs || []).filter(l => type === 'gai' ? l.isGAI : !l.isGAI); if (!logs.length) { showError('Нет данных'); return; }
     try {
       showToastEl('⏳ Генерация PDF...', false);
-      const html = buildReportHTML({ objectName: s.objectName, date: s.date, logs, activeLineIds: s.activeLineIds || [], type, checkTTN: type === 'regular' ? (id, logId, isLast) => s.ttnStatus && s.ttnStatus[id] && isLast : null });
+      const html = buildReportHTML({ objectName: s.objectName, date: s.date, logs, activeLineIds: s.activeLineIds || [], type, isClosed: true, reportTtnStatus: s.ttnStatus || {}, checkTTN: type === 'regular' ? (id, logId, isLast) => s.ttnStatus && s.ttnStatus[id] && isLast : null });
       const canvas = document.getElementById('draw-canvas-archive'); let finalHtml = html;
       if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
       const blob = await generatePDFFromHTML(finalHtml, `archive_${type}.pdf`); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `archive_${type}.pdf`; a.click(); URL.revokeObjectURL(url); showToastEl('✅ PDF готов', false);
@@ -1730,7 +1731,7 @@
     let hHtml = '<th>№</th><th style="text-align:left;">Самосвал</th>'; for(let i=1; i<=maxT; i++) hHtml += `<th>Рейс ${i}</th>`; mH.innerHTML = hHtml;
     mB.innerHTML = rTrucks.map((t, idx)=>{
       let tL = stdLogs.filter(l=>l.truckId===t.id).slice().reverse(), st = state.truckStatus[t.id]||{}, sum = tL.reduce((s,l)=>s+l.volume,0);
-      let isDup = (tL.length > 0 && st.ttnStatus !== true);
+      let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
       let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
       let cells = '';
       for(let i=0; i<maxT; i++) {
@@ -1759,7 +1760,7 @@
     gaiB.innerHTML = gaiTrucks.map((t, idx)=>{
       let tL = gaiLogs.filter(l=>l.truckId===t.id).slice().reverse();
       let st = state.truckStatus[t.id] || {};
-      let isDup = (tL.length > 0 && st.ttnStatus !== true);
+      let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
       let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
       let cells = '';
       for(let i=0; i<gaiMaxT; i++) {
@@ -1849,7 +1850,7 @@
       let tks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?{id, name:f.brand+' '+f.number}:{id, name:(stdLogs.find(l=>l.truckId===id)?.truckName||'—')}; });
       let mT=8; tks.forEach(t=>{ let c=stdLogs.filter(l=>l.truckId===t.id).length; if(c>mT) mT=c; });
       let hC = ''; for(let i=1; i<=mT; i++) hC+=`<th>Рейс ${i}</th>`;
-      let mH = tks.map(t=>{ let l = stdLogs.filter(x=>x.truckId===t.id).slice().reverse(), sm = l.reduce((x,y)=>x+y.volume,0), cells=''; let isDup = (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
+      let mH = tks.map(t=>{ let l = stdLogs.filter(x=>x.truckId===t.id).slice().reverse(), sm = l.reduce((x,y)=>x+y.volume,0), cells=''; let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (l.length > 0 && ttnStatus[t.id] !== true && ttnStatus[t.id] !== 'pending') : (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
         for(let i=0; i<mT; i++) { if(l[i]) { let isL=(i===l.length-1), cH = ttnStatus[t.id] && isL ? '<div class="hand-drawn-circle"></div>':''; let commHtml = l[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l[i].comment)}</div>` : ''; cells += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(l[i].timeStr)}</div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l[i].createdByEmail, l[i].createdBy))}</div>${commHtml}</div></td>`; }
           else if (i === l.length && ttnStatus[t.id] === 'pending') { cells += `<td><div class="cell-content"><div class="hand-drawn-circle"></div></div></td>`; }
           else cells += '<td></td>';
@@ -1861,7 +1862,7 @@
       let tks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?{id, name:f.brand+' '+f.number}:{id, name:(gaiLogs.find(l=>l.truckId===id)?.truckName||'—')}; });
       let mT=8; tks.forEach(t=>{ let c=gaiLogs.filter(l=>l.truckId===t.id).length; if(c>mT) mT=c; });
       let hC = ''; for(let i=1; i<=mT; i++) hC+=`<th>Рейс ${i}</th>`;
-      let mH = tks.map(t=>{ let l = gaiLogs.filter(x=>x.truckId===t.id).slice().reverse(), cells=''; let isDup = (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
+      let mH = tks.map(t=>{ let l = gaiLogs.filter(x=>x.truckId===t.id).slice().reverse(), cells=''; let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (l.length > 0 && ttnStatus[t.id] !== true && ttnStatus[t.id] !== 'pending') : (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
         for(let i=0; i<mT; i++) { if(l[i]) { let commHtml = l[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l[i].comment)}</div>` : ''; cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(l[i].timeStr)}</div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l[i].createdByEmail, l[i].createdBy))}</div>${commHtml}</div></td>`; }
           else cells += '<td></td>';
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">Рейсов: ${l.length}</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
@@ -2569,6 +2570,75 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
     const note = document.createElement('div');
     note.style.cssText = 'font-size:11px;color:var(--muted);margin-top:8px';
     note.textContent = 'При отмене последнее действие уходит влево, предыдущее возвращается справа. Только этот браузер.';
+    row.append(title, note);
+    container.prepend(row);
+  }
+  const original = window.renderPatchesList;
+  window.renderPatchesList = function () {
+    const result = original.apply(this, arguments);
+    renderToggle();
+    return result;
+  };
+  apply(enabled());
+  renderToggle();
+  const list = document.getElementById('patchesListContainer');
+  if (list) new MutationObserver(renderToggle).observe(list, { childList: true });
+})();
+</script>
+
+<script>
+
+(function () {
+  const key = 'samosval:test:closed-shift-duplicate:v1';
+  const styleId = 'closed-shift-duplicate-fix';
+  const rowId = 'closed-shift-duplicate-toggle';
+  function enabled() {
+    try { return localStorage.getItem(key) === '1'; }
+    catch (_) { return false; }
+  }
+  window.__closedShiftDupEnabled = enabled;
+  function apply(on) {
+    document.getElementById(styleId)?.remove();
+    if (!on) return;
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = '';
+    document.head.appendChild(style);
+  }
+  function renderToggle() {
+    const container = document.getElementById('patchesListContainer');
+    if (!container || document.getElementById(rowId)) return;
+    const row = document.createElement('div');
+    row.id = rowId;
+    row.className = 'user-row';
+    const title = document.createElement('div');
+    title.className = 'user-row-top';
+    const text = document.createElement('strong');
+    text.textContent = 'Дубликат только после закрытия смены (тест)';
+    const label = document.createElement('label');
+    label.className = 'toggle-switch';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = enabled();
+    const slider = document.createElement('span');
+    slider.className = 'toggle-slider';
+    input.addEventListener('change', () => {
+      try {
+        localStorage.setItem(key, input.checked ? '1' : '0');
+        apply(input.checked);
+        if (typeof renderReport === 'function') renderReport();
+        const archived = state.archive.find(s => s.id === viewingArchiveId);
+        if (archived && typeof renderArchiveModalContent === 'function') renderArchiveModalContent(archived);
+      } catch (_) {
+        input.checked = enabled();
+        if (typeof window.showError === 'function') window.showError('Не удалось сохранить переключатель');
+      }
+    });
+    label.append(input, slider);
+    title.append(text, label);
+    const note = document.createElement('div');
+    note.style.cssText = 'font-size:11px;color:var(--muted);margin-top:8px';
+    note.textContent = 'В открытой смене надписи нет. В закрытой — только если ТТН не забрана.';
     row.append(title, note);
     container.prepend(row);
   }
