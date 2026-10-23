@@ -1,0 +1,9 @@
+{
+  "name": "samosval-multiplayer-tests",
+  "private": true,
+  "scripts": { "test": "node verify.cjs" },
+  "dependencies": {
+    "firebase": "10.8.0",
+    "@firebase/rules-unit-testing": "3.0.4"
+  }
+}
