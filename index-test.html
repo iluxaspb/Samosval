@@ -2116,7 +2116,16 @@
     if (appConfig.maxEnabled && appConfig.notifyLineEnd) enqueueMax(`🔴 С линии убран\n🚛 ${tName}\n👤 ${getUserName()}`);
     addAudit(`🚛 С линии убран: ${tName}`).catch(()=>{});
   }
-  async function robustTruckStatusUpdate(id, upd) {
+  const truckStatusWrites = Object.create(null);
+  function robustTruckStatusUpdate(id, upd) {
+    const previous = truckStatusWrites[id] || Promise.resolve();
+    const task = previous.catch(() => {}).then(() => persistTruckStatusUpdate(id, upd));
+    truckStatusWrites[id] = task;
+    task.then(() => { if (truckStatusWrites[id] === task) delete truckStatusWrites[id]; },
+      () => { if (truckStatusWrites[id] === task) delete truckStatusWrites[id]; });
+    return task;
+  }
+  async function persistTruckStatusUpdate(id, upd) {
     pendingStart();
     try { if (!navigator.onLine) { try { await refs.truckStatus.doc(id).update(upd); } catch(e){ if(e.code!=='not-found') throw e; let st=state.truckStatus[id]||{}; await refs.truckStatus.doc(id).set(Object.assign({id, onLine:true, shiftId:state.shift?.id}, st, upd)); } return; }
       let lastE; for(let i=0; i<3; i++) { try { await refs.truckStatus.doc(id).update(upd); return; } catch(e){ lastE=e; if(e.code==='not-found'){ let st=state.truckStatus[id]||{}; try{ await refs.truckStatus.doc(id).set(Object.assign({id, onLine:true, shiftId:state.shift?.id}, st, upd)); return; }catch(e2){lastE=e2;} } if(i<2) await new Promise(r=>setTimeout(r,400)); } }
@@ -2131,35 +2140,66 @@
     Object.assign(st, u); saveCache(); renderLine(); renderHeaderStats(); robustTruckStatusUpdate(id, u).then(() => auditTruckAction(obj.wasArrived ? 'arrive_cancel' : 'arrive', id, {arrivalTimestamp:u.arriveTimestamp || null})).catch(e=>console.warn(e)); showToast(txt, txt, obj);
   }
   async function performLoad(id) {
-    if (!requireEdit('action_load')) return; let st = state.truckStatus[id]; if(!st) return;
-    if (!st.arriveStatus) { showError('Сначала Приехал'); return; }
-    let t = findTruck(id); if(!t) return; let now = Date.now(), gap = (settings.cycleMinutes||15)*60000;
-    if (st.lastLoadTimestamp && (now - st.lastLoadTimestamp) < gap) { showError('Рано'); return; }
-    if (loadInFlight[id]) return; loadInFlight[id] = true;
-    let reisN = getLogs().filter(l => l.truckId === id).length + 1;
+    if (!requireEdit('action_load') || !state.shift || loadInFlight[id]) return;
+    loadInFlight[id] = true;
+    let rollback = null, lid = null, committed = false;
+    const shiftId = state.shift.id;
+    pendingStart();
     try {
-      let isGAI = !!t.isGAI; let vol = isGAI ? 0 : t.defaultVol;
-      let lid = `load_${id}_${state.shift.id}_${now}`, ref = refs.logs.doc(lid);
-      let ld = { shiftId: state.shift.id, truckId: id, truckName: t.brand+' '+t.number, volume: vol, timeStr: nowTimeStr(), timestamp: now, arrivalTimestamp: Number(st.arriveTimestamp) || null, createdBy: getUserName(), createdByEmail: currentEmail || '', isGAI: isGAI, comment: '' };
-      let prevSnapshot = { wasArrived: !!st.arriveStatus, prevArriveStatus: st.arriveStatus || null, prevArriveTs: st.arriveTimestamp || null, prevArriveBy: st.arriveBy || null, prevLoadTs: st.lastLoadTimestamp || null, prevLoadBy: st.lastLoadBy || null, prevTtn: st.ttnStatus !== undefined ? st.ttnStatus : null, prevTtnBy: st.ttnBy || null, prevTtnLogId: st.ttnLogId || null };
-      let ns = { lastLoadTimestamp: now, lastLoadBy: getUserName(), arriveStatus: null, arriveTimestamp: null, arriveBy: null, loadedAfterArrive: true };
+      // Do not race a still-pending arrival write from this browser.
+      if (truckStatusWrites[id]) await truckStatusWrites[id];
+      if (!state.shift || state.shift.id !== shiftId) return;
+      const st = state.truckStatus[id];
+      if (!st || !st.arriveStatus) { showError('Сначала отметьте «Приехал»'); return; }
+      const t = findTruck(id); if (!t) return;
+      const now = Date.now(), gap = (settings.cycleMinutes || 15) * 60000;
+      if (st.lastLoadTimestamp && now - st.lastLoadTimestamp < gap) { showError('Рано'); return; }
+      const isGAI = !!t.isGAI, vol = isGAI ? 0 : t.defaultVol;
+      const reisN = getLogs().filter(l => l.truckId === id).length + 1;
+      lid = `load_${id}_${shiftId}_${now}`;
+      const ref = refs.logs.doc(lid), statusRef = refs.truckStatus.doc(id);
+      const ld = {shiftId, truckId:id, truckName:t.brand+' '+t.number, volume:vol, timeStr:nowTimeStr(), timestamp:now, arrivalTimestamp:Number(st.arriveTimestamp)||null, createdBy:getUserName(), createdByEmail:currentEmail||'', isGAI, comment:''};
+      const prevSnapshot = {wasArrived:!!st.arriveStatus, prevArriveStatus:st.arriveStatus||null, prevArriveTs:st.arriveTimestamp||null, prevArriveBy:st.arriveBy||null, prevLoadTs:st.lastLoadTimestamp||null, prevLoadBy:st.lastLoadBy||null, prevTtn:st.ttnStatus!==undefined?st.ttnStatus:null, prevTtnBy:st.ttnBy||null, prevTtnLogId:st.ttnLogId||null};
+      const ns = {lastLoadTimestamp:now, lastLoadBy:getUserName(), arriveStatus:null, arriveTimestamp:null, arriveBy:null, loadedAfterArrive:true};
       if (st.ttnStatus === 'pending') { ns.ttnStatus = true; ns.ttnLogId = lid; }
-      state.logs.unshift(Object.assign({id:lid}, ld)); Object.assign(st, ns); saveCache(); renderLine(); renderHeaderStats();
-      let me = getUserName(); let canShowReis = hasPermission('view_reis_in_ticker');
-      let popup = `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;"><div>${truckLabelHtml(id)}</div><div style="font-size:13px;font-weight:700;">⚡ Рейс №${reisN} · +${vol} м³</div></div>`;
-      let bar = canShowReis ? `⚡ Рейс №${reisN} · +${vol} м³ · ${truckLabelHtml(id)} · ${me}` : `⚡ Погрузка +${vol} м³ · ${truckLabelHtml(id)} · ${me}`;
-      showToast(popup, bar, Object.assign({ type: 'load', truckId: id, logId: lid, createdByEmail: currentEmail }, prevSnapshot));
-      pendingStart(); let success = false;
-      try {
-        if (!navigator.onLine) { let b = db.batch(); b.set(ref, ld); b.update(refs.truckStatus.doc(id), ns); await b.commit(); success = true; }
-        else { try { await db.runTransaction(async tx => { let s = await tx.get(refs.truckStatus.doc(id)); if (!s.exists) throw 0; if (!s.data().arriveStatus) throw 1; tx.set(ref, ld); tx.update(refs.truckStatus.doc(id), ns); }); success = true; } catch(e) {
-          if (e.code === 'unavailable' || e.code === 'deadline-exceeded' || !navigator.onLine) { let b = db.batch(); b.set(ref, ld); b.update(refs.truckStatus.doc(id), ns); await b.commit(); success = true; }
-          else { state.logs = state.logs.filter(x => x.id !== lid); Object.assign(st, { arriveStatus: prevSnapshot.prevArriveStatus, arriveTimestamp: prevSnapshot.prevArriveTs, arriveBy: prevSnapshot.prevArriveBy, lastLoadTimestamp: prevSnapshot.prevLoadTs, lastLoadBy: prevSnapshot.prevLoadBy, loadedAfterArrive: false, ttnStatus: prevSnapshot.prevTtn, ttnBy: prevSnapshot.prevTtnBy, ttnLogId: prevSnapshot.prevTtnLogId }); saveCache(); renderLine(); renderHeaderStats(); showError('Ошибка синхронизации — рейс не засчитан'); }
-        } }
-      } finally { pendingEnd(); }
-      if (success) await auditTruckAction('load', id, {logId:lid,volume:vol,loadTimestamp:now});
-      if (success && appConfig.maxEnabled && appConfig.notifyLoad) enqueueMax(`⚡ Погрузка (Рейс №${reisN})\n🚛 ${t.number}\n👤 ${me}`, { truckId: id, logId: lid, reis: reisN });
-    } catch(e){ showError(e.message); } finally { loadInFlight[id]=false; }
+      rollback = {};
+      Object.keys(ns).forEach(key => { rollback[key] = st[key] === undefined ? null : st[key]; });
+      state.logs.unshift({id:lid,...ld}); Object.assign(st,ns);
+      saveCache(); renderLine(); renderHeaderStats();
+      const batchWrite = async () => { const b = db.batch(); b.set(ref,ld); b.update(statusRef,ns); await b.commit(); };
+      if (!navigator.onLine) await batchWrite();
+      else {
+        try {
+          await db.runTransaction(async tx => {
+            const snap = await tx.get(statusRef);
+            if (!snap.exists) throw {code:'truck-status-missing',message:'Статус самосвала отсутствует в базе'};
+            if (!snap.data().arriveStatus) throw {code:'arrival-not-saved',message:'В базе не подтверждено прибытие самосвала. Обновите страницу и отметьте «Приехал» повторно'};
+            tx.set(ref,ld); tx.update(statusRef,ns);
+          });
+        } catch(e) {
+          if (e.code === 'unavailable' || e.code === 'deadline-exceeded' || !navigator.onLine) await batchWrite();
+          else throw e;
+        }
+      }
+      committed = true;
+      if (syncState.errors) delete syncState.errors.load;
+      updateSyncUI();
+      const me=getUserName(), canShowReis=hasPermission('view_reis_in_ticker');
+      const popup=`<div style="display:flex;flex-direction:column;align-items:center;gap:4px;"><div>${truckLabelHtml(id)}</div><div style="font-size:13px;font-weight:700;">⚡ Рейс №${reisN} · +${vol} м³</div></div>`;
+      const bar=canShowReis?`⚡ Рейс №${reisN} · +${vol} м³ · ${truckLabelHtml(id)} · ${me}`:`⚡ Погрузка +${vol} м³ · ${truckLabelHtml(id)} · ${me}`;
+      showToast(popup,bar,{type:'load',truckId:id,logId:lid,createdByEmail:currentEmail,...prevSnapshot});
+      await auditTruckAction('load',id,{logId:lid,volume:vol,loadTimestamp:now});
+      if (appConfig.maxEnabled && appConfig.notifyLoad) enqueueMax(`⚡ Погрузка (Рейс №${reisN})\n🚛 ${t.number}\n👤 ${me}`,{truckId:id,logId:lid,reis:reisN});
+    } catch(e) {
+      if (!committed && lid) {
+        state.logs=state.logs.filter(l=>l.id!==lid);
+        if (rollback && state.truckStatus[id]) Object.assign(state.truckStatus[id],rollback);
+        saveCache(); renderLine(); renderHeaderStats();
+      }
+      reportSyncError('load',e);
+      const reason=e.code==='permission-denied'?'Firebase запретил запись погрузки. Требуется проверить Rules':e.message||'Неизвестная ошибка';
+      showError((committed?'Погрузка сохранена, но произошла ошибка после записи: ':'Рейс не засчитан: ')+escapeHtml(reason)+' ['+escapeHtml(e.code||'unknown')+']');
+    } finally { pendingEnd(); loadInFlight[id]=false; }
   }
   async function toggleTtn(id) {
     if (!requireEdit('action_ttn')) return; let st = state.truckStatus[id]; if(!st) return; let me = getUserName(); let t = findTruck(id);
