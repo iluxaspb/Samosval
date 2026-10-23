@@ -378,7 +378,7 @@
     <div class="form-group"><label>Пароль</label><input type="password" id="authPassword" class="form-control" placeholder="••••••••" autocomplete="current-password"></div>
     <div style="display: flex; gap: 8px; margin-top: 20px;">
       <button class="btn btn-quick" style="flex:1;" onclick="handleLogin()">Войти</button>
-      <!-- Самостоятельная регистрация отключена: пользователей добавляет администратор. -->
+      <button id="registerBtn" class="btn btn-secondary" style="flex:1;" onclick="handleRegister()">Регистрация</button>
     </div>
   </div>
 </div>
@@ -387,7 +387,7 @@
   <div class="pending-card">
     <div class="pending-icon">⏳</div>
     <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--warning);">Ожидание подтверждения</div>
-    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;">Ваша заявка отправлена.</div>
+    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;"><span id="registrationStatusText">Ваша заявка отправлена. Ожидайте решения администратора.</span></div>
     <button class="btn btn-secondary" style="width: 100%;" onclick="handleLogout()">Выйти</button>
   </div>
 </div>
@@ -395,8 +395,8 @@
 <div id="disabledScreen" class="pending-screen">
   <div class="pending-card" style="border-color: var(--danger);">
     <div class="pending-icon" style="animation: none;">⛔</div>
-    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--danger);">Доступ приостановлен</div>
-    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;">Ваш аккаунт временно отключен.</div>
+    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--danger);"><span id="disabledStatusTitle">Доступ приостановлен</span></div>
+    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;"><span id="disabledStatusText">Ваш аккаунт временно отключен.</span></div>
     <button class="btn btn-secondary" style="width: 100%;" onclick="handleLogout()">Выйти</button>
   </div>
 </div>
@@ -1352,7 +1352,7 @@
     if (reqsUnsubscriber) { try { reqsUnsubscriber(); } catch(e){} }
     reqsUnsubscriber = requestsRef.orderBy('createdAt', 'desc').onSnapshot(s => { state.requests = s.docs.map(d => Object.assign({id:d.id}, d.data())); updateAdminBadge(); if (canAdmin() && document.getElementById('tab-admin').classList.contains('active')) renderAdminPanel(); }, e => console.warn(e));
   }
-  function updateAdminBadge() { const badge = document.getElementById('navAdminBadge'); if (badge) { const cnt = state.requests.length + state.users.filter(u => u.status === 'pending').length; badge.style.display = cnt > 0 ? 'block' : 'none'; } }
+  function updateAdminBadge() { const badge = document.getElementById('navAdminBadge'); if (badge) { const cnt = new Set([...state.requests.map(r=>r.email||r.uid||r.id),...state.users.filter(u=>u.status==='pending').map(u=>u.email||u.id)]).size; badge.style.display = cnt > 0 ? 'block' : 'none'; } }
 
   // === ПЛАГИНЫ ===
   function initPlugins() {
@@ -1463,7 +1463,7 @@
         if (!snap.exists && snap.metadata.fromCache) { updateSyncUI(); return; }
         if (!snap.exists) {
           if (forced) await usersRef.doc(currentUid).set({ email: currentEmail, nickname: defaultNick, role: 'admin', status: 'active', createdAt: Date.now(), bootstrap: true });
-          else { await usersRef.doc(currentUid).set({ email: currentEmail, nickname: defaultNick, role: 'viewer', status: 'pending', createdAt: Date.now() }); return; }
+          else { await ensurePendingAccount(user); return; }
         }
         const data = snap.exists ? snap.data() : {};
         currentUserRole = data.role || (forced ? 'admin' : 'viewer');
@@ -1471,8 +1471,11 @@
         currentUserNickname = data.nickname || defaultNick;
         if (snap.exists && !data.nickname && defaultNick && !forced) { usersRef.doc(currentUid).set({ nickname: defaultNick }, { merge: true }).catch(()=>{}); currentUserNickname = defaultNick; }
         if (forced && (currentUserRole !== 'admin' || currentUserStatus !== 'active')) { await usersRef.doc(currentUid).set({ role: 'admin', status: 'active', nickname: currentUserNickname || defaultNick }, { merge: true }); currentUserRole = 'admin'; currentUserStatus = 'active'; }
-        if (currentUserStatus === 'pending') { activeProfileKey = ''; stopSync(); document.getElementById('pendingScreen').style.display = 'flex'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = 'none'; document.querySelector('.container').style.display = 'none'; document.querySelector('nav').style.display = 'none'; return; }
-        if (currentUserStatus === 'disabled') { activeProfileKey = ''; stopSync(); document.getElementById('pendingScreen').style.display = 'none'; document.getElementById('disabledScreen').style.display = 'flex'; document.getElementById('mainHeader').style.display = 'none'; document.querySelector('.container').style.display = 'none'; document.querySelector('nav').style.display = 'none'; return; }
+        if (currentUserStatus === 'pending') {
+          try { await ensurePendingAccount(user); document.getElementById('registrationStatusText').textContent='Ваша заявка отправлена. Ожидайте решения администратора.'; }
+          catch(e) { document.getElementById('registrationStatusText').textContent='Заявка не отправлена: ' + (e.message || e.code) + '. Обратитесь к администратору.'; }
+          activeProfileKey = ''; stopSync(); document.getElementById('pendingScreen').style.display = 'flex'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = 'none'; document.querySelector('.container').style.display = 'none'; document.querySelector('nav').style.display = 'none'; return; }
+        if (currentUserStatus === 'disabled') { document.getElementById('disabledStatusTitle').textContent=data.rejectionReason ? 'Заявка отклонена' : 'Доступ приостановлен'; document.getElementById('disabledStatusText').textContent=data.rejectionReason || 'Ваш аккаунт временно отключен.'; activeProfileKey = ''; stopSync(); document.getElementById('pendingScreen').style.display = 'none'; document.getElementById('disabledScreen').style.display = 'flex'; document.getElementById('mainHeader').style.display = 'none'; document.querySelector('.container').style.display = 'none'; document.querySelector('nav').style.display = 'none'; return; }
         document.getElementById('pendingScreen').style.display = 'none'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = ''; document.querySelector('.container').style.display = ''; document.querySelector('nav').style.display = 'flex';
         updateUserBadge(); updateNavUI(); applyRoleUI(); updateSyncUI();
         const profileKey = currentUid + ':' + currentUserRole + ':' + currentUserStatus;
@@ -1529,10 +1532,43 @@
     })
     .catch(e => { if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') { err.style.color = 'var(--danger)'; err.textContent = 'Пользователь не найден.'; } else { err.style.color = 'var(--danger)'; err.textContent = e.message; } });
   }
-  function handleRegister() {
-    // Регистрация с передачей пароля через Firestore запрещена.
-    const err = document.getElementById('authError');
-    if (err) { err.style.color = 'var(--warning)'; err.textContent = 'Обратитесь к администратору для создания аккаунта.'; }
+  let registrationInFlight = false;
+  async function ensurePendingAccount(user) {
+    const profileRef = usersRef.doc(user.uid), requestRef = requestsRef.doc(user.uid);
+    await db.runTransaction(async tx => {
+      const profile = await tx.get(profileRef);
+      const request = await tx.get(requestRef);
+      if (profile.exists && profile.data().status !== 'pending') return;
+      const email = user.email || '';
+      const nickname = profile.exists ? profile.data().nickname || sanitizeName(email) : sanitizeName(email);
+      if (!profile.exists) tx.set(profileRef,{email,nickname,role:'viewer',status:'pending',createdAt:Date.now()});
+      if (!request.exists) tx.set(requestRef,{uid:user.uid,email,nickname,status:'pending',createdAt:Date.now()});
+    });
+  }
+  async function handleRegister() {
+    if (registrationInFlight) return;
+    const email = document.getElementById('authEmail').value.trim();
+    const passwordInput = document.getElementById('authPassword');
+    const password = passwordInput.value;
+    const error = document.getElementById('authError');
+    if (!email || !password) { error.textContent='Введите e-mail и пароль'; return; }
+    registrationInFlight=true;
+    const button=document.getElementById('registerBtn');button.disabled=true;
+    error.style.color='var(--text)';error.textContent='Создаём заявку…';
+    let created=false;
+    try {
+      const credential=await auth.createUserWithEmailAndPassword(email,password);
+      created=true;passwordInput.value='';
+      await ensurePendingAccount(credential.user);
+      error.textContent='Заявка отправлена. Ожидайте подтверждения администратора.';
+      document.getElementById('registrationStatusText').textContent=error.textContent;
+    } catch(e) {
+      error.style.color='var(--danger)';
+      const messages={'auth/email-already-in-use':'Этот e-mail уже зарегистрирован. Нажмите «Войти».','auth/invalid-email':'Проверьте e-mail.','auth/weak-password':'Firebase отклонил пароль: используйте более сложный пароль.','auth/operation-not-allowed':'В Firebase необходимо включить вход по e-mail и паролю.'};
+      const text=created?'Учётка создана, но заявку отправить не удалось. Обновите страницу после проверки Rules.':messages[e.code]||e.message||'Ошибка регистрации';
+      error.textContent=text;
+      if(created)document.getElementById('registrationStatusText').textContent=text;
+    } finally {passwordInput.value='';registrationInFlight=false;button.disabled=false;}
   }
   function handleLogout() { if (!confirm('Выйти?')) return; localStorage.removeItem('dt_saved_email'); localStorage.removeItem('dt_saved_pass'); auth.signOut(); }
 
@@ -2347,23 +2383,48 @@
     if (!canAdmin()) return;
     const reqCount = document.getElementById('pendingCount'); if (reqCount) reqCount.textContent = state.requests.length;
     const reqCont = document.getElementById('requestsListContainer');
-    if (state.requests.length === 0 && state.users.filter(u=>u.status==='pending').length === 0) reqCont.innerHTML = '<div class="empty-state">Нет заявок</div>';
-    else {
-      let html = '';
-      state.requests.forEach(r => { html += `<div class="user-row" style="border-color: var(--warning);"><div class="user-row-top"><div class="user-email">${escapeHtml(r.email)}</div><div class="pending-badge">Заявка</div></div><div class="user-row-bottom"><select id="req_role_${r.id}" class="form-control" style="padding:6px; font-size:12px;"><option value="viewer">👁 Наблюдатель</option><option value="lopater">🪏 Лопатер</option><option value="master">🛠 Мастер</option><option value="foreman">🔧 Прораб</option><option value="admin">👑 Админ</option></select><button class="btn btn-quick btn-small" onclick="approveRequest('${r.id}')">✅ Подтвердить</button><button class="btn btn-secondary btn-small" onclick="rejectRequest('${r.id}')">✕</button></div></div>`; });
-      reqCont.innerHTML = html;
-    }
+    const pendingRequests=state.requests.slice();
+    state.users.filter(u=>u.status==='pending').forEach(u=>{if(!pendingRequests.some(r=>r.uid===u.id || r.email===u.email))pendingRequests.push({id:u.id,uid:u.id,email:u.email,nickname:u.nickname});});
+    reqCont.innerHTML=pendingRequests.length ? pendingRequests.map(r=>`<div class="user-row"><div class="user-row-top"><div><strong>${escapeHtml(r.email)}</strong><div style="font-size:12px;color:var(--muted)">${escapeHtml(r.nickname||'')}</div></div><div class="pending-badge">Заявка</div></div><div class="user-row-bottom"><select id="req_role_${escapeHtml(r.id)}" class="form-control" style="padding:6px;font-size:12px">${Object.keys(ROLES).map(role=>`<option value="${role}" ${role==='viewer'?'selected':''}>${escapeHtml(ROLES[role].label)}</option>`).join('')}</select><button class="btn btn-quick btn-small" data-approve-request="${escapeHtml(r.id)}">Подтвердить</button><button class="btn btn-secondary btn-small" data-reject-request="${escapeHtml(r.id)}">Отклонить</button></div></div>`).join(''):'<div class="empty-state">Нет заявок</div>';
+    reqCont.querySelectorAll('[data-approve-request]').forEach(b=>b.onclick=()=>approveRequest(b.dataset.approveRequest));
+    reqCont.querySelectorAll('[data-reject-request]').forEach(b=>b.onclick=()=>rejectRequest(b.dataset.rejectRequest));
     const active = state.users.filter(u => u.status !== 'pending');
     document.getElementById('usersListContainer').innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isForcedAdminEmail(u.email); return `<div class="user-row"><div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" value="${escapeHtml(u.nickname||'')}" onchange="updateUserNickname('${u.id}', this.value)"></div><div class="user-row-bottom"><select class="form-control" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div></div>`; }).join('');
   }
   async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ nickname: nickname.trim() || null })); await addAudit('✏️ Изменено имя пользователя: ' + uid + ' → ' + nickname.trim(), {eventType:'user_nickname',targetUid:uid}); } catch(e) { showError(e.message); } }
   async function changeUserRole(uid, newRole) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ role: newRole })); await addAudit('🔐 Изменена роль пользователя: ' + uid + ' → ' + newRole, {eventType:'user_role',targetUid:uid}); } catch(e) { showError(e.message); } }
   async function deleteUser(uid) { if (!canAdmin() || !confirm('Удалить доступ?')) return; try { await tfAwait(usersRef.doc(uid).delete()); await addAudit('🗑 Удалён доступ пользователя: ' + uid, {eventType:'user_delete',targetUid:uid}); } catch(e) { showError(e.message); } }
-  async function approveRequest(reqId) {
-    // Старые заявки могут содержать пароли; не используем их для создания аккаунта.
-    showError('Подтверждение старых заявок отключено. Создайте аккаунт через вкладку «Юзеры», затем удалите заявку.');
+  const registrationDecisions = new Set();
+  async function decideRegistration(reqId, approve) {
+    if (!canAdmin() || registrationDecisions.has(reqId)) return;
+    const role=document.getElementById('req_role_'+reqId)?.value || 'viewer';
+    if (approve && !Object.prototype.hasOwnProperty.call(ROLES,role)) {showError('Выберите роль');return;}
+    if (!approve && !confirm('Отклонить заявку и закрыть доступ пользователю?')) return;
+    registrationDecisions.add(reqId);pendingStart();
+    try {
+      const cached=state.requests.find(r=>r.id===reqId) || state.users.find(u=>u.id===reqId&&u.status==='pending');
+      if (!cached) throw Error('Заявка не найдена. Обновите список');
+      let accountEmail='';
+      await db.runTransaction(async tx=>{
+        const requestRef=requestsRef.doc(reqId),request=await tx.get(requestRef);
+        const data=request.exists?request.data():cached;
+        const matches=state.users.filter(u=>u.status==='pending'&&u.email===data.email);
+        const uid=data.uid || (matches.length===1?matches[0].id:null);
+        if (!uid) throw Error('Это старая заявка без учётки Firebase. Пользователю нужно зарегистрироваться заново');
+        const profileRef=usersRef.doc(uid),profile=await tx.get(profileRef);
+        if (!profile.exists || profile.data().email!==data.email) throw Error('Учётка не соответствует заявке');
+        if (profile.data().status!=='pending') throw Error('Заявка уже рассмотрена');
+        accountEmail=profile.data().email;
+        tx.update(profileRef,approve?{role,status:'active',approvedAt:Date.now(),approvedBy:currentEmail,rejectionReason:null}:{status:'disabled',rejectedAt:Date.now(),rejectedBy:currentEmail,rejectionReason:'Заявка отклонена администратором.'});
+        if(request.exists)tx.delete(requestRef);
+      });
+      await addAudit((approve?'✅ Подтверждена регистрация: ':'⛔ Отклонена регистрация: ')+accountEmail+(approve?' · роль '+ROLES[role].label:''),{eventType:approve?'registration_approved':'registration_rejected'});
+      showToastEl(approve?'Доступ открыт':'Заявка отклонена',false);
+    }catch(e){showError(escapeHtml(e.message||'Не удалось обработать заявку'));}
+    finally{registrationDecisions.delete(reqId);pendingEnd();}
   }
-  async function rejectRequest(reqId) { if (!canAdmin() || !confirm('Отклонить?')) return; try { await tfAwait(requestsRef.doc(reqId).delete()); } catch(e) { showError(e.message); } }
+  async function approveRequest(reqId) { return decideRegistration(reqId,true); }
+  async function rejectRequest(reqId) { return decideRegistration(reqId,false); }
   async function addNewUser() {
     if (!canAdmin()) return;
     const email = document.getElementById('newUserEmail').value.trim(); const pass = document.getElementById('newUserPassword').value; const role = document.getElementById('newUserRole').value;
@@ -2614,7 +2675,7 @@ try { (0, eval)("(function(){\n  if (window.__maxRetryV1) return;\n  window.__ma
 catch (e) { console.error('[baked patch: Макс отправка]', e); }
 
 /* ===== PATCH: Компактная админка ===== */
-try { (0, eval)("(function(){\n  if (window.__adminCompactV2) return;\n  window.__adminCompactV2 = true;\n\n  // ===== 1. CSS =====\n  const oldCss = document.getElementById('admin-compact-css');\n  if (oldCss) oldCss.remove();\n\n  const css = document.createElement('style');\n  css.id = 'admin-compact-css';\n  css.textContent = `\n    /* === Админка: скрыть статус-панель === */\n    body.admin-active-page #statusTicker { display: none !important; }\n    body.admin-active-page #headerExtraContent { display: none !important; }\n\n    /* === Админка: кнопки под-вкладок 4×N === */\n    .admin-tabs {\n      display: grid !important;\n      grid-template-columns: repeat(4, 1fr) !important;\n      gap: 4px !important;\n      overflow: visible !important;\n      padding: 0 !important;\n      margin-bottom: 12px !important;\n    }\n    .admin-tab-btn {\n      padding: 6px 3px !important;\n      font-size: 9.5px !important;\n      white-space: nowrap !important;\n      overflow: hidden !important;\n      text-overflow: ellipsis !important;\n      line-height: 1.15 !important;\n      min-height: 34px !important;\n      border-radius: 6px !important;\n      display: flex !important;\n      align-items: center !important;\n      justify-content: center !important;\n      letter-spacing: 0.1px !important;\n    }\n    body.admin-active-page .container { padding-top: 10px !important; }\n    body.admin-active-page #tab-admin .section-title { margin-top: 4px !important; margin-bottom: 8px !important; }\n\n    /* === Убрать регистрацию === */\n    #authOverlay button[onclick=\"handleRegister()\"] { display: none !important; }\n\n    /* === Убрать заявки из админки === */\n    .admin-tab-btn[onclick*=\"'requests'\"] { display: none !important; }\n    #admin-sub-requests { display: none !important; }\n    #requestsListContainer { display: none !important; }\n  `;\n  document.head.appendChild(css);\n\n  // ===== 2. Отключить функцию регистрации =====\n  window.handleRegister = function() {\n    console.warn('[security] Регистрация отключена');\n  };\n\n  // ===== 3. Перехват switchAdminTab: 'requests' → 'patches' =====\n  const origSwitchAdmin = window.switchAdminTab;\n  window.switchAdminTab = function(tab, btn) {\n    if (tab === 'requests') {\n      const btns = document.querySelectorAll('.admin-tab-btn');\n      let patchesBtn = null;\n      btns.forEach(b => { if (b.textContent.includes('Патчи')) patchesBtn = b; });\n      if (patchesBtn) { tab = 'patches'; btn = patchesBtn; }\n    }\n    if (origSwitchAdmin) return origSwitchAdmin.call(this, tab, btn);\n  };\n\n  // ===== 4. Принудительное удаление кнопки регистрации =====\n  function removeRegisterBtn() {\n    const overlay = document.getElementById('authOverlay');\n    if (!overlay) return;\n    overlay.querySelectorAll('button').forEach(b => {\n      if ((b.textContent || '').trim().toLowerCase().includes('регистрация')) {\n        b.remove();\n      }\n    });\n  }\n\n  // ===== 5. Режим админки + автопереключение с 'requests' =====\n  function updateAdminMode() {\n    const adminTab = document.getElementById('tab-admin');\n    if (!adminTab) return;\n    const isActive = adminTab.classList.contains('active');\n    document.body.classList.toggle('admin-active-page', isActive);\n\n    if (isActive) {\n      const activeSub = document.querySelector('.admin-section.active');\n      if (activeSub && activeSub.id === 'admin-sub-requests') {\n        document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));\n        document.querySelectorAll('.admin-tab-btn').forEach(b => b.classList.remove('active'));\n        const target = document.getElementById('admin-sub-patches');\n        if (target) target.classList.add('active');\n        let patchesBtn = null;\n        document.querySelectorAll('.admin-tab-btn').forEach(b => {\n          if (b.textContent.includes('Патчи')) patchesBtn = b;\n        });\n        if (patchesBtn) patchesBtn.classList.add('active');\n        if (typeof window.renderPatchesList === 'function') {\n          try { window.renderPatchesList(); } catch(e) {}\n        }\n      }\n    }\n  }\n\n  // ===== 6. Наблюдатель за админкой =====\n  function startObserver() {\n    const adminTab = document.getElementById('tab-admin');\n    if (adminTab && !adminTab.dataset.obsAttached) {\n      adminTab.dataset.obsAttached = '1';\n      new MutationObserver(updateAdminMode).observe(adminTab, {\n        attributes: true,\n        attributeFilter: ['class']\n      });\n    }\n  }\n\n  // ===== 7. Периодические проверки =====\n  removeRegisterBtn();\n  setTimeout(removeRegisterBtn, 300);\n  setTimeout(removeRegisterBtn, 1500);\n  setInterval(removeRegisterBtn, 3000); // страховка, если authOverlay перерисуется\n\n  setTimeout(startObserver, 200);\n  setTimeout(updateAdminMode, 300);\n  setTimeout(updateAdminMode, 1000);\n  setInterval(() => { startObserver(); updateAdminMode(); }, 1000);\n\n  console.log('[admin-compact-v2] ✅ Активен. Регистрация отключена, заявки скрыты.');\n})();"); }
+try { (0, eval)("(function(){\n  if (window.__adminCompactV2) return;\n  window.__adminCompactV2=true;\n  const css=document.createElement('style');css.id='admin-compact-css';\n  css.textContent=`body.admin-active-page #statusTicker,body.admin-active-page #headerExtraContent{display:none!important}.admin-tabs{display:grid!important;grid-template-columns:repeat(4,1fr)!important;gap:4px!important;overflow:visible!important;padding:0!important;margin-bottom:12px!important}.admin-tab-btn{padding:6px 3px!important;font-size:9.5px!important;min-height:34px!important;border-radius:6px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.admin-active-page .container{padding-top:10px!important}`;\n  document.head.append(css);\n  function update(){const tab=document.getElementById('tab-admin');document.body.classList.toggle('admin-active-page',!!tab?.classList.contains('active'));}\n  const tab=document.getElementById('tab-admin');if(tab)new MutationObserver(update).observe(tab,{attributes:true,attributeFilter:['class']});update();\n})();"); }
 catch (e) { console.error('[baked patch: Компактная админка]', e); }
 </script>
 <!-- === BAKED PATCHES END === -->
