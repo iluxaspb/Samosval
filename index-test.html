@@ -862,12 +862,12 @@
 
 <script>
   const firebaseConfig = {
-    apiKey: "AIzaSyB42a5kp__3i9rD2BocdnOuKKoSlvEFLI4",
-    authDomain: "samosval-test.firebaseapp.com",
-    projectId: "samosval-test",
-    storageBucket: "samosval-test.firebasestorage.app",
-    messagingSenderId: "537285153088",
-    appId: "1:537285153088:web:cc40d712f36581784a2aa5"
+    apiKey: "AIzaSyDRy40gguXaHudGI_6Mn55tb7nxtuOGLTI",
+    authDomain: "samosval-offline.firebaseapp.com",
+    projectId: "samosval-offline",
+    storageBucket: "samosval-offline.firebasestorage.app",
+    messagingSenderId: "211416746528",
+    appId: "1:211416746528:web:e6f0519bd8ad779895ca45"
   };
 
   // ==========================================
@@ -989,11 +989,11 @@
   try { db.enablePersistence({ synchronizeTabs: true }).catch(function(){}); } catch (e) {}
 
   // Тестовый стенд: отдельный Firebase-проект, не производственная база.
-  const TEST_FIREBASE_PROJECT_ID = 'samosval-test';
+  const TEST_FIREBASE_PROJECT_ID = 'samosval-offline';
   if (firebase.app().options.projectId !== TEST_FIREBASE_PROJECT_ID) {
     throw new Error('Защита тестового стенда: подключён неверный Firebase-проект');
   }
-  const WORKSPACE_ID = 'offline_test_workspace';
+  const WORKSPACE_ID = 'main_workspace';
   const wsRef = db.collection('workspaces').doc(WORKSPACE_ID);
   const refs = {
     trucks: wsRef.collection('trucks'), objects: wsRef.collection('objects'), logs: wsRef.collection('logs'),
