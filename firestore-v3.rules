@@ -73,6 +73,27 @@ service cloud.firestore {
         && log.createdByEmail == request.auth.token.get('email', '');
     }
 
+    function validHistoryOperation(op) {
+      let path = op.collection in ['users', 'settings', 'registration_requests']
+        ? /databases/$(database)/documents/$(op.collection)/$(op.id)
+        : /databases/$(database)/documents/workspaces/main_workspace/$(op.collection)/$(op.id);
+      return op.before != op.after
+        && op.before == (exists(path) ? get(path).data : null)
+        && op.after == (existsAfter(path) ? getAfter(path).data : null);
+    }
+
+    function validHistoryCreate() {
+      let ops = request.resource.data.history.operations;
+      return request.resource.data.history.userUid == request.auth.uid
+        && request.resource.data.history.userEmail == request.auth.token.get('email', '')
+        && request.resource.data.history.undone == false
+        && ops is list && ops.size() > 0 && ops.size() <= 4
+        && validHistoryOperation(ops[0])
+        && (ops.size() < 2 || validHistoryOperation(ops[1]))
+        && (ops.size() < 3 || validHistoryOperation(ops[2]))
+        && (ops.size() < 4 || validHistoryOperation(ops[3]));
+    }
+
     function ownLoadUndo() {
       let logId = resource.data.get('lastLoadLogId', 'missing');
       return can('undo_action')
@@ -246,7 +267,8 @@ service cloud.firestore {
           && request.resource.data.get('userEmail', '')
             == request.auth.token.get('email', '')
           && request.resource.data.text is string
-          && request.resource.data.timestamp is number;
+          && request.resource.data.timestamp is number
+          && (request.resource.data.get('eventType', '') != 'history' || validHistoryCreate());
       }
 
       match /notifications/{id} {

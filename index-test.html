@@ -2211,9 +2211,11 @@
       closeStartShiftModal(); showToastEl('Смена начата', false);
     } catch(e){ showError(e.message); }
   }
-  async function cleanupOldShiftData() {
-    try { let s = await refs.logs.get(); let b=db.batch(); s.forEach(d=>b.delete(d.ref)); if(s.size) await tfAwait(b.commit()); } catch(e){}
-    try { let s = await refs.truckStatus.get(); let b=db.batch(); s.forEach(d=>b.delete(d.ref)); if(s.size) await tfAwait(b.commit()); } catch(e){}
+  async function cleanupOldShiftData(){
+    for(const collection of [refs.logs,refs.truckStatus]){
+      const snap=await collection.get({source:'server'});
+      if(snap.size){const batch=db.batch();snap.forEach(d=>batch.delete(d.ref));await tfAwait(batch.commit());}
+    }
   }
   function recordedTripReturn(log, logs, status, shiftId) {
     const start = Number(log.timestamp);
@@ -3118,6 +3120,7 @@
       const operations=[...records.values()].filter(op=>JSON.stringify(op.before)!==JSON.stringify(op.after));
       let entry;
       if(operations.length){
+        if(currentUserRole!=='admin'&&operations.length>4)throw new Error('Одна операция этой роли может изменять не более четырёх записей. Выполните изменения по частям.');
         if(actor.uid!==currentUid)throw new Error('Учётная запись изменилась. Повторите действие.');
         const description=title(operations);entry={text:description,timestamp:time,timeStr:new Date(time).toLocaleString('ru-RU'),userName:actor.name,userEmail:actor.email,createdByEmail:actor.email,eventType:'history',history:{id:historyId,version:3,description,user:actor.name,userEmail:actor.email,userUid:actor.uid,timestamp:time,operations,undone:false}};
         if(new Blob([JSON.stringify(entry)]).size>900000)throw new Error('Изменение слишком большое для одной записи истории. Разделите его на части.');
@@ -3130,7 +3133,9 @@
   db.runTransaction=run;
   const proto=Object.getPrototypeOf(refs.trucks.doc());
   for(const method of ['set','update','delete']){const original=proto[method];proto[method]=function(...args){if(!eligible(this))return original.apply(this,args);return run(tx=>tx[method](this,...args)).then(()=>undefined);};}
-  db.batch=function(){const original=rawBatch(),writes=[];const batch={};for(const method of ['set','update','delete'])batch[method]=(...args)=>{writes.push([method,args]);return batch;};batch.commit=()=>{if(writes.some(([,args])=>eligible(args[0])))return run(tx=>{for(const [method,args] of writes)tx[method](...args);});for(const [method,args] of writes)original[method](...args);return original.commit();};return batch;};
+  const collectionProto=Object.getPrototypeOf(refs.trucks),originalAdd=collectionProto.add;
+  collectionProto.add=function(data){const ref=this.doc();if(!eligible(ref))return originalAdd.call(this,data);return run(tx=>tx.set(ref,data)).then(()=>ref);};
+  db.batch=function(){const original=rawBatch(),writes=[];const batch={};for(const method of ['set','update','delete'])batch[method]=(...args)=>{writes.push([method,args]);return batch;};batch.commit=async()=>{if(currentUserRole!=='admin'&&writes.length>4&&writes.some(([,args])=>eligible(args[0]))){for(let i=0;i<writes.length;i+=4)await run(tx=>{for(const [method,args] of writes.slice(i,i+4))tx[method](...args);});return;}if(writes.some(([,args])=>eligible(args[0])))return run(tx=>{for(const [method,args] of writes)tx[method](...args);});for(const [method,args] of writes)original[method](...args);return original.commit();};return batch;};
 })();
 
 </script>
