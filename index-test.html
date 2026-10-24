@@ -993,7 +993,7 @@
   if (firebase.app().options.projectId !== TEST_FIREBASE_PROJECT_ID) {
     throw new Error('Защита тестового стенда: подключён неверный Firebase-проект');
   }
-  const WORKSPACE_ID = 'main_workspace';
+  const WORKSPACE_ID = 'offline_test_workspace';
   const wsRef = db.collection('workspaces').doc(WORKSPACE_ID);
   const refs = {
     trucks: wsRef.collection('trucks'), objects: wsRef.collection('objects'), logs: wsRef.collection('logs'),
