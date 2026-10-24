@@ -409,7 +409,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">ТЕСТОВАЯ ВЕРСИЯ · 2.90 · синхронизация</span>
+        <span class="version-text">ТЕСТОВАЯ ВЕРСИЯ · 2.91 · офлайн</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -2161,6 +2161,7 @@
   // === СМЕНЫ ===
   async function startShiftWithObject(objName, objId) {
     if (!requireEdit('start_shift')) return;
+    if(offlinePendingCount()){showError('Сначала синхронизируйте действия предыдущей смены');return;}
     try {
       await cleanupOldShiftData(); await clearAllNotifications();
       let sid = 'shift_' + Date.now();
@@ -2184,6 +2185,7 @@
   async function closeShift() {
     if (!requireEdit('close_shift')) return;
     if (!state.shift || !state.shift.isActive) { alert('Смена не начата'); return; }
+    if(offlinePendingCount()){showError('Сначала синхронизируйте действия перед закрытием смены');return;}
     let logs = getLogs(); if (!confirm('Закрыть смену?')) return;
     try {
       if (logs.length > 0) {
@@ -2230,15 +2232,16 @@
     if (!requireEdit('edit_line') || !state.shift) return;
     let ex = state.truckStatus[id];
     let d = { id, shiftId: state.shift.id, onLine: true, addedBy: getUserName(), addedAt: Date.now(), arriveStatus: null, arriveTimestamp: null, arriveBy: null, ttnStatus: null, ttnBy: null, ttnLogId: null, lastLoadTimestamp: null, lastLoadBy: null, lastLoadLogId:null, cycleRevision:0, loadedAfterArrive: false };
-    state.truckStatus[id] = d; saveCache(); renderLine(); renderHeaderStats();
+    state.truckStatus[id] = d; offlineRemoteStatuses[id]={...d};saveCache(); renderLine(); renderHeaderStats();
     tf((async ()=>{ if(ex) await refs.truckStatus.doc(id).update(d); else await refs.truckStatus.doc(id).set(d); })());
     if (appConfig.maxEnabled && appConfig.notifyLineStart) { let t = findTruck(id); if (t) enqueueMax(`🟢 На линию добавлен\n🚛 ${t.number}\n👤 ${getUserName()}`); }
     addAudit(`🚛 На линию добавлен: ${truckName(id)}`).catch(()=>{});
   }
   async function removeTruckFromLine(id) {
     if (!requireEdit('edit_line')) return;
+    if(offlinePendingForTruck(id)){showError('Сначала синхронизируйте действия этого самосвала');return;}
     let tName = truckName(id);
-    delete state.truckStatus[id]; saveCache(); renderLine(); renderHeaderStats(); tf(refs.truckStatus.doc(id).delete());
+    delete state.truckStatus[id];delete offlineRemoteStatuses[id];saveCache(); renderLine(); renderHeaderStats(); tf(refs.truckStatus.doc(id).delete());
     if (appConfig.maxEnabled && appConfig.notifyLineEnd) enqueueMax(`🔴 С линии убран\n🚛 ${tName}\n👤 ${getUserName()}`);
     addAudit(`🚛 С линии убран: ${tName}`).catch(()=>{});
   }
@@ -2282,12 +2285,13 @@
     if(!state.shift||state.shift.id!==intent.shiftId)return;
     if(result.status && (truckServerRevisions[id]||0)===intent.revision){
       signalLineTransition(id,state.truckStatus[id],result.status);
-      state.truckStatus[id]={id,...result.status};
+      state.truckStatus[id]={id,...result.status};offlineRemoteStatuses[id]={id,...result.status};
       truckServerRevisions[id]=(truckServerRevisions[id]||0)+1;
     }
     if(result.log && logServerRevision===intent.logRevision){
       state.logs=state.logs.filter(l=>l.id!==result.log.id);state.logs.unshift(result.log);
       state.logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));confirmedLoadIds.add(result.log.id);
+      offlineRemoteLogs=offlineRemoteLogs.filter(l=>l.id!==result.log.id);offlineRemoteLogs.push(result.log);
     }
     if(syncState.errors)delete syncState.errors[result.type];
     refreshLineViews();updateSyncUI();
@@ -2449,15 +2453,29 @@
   async function offlineNotifyAccepted(op,result){
     try{
       const ref=refs.notifications.doc('offline_'+op.id),snap=await ref.get({source:'server'});
-      if(snap.exists)return;
-      const label=op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
-      await ref.set({type:op.type,truckId:op.truckId,logId:result.log?.id||null,
-        createdBy:op.actor,createdByEmail:op.email||'',timestamp:op.createdAt,
-        html:label+' · '+truckLabelHtml(op.truckId)});
+      if(!snap.exists){
+        const label=op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
+        await ref.set({type:op.type,truckId:op.truckId,logId:result.log?.id||null,
+          createdBy:op.actor,createdByEmail:op.email||'',timestamp:op.createdAt,
+          html:label+' · '+truckLabelHtml(op.truckId)});
+      }
     }catch(e){console.warn('Не удалось отправить уведомление офлайн-действия',e);}
+    try{
+      const ref=refs.audit.doc('offline_'+op.id),snap=await ref.get({source:'server'});
+      if(!snap.exists){
+        const names={arrive:op.wantArrived?'🚛 Прибытие на линию':'↩️ Снято прибытие на линию',
+          load:'⚡ Погрузка самосвала',ttn:op.collect?'📄 Забрана ТТН':'↩️ Снята отметка ТТН'};
+        await ref.set({text:(names[op.type]||op.type)+': '+op.truckName,
+          timeStr:new Date(op.createdAt).toLocaleString('ru-RU'),
+          objectName:state.shift?.objectName||'—',objectId:state.shift?.objectId||'',
+          shiftId:op.shiftId,truckId:op.truckId,truckName:op.truckName,
+          userEmail:op.email||'',userName:op.actor,createdByEmail:op.email||'',
+          timestamp:op.createdAt,eventType:op.type,offlineOperationId:op.id});
+      }
+    }catch(e){console.warn('Не удалось отправить аудит офлайн-действия',e);}
   }
   async function offlineReplayJournal(){
-    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded)return;
+    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
     offlineReplayRunning=true;
     try{
       for(const op of offlinePendingOps()){
