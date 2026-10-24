@@ -1,0 +1,19 @@
+{
+  "version": "3.0",
+  "base_commit": "39fddf7be309cff1d53448212bb1df5f83b419f9",
+  "production_project": "samosval-test",
+  "test_project": "samosval-offline",
+  "workspace": "main_workspace",
+  "previous_index_blob": "8866cbb04813057264d961ac11f4218e0a1c94b6",
+  "unchanged_test_blob": "4607847d127c027a7e8d0b8a82fff1f36493766e",
+  "candidate_sha256": "7c5756f90d814e5b1c47aa0e708b54ad40ec9a730418762435d5baeeeb103b94",
+  "database_migration": false,
+  "status": "approved-for-production",
+  "optional_patch": "patches/line-motion-settings-v1.js",
+  "rules_review": {
+    "source": "User supplied current production rules",
+    "replacement": "firestore-v3.rules",
+    "compatibility": "Old-client and v3 history scenarios passed in Firestore Emulator",
+    "publication": "User is publishing rules; production rollout explicitly authorized"
+  }
+}

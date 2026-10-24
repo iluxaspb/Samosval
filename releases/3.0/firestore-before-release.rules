@@ -1,0 +1,254 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owner() {
+      return signedIn()
+        && request.auth.uid == '8NMAKIjVmmaaj7A1zfqAv2bRUZN2';
+    }
+
+    function account() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function active() {
+      return signedIn() && (owner() || account().get('status', '') == 'active');
+    }
+
+    function admin() {
+      return signedIn() && (owner() || (
+        account().get('status', '') == 'active'
+        && account().get('role', '') == 'admin'
+      ));
+    }
+
+    function roleActions() {
+      return get(/databases/$(database)/documents/settings/permissions)
+        .data.get(account().get('role', ''), {}).get('actions', []);
+    }
+
+    function can(action) {
+      return signedIn() && (owner() || (
+        account().get('status', '') == 'active'
+        && (account().get('role', '') == 'admin' || action in roleActions())
+      ));
+    }
+
+    function loadingAllowed() {
+      return can('action_load');
+    }
+
+    function nextCycleRevision() {
+      return request.resource.data.get('cycleRevision', 0)
+        == resource.data.get('cycleRevision', 0) + 1;
+    }
+
+    function validLoadCreate(logId) {
+      let truckId = request.resource.data.truckId;
+      let before = get(/databases/$(database)/documents/workspaces/main_workspace/truckStatus/$(truckId)).data;
+      let after = getAfter(/databases/$(database)/documents/workspaces/main_workspace/truckStatus/$(truckId)).data;
+      return before.get('arriveStatus', null) != null
+        && before.shiftId == request.resource.data.shiftId
+        && request.resource.data.arrivalTimestamp == before.arriveTimestamp
+        && after.get('arriveStatus', null) == null
+        && after.get('lastLoadLogId', '') == logId
+        && after.lastLoadTimestamp == request.resource.data.timestamp
+        && after.get('cycleRevision', 0) == before.get('cycleRevision', 0) + 1;
+    }
+
+    function validLoadingStatus(truckId) {
+      let logId = request.resource.data.get('lastLoadLogId', 'missing');
+      let log = getAfter(/databases/$(database)/documents/workspaces/main_workspace/logs/$(logId)).data;
+      return resource.data.get('arriveStatus', null) != null
+        && request.resource.data.get('arriveStatus', null) == null
+        && nextCycleRevision()
+        && log.truckId == truckId
+        && log.shiftId == resource.data.shiftId
+        && log.timestamp == request.resource.data.lastLoadTimestamp
+        && log.createdByEmail == request.auth.token.get('email', '');
+    }
+
+    function ownLoadUndo() {
+      let logId = resource.data.get('lastLoadLogId', 'missing');
+      return can('undo_action')
+        && get(/databases/$(database)/documents/workspaces/main_workspace/logs/$(logId)).data.createdByEmail
+          == request.auth.token.get('email', '');
+    }
+
+    function changedOnly(fields) {
+      return request.resource.data.diff(resource.data)
+        .affectedKeys().hasOnly(fields);
+    }
+
+    function ownRecord() {
+      return signedIn()
+        && resource.data.get('createdByEmail', '')
+          == request.auth.token.get('email', '');
+    }
+
+    function ownNewRecord() {
+      return signedIn()
+        && request.resource.data.get('createdByEmail', '')
+          == request.auth.token.get('email', '');
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn()
+        && (request.auth.uid == uid || active());
+      allow list: if active();
+
+      allow create: if admin() || (
+        signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'email', 'nickname', 'role', 'status', 'createdAt'
+        ])
+        && request.resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.role == 'viewer'
+        && request.resource.data.status == 'pending'
+      );
+
+      allow update: if admin() || (
+        signedIn() && request.auth.uid == uid
+        && changedOnly(['nickname'])
+      );
+      allow delete: if admin();
+    }
+
+    match /settings/permissions {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    // The existing client uses this document for MAX notifications.
+    match /settings/appConfig {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    match /settings/undoRedoStacks {
+      allow read, write: if admin();
+    }
+
+    match /registration_requests/{uid} {
+      allow get: if admin() || (signedIn() && request.auth.uid == uid);
+      allow list: if admin();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'nickname', 'status', 'createdAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt is number
+        && getAfter(/databases/$(database)/documents/users/$(uid)).data.status == 'pending'
+        && getAfter(/databases/$(database)/documents/users/$(uid)).data.role == 'viewer';
+      allow update, delete: if admin();
+    }
+
+    match /backups/{document=**} {
+      allow read, write: if admin();
+    }
+
+    match /workspaces/main_workspace {
+      // The application subscribes to these shared collections.
+      // Non-admin writes are granted separately below.
+      match /{collection}/{id} {
+        allow read: if active();
+        allow write: if admin();
+      }
+
+      match /trucks/{id} {
+        allow write: if can('manage_trucks') || can('import_backup');
+      }
+
+      match /objects/{id} {
+        allow create: if can('manage_objects') || can('start_shift')
+          || can('import_backup');
+        allow update, delete: if can('manage_objects') || can('import_backup');
+      }
+
+      match /shift/{id} {
+        allow create: if can('start_shift') || can('archive_edit');
+        allow update: if can('edit_line') || can('close_shift')
+          || can('archive_edit');
+        allow delete: if can('close_shift') || can('archive_edit');
+      }
+
+      match /truckStatus/{id} {
+        allow create: if can('edit_line') || can('archive_edit');
+
+        allow update: if (
+          loadingAllowed()
+          && changedOnly([
+            'lastLoadTimestamp', 'lastLoadBy',
+            'arriveStatus', 'arriveTimestamp', 'arriveBy',
+            'loadedAfterArrive', 'ttnStatus', 'ttnBy', 'ttnLogId',
+            'cycleRevision', 'lastLoadLogId', 'ttnRevision'
+          ])
+          && ((nextCycleRevision() && (can('undo_any') || ownLoadUndo())) || validLoadingStatus(id))
+        ) || (
+          can('action_arrive')
+          && changedOnly([
+            'arriveStatus', 'arriveTimestamp',
+            'arriveBy', 'loadedAfterArrive', 'cycleRevision'
+          ])
+          && nextCycleRevision()
+        ) || (
+          can('action_ttn')
+          && changedOnly(['ttnStatus', 'ttnBy', 'ttnLogId', 'ttnRevision'])
+          && request.resource.data.get('ttnRevision', 0) == resource.data.get('ttnRevision', 0) + 1
+        ) || can('edit_line') || can('archive_edit');
+
+        allow delete: if can('edit_line') || can('close_shift')
+          || can('archive_edit') || can('manage_trucks');
+      }
+
+      match /logs/{id} {
+        allow create: if (
+          loadingAllowed() && ownNewRecord() && validLoadCreate(id)
+        ) || can('archive_edit');
+
+        allow update: if can('edit_logs');
+        allow delete: if can('edit_logs') || can('close_shift')
+          || can('archive_edit')
+          || (can('undo_action') && ownRecord());
+      }
+
+      match /archive/{id} {
+        allow create: if can('close_shift') || can('import_backup');
+        allow update: if can('archive_edit') || can('import_backup');
+        allow delete: if can('archive_delete') || can('archive_edit');
+      }
+
+      match /trash/{id} {
+        allow write: if can('archive_delete');
+      }
+
+      match /audit/{id} {
+        allow create: if active() && ownNewRecord()
+          && request.resource.data.get('userEmail', '')
+            == request.auth.token.get('email', '')
+          && request.resource.data.text is string
+          && request.resource.data.timestamp is number;
+      }
+
+      match /notifications/{id} {
+        allow create: if active() && ownNewRecord() && (
+          can('action_arrive') || can('action_load')
+          || can('action_ttn') || can('edit_line')
+          || can('start_shift') || can('close_shift')
+        );
+
+        allow delete: if can('close_shift') || can('undo_any')
+          || (can('undo_action') && ownRecord());
+      }
+    }
+  }
+}
