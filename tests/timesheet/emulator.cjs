@@ -1,0 +1,35 @@
+const fs=require('fs'),assert=require('node:assert/strict'),{spawn}=require('child_process');
+const firebase=require('firebase/compat/app');require('firebase/compat/firestore');
+const {initializeTestEnvironment,assertFails}=require('@firebase/rules-unit-testing');
+const C=require('../../assets/timesheet-core.js');
+const project='demo-timesheet',port=8091,apps=[];
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+const child=spawn('java',['-jar',process.env.FIRESTORE_EMULATOR_JAR||'firestore-emulator.jar','--host','127.0.0.1','--port',String(port),'--project_id',project]);
+let log='',env;child.stdout.on('data',d=>log+=d);child.stderr.on('data',d=>log+=d);
+function client(uid){const app=firebase.initializeApp({projectId:project,apiKey:'demo'},uid);apps.push(app);const db=app.firestore();db.useEmulator('127.0.0.1',port,{mockUserToken:{sub:uid,email:uid+'@example.com'}});return{db,ws:db.collection('workspaces').doc('main_workspace'),actor:{uid,name:uid,serverTimestamp:()=>firebase.firestore.FieldValue.serverTimestamp()},run:fn=>db.runTransaction(fn)};}
+let seq=0;const op=(actor,changes)=>({id:'op-'+(++seq),uid:actor.uid,label:'Проверка',scope:'obj|2026-10',createdAt:Date.now(),status:'queued',changes});
+const submit=(a,o)=>C.commitOperation(a.db,a.ws,o,a.actor,a.run);
+const person=(id,name,baseRevision=0)=>({collection:'timesheetPeople',id,baseRevision,data:{name,group:'operator',deleted:false}});
+const entry=(personId,minutes=720,baseRevision=0)=>({collection:'timesheetEntries',id:C.entryId('person','obj','2026-10-24','night',personId),baseRevision,data:{kind:'person',entityId:personId,name:personId,group:'operator',ownership:'',contractor:'',objectId:'obj',objectName:'Объект',date:'2026-10-24',shift:'night',scope:'obj|2026-10',minutes,idleMinutes:0,status:'work',equipmentId:'w205',note:'',deleted:false}});
+(async()=>{try{
+  for(let i=0;i<150&&!log.includes('Dev App Server is now running');i++)await delay(100);if(!log.includes('Dev App Server is now running'))throw Error(log);
+  env=await initializeTestEnvironment({projectId:project,firestore:{host:'127.0.0.1',port,rules:fs.readFileSync('firestore-timesheet-test.rules','utf8')}});
+  await env.withSecurityRulesDisabled(async ctx=>{const db=ctx.firestore();await db.doc('settings/permissions').set({master:{tabs:['timesheet'],actions:['timesheet_edit','timesheet_manage','timesheet_export']},viewer:{tabs:['timesheet'],actions:[]},lopater:{tabs:['line'],actions:[]}});for(const [uid,role,status] of [['owner','admin','active'],['master1','master','active'],['master2','master','active'],['viewer','viewer','active'],['outsider','lopater','active'],['disabled','admin','disabled']])await db.doc('users/'+uid).set({email:uid+'@example.com',role,status});});
+  const a=client('master1'),b=client('master2'),owner=client('owner'),viewer=client('viewer'),outsider=client('outsider'),disabled=client('disabled');
+  const crewOp=op(a.actor,[person('p1','Первый'),person('p2','Второй'),person('p3','Третий'),{collection:'timesheetEquipment',id:'w205',baseRevision:0,data:{name:'Фреза W205',ownership:'own',contractor:'',crewIds:['p1','p2','p3'],deleted:false}}]);
+  await submit(a,crewOp);assert.equal((await a.ws.collection('timesheetPeople').get()).size,3);
+  console.log('PASS delegated catalog write: 3 operators + machine in one transaction under access-call limits');
+  const hours=op(a.actor,[entry('p1'),entry('p2'),entry('p3')]);await submit(a,hours);assert.equal((await b.ws.collection('timesheetEntries').get()).docs.reduce((n,d)=>n+d.data().minutes,0),2160);
+  await submit(a,hours);assert.equal((await a.ws.collection('timesheetChanges').get()).size,2);console.log('PASS 36 person-hours and repeated reconnect acknowledgement creates no duplicate');
+  const e1=op(a.actor,[entry('p1',600,1)]),e2=op(b.actor,[entry('p1',660,1)]);const race=await Promise.allSettled([submit(a,e1),submit(b,e2)]);assert.equal(race.filter(r=>r.status==='fulfilled').length,1);assert.equal(race.find(r=>r.status==='rejected').reason.code,'conflict');console.log('PASS simultaneous edits: one accepted, one explicit conflict');
+  await assert.rejects(()=>submit(b,op(b.actor,[entry('p1',840,1)])),e=>e.code==='conflict');console.log('PASS stale offline hours cannot overwrite a newer revision');
+  const before=(await a.ws.collection('timesheetEntries').doc(entry('p2').id).get()).data();const batch=op(a.actor,[entry('p2',300,1),entry('p1',300,0)]);await assert.rejects(()=>submit(a,batch),e=>e.code==='conflict');assert.equal((await a.ws.collection('timesheetEntries').doc(entry('p2').id).get()).data().minutes,before.minutes);console.log('PASS group conflict rolls back every row in that operation');
+  await assertFails(submit(viewer,op(viewer.actor,[entry('p2',300,1)])));await assertFails(outsider.ws.collection('timesheetPeople').get());await assertFails(disabled.ws.collection('timesheetPeople').get());console.log('PASS viewer cannot write; no-tab and disabled users cannot read');
+  await assertFails(owner.ws.collection('timesheetEntries').doc(entry('p2').id).update({minutes:300,revision:2}));await assertFails(owner.ws.collection('timesheetEntries').doc(entry('p2').id).delete());console.log('PASS even admin cannot bypass required history or permanently delete entries');
+  await assertFails(a.ws.collection('timesheetChanges').doc(hours.id).update({label:'forged'}));await assertFails(a.ws.collection('timesheetChanges').doc('forged').set({uid:a.actor.uid,name:'Fake',scope:'obj|2026-10',createdAt:1,label:'Fake',changes:[{collection:'timesheetEntries',id:entry('p2').id,before:null,after:entry('p2').data}]}));console.log('PASS audit cannot be rewritten or fabricated');
+  const material={collection:'timesheetMaterials',id:'receipt-1',baseRevision:0,data:{objectId:'obj',objectName:'Объект',date:'2026-10-24',shift:'night',scope:'obj|2026-10',material:'ЩПС 0–40',supplier:'Подрядчик',quantity:80,unit:'т',document:'123',note:'',deleted:false}};await submit(a,op(a.actor,[material]));assert.equal((await a.ws.collection('timesheetMaterials').get()).size,1);console.log('PASS material receipt with units and audit');
+  const deleted=entry('p2',720,1);deleted.data.deleted=true;await submit(a,op(a.actor,[deleted]));assert((await a.ws.collection('timesheetEntries').doc(deleted.id).get()).data().deleted);console.log('PASS removal preserves historical record');
+  await assert.rejects(()=>submit(b,hours),e=>e.code==='wrong-account');console.log('PASS another account cannot replay local queue');
+  await env.withSecurityRulesDisabled(async ctx=>{await ctx.firestore().doc('settings/permissions').set({master:{tabs:['timesheet'],actions:[]},viewer:{tabs:['timesheet'],actions:[]}});});await assertFails(submit(a,op(a.actor,[entry('p3',300,1)])));console.log('PASS revoked edit permission blocks queued writes');
+  console.log('ALL TIMESHEET EMULATOR TESTS PASSED');
+}catch(e){console.error(e);console.error(log.slice(-1500));process.exitCode=1;}finally{for(const app of apps)await app.delete();if(env)await env.cleanup();child.kill();}})();

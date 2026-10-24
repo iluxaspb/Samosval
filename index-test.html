@@ -372,6 +372,12 @@
       pointer-events: auto;
     }
   </style>
+<!-- TIMESHEET CSS START -->
+<style id="timesheet-css">
+#tab-timesheet{--ts-line:#334155;--ts-panel:#1e293b;color:#f8fafc}#tab-timesheet .ts-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 20px}.ts-heading h2{font-size:23px;letter-spacing:-.5px}.ts-heading p{font-size:12px;color:#94a3b8;margin-top:5px}.ts-version{color:#fbbf24;font-size:11px;background:#fbbf2415;border:1px solid #fbbf2440;border-radius:8px;padding:6px;white-space:nowrap}.ts-filters{display:grid;grid-template-columns:minmax(130px,2fr) minmax(125px,1fr) minmax(90px,1fr);gap:10px}.ts-field{display:flex;flex-direction:column;gap:6px;min-width:0;margin-bottom:14px;font-size:12px;color:#cbd5e1}.ts-field input,.ts-field select,.ts-field textarea{width:100%;min-height:44px;padding:10px;color:#f8fafc;background:#0f172a;border:1px solid #475569;border-radius:9px;font:inherit;font-size:15px;color-scheme:dark}.ts-field textarea{min-height:70px;resize:vertical}.ts-field input:focus,.ts-field select:focus,.ts-field textarea:focus{outline:2px solid #60a5fa;outline-offset:1px}.ts-tabs{display:flex;gap:5px;background:#0f172a;border:1px solid #334155;border-radius:12px;padding:4px;margin:5px 0 14px}.ts-tabs .ts-btn{flex:1;border:0;background:transparent;font-weight:600}.ts-tabs .ts-btn[aria-pressed=true]{background:#2563eb;color:white}.ts-btn{background:#263449;color:#e2e8f0;border:1px solid #475569;border-radius:8px;min-height:40px;padding:8px 12px;font:inherit;font-size:12px;cursor:pointer;touch-action:manipulation}.ts-btn:hover{background:#334764}.ts-btn:focus-visible{outline:2px solid #93c5fd;outline-offset:2px}.ts-btn:disabled{opacity:.45;cursor:wait}.ts-primary{background:#2563eb;color:white;border-color:#3b82f6}.ts-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.ts-sync{font-size:12px;line-height:1.5;color:#93c5fd;padding:10px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap}.ts-sync .ts-btn{font-size:11px;min-height:30px}.ts-warning{background:#422b16;color:#fde68a;border:1px solid #a16207;border-radius:9px;padding:12px;margin:10px 0;font-size:13px;line-height:1.6;overflow-wrap:anywhere}.ts-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0 16px}.ts-stats>div{display:flex;flex-direction:column;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:13px 10px}.ts-stats strong{font-size:23px;letter-spacing:-.6px}.ts-stats span{font-size:10px;color:#94a3b8;margin-top:4px}.ts-section{margin:20px 0;border:1px solid #334155;border-radius:12px;overflow:hidden;background:#172235;padding:0 14px 12px}.ts-section h3{font-size:15px;padding:16px 0 12px}.ts-section-title{display:flex;align-items:center;justify-content:space-between;gap:10px}.ts-section-title .ts-btn{min-height:34px}.ts-row{display:flex;gap:12px;align-items:center;padding:13px 0;border-top:1px solid #334155}.ts-row-name{flex:1;min-width:0;overflow-wrap:anywhere}.ts-row strong{font-size:14px;font-weight:600}.ts-row small,.ts-hours small,.ts-table th small,.ts-history small{display:block;color:#94a3b8;font-size:11px;line-height:1.5;margin-top:4px}.ts-row .ts-btn{padding:7px;font-size:11px;flex-shrink:0}.ts-hours{font-size:16px;font-weight:600;text-align:right;max-width:120px;flex-shrink:0}.ts-pending{background:#eab3080c}.ts-pending .ts-hours small{color:#facc15}.ts-muted{color:#94a3b8;font-size:12px;line-height:1.6;margin:8px 0}.ts-chip{display:inline-block;font-size:12px;color:#a7f3d0;background:#064e3b66;padding:7px 9px;border-radius:7px;margin:0 7px 8px 0}.ts-table-wrap{max-width:100%;overflow:auto;max-height:65vh;border:1px solid #334155;border-radius:10px}.ts-table{border-collapse:separate;border-spacing:0;font-size:12px;width:max-content;min-width:100%}.ts-table th,.ts-table td{border-right:1px solid #334155;border-bottom:1px solid #334155;padding:8px;text-align:center;min-width:42px;height:40px}.ts-table thead{position:sticky;top:0;z-index:3;background:#263449}.ts-table th:first-child[rowspan],.ts-table tbody th{position:sticky;left:0;min-width:155px;max-width:210px;text-align:left;background:#1e293b;z-index:2;overflow-wrap:anywhere}.ts-table th:first-child[rowspan]{z-index:4}.ts-table td button{background:none;border:0;color:#f8fafc;padding:4px;min-height:32px;min-width:30px;cursor:pointer;font:inherit}.ts-dialog{position:fixed;margin:auto;width:min(580px,calc(100vw - 24px));max-height:90dvh;border:1px solid #475569;border-radius:16px;background:#1e293b;color:#f8fafc;padding:0;box-shadow:0 12px 40px #0008}.ts-dialog::backdrop{background:#020617aa}.ts-dialog-title{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 20px;border-bottom:1px solid #334155}.ts-dialog-title h3{font-size:18px}.ts-dialog-title button{color:#e2e8f0;border:0;background:none;font-size:24px;min-width:40px;min-height:40px}.ts-dialog-body{padding:16px 20px;overflow:auto;max-height:64dvh}.ts-dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px 18px}.ts-form-error{color:#fca5a5;font-size:13px;line-height:1.5;padding:0 20px}.ts-check{display:flex;align-items:center;gap:10px;min-height:44px;font-size:14px;padding:8px 0;line-height:1.4}.ts-check input{width:20px;height:20px;accent-color:#3b82f6;flex-shrink:0}.ts-dialog fieldset{border:1px solid #475569;border-radius:9px;padding:10px 14px;margin:10px 0}.ts-dialog legend{padding:0 6px;font-size:13px;color:#cbd5e1}.ts-two{display:grid;grid-template-columns:2fr 1fr;gap:12px}.ts-conflict,.ts-history{border-bottom:1px solid #475569;padding:14px 0;font-size:13px;line-height:1.7;overflow-wrap:anywhere}.ts-history b{font-size:14px}.ts-history p{padding:6px 0}.ts-dialog input:disabled,.ts-dialog select:disabled,.ts-dialog textarea:disabled{opacity:.8}@media(max-width:460px){.ts-filters{grid-template-columns:1fr 1fr}.ts-filters .ts-field:first-child{grid-column:1/-1}.ts-section{padding:0 10px 10px}.ts-row{gap:8px}.ts-stats{gap:5px}.ts-stats>div{padding:12px 7px}.ts-stats strong{font-size:20px}.ts-heading h2{font-size:21px}.ts-row strong{font-size:13px}.ts-hours{font-size:14px;max-width:95px}.ts-tabs .ts-btn{padding:8px 6px;font-size:12px}}
+
+</style>
+<!-- TIMESHEET CSS END -->
 </head>
 <body>
 
@@ -414,7 +420,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.0 · тест</span>
+        <span class="version-text">Версия 3.1 · тест</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -439,6 +445,7 @@
 </header>
 
 <div class="container">
+  <div id="tab-timesheet" class="tab-content"></div>
   <div id="tab-line" class="tab-content active">
     <div id="viewOnlyBanner" class="view-only-banner" style="display:none;">👁 Режим просмотра — действия недоступны</div>
     <div id="startShiftContainer" style="text-align: center; padding: 40px 20px; display: none;">
@@ -857,6 +864,7 @@
 
 <nav id="bottomNav">
   <button class="nav-btn active" id="nav-line" onclick="switchTab('line', this)"><span class="nav-icon">🚛</span><span class="nav-text">Линия</span></button>
+  <button class="nav-btn" id="nav-timesheet" onclick="switchTab('timesheet', this)"><span class="nav-icon">📋</span><span class="nav-text">Табель</span></button>
   <button class="nav-btn" id="nav-report" onclick="switchTab('report', this)"><span class="nav-icon">📊</span><span class="nav-text">Сводка</span></button>
   <button class="nav-btn" id="nav-archive" onclick="switchTab('archive', this)"><span class="nav-icon">🗄</span><span class="nav-text">Архив</span></button>
   <button class="nav-btn" id="nav-trucks" onclick="switchTab('trucks', this)"><span class="nav-icon">⚙️</span><span class="nav-text">База</span></button>
@@ -958,15 +966,17 @@
     viewer: { label: 'Наблюдатель', icon: '👁', color: 'viewer' }
   };
 
-  const ALL_TABS = ['line', 'report', 'archive', 'trucks', 'analytics', 'backup', 'admin'];
-  const TAB_LABELS = { line: 'Линия', report: 'Сводка', archive: 'Архив', trucks: 'База', analytics: 'Аналитика', backup: 'Резерв', admin: 'Админ' };
+  const ALL_TABS = ['timesheet', 'line', 'report', 'archive', 'trucks', 'analytics', 'backup', 'admin'];
+  const TAB_LABELS = { timesheet: 'Табель', line: 'Линия', report: 'Сводка', archive: 'Архив', trucks: 'База', analytics: 'Аналитика', backup: 'Резерв', admin: 'Админ' };
 
   const ALL_ACTIONS = [
+    'timesheet_edit', 'timesheet_manage', 'timesheet_export',
     'start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'undo_action',
     'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'import_backup',
     'view_card_stats', 'view_header', 'undo_any', 'view_gai_report', 'view_reis_in_ticker'
   ];
   const ACTION_LABELS = {
+    timesheet_edit: 'Табель: часы и материалы', timesheet_manage: 'Табель: справочники и экипажи', timesheet_export: 'Табель: выгрузка CSV',
     start_shift: 'Начать смену', close_shift: 'Закрыть смену', edit_line: 'Изменять линию',
     action_arrive: 'Кнопка «Приехал»', action_load: 'Кнопка «Погрузка»', action_ttn: 'Кнопка «ТТН»',
     undo_action: 'Отменять СВОИ действия', undo_any: 'Отменять действия ЛЮБОГО пользователя',
@@ -3154,7 +3164,7 @@ try { (0, eval)("(function(){\n  if (window.__resetHoldV5) return;\n  window.__r
 catch (e) { console.error('[baked patch: Сброс таймера]', e); }
 
 /* ===== PATCH: Скачать нтмл ===== */
-try { (0, eval)("(function(){\n  if (window.__patchExportV2) return;\n  window.__patchExportV2 = true;\n\n  // === CSS ===\n  const oldCss = document.getElementById('patch-export-css');\n  if (oldCss) oldCss.remove();\n\n  const css = document.createElement('style');\n  css.id = 'patch-export-css';\n  css.textContent = `\n    #patchExportBtn {\n      display: inline-flex;\n      align-items: center;\n      gap: 4px;\n      padding: 6px 10px;\n      font-size: 11px;\n      font-weight: 700;\n      background: rgba(59, 130, 246, 0.15);\n      border: 1px solid rgba(59, 130, 246, 0.4);\n      color: #93c5fd;\n      border-radius: 6px;\n      cursor: pointer;\n      margin-bottom: 10px;\n      -webkit-tap-highlight-color: transparent;\n      min-height: 30px;\n    }\n    #patchExportBtn:active {\n      background: rgba(59, 130, 246, 0.3);\n      transform: scale(0.97);\n    }\n    .pe-modal-actions {\n      display: flex;\n      gap: 8px;\n      margin-top: 12px;\n    }\n    .pe-modal-actions button {\n      flex: 1;\n      min-height: 44px;\n      font-size: 13px;\n    }\n  `;\n  document.head.appendChild(css);\n\n  // === Получить активные патчи ===\n  async function getEnabledPatches() {\n    try {\n      const snap = await refs.patches.where('enabled', '==', true).get();\n      const arr = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));\n      arr.sort((a, b) => (a.order || 0) - (b.order || 0));\n      return arr;\n    } catch (e) {\n      console.warn('[patch-export] Firestore read failed', e);\n      return (state.patches || []).filter(p => p && p.enabled)\n        .sort((a, b) => (a.order || 0) - (b.order || 0));\n    }\n  }\n\n  function escapeScriptTag(code) {\n    return String(code == null ? '' : code).replace(/<\\/script/gi, '<\\\\/script');\n  }\n  function safeName(s) {\n    return String(s == null ? '' : s).replace(/\\*\\//g, '* /');\n  }\n\n  function resetDomClone(clone) {\n    const ao = clone.querySelector('#authOverlay');\n    if (ao) ao.style.display = 'flex';\n\n    ['#pendingScreen', '#disabledScreen'].forEach(sel => {\n      const el = clone.querySelector(sel);\n      if (el) el.style.display = 'none';\n    });\n\n    ['#mainHeader', '.container', 'nav'].forEach(sel => {\n      const el = clone.querySelector(sel);\n      if (el) el.style.display = '';\n    });\n\n    [\n      '#trucksLineList', '#logsContainer', '#archiveContainer', '#trashContainer',\n      '#plugin-tabs-container', '#matrixTableBody', '#matrixTableHeadRow',\n      '#gaiTableBody', '#gaiTableHeadRow', '#usersListContainer',\n      '#requestsListContainer', '#globalTrucksManageList', '#globalObjectsManageList',\n      '#auditLogContainer', '#patchesListContainer', '#pluginsListContainer',\n      '#consoleView', '#selectorListContainer', '#existingObjectsList',\n      '#changeObjList', '#statusTicker'\n    ].forEach(sel => {\n      const el = clone.querySelector(sel);\n      if (el) el.innerHTML = '';\n    });\n\n    const ticker = clone.querySelector('#statusTicker');\n    if (ticker) ticker.style.display = 'none';\n\n    clone.querySelectorAll('.dynamic-nav-btn').forEach(el => el.remove());\n    clone.querySelectorAll('.tab-content[id^=\"tab-plugin-\"]').forEach(el => el.remove());\n\n    clone.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));\n    clone.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));\n\n    const lineTab = clone.querySelector('#tab-line');\n    if (lineTab) lineTab.classList.add('active');\n    const lineNav = clone.querySelector('#nav-line');\n    if (lineNav) lineNav.classList.add('active');\n\n    const userBadge = clone.querySelector('#userBadgeLabel');\n    if (userBadge) userBadge.textContent = '👤 Не в сети';\n    const syncDot = clone.querySelector('#syncDot');\n    if (syncDot) syncDot.className = 'sync-dot init';\n    const syncBadge = clone.querySelector('#syncBadge');\n    if (syncBadge) syncBadge.classList.remove('show');\n\n    const shiftDate = clone.querySelector('#shiftDate');\n    if (shiftDate) shiftDate.textContent = 'Смена не начата';\n    const headerObject = clone.querySelector('#headerObject');\n    if (headerObject) headerObject.textContent = 'Объект: Не выбран';\n\n    ['#activeLineCount', '#totalTrips', '#totalVolume'].forEach((sel, idx) => {\n      const el = clone.querySelector(sel);\n      if (el) el.textContent = idx === 0 ? '0 маш.' : (idx === 1 ? '0' : '0 м³');\n    });\n\n    clone.querySelectorAll('#patchExportBtn').forEach(el => el.remove());\n    clone.querySelectorAll('#patchExportModal').forEach(el => el.remove());\n  }\n\n  async function buildBakedHtml() {\n    let html;\n    let fromFetch = false;\n\n    try {\n      const resp = await fetch(location.href, { cache: 'no-store' });\n      if (!resp.ok) throw new Error('HTTP ' + resp.status);\n      html = await resp.text();\n      fromFetch = true;\n    } catch (e) {\n      console.warn('[patch-export] fetch failed:', e);\n      const clone = document.documentElement.cloneNode(true);\n      resetDomClone(clone);\n      html = '<!DOCTYPE html>\\n' + clone.outerHTML;\n    }\n\n    const patches = await getEnabledPatches();\n    let replaceOk = 0, replaceFail = 0;\n    const fnPatches = [];\n\n    for (const p of patches) {\n      try {\n        if (p.type === 'replace') {\n          if (!p.findText) { replaceFail++; continue; }\n          if (html.indexOf(p.findText) === -1) {\n            replaceFail++;\n            console.warn('[patch-export] not found:', p.name);\n            continue;\n          }\n          html = html.replace(p.findText, p.replaceText || '');\n          replaceOk++;\n        } else if (p.type === 'function') {\n          if (!p.code) continue;\n          fnPatches.push({ name: p.name || 'без имени', code: p.code });\n        }\n      } catch (e) {\n        console.warn('[patch-export] patch error:', p.name, e);\n      }\n    }\n\n    if (fnPatches.length) {\n      const bakedCode = fnPatches.map(fp => {\n        const n = safeName(fp.name);\n        const safeCode = escapeScriptTag(fp.code);\n        return `/* ===== PATCH: ${n} ===== */\\n` +\n               `try { (0, eval)(${JSON.stringify(safeCode)}); }\\n` +\n               `catch (e) { console.error('[baked patch: ${n}]', e); }`;\n      }).join('\\n\\n');\n\n      const bakedBlock =\n        '\\n<!-- === BAKED PATCHES START === -->\\n' +\n        '<script>\\n' + bakedCode + '\\n<\\/script>\\n' +\n        '<!-- === BAKED PATCHES END === -->\\n';\n\n      html = html.replace(\n        /<!-- === BAKED PATCHES START === -->[\\s\\S]*?<!-- === BAKED PATCHES END === -->/g,\n        ''\n      );\n\n      const idx = html.lastIndexOf('</body>');\n      if (idx === -1) html += bakedBlock;\n      else html = html.slice(0, idx) + bakedBlock + html.slice(idx);\n    }\n\n    return { html, replaceOk, replaceFail, fnCount: fnPatches.length, fromFetch };\n  }\n\n  function downloadHtml(html, filename) {\n    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });\n    const url = URL.createObjectURL(blob);\n    const a = document.createElement('a');\n    a.href = url;\n    a.download = filename;\n    document.body.appendChild(a);\n    a.click();\n    setTimeout(() => {\n      document.body.removeChild(a);\n      URL.revokeObjectURL(url);\n    }, 1500);\n  }\n\n  function timestamp() {\n    const d = new Date();\n    const pad = n => String(n).padStart(2, '0');\n    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '_' + pad(d.getHours()) + '-' + pad(d.getMinutes());\n  }\n\n  async function copyToClipboard(text) {\n    try {\n      if (navigator.clipboard && navigator.clipboard.writeText) {\n        await navigator.clipboard.writeText(text);\n        return true;\n      }\n    } catch (e) {\n      console.warn('[patch-export] clipboard failed:', e);\n    }\n    try {\n      const ta = document.createElement('textarea');\n      ta.value = text;\n      ta.style.position = 'fixed';\n      ta.style.left = '-9999px';\n      document.body.appendChild(ta);\n      ta.focus();\n      ta.select();\n      const ok = document.execCommand('copy');\n      document.body.removeChild(ta);\n      if (ok) return true;\n    } catch (e) {\n      console.warn('[patch-export] execCommand failed:', e);\n    }\n    showCopyFallback(text);\n    return false;\n  }\n\n  function showCopyFallback(text) {\n    const old = document.getElementById('copyFallbackModal');\n    if (old) old.remove();\n\n    const overlay = document.createElement('div');\n    overlay.id = 'copyFallbackModal';\n    overlay.className = 'modal open';\n    overlay.style.zIndex = '10025';\n    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };\n\n    const content = document.createElement('div');\n    content.className = 'modal-content';\n    content.style.maxWidth = '720px';\n    content.innerHTML = `\n      <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;\">\n        <h3 style=\"font-size:16px;\">📋 Скопируйте вручную</h3>\n        <button class=\"btn-del\" onclick=\"document.getElementById('copyFallbackModal').remove()\">✕</button>\n      </div>\n      <div style=\"font-size:12px; color:var(--muted); margin-bottom:8px; line-height:1.4;\">\n        Браузер не дал доступ к буферу обмена. Выделите весь код ниже и скопируйте\n        (Ctrl+A → Ctrl+C на компьютере, или долгое нажатие → «Выделить всё» → «Копировать»).\n      </div>\n      <textarea id=\"copyFallbackTextarea\" class=\"form-control\" style=\"min-height:300px; font-family:monospace; font-size:11px;\"></textarea>\n      <div style=\"display:flex; gap:8px; margin-top:12px;\">\n        <button class=\"btn btn-secondary\" style=\"flex:1;\" onclick=\"document.getElementById('copyFallbackModal').remove()\">Закрыть</button>\n        <button class=\"btn btn-quick\" style=\"flex:1;\" id=\"copyFallbackSelectBtn\">📋 Выделить всё</button>\n      </div>\n    `;\n    overlay.appendChild(content);\n    document.body.appendChild(overlay);\n\n    const ta = content.querySelector('#copyFallbackTextarea');\n    ta.value = text;\n    setTimeout(() => { ta.focus(); ta.select(); }, 100);\n\n    content.querySelector('#copyFallbackSelectBtn').onclick = () => {\n      ta.focus();\n      ta.select();\n      try { document.execCommand('copy'); } catch(e) {}\n    };\n  }\n\n  // === Модалка ===\n  function openExportModal() {\n    const old = document.getElementById('patchExportModal');\n    if (old) old.remove();\n\n    const all = state.patches || [];\n    const enabled = all.filter(p => p && p.enabled);\n    const r = enabled.filter(p => p.type === 'replace').length;\n    const f = enabled.filter(p => p.type === 'function').length;\n\n    const overlay = document.createElement('div');\n    overlay.id = 'patchExportModal';\n    overlay.className = 'modal open';\n    overlay.style.zIndex = '10020';\n    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };\n\n    const content = document.createElement('div');\n    content.className = 'modal-content';\n    content.style.maxWidth = '480px';\n    content.innerHTML = `\n      <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;\">\n        <h3 style=\"font-size:16px;\">💾 Экспорт index.html</h3>\n        <button class=\"btn-del\" onclick=\"document.getElementById('patchExportModal').remove()\">✕</button>\n      </div>\n\n      <div style=\"font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:12px;\">\n        Соберёт HTML-файл, в котором <b style=\"color:var(--text);\">уже применены все активные патчи</b>.\n        Загрузите его на сервер — после этого патчи можно удалить из базы.\n      </div>\n\n      <div style=\"background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; margin-bottom: 12px;\">\n        <div style=\"display:flex; justify-content:space-between; margin-bottom:4px;\">\n          <span style=\"color:var(--muted);\">Активных патчей:</span>\n          <b>${enabled.length}</b>\n        </div>\n        <div style=\"display:flex; justify-content:space-between; margin-bottom:4px;\">\n          <span style=\"color:var(--muted);\">Replace (найти/заменить):</span>\n          <b style=\"color:var(--warning);\">${r}</b>\n        </div>\n        <div style=\"display:flex; justify-content:space-between;\">\n          <span style=\"color:var(--muted);\">Function (вшить в код):</span>\n          <b style=\"color:var(--success);\">${f}</b>\n        </div>\n      </div>\n\n      <div class=\"pe-modal-actions\">\n        <button class=\"btn btn-secondary\" id=\"peDownloadBtn\">⬇️ Скачать</button>\n        <button class=\"btn btn-quick\" id=\"peCopyBtn\">📋 Копировать</button>\n      </div>\n\n      <div style=\"font-size:10px; color:var(--muted); text-align:center; margin-top:10px; line-height:1.4;\">\n        ⚠️ После загрузки на сервер удалите или отключите все патчи в админке — они уже вшиты в файл.\n      </div>\n    `;\n    overlay.appendChild(content);\n    document.body.appendChild(overlay);\n\n    content.querySelector('#peDownloadBtn').onclick = async () => {\n      const btn = content.querySelector('#peDownloadBtn');\n      btn.disabled = true;\n      btn.textContent = '⏳ Сборка...';\n      try {\n        const res = await buildBakedHtml();\n        const filename = 'index_baked_' + timestamp() + '.html';\n        downloadHtml(res.html, filename);\n        overlay.remove();\n        if (typeof showToastEl === 'function') {\n          showToastEl(\n            '✅ ' + filename + '<br>' +\n            'replace: ' + res.replaceOk + (res.replaceFail ? ' · не найдено: ' + res.replaceFail : '') + '<br>' +\n            'функций вшито: ' + res.fnCount,\n            false\n          );\n        }\n      } catch (e) {\n        btn.disabled = false;\n        btn.textContent = '⬇️ Скачать';\n        if (typeof showError === 'function') showError('Ошибка сборки: ' + e.message);\n      }\n    };\n\n    content.querySelector('#peCopyBtn').onclick = async () => {\n      const btn = content.querySelector('#peCopyBtn');\n      btn.disabled = true;\n      btn.textContent = '⏳ Сборка...';\n      try {\n        const res = await buildBakedHtml();\n        const ok = await copyToClipboard(res.html);\n        if (ok) {\n          overlay.remove();\n          if (typeof showToastEl === 'function') {\n            showToastEl(\n              '📋 Скопировано в буфер<br>' +\n              'replace: ' + res.replaceOk + (res.replaceFail ? ' · не найдено: ' + res.replaceFail : '') + '<br>' +\n              'функций вшито: ' + res.fnCount,\n              false\n            );\n          }\n        } else {\n          btn.disabled = false;\n          btn.textContent = '📋 Копировать';\n        }\n      } catch (e) {\n        btn.disabled = false;\n        btn.textContent = '📋 Копировать';\n        if (typeof showError === 'function') showError('Ошибка сборки: ' + e.message);\n      }\n    };\n  }\n\n  // === Маленькая кнопка ===\n  function addExportButton() {\n    const section = document.getElementById('admin-sub-patches');\n    if (!section) return;\n    if (document.getElementById('patchExportBtn')) return;\n\n    const list = document.getElementById('patchesListContainer');\n    if (!list || !list.parentNode) return;\n\n    const btn = document.createElement('button');\n    btn.id = 'patchExportBtn';\n    btn.innerHTML = '💾 Экспорт HTML';\n    btn.onclick = openExportModal;\n\n    list.parentNode.insertBefore(btn, list);\n  }\n\n  // === Перехват switchAdminTab ===\n  const origSwitch = window.switchAdminTab;\n  window.switchAdminTab = function(tab, btn) {\n    if (origSwitch) origSwitch.apply(this, arguments);\n    if (tab === 'patches') {\n      setTimeout(addExportButton, 50);\n    }\n  };\n\n  // === MutationObserver ===\n  const obs = new MutationObserver(() => {\n    if (document.getElementById('admin-sub-patches')?.classList.contains('active')) {\n      if (!document.getElementById('patchExportBtn')) addExportButton();\n    }\n  });\n  setTimeout(() => {\n    const list = document.getElementById('patchesListContainer');\n    if (list) obs.observe(list, { childList: true, subtree: true });\n  }, 500);\n\n  // === Интервал-страховка ===\n  setInterval(() => {\n    if (document.getElementById('admin-sub-patches')?.classList.contains('active')) {\n      if (!document.getElementById('patchExportBtn')) addExportButton();\n    }\n  }, 1500);\n\n  // === Первый запуск ===\n  setTimeout(() => {\n    if (document.getElementById('admin-sub-patches')?.classList.contains('active')) addExportButton();\n  }, 800);\n\n  console.log('[patch-export-v2] ✅ Активен. Компактная кнопка → модалка.');\n})();"); }
+try { (0, eval)("(function(){\n  if (window.__patchExportV2) return;\n  window.__patchExportV2 = true;\n\n  // === CSS ===\n  const oldCss = document.getElementById('patch-export-css');\n  if (oldCss) oldCss.remove();\n\n  const css = document.createElement('style');\n  css.id = 'patch-export-css';\n  css.textContent = `\n    #patchExportBtn {\n      display: inline-flex;\n      align-items: center;\n      gap: 4px;\n      padding: 6px 10px;\n      font-size: 11px;\n      font-weight: 700;\n      background: rgba(59, 130, 246, 0.15);\n      border: 1px solid rgba(59, 130, 246, 0.4);\n      color: #93c5fd;\n      border-radius: 6px;\n      cursor: pointer;\n      margin-bottom: 10px;\n      -webkit-tap-highlight-color: transparent;\n      min-height: 30px;\n    }\n    #patchExportBtn:active {\n      background: rgba(59, 130, 246, 0.3);\n      transform: scale(0.97);\n    }\n    .pe-modal-actions {\n      display: flex;\n      gap: 8px;\n      margin-top: 12px;\n    }\n    .pe-modal-actions button {\n      flex: 1;\n      min-height: 44px;\n      font-size: 13px;\n    }\n  `;\n  document.head.appendChild(css);\n\n  // === Получить активные патчи ===\n  async function getEnabledPatches() {\n    try {\n      const snap = await refs.patches.where('enabled', '==', true).get();\n      const arr = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));\n      arr.sort((a, b) => (a.order || 0) - (b.order || 0));\n      return arr;\n    } catch (e) {\n      console.warn('[patch-export] Firestore read failed', e);\n      return (state.patches || []).filter(p => p && p.enabled)\n        .sort((a, b) => (a.order || 0) - (b.order || 0));\n    }\n  }\n\n  function escapeScriptTag(code) {\n    return String(code == null ? '' : code).replace(/<\\/script/gi, '<\\\\/script');\n  }\n  function safeName(s) {\n    return String(s == null ? '' : s).replace(/\\*\\//g, '* /');\n  }\n\n  function resetDomClone(clone) {\n    const ao = clone.querySelector('#authOverlay');\n    if (ao) ao.style.display = 'flex';\n\n    ['#pendingScreen', '#disabledScreen'].forEach(sel => {\n      const el = clone.querySelector(sel);\n      if (el) el.style.display = 'none';\n    });\n\n    ['#mainHeader', '.container', 'nav'].forEach(sel => {\n      const el = clone.querySelector(sel);\n      if (el) el.style.display = '';\n    });\n\n    [\n      '#tab-timesheet', '#trucksLineList', '#logsContainer', '#archiveContainer', '#trashContainer',\n      '#plugin-tabs-container', '#matrixTableBody', '#matrixTableHeadRow',\n      '#gaiTableBody', '#gaiTableHeadRow', '#usersListContainer',\n      '#requestsListContainer', '#globalTrucksManageList', '#globalObjectsManageList',\n      '#auditLogContainer', '#patchesListContainer', '#pluginsListContainer',\n      '#consoleView', '#selectorListContainer', '#existingObjectsList',\n      '#changeObjList', '#statusTicker'\n    ].forEach(sel => {\n      const el = clone.querySelector(sel);\n      if (el) el.innerHTML = '';\n    });\n\n    const ticker = clone.querySelector('#statusTicker');\n    if (ticker) ticker.style.display = 'none';\n\n    clone.querySelectorAll('.dynamic-nav-btn').forEach(el => el.remove());\n    clone.querySelectorAll('.tab-content[id^=\"tab-plugin-\"]').forEach(el => el.remove());\n\n    clone.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));\n    clone.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));\n\n    const lineTab = clone.querySelector('#tab-line');\n    if (lineTab) lineTab.classList.add('active');\n    const lineNav = clone.querySelector('#nav-line');\n    if (lineNav) lineNav.classList.add('active');\n\n    const userBadge = clone.querySelector('#userBadgeLabel');\n    if (userBadge) userBadge.textContent = '👤 Не в сети';\n    const syncDot = clone.querySelector('#syncDot');\n    if (syncDot) syncDot.className = 'sync-dot init';\n    const syncBadge = clone.querySelector('#syncBadge');\n    if (syncBadge) syncBadge.classList.remove('show');\n\n    const shiftDate = clone.querySelector('#shiftDate');\n    if (shiftDate) shiftDate.textContent = 'Смена не начата';\n    const headerObject = clone.querySelector('#headerObject');\n    if (headerObject) headerObject.textContent = 'Объект: Не выбран';\n\n    ['#activeLineCount', '#totalTrips', '#totalVolume'].forEach((sel, idx) => {\n      const el = clone.querySelector(sel);\n      if (el) el.textContent = idx === 0 ? '0 маш.' : (idx === 1 ? '0' : '0 м³');\n    });\n\n    clone.querySelectorAll('#patchExportBtn').forEach(el => el.remove());\n    clone.querySelectorAll('#patchExportModal').forEach(el => el.remove());\n  }\n\n  async function buildBakedHtml() {\n    let html;\n    let fromFetch = false;\n\n    try {\n      const resp = await fetch(location.href, { cache: 'no-store' });\n      if (!resp.ok) throw new Error('HTTP ' + resp.status);\n      html = await resp.text();\n      fromFetch = true;\n    } catch (e) {\n      console.warn('[patch-export] fetch failed:', e);\n      const clone = document.documentElement.cloneNode(true);\n      resetDomClone(clone);\n      html = '<!DOCTYPE html>\\n' + clone.outerHTML;\n    }\n\n    const patches = await getEnabledPatches();\n    let replaceOk = 0, replaceFail = 0;\n    const fnPatches = [];\n\n    for (const p of patches) {\n      try {\n        if (p.type === 'replace') {\n          if (!p.findText) { replaceFail++; continue; }\n          if (html.indexOf(p.findText) === -1) {\n            replaceFail++;\n            console.warn('[patch-export] not found:', p.name);\n            continue;\n          }\n          html = html.replace(p.findText, p.replaceText || '');\n          replaceOk++;\n        } else if (p.type === 'function') {\n          if (!p.code) continue;\n          fnPatches.push({ name: p.name || 'без имени', code: p.code });\n        }\n      } catch (e) {\n        console.warn('[patch-export] patch error:', p.name, e);\n      }\n    }\n\n    if (fnPatches.length) {\n      const bakedCode = fnPatches.map(fp => {\n        const n = safeName(fp.name);\n        const safeCode = escapeScriptTag(fp.code);\n        return `/* ===== PATCH: ${n} ===== */\\n` +\n               `try { (0, eval)(${JSON.stringify(safeCode)}); }\\n` +\n               `catch (e) { console.error('[baked patch: ${n}]', e); }`;\n      }).join('\\n\\n');\n\n      const bakedBlock =\n        '\\n<!-- === BAKED PATCHES START === -->\\n' +\n        '<script>\\n' + bakedCode + '\\n<\\/script>\\n' +\n        '<!-- === BAKED PATCHES END === -->\\n';\n\n      html = html.replace(\n        /<!-- === BAKED PATCHES START === -->[\\s\\S]*?<!-- === BAKED PATCHES END === -->/g,\n        ''\n      );\n\n      const idx = html.lastIndexOf('</body>');\n      if (idx === -1) html += bakedBlock;\n      else html = html.slice(0, idx) + bakedBlock + html.slice(idx);\n    }\n\n    return { html, replaceOk, replaceFail, fnCount: fnPatches.length, fromFetch };\n  }\n\n  function downloadHtml(html, filename) {\n    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });\n    const url = URL.createObjectURL(blob);\n    const a = document.createElement('a');\n    a.href = url;\n    a.download = filename;\n    document.body.appendChild(a);\n    a.click();\n    setTimeout(() => {\n      document.body.removeChild(a);\n      URL.revokeObjectURL(url);\n    }, 1500);\n  }\n\n  function timestamp() {\n    const d = new Date();\n    const pad = n => String(n).padStart(2, '0');\n    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '_' + pad(d.getHours()) + '-' + pad(d.getMinutes());\n  }\n\n  async function copyToClipboard(text) {\n    try {\n      if (navigator.clipboard && navigator.clipboard.writeText) {\n        await navigator.clipboard.writeText(text);\n        return true;\n      }\n    } catch (e) {\n      console.warn('[patch-export] clipboard failed:', e);\n    }\n    try {\n      const ta = document.createElement('textarea');\n      ta.value = text;\n      ta.style.position = 'fixed';\n      ta.style.left = '-9999px';\n      document.body.appendChild(ta);\n      ta.focus();\n      ta.select();\n      const ok = document.execCommand('copy');\n      document.body.removeChild(ta);\n      if (ok) return true;\n    } catch (e) {\n      console.warn('[patch-export] execCommand failed:', e);\n    }\n    showCopyFallback(text);\n    return false;\n  }\n\n  function showCopyFallback(text) {\n    const old = document.getElementById('copyFallbackModal');\n    if (old) old.remove();\n\n    const overlay = document.createElement('div');\n    overlay.id = 'copyFallbackModal';\n    overlay.className = 'modal open';\n    overlay.style.zIndex = '10025';\n    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };\n\n    const content = document.createElement('div');\n    content.className = 'modal-content';\n    content.style.maxWidth = '720px';\n    content.innerHTML = `\n      <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;\">\n        <h3 style=\"font-size:16px;\">📋 Скопируйте вручную</h3>\n        <button class=\"btn-del\" onclick=\"document.getElementById('copyFallbackModal').remove()\">✕</button>\n      </div>\n      <div style=\"font-size:12px; color:var(--muted); margin-bottom:8px; line-height:1.4;\">\n        Браузер не дал доступ к буферу обмена. Выделите весь код ниже и скопируйте\n        (Ctrl+A → Ctrl+C на компьютере, или долгое нажатие → «Выделить всё» → «Копировать»).\n      </div>\n      <textarea id=\"copyFallbackTextarea\" class=\"form-control\" style=\"min-height:300px; font-family:monospace; font-size:11px;\"></textarea>\n      <div style=\"display:flex; gap:8px; margin-top:12px;\">\n        <button class=\"btn btn-secondary\" style=\"flex:1;\" onclick=\"document.getElementById('copyFallbackModal').remove()\">Закрыть</button>\n        <button class=\"btn btn-quick\" style=\"flex:1;\" id=\"copyFallbackSelectBtn\">📋 Выделить всё</button>\n      </div>\n    `;\n    overlay.appendChild(content);\n    document.body.appendChild(overlay);\n\n    const ta = content.querySelector('#copyFallbackTextarea');\n    ta.value = text;\n    setTimeout(() => { ta.focus(); ta.select(); }, 100);\n\n    content.querySelector('#copyFallbackSelectBtn').onclick = () => {\n      ta.focus();\n      ta.select();\n      try { document.execCommand('copy'); } catch(e) {}\n    };\n  }\n\n  // === Модалка ===\n  function openExportModal() {\n    const old = document.getElementById('patchExportModal');\n    if (old) old.remove();\n\n    const all = state.patches || [];\n    const enabled = all.filter(p => p && p.enabled);\n    const r = enabled.filter(p => p.type === 'replace').length;\n    const f = enabled.filter(p => p.type === 'function').length;\n\n    const overlay = document.createElement('div');\n    overlay.id = 'patchExportModal';\n    overlay.className = 'modal open';\n    overlay.style.zIndex = '10020';\n    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };\n\n    const content = document.createElement('div');\n    content.className = 'modal-content';\n    content.style.maxWidth = '480px';\n    content.innerHTML = `\n      <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;\">\n        <h3 style=\"font-size:16px;\">💾 Экспорт index.html</h3>\n        <button class=\"btn-del\" onclick=\"document.getElementById('patchExportModal').remove()\">✕</button>\n      </div>\n\n      <div style=\"font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:12px;\">\n        Соберёт HTML-файл, в котором <b style=\"color:var(--text);\">уже применены все активные патчи</b>.\n        Загрузите его на сервер — после этого патчи можно удалить из базы.\n      </div>\n\n      <div style=\"background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; margin-bottom: 12px;\">\n        <div style=\"display:flex; justify-content:space-between; margin-bottom:4px;\">\n          <span style=\"color:var(--muted);\">Активных патчей:</span>\n          <b>${enabled.length}</b>\n        </div>\n        <div style=\"display:flex; justify-content:space-between; margin-bottom:4px;\">\n          <span style=\"color:var(--muted);\">Replace (найти/заменить):</span>\n          <b style=\"color:var(--warning);\">${r}</b>\n        </div>\n        <div style=\"display:flex; justify-content:space-between;\">\n          <span style=\"color:var(--muted);\">Function (вшить в код):</span>\n          <b style=\"color:var(--success);\">${f}</b>\n        </div>\n      </div>\n\n      <div class=\"pe-modal-actions\">\n        <button class=\"btn btn-secondary\" id=\"peDownloadBtn\">⬇️ Скачать</button>\n        <button class=\"btn btn-quick\" id=\"peCopyBtn\">📋 Копировать</button>\n      </div>\n\n      <div style=\"font-size:10px; color:var(--muted); text-align:center; margin-top:10px; line-height:1.4;\">\n        ⚠️ После загрузки на сервер удалите или отключите все патчи в админке — они уже вшиты в файл.\n      </div>\n    `;\n    overlay.appendChild(content);\n    document.body.appendChild(overlay);\n\n    content.querySelector('#peDownloadBtn').onclick = async () => {\n      const btn = content.querySelector('#peDownloadBtn');\n      btn.disabled = true;\n      btn.textContent = '⏳ Сборка...';\n      try {\n        const res = await buildBakedHtml();\n        const filename = 'index_baked_' + timestamp() + '.html';\n        downloadHtml(res.html, filename);\n        overlay.remove();\n        if (typeof showToastEl === 'function') {\n          showToastEl(\n            '✅ ' + filename + '<br>' +\n            'replace: ' + res.replaceOk + (res.replaceFail ? ' · не найдено: ' + res.replaceFail : '') + '<br>' +\n            'функций вшито: ' + res.fnCount,\n            false\n          );\n        }\n      } catch (e) {\n        btn.disabled = false;\n        btn.textContent = '⬇️ Скачать';\n        if (typeof showError === 'function') showError('Ошибка сборки: ' + e.message);\n      }\n    };\n\n    content.querySelector('#peCopyBtn').onclick = async () => {\n      const btn = content.querySelector('#peCopyBtn');\n      btn.disabled = true;\n      btn.textContent = '⏳ Сборка...';\n      try {\n        const res = await buildBakedHtml();\n        const ok = await copyToClipboard(res.html);\n        if (ok) {\n          overlay.remove();\n          if (typeof showToastEl === 'function') {\n            showToastEl(\n              '📋 Скопировано в буфер<br>' +\n              'replace: ' + res.replaceOk + (res.replaceFail ? ' · не найдено: ' + res.replaceFail : '') + '<br>' +\n              'функций вшито: ' + res.fnCount,\n              false\n            );\n          }\n        } else {\n          btn.disabled = false;\n          btn.textContent = '📋 Копировать';\n        }\n      } catch (e) {\n        btn.disabled = false;\n        btn.textContent = '📋 Копировать';\n        if (typeof showError === 'function') showError('Ошибка сборки: ' + e.message);\n      }\n    };\n  }\n\n  // === Маленькая кнопка ===\n  function addExportButton() {\n    const section = document.getElementById('admin-sub-patches');\n    if (!section) return;\n    if (document.getElementById('patchExportBtn')) return;\n\n    const list = document.getElementById('patchesListContainer');\n    if (!list || !list.parentNode) return;\n\n    const btn = document.createElement('button');\n    btn.id = 'patchExportBtn';\n    btn.innerHTML = '💾 Экспорт HTML';\n    btn.onclick = openExportModal;\n\n    list.parentNode.insertBefore(btn, list);\n  }\n\n  // === Перехват switchAdminTab ===\n  const origSwitch = window.switchAdminTab;\n  window.switchAdminTab = function(tab, btn) {\n    if (origSwitch) origSwitch.apply(this, arguments);\n    if (tab === 'patches') {\n      setTimeout(addExportButton, 50);\n    }\n  };\n\n  // === MutationObserver ===\n  const obs = new MutationObserver(() => {\n    if (document.getElementById('admin-sub-patches')?.classList.contains('active')) {\n      if (!document.getElementById('patchExportBtn')) addExportButton();\n    }\n  });\n  setTimeout(() => {\n    const list = document.getElementById('patchesListContainer');\n    if (list) obs.observe(list, { childList: true, subtree: true });\n  }, 500);\n\n  // === Интервал-страховка ===\n  setInterval(() => {\n    if (document.getElementById('admin-sub-patches')?.classList.contains('active')) {\n      if (!document.getElementById('patchExportBtn')) addExportButton();\n    }\n  }, 1500);\n\n  // === Первый запуск ===\n  setTimeout(() => {\n    if (document.getElementById('admin-sub-patches')?.classList.contains('active')) addExportButton();\n  }, 800);\n\n  console.log('[patch-export-v2] ✅ Активен. Компактная кнопка → модалка.');\n})();"); }
 catch (e) { console.error('[baked patch: Скачать нтмл]', e); }
 
 /* ===== PATCH: Патчи ===== */
@@ -3520,6 +3530,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.1 · тест',title:'Табель объекта',items:['Люди, техника и экипажи из нескольких машинистов.','Ввод за смену, месячная таблица, перенос состава и часы группе.','Материалы с единицами измерения, CSV и история изменений.','Локальная очередь табеля и проверка конфликтов при отправке.']},
     {version:'3.0',title:'Встроенные функции и история версий',items:['Четыре модуля стали постоянной частью приложения: слои карточек, отметка «Дубликат» после закрытия смены, просмотр листа, аналитика ходок.','Убраны переключатели этих модулей из списка патчей.','История версий открывается нажатием на номер версии.','Все подтверждения и сообщения оформлены как модалки без затемнения страницы.','Изменения базы записываются в журнал отмены одновременно с сохранением. Отмена и восстановление выбранной записи проверяют конфликты.','Матрица прав сгруппирована по разделам; добавлены отдельные права на просмотр журнала, отмену и восстановление своих или любых действий.']},
     {version:'2.94',title:'Исправления офлайн-режима',items:['Сброс таймера ходки сохраняется локально и синхронизируется после подключения.','Журнал отмены открывается без ожидания ответа сервера и показывает локальные действия.','Сохраняется предыдущее состояние для отмены погрузки.','Добавлены повторная отправка аудита и общая настройка времени ходки.']},
     {version:'2.93',title:'Офлайн-очередь',items:['Локальное сохранение погрузок, прибытия и отметок ТТН.','Передача накопленных действий после восстановления связи с проверкой дублей.','Отображение ожидающих синхронизации действий и причин отклонения.']},
@@ -3537,7 +3548,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
     .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.0 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
   button.addEventListener('click',()=>{
     if(document.getElementById('releaseHistoryDialog'))return;
     const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
@@ -3552,6 +3563,392 @@ function calculateTripAnalytics(sessions, trucks, now) {
 window.appConfirm=function(message){return window.showConfirmModal('Подтверждение',escapeHtml(String(message)).replace(/\n/g,'<br>'),{confirmLabel:'Подтвердить',cancelLabel:'Назад'});};
 window.appNotice=function(message){return window.showConfirmModal('Сообщение',escapeHtml(String(message)).replace(/\n/g,'<br>'),{confirmLabel:'Понятно',hideCancel:true});};
 </script>
+<!-- TIMESHEET MODULE START -->
+<script id="timesheet-core">
+/* Test-site field ledger. Pure validation and transaction engine; no production writes. */
+(function(root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.TimesheetCore = api;
+})(typeof globalThis === 'object' ? globalThis : this, function() {
+  'use strict';
+  const collections = ['timesheetPeople', 'timesheetEquipment', 'timesheetEntries', 'timesheetMaterials'];
+  const units = ['т', 'м³', 'шт', 'л', 'кг', 'м²', 'м.п.'];
+  const clone = value => JSON.parse(JSON.stringify(value));
+  function fail(message, code = 'invalid') { const e = new Error(message); e.code = code; throw e; }
+  function text(value, label, max = 160, optional = false) {
+    const s = String(value == null ? '' : value).trim();
+    if ((!s && !optional) || s.length > max) fail(label + ': проверьте значение');
+    return s;
+  }
+  function date(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || new Date(value + 'T12:00:00Z').toISOString().slice(0,10) !== value) fail('Некорректная дата');
+    return value;
+  }
+  function hours(value, optional = true) {
+    const s = String(value == null ? '' : value).trim().replace(',', '.');
+    if (!s && optional) return null;
+    if (!/^\d+(\.\d{1,2})?$/.test(s)) fail('Часы: введите число от 0 до 24');
+    const n = Number(s); if (n > 24) fail('Часы: не больше 24 за смену');
+    return Math.round(n * 60);
+  }
+  function quantity(value) {
+    const s = String(value).trim().replace(',', '.');
+    if (!/^\d+(\.\d{1,3})?$/.test(s) || Number(s) <= 0 || Number(s) > 100000000) fail('Количество: введите положительное число');
+    return Math.round(Number(s)*1000) / 1000;
+  }
+  const fmt = minutes => minutes == null ? '' : Number((minutes / 60).toFixed(2)).toLocaleString('ru-RU');
+  const scope = (objectId, day) => encodeURIComponent(objectId) + '|' + day.slice(0,7);
+  const entryId = (kind, objectId, day, shift, entityId) => [kind,objectId,day,shift,entityId].map(encodeURIComponent).join('~');
+  function validate(collection, data, id) {
+    if (!collections.includes(collection)) fail('Неизвестный раздел');
+    if (!data || typeof data !== 'object') fail('Пустая запись');
+    text(id, 'Идентификатор', 1400); if (id.includes('/')) fail('Некорректный идентификатор');
+    if (typeof data.deleted !== 'boolean') fail('Некорректное состояние записи');
+    if (collection === 'timesheetPeople') {
+      text(data.name,'ФИО');
+      if (!['worker','itr','operator'].includes(data.group)) fail('Выберите группу');
+    } else if (collection === 'timesheetEquipment') {
+      text(data.name,'Техника'); text(data.contractor,'Организация',160,true);
+      if (!['own','hired'].includes(data.ownership)) fail('Выберите принадлежность техники');
+      if (!Array.isArray(data.crewIds) || data.crewIds.length > 20 || new Set(data.crewIds).size !== data.crewIds.length || data.crewIds.some(x=>typeof x!=='string'||!x||x.includes('/'))) fail('Проверьте состав экипажа');
+    } else {
+      text(data.objectId,'Объект'); text(data.objectName,'Название объекта'); date(data.date);
+      if (!['day','night'].includes(data.shift)) fail('Выберите смену');
+      if (data.scope !== scope(data.objectId,data.date)) fail('Некорректный период');
+      if (collection === 'timesheetEntries') {
+        if (!['person','equipment'].includes(data.kind)) fail('Некорректный вид записи');
+        text(data.entityId,'Сотрудник или техника'); text(data.name,'Имя'); text(data.equipmentId,'Машина',160,true);
+        if (entryId(data.kind,data.objectId,data.date,data.shift,data.entityId)!==id) fail('Некорректный ключ табеля');
+        if (!['unfilled','work','off','absent'].includes(data.status)) fail('Выберите отметку');
+        for (const k of ['minutes','idleMinutes']) if (data[k] !== null && (!Number.isInteger(data[k]) || data[k]<0 || data[k]>1440)) fail('Часы вне диапазона');
+        if (data.status==='unfilled' && data.minutes !== null) fail('Незаполненная строка не содержит часов');
+        if (data.status==='work' && data.minutes === null) fail('Укажите часы');
+        if (['off','absent'].includes(data.status) && data.minutes !== 0) fail('Для отсутствия часы равны нулю');
+        if (data.kind==='person' && data.idleMinutes !== 0) fail('Простой указывается у техники');
+        if (data.kind==='equipment' && (data.minutes||0)+(data.idleMinutes||0)>1440) fail('Работа и простой вместе не больше 24 часов');
+        text(data.note,'Комментарий',500,true);
+      } else {
+        text(data.material,'Материал'); text(data.supplier,'Поставщик'); text(data.document,'Накладная',160,true);
+        if (!units.includes(data.unit)) fail('Выберите единицу измерения');
+        if (typeof data.quantity!=='number' || !Number.isFinite(data.quantity) || data.quantity<=0 || data.quantity>100000000) fail('Некорректное количество');
+        text(data.note,'Комментарий',500,true);
+      }
+    }
+    return data;
+  }
+  function validateOperation(op) {
+    text(op.id,'Операция'); text(op.uid,'Пользователь');
+    if (!Array.isArray(op.changes) || !op.changes.length || op.changes.length>4) fail('За одно сохранение можно изменить до 4 строк');
+    const seen = new Set();
+    for (const ch of op.changes) {
+      const k=ch.collection+'/'+ch.id; if (seen.has(k)) fail('Строка повторяется в операции'); seen.add(k);
+      if (!Number.isInteger(ch.baseRevision)||ch.baseRevision<0) fail('Некорректная версия');
+      validate(ch.collection,ch.data,ch.id);
+    }
+    return op;
+  }
+  function project(remote, jobs, collection) {
+    const map = new Map(remote.map(d=>[d.id,clone(d)]));
+    for (const op of jobs.filter(x=>x.status==='queued').sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id))) {
+      for (const ch of op.changes.filter(x=>x.collection===collection)) {
+        const old=map.get(ch.id);
+        // A listener may acknowledge the server write before the local receipt is removed.
+        if (old && (old.lastOpId===op.id || (old.revision||0)>ch.baseRevision)) continue;
+        map.set(ch.id,{...clone(ch.data),id:ch.id,revision:ch.baseRevision+1,lastOpId:op.id,pending:true});
+      }
+    }
+    return [...map.values()];
+  }
+  async function commitOperation(db, ws, op, actor, runTransaction) {
+    validateOperation(op);
+    if (actor.uid !== op.uid) fail('Операция принадлежит другой учётной записи','wrong-account');
+    const receipt=ws.collection('timesheetChanges').doc(op.id);
+    return runTransaction(async tx=>{
+      const ack=await tx.get(receipt); if (ack.exists) return {duplicate:true};
+      const refs=op.changes.map(ch=>ws.collection(ch.collection).doc(ch.id));
+      const snapshots=[]; for (const ref of refs) snapshots.push(await tx.get(ref));
+      const conflicts=[];
+      snapshots.forEach((snap,i)=>{
+        const before=snap.exists?snap.data():null, ch=op.changes[i];
+        if ((before?.revision||0)!==ch.baseRevision) conflicts.push({collection:ch.collection,id:ch.id,before:ch.before||null,server:before,proposed:ch.data});
+        if (before && ch.collection==='timesheetEntries') for(const k of ['objectId','date','shift','entityId','kind']) if(before[k]!==ch.data[k]) fail('Нельзя перенести существующую запись в другой период');
+      });
+      if (conflicts.length) {const e=new Error('Эти строки уже изменены другим пользователем');e.code='conflict';e.conflicts=snapshots.map((snap,i)=>({collection:op.changes[i].collection,id:op.changes[i].id,before:op.changes[i].before||null,server:snap.exists?snap.data():null,proposed:op.changes[i].data}));throw e;}
+      const changes=snapshots.map((snap,i)=>{
+        const ch=op.changes[i], before=snap.exists?snap.data():null;
+        const after={...clone(ch.data),revision:ch.baseRevision+1,lastOpId:op.id,updatedBy:actor.uid,updatedName:actor.name,updatedAt:op.createdAt};
+        tx.set(refs[i],after); return {collection:ch.collection,id:ch.id,before,after};
+      });
+      tx.set(receipt,{uid:actor.uid,name:actor.name,scope:op.scope||'catalog',createdAt:op.createdAt,committedAt:actor.serverTimestamp ? actor.serverTimestamp() : Date.now(),label:op.label,changes});
+      return {duplicate:false,changes};
+    }).catch(async error=>{
+      // Rules can reject a losing concurrent commit before the SDK retries it.
+      // Re-read only to explain the conflict; never weaken permissions or resend blindly.
+      if (error.code !== 'permission-denied') throw error;
+      let snapshots;
+      try {
+        const receiptSnapshot=await receipt.get({source:'server'});
+        if(receiptSnapshot.exists && receiptSnapshot.data().uid===actor.uid)return {duplicate:true};
+        snapshots=await Promise.all(op.changes.map(ch=>ws.collection(ch.collection).doc(ch.id).get({source:'server'})));
+      } catch (_) { throw error; }
+      if(snapshots.some((snap,i)=>(snap.exists?snap.data().revision||0:0)!==op.changes[i].baseRevision)) {
+        const conflict=new Error('Эти строки уже изменены другим пользователем');conflict.code='conflict';
+        conflict.conflicts=snapshots.map((snap,i)=>({collection:op.changes[i].collection,id:op.changes[i].id,before:op.changes[i].before||null,server:snap.exists?snap.data():null,proposed:op.changes[i].data}));throw conflict;
+      }
+      throw error;
+    });
+  }
+  function csv(rows) {
+    return '\ufeff'+rows.map(row=>row.map(v=>{
+      let s=String(v==null?'':v); if (/^[\s]*[=+\-@\t\r]/.test(s)) s="'"+s;
+      return '"'+s.replace(/"/g,'""')+'"';
+    }).join(';')).join('\r\n');
+  }
+  return {collections,units,clone,text,date,hours,quantity,fmt,scope,entryId,validate,validateOperation,project,commitOperation,csv};
+});
+
+</script>
+<script id="timesheet-app">
+/* Field ledger 3.1. Loaded only by index-test.html. */
+(function () {
+  'use strict';
+  if (window.Timesheet || firebaseConfig.projectId !== 'samosval-offline') return;
+  const C=window.TimesheetCore, E=escapeHtml;
+  const names={timesheetPeople:'Люди',timesheetEquipment:'Техника',timesheetEntries:'Табель',timesheetMaterials:'Материалы'};
+  const groups={worker:'Рабочие',itr:'ИТР',operator:'Машинисты / водители'};
+  const statuses={unfilled:'Не заполнено',work:'Работал',off:'Выходной',absent:'Отсутствовал'};
+  const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow'}).format(new Date());
+  const uid=()=>{if(crypto.randomUUID)return crypto.randomUUID();const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');};
+  const S={user:'',generation:0,local:null,jobs:[],remote:{},unsubs:[],periodUnsubs:[],objectId:'',date:today(),shift:'day',view:'day',scope:'',ready:{},errors:{},busy:false,dialog:null,lastHtml:''};
+  for(const k of C.collections) S.remote[k]=[];
+  const host=document.getElementById('tab-timesheet');
+  const byId=id=>document.getElementById(id);
+  const allowed=()=>!!currentUid && currentUserStatus==='active' && permissionsLoaded && hasTabAccess('timesheet');
+  const edit=()=>allowed() && hasPermission('timesheet_edit');
+  const manage=()=>allowed() && hasPermission('timesheet_manage');
+  const fmtDate=d=>d.split('-').reverse().join('.');
+  const shiftName=s=>s==='night'?'Ночь':'День';
+  const active=()=>host.classList.contains('active');
+  const toast=s=>showToastEl(s,false);
+  const error=e=>showError(e.message||String(e));
+  const sort=a=>a.sort((x,y)=>x.name.localeCompare(y.name,'ru'));
+  function rows(col){return C.project(S.remote[col]||[],S.jobs,col);}
+  function living(col){return rows(col).filter(x=>!x.deleted);}
+  function entries(){return living('timesheetEntries').filter(x=>x.scope===C.scope(S.objectId,S.date));}
+  function dayEntries(){return entries().filter(x=>x.date===S.date&&x.shift===S.shift);}
+  function object(){return state.objects.find(x=>x.id===S.objectId);}
+  function ownData(row){const d={...row};for(const k of ['id','revision','lastOpId','updatedBy','updatedName','updatedAt','pending'])delete d[k];return d;}
+  function change(col,id,data){const old=rows(col).find(x=>x.id===id);return {collection:col,id,baseRevision:old?.revision||0,before:old?ownData(old):null,data};}
+  function choice(value,label,selected){return `<option value="${E(value)}"${value===selected?' selected':''}>${E(label)}</option>`;}
+  function field(label,control){return `<label class="ts-field"><span>${label}</span>${control}</label>`;}
+  function input(name,value='',extra=''){return `<input name="${name}" value="${E(value)}" ${extra}>`;}
+  function btn(label,action,extra=''){return `<button type="button" class="ts-btn" data-action="${action}" ${extra}>${label}</button>`;}
+  function note(s){return `<p class="ts-muted">${s}</p>`;}
+  function localOpen(name){return new Promise((resolve,reject)=>{const req=indexedDB.open(name,1);req.onupgradeneeded=()=>{req.result.createObjectStore('jobs',{keyPath:'id'});req.result.createObjectStore('cache',{keyPath:'key'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);req.onblocked=()=>reject(Error('Закройте другие вкладки, чтобы открыть локальное хранилище'));});}
+  function local(store,method,value){const database=S.local;if(!database)return Promise.reject(Error('Локальное хранилище ещё не готово'));return new Promise((resolve,reject)=>{const tx=database.transaction(store,method==='get'||method==='getAll'?'readonly':'readwrite');const req=tx.objectStore(store)[method](value);let result;req.onsuccess=()=>{result=req.result;};tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error||req.error);tx.onabort=()=>reject(tx.error||Error('Не удалось сохранить на устройстве'));});}
+  async function loadJobs(){const generation=S.generation;const jobs=await local('jobs','getAll');if(generation===S.generation)S.jobs=jobs.sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));}
+  function reset(){S.generation++;for(const u of [...S.unsubs,...S.periodUnsubs])u();S.unsubs=[];S.periodUnsubs=[];S.local?.close();S.local=null;S.user='';S.scope='';S.jobs=[];S.ready={};S.errors={};S.busy=false;for(const k of C.collections)S.remote[k]=[];S.dialog?.close();S.lastHtml='';host.innerHTML='';}
+  async function session(){
+    if(!allowed()){if(S.user)reset();return;}
+    if(S.user===currentUid)return;
+    reset();S.user=currentUid;const generation=S.generation;
+    try {
+      const database=await localOpen('dt_timesheet_v1_'+firebaseConfig.projectId+'_'+WORKSPACE_ID+'_'+S.user);
+      if(generation!==S.generation){database.close();return;}S.local=database;await loadJobs();
+      if(generation!==S.generation)return;
+      for(const col of ['timesheetPeople','timesheetEquipment']){
+        const cached=await local('cache','get',col);if(generation!==S.generation)return;if(cached)S.remote[col]=cached.rows;
+        S.unsubs.push(wsRef.collection(col).onSnapshot({includeMetadataChanges:true},snap=>receive(col,col,snap,generation),e=>syncError(col,e,generation)));
+      }
+      if(!state.objects.some(o=>o.id===S.objectId))S.objectId=state.shift?.objectId||state.objects[0]?.id||'';
+      await period();render();replay();
+    }catch(e){if(generation===S.generation){S.errors.local='Не удалось открыть хранилище: '+e.message;render();}}
+  }
+  function syncError(key,e,generation){if(generation!==S.generation)return;S.ready[key]=false;S.errors[key]=(e.code==='permission-denied'?'Нет доступа к базе табеля. Администратору нужно применить правила для тестовой базы.':e.message);render();}
+  function receive(col,key,snap,generation){if(generation!==S.generation)return;if(snap.metadata.fromCache&&snap.docs.length===0&&S.remote[col].length){S.ready[col]=false;render();return;}S.remote[col]=snap.docs.map(d=>({...d.data(),id:d.id}));S.ready[col]=!snap.metadata.fromCache;delete S.errors[col];local('cache','put',{key,rows:S.remote[col]}).catch(e=>{S.errors.local='Кэш не сохранён: '+e.message;render();});render();}
+  async function period(){
+    if(!S.local||!S.objectId)return;
+    const scope=C.scope(S.objectId,S.date);if(S.scope===scope)return;
+    S.scope=scope;const generation=S.generation;
+    S.periodUnsubs.forEach(u=>u());S.periodUnsubs=[];
+    for(const col of ['timesheetEntries','timesheetMaterials']){S.remote[col]=[];S.ready[col]=false;delete S.errors[col];}
+    render();
+    for(const col of ['timesheetEntries','timesheetMaterials']){
+      const key=col+':'+scope,cached=await local('cache','get',key);if(generation!==S.generation||S.scope!==scope)return;if(cached)S.remote[col]=cached.rows;
+      S.periodUnsubs.push(wsRef.collection(col).where('scope','==',scope).onSnapshot({includeMetadataChanges:true},snap=>{if(S.scope===scope)receive(col,key,snap,generation);},e=>{if(S.scope===scope)syncError(col,e,generation);}));
+    }
+    render();
+  }
+  let adding=false;
+  async function enqueue(changes,label){
+    if(!allowed()||!S.local)throw Error('Войдите в приложение и дождитесь открытия табеля');
+    if(!changes.length)return;
+    if(changes.some(ch=>['timesheetPeople','timesheetEquipment'].includes(ch.collection)?!manage():!edit()))throw Error('Нет права на изменение этого раздела');
+    const ops=[],stamp=Math.max(Date.now(),...S.jobs.map(x=>x.createdAt+1));
+    for(let i=0;i<changes.length;i+=4){const op={id:uid(),uid:S.user,scope:S.scope||'catalog',label,createdAt:stamp+i,status:'queued',changes:changes.slice(i,i+4)};C.validateOperation(op);ops.push(op);}
+    const generation=S.generation;
+    await new Promise((resolve,reject)=>{const tx=S.local.transaction('jobs','readwrite');for(const op of ops)tx.objectStore('jobs').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('Очередь не сохранена'));});
+    if(generation!==S.generation)return;
+    await loadJobs();render();toast(navigator.onLine?'Сохранено на устройстве · отправляем':'Сохранено на устройстве · ожидает связи');replay();
+  }
+  async function replay(){
+    if(!allowed()||!S.local||S.busy||!navigator.onLine)return;
+    const generation=S.generation,owner=S.user;S.busy=true;
+    const work=async()=>{
+      await loadJobs();
+      for(const op of S.jobs.filter(x=>x.status==='queued')){
+        if(generation!==S.generation||currentUid!==owner||!allowed()||!navigator.onLine)break;
+        try{
+          const result=await C.commitOperation(db,wsRef,op,{uid:owner,name:getUserName(),serverTimestamp:()=>firebase.firestore.FieldValue.serverTimestamp()},window.__historyRawTransaction||db.runTransaction.bind(db));
+          if(generation!==S.generation)break;
+          if(result.changes)for(const ch of result.changes){if(ch.after.scope&&ch.after.scope!==S.scope)continue;const a=S.remote[ch.collection];const i=a.findIndex(x=>x.id===ch.id);const d={...ch.after,id:ch.id};if(i<0)a.push(d);else a[i]=d;}
+          await local('jobs','delete',op.id);
+        }catch(e){
+          if(generation!==S.generation)break;
+          if(['unavailable','deadline-exceeded','aborted','cancelled'].includes(e.code)||!navigator.onLine)break;
+          op.status=e.code==='conflict'?'conflict':'rejected';op.error=e.code==='permission-denied'?'Нет права записи. Проверьте права роли и правила тестовой базы.':e.message;
+          if(e.conflicts)op.conflicts=C.clone(e.conflicts);await local('jobs','put',op);
+        }
+      }
+      if(generation===S.generation)await loadJobs();
+    };
+    try{if(navigator.locks)await navigator.locks.request('dt-timesheet-'+owner,{ifAvailable:true},lock=>lock?work():undefined);else await work();}
+    catch(e){if(generation===S.generation)S.errors.queue=e.message;}
+    finally{if(generation===S.generation){S.busy=false;render();}}
+  }
+  function summary(){const d=dayEntries();return `<div class="ts-stats"><div><strong>${d.filter(x=>x.kind==='person').length}</strong><span>человек</span></div><div><strong>${C.fmt(d.filter(x=>x.kind==='person').reduce((n,x)=>n+(x.minutes||0),0))}</strong><span>чел.-ч</span></div><div><strong>${d.filter(x=>x.kind==='equipment').length}</strong><span>ед. техники</span></div><div><strong>${d.filter(x=>x.status==='unfilled').length}</strong><span>не заполнено</span></div></div>`;}
+  function rowCard(r){const machine=living('timesheetEquipment').find(x=>x.id===r.equipmentId);const crew=r.kind==='equipment'?dayEntries().filter(x=>x.kind==='person'&&x.equipmentId===r.entityId):[];return `<div class="ts-row ${r.pending?'ts-pending':''}"><div class="ts-row-name"><strong>${E(r.name)}</strong><small>${E(r.kind==='person'?(machine?.name||groups[r.group]||'Сотрудник'):(r.ownership==='hired'?'Привлечённая · '+r.contractor:'Своя техника'))}</small>${crew.length?`<small>Экипаж: ${crew.length} · ${C.fmt(crew.reduce((n,x)=>n+(x.minutes||0),0))} чел.-ч</small>`:''}${r.note?`<small>${E(r.note)}</small>`:''}</div><div class="ts-hours">${r.status==='unfilled'?'—':r.status==='work'?C.fmt(r.minutes)+' ч':E(statuses[r.status])}${r.idleMinutes?`<small>простой ${C.fmt(r.idleMinutes)} ч</small>`:''}${r.pending?'<small>Ожидает отправки</small>':''}</div>${btn(edit()?'Изменить':'Открыть','entry',`data-id="${E(r.id)}"`)}</div>`;}
+  function dayView(){const d=dayEntries();return summary()+`<div class="ts-toolbar">${edit()?btn('＋ Люди','add-person')+btn('＋ Техника и экипаж','add-equipment')+btn('Часы группе','bulk')+btn('Взять состав','copy'):''}</div>`+note('Дата — начало смены. Ночная смена сохраняется целиком под этой датой; переход через полночь не создаёт вторую запись.')+['equipment','person'].map(kind=>`<section class="ts-section"><h3>${kind==='person'?'Люди':'Техника'}</h3>${sort(d.filter(x=>x.kind===kind)).map(rowCard).join('')||note(kind==='person'?'Добавьте сотрудников из справочника.':'Добавьте технику — сохранённый экипаж появится вместе с ней.')}</section>`).join('')+materialsView(false);}
+  function materialsView(month){const list=living('timesheetMaterials').filter(x=>x.scope===S.scope&&(month||x.date===S.date&&x.shift===S.shift));const totals=new Map();for(const r of list){const k=r.material+'|'+r.unit;totals.set(k,{name:r.material,unit:r.unit,total:(totals.get(k)?.total||0)+r.quantity});}return `<section class="ts-section"><div class="ts-section-title"><h3>Поступление материалов</h3>${edit()&&!month?btn('＋ Поступление','material'):''}</div>${[...totals.values()].map(t=>`<span class="ts-chip">${E(t.name)} · ${Number(t.total.toFixed(3)).toLocaleString('ru-RU')} ${E(t.unit)}</span>`).join('')}${list.length?list.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<div class="ts-row"><div class="ts-row-name"><strong>${E(r.material)}</strong><small>${E(r.supplier)}${r.document?' · № '+E(r.document):''}${month?' · '+fmtDate(r.date)+' '+shiftName(r.shift):''}</small>${r.pending?'<small>Ожидает отправки</small>':''}</div><b>${r.quantity.toLocaleString('ru-RU')} ${E(r.unit)}</b>${btn(edit()?'Изменить':'Открыть','material',`data-id="${E(r.id)}"`)}</div>`).join(''):note('Материалы считаются отдельно от часов техники подрядчиков.')}</section>`;}
+  function monthView(){
+    const a=entries(),month=S.date.slice(0,7),days=new Date(Number(month.slice(0,4)),Number(month.slice(5)),0).getDate();const keys=new Map();for(const r of a)keys.set(r.kind+'|'+r.entityId,{kind:r.kind,entityId:r.entityId,name:r.name});
+    const grid=[...keys.values()].sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name,'ru'));
+    const map=new Map(a.map(r=>[r.id,r]));let headers='',sub='';for(let i=1;i<=days;i++){headers+=`<th colspan="2">${i}</th>`;sub+='<th>Д</th><th>Н</th>';}
+    return `<div class="ts-toolbar">${hasPermission('timesheet_export')?btn('↓ Табель CSV','export')+btn('↓ Материалы CSV','export-materials'):''}${btn('История изменений','history')}</div>`+note('Д — дневная смена, Н — ночная. Нажмите ячейку для открытия. «—» — часы ещё не заполнены; пусто — записи нет.')+`<div class="ts-table-wrap"><table class="ts-table"><thead><tr><th rowspan="2">Сотрудник / техника</th>${headers}<th rowspan="2">Итого, ч</th></tr><tr>${sub}</tr></thead><tbody>${grid.map(g=>{let total=0;let cells='';for(let i=1;i<=days;i++)for(const shift of ['day','night']){const date=month+'-'+String(i).padStart(2,'0'),id=C.entryId(g.kind,S.objectId,date,shift,g.entityId),r=map.get(id);if(r)total+=r.minutes||0;cells+=`<td class="${r?.pending?'ts-pending':''}">${r?`<button type="button" data-action="entry" data-id="${E(id)}">${r.status==='unfilled'?'—':r.status==='work'?C.fmt(r.minutes):r.status==='off'?'В':'НЯ'}</button>`:''}</td>`;}return `<tr><th>${E(g.name)}<small>${g.kind==='person'?'Сотрудник':'Техника'}</small></th>${cells}<td><b>${C.fmt(total)}</b></td></tr>`;}).join('')}</tbody></table></div>${!grid.length?note('За этот месяц пока нет записей.') : ''}`+materialsView(true);
+  }
+  function catalogView(){return note('Эти справочники общие для объектов. Изменение имени или экипажа не меняет уже заполненные смены.')+['timesheetPeople','timesheetEquipment'].map(col=>`<section class="ts-section"><div class="ts-section-title"><h3>${names[col]}</h3>${manage()?btn('＋ Добавить','catalog',`data-col="${col}"`):''}</div>${sort(living(col)).map(r=>`<div class="ts-row"><div class="ts-row-name"><strong>${E(r.name)}</strong><small>${E(col==='timesheetPeople'?groups[r.group]:(r.ownership==='hired'?r.contractor:'Своя техника'))}${col==='timesheetEquipment'?' · экипаж '+r.crewIds.length:''}</small></div>${manage()?btn('Изменить','catalog',`data-col="${col}" data-id="${E(r.id)}"`):''}</div>`).join('')||note('Список пока пуст.')}</section>`).join('');}
+  function render(){
+    if(!active())return;
+    if(host.contains(document.activeElement)&&['INPUT','SELECT'].includes(document.activeElement.tagName))return;
+    if(!allowed()){host.innerHTML=note('Нет доступа к табелю.');return;}
+    const pending=S.jobs.filter(x=>x.status==='queued').length,failed=S.jobs.filter(x=>x.status!=='queued');
+    const syncText=pending?`На устройстве: ${pending} · ожидают отправки`:!navigator.onLine?'Нет связи · показываем сохранённые данные':S.objectId&&C.collections.every(c=>S.ready[c])?'Данные подтверждены сервером':'Проверяем данные с сервером…';
+    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div><span class="ts-version">Тест 3.1</span></div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
+    if(html!==S.lastHtml){host.innerHTML=html;S.lastHtml=html;}
+  }
+  function dialog(title,body,onSubmit){
+    S.dialog?.close();const el=document.createElement('dialog');el.className='ts-dialog';el.innerHTML=`<form><div class="ts-dialog-title"><h3>${E(title)}</h3><button type="button" data-close aria-label="Закрыть">×</button></div><div class="ts-dialog-body">${body}</div><p class="ts-form-error" role="alert"></p><div class="ts-dialog-actions">${onSubmit?'<button class="ts-btn ts-primary" type="submit">Сохранить</button>':''}<button type="button" class="ts-btn" data-close>Закрыть</button></div></form>`;document.body.append(el);S.dialog=el;el.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>el.close());el.addEventListener('close',()=>{if(S.dialog===el)S.dialog=null;el.remove();});
+    el.querySelector('form').onsubmit=async e=>{e.preventDefault();if(!onSubmit||adding)return;const button=el.querySelector('[type=submit]');adding=true;button.disabled=true;try{await onSubmit(new FormData(e.target),el);el.close();}catch(err){el.querySelector('.ts-form-error').textContent=err.message;}finally{adding=false;button.disabled=false;}};el.showModal();return el;
+  }
+  function catalogForm(col,id){
+    if(!manage())return;const r=rows(col).find(x=>x.id===id),isPerson=col==='timesheetPeople';
+    const body=field(isPerson?'Фамилия и имя':'Название / номер техники',input('name',r?.name,'required maxlength="160"'))+(isPerson?field('Группа',`<select name="group">${Object.entries(groups).map(([k,v])=>choice(k,v,r?.group||'worker')).join('')}</select>`):field('Принадлежность',`<select name="ownership">${choice('own','Своя',r?.ownership||'own')}${choice('hired','Привлечённая',r?.ownership)}</select>`)+field('Организация',input('contractor',r?.contractor,'maxlength="160"'))+`<fieldset><legend>Обычный экипаж</legend>${sort(living('timesheetPeople')).map(p=>`<label class="ts-check"><input type="checkbox" name="crew" value="${E(p.id)}"${r?.crewIds.includes(p.id)?' checked':''}>${E(p.name)}</label>`).join('')||note('Сначала добавьте сотрудников.')}</fieldset>`)+(r?'<label class="ts-check"><input type="checkbox" name="archive">Убрать из справочника (историю сохранить)</label>':'');
+    dialog(isPerson?'Сотрудник':'Техника и экипаж',body,async f=>{
+      const name=C.text(f.get('name'),'Название');if(living(col).some(p=>p.id!==id&&p.name.trim().toLocaleLowerCase('ru')===name.toLocaleLowerCase('ru')))throw Error('Такое имя уже есть. Для тёзки добавьте отчество или табельный номер.');
+      const data=isPerson?{name,group:f.get('group'),deleted:f.has('archive')}:{name,ownership:f.get('ownership'),contractor:String(f.get('contractor')||'').trim(),crewIds:f.getAll('crew'),deleted:f.has('archive')};
+      await enqueue([{collection:col,id:id||uid(),baseRevision:r?.revision||0,before:r?ownData(r):null,data}],isPerson?'Справочник сотрудников':'Справочник техники');
+    });
+  }
+  function blankEntry(kind,entity,equipmentId=''){
+    if(!object())throw Error('Выберите объект');
+    return {kind,entityId:entity.id,name:entity.name,group:entity.group||'',ownership:entity.ownership||'',contractor:entity.contractor||'',objectId:S.objectId,objectName:object().name,date:S.date,shift:S.shift,scope:C.scope(S.objectId,S.date),minutes:null,idleMinutes:0,status:'unfilled',equipmentId,note:'',deleted:false};
+  }
+  function addForm(kind){
+    if(!edit()||!object())return;const col=kind==='person'?'timesheetPeople':'timesheetEquipment',list=sort(living(col));
+    const el=dialog(kind==='person'?'Добавить людей в смену':'Добавить технику и экипаж',note(kind==='person'?'Отметьте нужных сотрудников.':'Сохранённые машинисты добавятся с незаполненными часами. Уже внесённые люди повторно не добавляются.')+list.map(r=>`<label class="ts-check"><input type="checkbox" name="ids" value="${E(r.id)}">${E(r.name)}</label>`).join('')+(list.length?'':note('Сначала заполните справочник.')),async f=>{
+      const changes=new Map(),existing=dayEntries();
+      const append=(k,e,machine='')=>{const id=C.entryId(k,S.objectId,S.date,S.shift,e.id);if(existing.some(x=>x.id===id)||changes.has(id))return;changes.set(id,change('timesheetEntries',id,blankEntry(k,e,machine)));};
+      for(const id of f.getAll('ids')){const entity=list.find(x=>x.id===id);append(kind,entity);if(kind==='equipment')for(const personId of entity.crewIds){const p=living('timesheetPeople').find(x=>x.id===personId);if(p)append('person',p,entity.id);}}
+      if(!changes.size)throw Error('Выберите новые строки для этой смены');await enqueue([...changes.values()],'Добавлен состав смены');
+    });return el;
+  }
+  function entryForm(id){
+    const r=rows('timesheetEntries').find(x=>x.id===id);if(!r||r.deleted)return;
+    const machines=entries().filter(x=>x.kind==='equipment'&&x.date===r.date&&x.shift===r.shift);
+    const body=note(`${E(r.objectName)} · ${fmtDate(r.date)} · ${shiftName(r.shift)}`)+field('Отметка',`<select name="status">${Object.entries(statuses).map(([k,v])=>choice(k,v,r.status)).join('')}</select>`)+field('Отработано, часов',input('hours',C.fmt(r.minutes),'inputmode="decimal" placeholder="Например, 12 или 7,5"'))+(r.kind==='equipment'?field('Простой, часов',input('idle',C.fmt(r.idleMinutes),'inputmode="decimal"')):field('Работал на технике',`<select name="equipmentId">${choice('','Без привязки',r.equipmentId)}${machines.map(m=>choice(m.entityId,m.name,r.equipmentId)).join('')}</select>`))+field('Комментарий',`<textarea name="note" maxlength="500">${E(r.note)}</textarea>`)+(edit()?'<label class="ts-check"><input type="checkbox" name="remove">Убрать строку из этой смены</label>':'');
+    const el=dialog(r.name,body,edit()?async f=>{
+      let status=f.get('status'),minutes=C.hours(f.get('hours'));if(status==='unfilled'&&minutes!==null)status='work';if(['off','absent'].includes(status))minutes=0;if(status==='work'&&minutes===null)throw Error('Укажите отработанные часы');
+      const data={...ownData(r),status,minutes:status==='unfilled'?null:minutes,idleMinutes:r.kind==='equipment'?C.hours(f.get('idle'),false):0,equipmentId:r.kind==='person'?String(f.get('equipmentId')||''):'',note:String(f.get('note')||'').trim(),deleted:f.has('remove')};
+      await enqueue([{collection:'timesheetEntries',id,baseRevision:r.revision||0,before:ownData(r),data}],'Часы: '+r.name);
+    }:null);
+    if(!edit())el.querySelectorAll('input,select,textarea').forEach(i=>i.disabled=true);
+    else el.querySelector('[name=hours]').addEventListener('input',e=>{if(e.target.value.trim())el.querySelector('[name=status]').value='work';});
+  }
+  function bulkForm(){
+    if(!edit())return;const list=sort(dayEntries().filter(x=>x.kind==='person'));
+    dialog('Часы группе',field('Всем выбранным, часов',input('hours','12','inputmode="decimal" required'))+list.map(r=>`<label class="ts-check"><input type="checkbox" name="ids" value="${E(r.id)}"${r.status==='unfilled'?' checked':''}>${E(r.name)} <span class="ts-muted">${r.status==='unfilled'?'не заполнено':C.fmt(r.minutes)+' ч'}</span></label>`).join(''),async f=>{
+      const minutes=C.hours(f.get('hours'),false),ids=f.getAll('ids');if(!ids.length)throw Error('Выберите сотрудников');
+      await enqueue(ids.map(id=>{const r=list.find(x=>x.id===id);return {collection:'timesheetEntries',id,baseRevision:r.revision||0,before:ownData(r),data:{...ownData(r),minutes,status:'work'}};}),'Часы группе');
+    });
+  }
+  function materialForm(id){
+    if(!object()||(!id&&!edit()))return;const r=rows('timesheetMaterials').find(x=>x.id===id);
+    const body=field('Материал',input('material',r?.material,'required maxlength="160" placeholder="Например, ЩПС 0–40"'))+field('Поставщик',input('supplier',r?.supplier,'required maxlength="160"'))+`<div class="ts-two">${field('Количество',input('quantity',r?.quantity??'','required inputmode="decimal"'))}${field('Единица',`<select name="unit">${C.units.map(u=>choice(u,u,r?.unit||'т')).join('')}</select>`)}</div>`+field('Номер накладной',input('document',r?.document,'maxlength="160"'))+field('Комментарий',`<textarea name="note" maxlength="500">${E(r?.note||'')}</textarea>`)+(r&&edit()?'<label class="ts-check"><input type="checkbox" name="remove">Убрать поступление (сохранить историю)</label>':'');
+    const el=dialog('Поступление материала',body,edit()?async f=>{
+      const data={...(r?ownData(r):{objectId:S.objectId,objectName:object().name,date:S.date,shift:S.shift,scope:S.scope}),material:C.text(f.get('material'),'Материал'),supplier:C.text(f.get('supplier'),'Поставщик'),quantity:C.quantity(f.get('quantity')),unit:f.get('unit'),document:String(f.get('document')||'').trim(),note:String(f.get('note')||'').trim(),deleted:f.has('remove')};
+      await enqueue([{collection:'timesheetMaterials',id:id||uid(),baseRevision:r?.revision||0,before:r?ownData(r):null,data}],'Поступление: '+data.material);
+    }:null);if(!edit())el.querySelectorAll('input,select,textarea').forEach(i=>i.disabled=true);
+  }
+  function copyForm(){
+    if(!edit()||!object())return;const prev=new Date(S.date+'T12:00:00Z');prev.setUTCDate(prev.getUTCDate()-1);const fromDate=S.shift==='night'?S.date:prev.toISOString().slice(0,10);
+    dialog('Взять состав прошлой смены',note('Переносится только состав людей, техники и привязка машинистов. Часы будут пустыми. Заполненные строки текущей смены сохранятся.')+field('Дата исходной смены',input('date',fromDate,'type="date" required'))+field('Смена',`<select name="shift">${choice('day','День',S.shift==='night'?'day':'night')}${choice('night','Ночь',S.shift==='night'?'day':'night')}</select>`),async f=>{
+      const date=C.date(f.get('date')),shift=f.get('shift'),scope=C.scope(S.objectId,date);if(date===S.date&&shift===S.shift)throw Error('Выберите другую смену');
+      let remote=S.remote.timesheetEntries;if(scope!==S.scope){const cached=await local('cache','get','timesheetEntries:'+scope);if(navigator.onLine){const snap=await wsRef.collection('timesheetEntries').where('scope','==',scope).get({source:'server'});remote=snap.docs.map(d=>({...d.data(),id:d.id}));}else if(cached)remote=cached.rows;else throw Error('Эта смена не сохранена на устройстве. Подключитесь к интернету.');}
+      const source=C.project(remote,S.jobs,'timesheetEntries').filter(x=>!x.deleted&&x.objectId===S.objectId&&x.date===date&&x.shift===shift);
+      if(!source.length)throw Error('В выбранной смене нет состава');const existing=dayEntries();const changes=[];
+      for(const r of source){const id=C.entryId(r.kind,S.objectId,S.date,S.shift,r.entityId);if(existing.some(x=>x.id===id))continue;changes.push(change('timesheetEntries',id,{...ownData(r),date:S.date,shift:S.shift,scope:S.scope,objectName:object().name,minutes:null,idleMinutes:0,status:'unfilled',note:'',deleted:false}));}
+      if(!changes.length)throw Error('Весь состав уже добавлен');await enqueue(changes,'Перенесён состав смены');
+    });
+  }
+  function exportCsv(materials){
+    if(!hasPermission('timesheet_export'))return;
+    if(S.jobs.some(j=>j.scope===S.scope))return error(Error('Сначала отправьте и разберите все изменения этого месяца.'));
+    const col=materials?'timesheetMaterials':'timesheetEntries';if(!navigator.onLine||!S.ready[col])return error(Error('Для выгрузки дождитесь подтверждения данных сервером.'));
+    const list=living(col).filter(x=>x.scope===S.scope).sort((a,b)=>a.date.localeCompare(b.date)||a.shift.localeCompare(b.shift));
+    const data=materials?[['Объект','Дата начала смены','Смена','Материал','Поставщик','Количество','Ед.','Накладная','Комментарий'],...list.map(r=>[r.objectName,fmtDate(r.date),shiftName(r.shift),r.material,r.supplier,String(r.quantity).replace('.',','),r.unit,r.document,r.note])]:[['Объект','Дата начала смены','Смена','Вид','Сотрудник / техника','Отметка','Часы','Простой, ч','Организация','Комментарий'],...list.map(r=>[r.objectName,fmtDate(r.date),shiftName(r.shift),r.kind==='person'?'Сотрудник':'Техника',r.name,statuses[r.status],C.fmt(r.minutes),C.fmt(r.idleMinutes),r.contractor,r.note])];
+    const a=document.createElement('a'),url=URL.createObjectURL(new Blob([C.csv(data)],{type:'text/csv;charset=utf-8;'}));a.href=url;a.download=(materials?'materialy-':'tabel-')+S.date.slice(0,7)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  function describe(r){if(!r)return 'Записи нет';if('minutes'in r)return `${r.name}: ${statuses[r.status]}${r.minutes===null?'':' · '+C.fmt(r.minutes)+' ч'}${r.deleted?' · удалено':''}${r.note?' · '+r.note:''}`;if('quantity'in r)return `${r.material}: ${r.quantity} ${r.unit} · ${r.supplier}${r.deleted?' · удалено':''}`;return r.name+(r.deleted?' · в архиве':'');}
+  async function conflictForm(id){
+    const op=S.jobs.find(x=>x.id===id);if(!op)return;
+    const canRetry=op.changes.every(ch=>['timesheetPeople','timesheetEquipment'].includes(ch.collection)?manage():edit());
+    const el=dialog('Проверка изменений',`<p>${E(op.label)}</p><div class="ts-warning">${E(op.error||'Изменения не отправлены')}</div>${(op.conflicts||[]).map(c=>`<div class="ts-conflict"><p><b>В базе:</b> ${E(describe(c.server))}</p><p><b>Ваша правка:</b> ${E(describe(c.proposed))}</p></div>`).join('')}<div class="ts-toolbar">${canRetry?btn(op.status==='conflict'?'Применить мою правку':'Повторить отправку','resolve-local'):''}${btn('Оставить данные базы','resolve-server')}</div>`);
+    el.querySelector('[data-action=resolve-server]').onclick=async()=>{try{await local('jobs','delete',op.id);await loadJobs();el.close();render();}catch(e){error(e);}};
+    el.querySelector('[data-action=resolve-local]')?.addEventListener('click',async e=>{
+      if(!navigator.onLine)return error(Error('Для проверки нужна связь'));e.target.disabled=true;
+      try{
+        const refs=op.changes.map(ch=>wsRef.collection(ch.collection).doc(ch.id));const snaps=await Promise.all(refs.map(r=>r.get({source:'server'})));
+        if(op.status==='conflict'){
+          // Do not overwrite an edit that happened after the comparison was shown.
+          const changedAgain=snaps.some((s,i)=>{const shown=(op.conflicts||[]).find(c=>c.id===op.changes[i].id&&c.collection===op.changes[i].collection);return shown&&(s.exists?s.data().revision||0:0)!==(shown.server?.revision||0);});
+          if(changedAgain){op.conflicts=snaps.map((s,i)=>({collection:op.changes[i].collection,id:op.changes[i].id,server:s.exists?s.data():null,proposed:op.changes[i].data}));await local('jobs','put',op);await loadJobs();el.close();await conflictForm(id);throw Error('Данные снова изменились. Сравните обновлённые значения.');}
+          snaps.forEach((s,i)=>{op.changes[i].baseRevision=s.exists?s.data().revision||0:0;op.changes[i].before=s.exists?s.data():null;});
+        }
+        op.status='queued';delete op.error;delete op.conflicts;await local('jobs','put',op);await loadJobs();el.close();render();replay();
+      }catch(e){error(e);}finally{e.target.disabled=false;}
+    });
+  }
+  async function history(){
+    const el=dialog('История изменений',note('Загружаем…'));const scope=S.scope;
+    try{const snap=await wsRef.collection('timesheetChanges').where('scope','==',scope).get({source:'server'});const list=snap.docs.map(d=>d.data()).sort((a,b)=>b.createdAt-a.createdAt).slice(0,100);el.querySelector('.ts-dialog-body').innerHTML=list.map(x=>`<section class="ts-history"><b>${E(x.label)}</b><small>${E(x.name)} · ${new Date(x.createdAt).toLocaleString('ru-RU')}</small>${x.changes.map(c=>`<p>${E(describe(c.before))} → ${E(describe(c.after))}</p>`).join('')}</section>`).join('')||note('Изменений пока нет.');}catch(e){el.querySelector('.ts-dialog-body').textContent='Не удалось загрузить историю: '+e.message;}
+  }
+  host.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const {action,id,col,view}=b.dataset;
+    const actions={view:()=>{S.view=view;render();},'add-person':()=>addForm('person'),'add-equipment':()=>addForm('equipment'),entry:()=>entryForm(id),bulk:bulkForm,copy:copyForm,catalog:()=>catalogForm(col,id),material:()=>materialForm(id),retry:replay,conflict:()=>conflictForm(id),export:()=>exportCsv(false),'export-materials':()=>exportCsv(true),history};
+    try{Promise.resolve(actions[action]?.()).catch(error);}catch(e){error(e);}
+  });
+  host.addEventListener('change',e=>{const t=e.target;if(t.id==='ts-object')S.objectId=t.value;else if(t.id==='ts-date'){if(!t.value)return;S.date=t.type==='month'?t.value+'-01':t.value;}else if(t.id==='ts-shift')S.shift=t.value;else return;t.blur();period().catch(error);render();});
+  window.Timesheet={session,render,reset};
+  const previousRender=window.renderAll;window.renderAll=function(){previousRender.apply(this,arguments);session();render();};
+  const previousStop=window.stopSync;window.stopSync=function(){reset();return previousStop.apply(this,arguments);};
+  auth.onAuthStateChanged(()=>{reset();session();});
+  window.addEventListener('online',()=>{replay();render();});window.addEventListener('offline',render);
+  setInterval(()=>{session();if(allowed()&&S.local){loadJobs().then(()=>{render();replay();}).catch(error);}},6000);
+  session();
+})();
+
+</script>
+<!-- TIMESHEET MODULE END -->
 </body>
 </html>
 

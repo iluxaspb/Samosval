@@ -1,0 +1,4 @@
+.preview/
+.openai/
+node_modules/
+firestore-debug.log

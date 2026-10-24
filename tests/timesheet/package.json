@@ -1,0 +1,1 @@
+{"private":true,"scripts":{"test":"node core.cjs && node emulator.cjs && node ui.cjs"},"devDependencies":{"firebase":"10.8.0","@firebase/rules-unit-testing":"3.0.1","jsdom":"26.0.0"}}
