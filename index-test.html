@@ -1254,7 +1254,7 @@
   function getActiveLineIds() { return Object.keys(state.truckStatus).filter(id => state.truckStatus[id] && state.truckStatus[id].onLine === true); }
   function getLogs() { let shiftId = state.shift ? state.shift.id : null; return shiftId ? state.logs.filter(l => l.shiftId === shiftId) : []; }
 
-  function sessionCacheKey() { return 'dt_cache_v13:' + firebaseConfig.projectId + ':' + location.pathname + ':' + (currentUid || 'signed-out'); }
+  function sessionCacheKey() { return 'dt_cache_v14:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + location.pathname + ':' + (currentUid || 'signed-out'); }
   function saveCache() { try { localStorage.setItem(sessionCacheKey(), JSON.stringify({ trucks: state.trucks, objects: state.objects, logs: state.logs, truckStatus: state.truckStatus, shift: state.shift, archive: state.archive, trash: state.trash, audit: state.audit.slice(0, 100), notifications: (state.notifications || []).slice(0, 10), savedAt: Date.now() })); } catch(e) {} }
   function loadCache() { try { if (!currentUid) return; let raw = localStorage.getItem(sessionCacheKey()); if (!raw) return; let c = JSON.parse(raw); state.trucks = c.trucks||[]; state.objects = c.objects||[]; state.logs = c.logs||[]; state.truckStatus = c.truckStatus||{}; state.shift = c.shift||null; state.archive = c.archive||[]; state.trash = c.trash||[]; state.audit = c.audit||[]; state.notifications = c.notifications||[]; } catch(e) {} }
 
