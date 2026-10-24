@@ -1255,7 +1255,7 @@
   function getLogs() { let shiftId = state.shift ? state.shift.id : null; return shiftId ? state.logs.filter(l => l.shiftId === shiftId) : []; }
 
   function sessionCacheKey() { return 'dt_cache_v14:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + location.pathname + ':' + (currentUid || 'signed-out'); }
-  function saveCache() { try { localStorage.setItem(sessionCacheKey(), JSON.stringify({ trucks: state.trucks, objects: state.objects, logs: state.logs, truckStatus: state.truckStatus, shift: state.shift, archive: state.archive, trash: state.trash, audit: state.audit.slice(0, 100), notifications: (state.notifications || []).slice(0, 10), savedAt: Date.now() })); } catch(e) {} }
+  function saveCache() { try { localStorage.setItem(sessionCacheKey(), JSON.stringify({ trucks: state.trucks, objects: state.objects, logs: offlinePendingCount()?offlineRemoteLogs:state.logs, truckStatus: offlinePendingCount()?offlineRemoteStatuses:state.truckStatus, shift: state.shift, archive: state.archive, trash: state.trash, audit: state.audit.slice(0, 100), notifications: (state.notifications || []).slice(0, 10), savedAt: Date.now() })); } catch(e) {} }
   function loadCache() { try { if (!currentUid) return; let raw = localStorage.getItem(sessionCacheKey()); if (!raw) return; let c = JSON.parse(raw); state.trucks = c.trucks||[]; state.objects = c.objects||[]; state.logs = c.logs||[]; state.truckStatus = c.truckStatus||{}; state.shift = c.shift||null; state.archive = c.archive||[]; state.trash = c.trash||[]; state.audit = c.audit||[]; state.notifications = c.notifications||[]; } catch(e) {} }
 
   function markSync(source, fromCache, hasPendingWrites, docCount) {
@@ -1273,13 +1273,14 @@
     updateSyncUI();
   }
   function getSyncStatus() {
-    if (!navigator.onLine) return { state: 'offline', text: 'Нет сети' + (pendingOps > 0 ? ` (${pendingOps})` : '') };
+    const queued=offlinePendingCount();
+    if (!navigator.onLine) return { state: 'offline', text: 'Работа офлайн' + (queued ? ` · действий к отправке: ${queued}` : '') };
     if (Object.keys(syncState.errors || {}).length) return {state:'error',text:'Ошибка загрузки: ' + Object.keys(syncState.errors).join(', ')};
     if (!currentUserRole) return {state:'init',text:'Проверка учётной записи…'};
     if (!initialized || !permissionsLoaded) return { state: 'init', text: 'Загрузка данных и прав…' };
     const required = ['profile','permissions','trucks','status','shift'];
     if (required.some(source => !syncState.everConnected[source] || syncState.fromCache[source])) return {state:'init',text:'Данные из кеша. Ожидаем подтверждения сервера…'};
-    if (pendingOps > 0) return { state: 'syncing', text: `Отправка... (${pendingOps})` };
+    if (pendingOps > 0 || queued > 0) return { state: 'syncing', text: `Синхронизация... (${pendingOps + queued})` };
     return { state: 'ok', text: 'Всё на сервере' };
   }
   function updateSyncUI() {
@@ -1294,7 +1295,7 @@
     let tip = st.text;
     if (syncState.lastSuccessAt && (st.state === 'ok' || st.state === 'offline')) tip += ' · ' + formatTimeAgo(syncState.lastSuccessAt);
     dot.parentElement.title = tip;
-    if (badge) { if (pendingOps > 0) { badge.textContent = pendingOps > 99 ? '99+' : pendingOps; badge.classList.add('show'); } else badge.classList.remove('show'); }
+    if (badge) {const count=pendingOps+offlinePendingCount();if(count>0){badge.textContent=count>99?'99+':count;badge.classList.add('show');}else badge.classList.remove('show');}
   }
   function showSyncDiagnostics() {
     const sources = ['trucks','objects','logs','status','shift','archive','trash','audit','notifications','plugins','patches','users','requests'];
@@ -1316,7 +1317,7 @@
     unsubscribers.push(refs.objects.onSnapshot({ includeMetadataChanges: true }, s => { state.objects = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('objects', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalObjectsManage'); }, e=>reportSyncError('objects', e)));
     unsubscribers.push(refs.logs.onSnapshot({includeMetadataChanges:true},receiveLoadLogs,e=>reportSyncError('logs',e)));
     unsubscribers.push(refs.truckStatus.onSnapshot({includeMetadataChanges:true},receiveTruckStatuses,e=>reportSyncError('status',e)));
-    unsubscribers.push(refs.shift.onSnapshot({ includeMetadataChanges: true }, doc => { state.shift = doc.exists ? Object.assign({id:doc.id}, doc.data()) : null; markSync('shift', doc.metadata.fromCache, doc.metadata.hasPendingWrites, doc.exists?1:0); if(!initialized) initialized=true; saveCache(); scheduleRender('renderAll'); }, e=>reportSyncError('shift', e)));
+    unsubscribers.push(refs.shift.onSnapshot({ includeMetadataChanges: true }, doc => { state.shift = doc.exists ? Object.assign({id:doc.id}, doc.data()) : null; offlineProjectState();markSync('shift', doc.metadata.fromCache, doc.metadata.hasPendingWrites, doc.exists?1:0); if(!initialized) initialized=true; saveCache(); scheduleRender('renderAll'); }, e=>reportSyncError('shift', e)));
     unsubscribers.push(refs.archive.onSnapshot({ includeMetadataChanges: true }, s => { state.archive = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('archive', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('archive', 'renderArchive'); scheduleRenderForTab('analytics', 'renderAnalytics'); }, e=>reportSyncError('archive', e)));
     unsubscribers.push(refs.trash.onSnapshot({ includeMetadataChanges: true }, s => { state.trash = s.docs.map(d => Object.assign({id:d.id}, d.data())); state.trash.sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0)); markSync('trash', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('archive', 'renderTrash'); }, e=>reportSyncError('trash', e)));
     unsubscribers.push(refs.audit.orderBy('timestamp','desc').limit(200).onSnapshot(s => { state.audit = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('audit', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); scheduleRenderForTab('analytics', 'renderAnalytics'); }, e=>reportSyncError('audit', e)));
@@ -1527,7 +1528,7 @@
       initialized = false; confirmedLoadIds.clear();
       syncState = { fromCache:{}, everConnected:{}, docCount:{}, pendingWrites:{}, lastSuccessAt:0, errors:{} };
       state = { trucks:[], objects:[], logs:[], truckStatus:{}, shift:null, archive:[], trash:[], audit:[], notifications:[], users:[], requests:[], plugins:[], patches:[] };
-      loadCache(); renderAll();
+      loadCache(); offlineRemoteStatuses={...state.truckStatus};offlineRemoteLogs=state.logs.slice();offlineProjectState(); renderAll();
       document.getElementById('userBadgeLabel').textContent = '👤 Проверка учётной записи…';
       updateSyncUI();
       document.getElementById('authOverlay').style.display = 'none';
@@ -2295,21 +2296,31 @@
     markSync('status',snapshot.metadata.fromCache,snapshot.metadata.hasPendingWrites,snapshot.size);
     if(snapshot.metadata.hasPendingWrites)return;
     const next={};snapshot.forEach(doc=>{next[doc.id]={id:doc.id,...doc.data()};});
-    Object.keys(next).forEach(id=>{
-      if(JSON.stringify(state.truckStatus[id])!==JSON.stringify(next[id])){
-        signalLineTransition(id,state.truckStatus[id],next[id]);
+    if(snapshot.metadata.fromCache)Object.keys(next).forEach(id=>{
+      const recent=offlineRemoteStatuses[id];
+      if(recent&&recent.shiftId===next[id].shiftId&&Number(recent.cycleRevision||0)>Number(next[id].cycleRevision||0))next[id]=recent;
+    });
+    const old=state.truckStatus;offlineRemoteStatuses=next;offlineProjectState();
+    Object.keys(state.truckStatus).forEach(id=>{
+      if(JSON.stringify(old[id])!==JSON.stringify(state.truckStatus[id])){
+        signalLineTransition(id,old[id],state.truckStatus[id]);
         truckServerRevisions[id]=(truckServerRevisions[id]||0)+1;
       }
     });
-    Object.keys(state.truckStatus).filter(id=>!next[id]).forEach(id=>truckServerRevisions[id]=(truckServerRevisions[id]||0)+1);
-    state.truckStatus=next;refreshLineViews();
+    Object.keys(old).filter(id=>!state.truckStatus[id]).forEach(id=>truckServerRevisions[id]=(truckServerRevisions[id]||0)+1);
+    refreshLineViews();
   }
   function receiveLoadLogs(snapshot){
     markSync('logs',snapshot.metadata.fromCache,snapshot.metadata.hasPendingWrites,snapshot.size);
     if(snapshot.metadata.hasPendingWrites)return;
     logServerRevision++;
-    state.logs=snapshot.docs.map(doc=>({id:doc.id,...doc.data()})).sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
-    confirmedLoadIds=new Set(state.logs.map(l=>l.id));refreshLineViews();
+    const next=snapshot.docs.map(doc=>({id:doc.id,...doc.data()})).sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+    if(snapshot.metadata.fromCache){
+      const included=new Set(next.map(l=>l.id));
+      for(const log of offlineRemoteLogs)if(!included.has(log.id))next.push(log);
+    }
+    offlineRemoteLogs=next;confirmedLoadIds=new Set(offlineRemoteLogs.map(l=>l.id));
+    offlineProjectState();refreshLineViews();
   }
   async function readLineState(tx,id,shiftId){
     const shift=await tx.get(refs.shift),status=await tx.get(refs.truckStatus.doc(id));
@@ -2531,7 +2542,7 @@
   async function performLoad(id,capturedIntent) {
     if(!requireEdit('action_load')||loadInFlight[id]||lineActionInFlight[id])return {outcome:'ignored'};
     const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
-    if(!navigator.onLine)return {outcome:offlineQueueAction('load',id,intent)?'queued':'failed'};
+    if(!navigator.onLine||offlinePendingForTruck(id))return {outcome:offlineQueueAction('load',id,intent)?'queued':'failed'};
     loadInFlight[id]=true;lineActionInFlight[id]='load';pendingStart();
     let committed=false;
     try{
@@ -2602,7 +2613,7 @@
   async function toggleArrive(id,capturedIntent){
     if(!requireEdit('action_arrive')||lineActionInFlight[id])return {outcome:'ignored'};
     const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
-    if(!navigator.onLine)return {outcome:offlineQueueAction('arrive',id,intent)?'queued':'failed'};
+    if(!navigator.onLine||offlinePendingForTruck(id))return {outcome:offlineQueueAction('arrive',id,intent)?'queued':'failed'};
     const wantArrived=!intent.status.arriveStatus,now=Date.now(),actor=getUserName();
     lineActionInFlight[id]='arrive';pendingStart();
     try{
@@ -2637,7 +2648,7 @@
   async function toggleTtn(id,capturedIntent){
     if(!requireEdit('action_ttn')||lineActionInFlight[id])return {outcome:'ignored'};
     const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
-    if(!navigator.onLine){showError('Нет связи с сервером. Отметка ТТН не записана');return {outcome:'failed'};}
+    if(!navigator.onLine||offlinePendingForTruck(id))return {outcome:offlineQueueAction('ttn',id,intent)?'queued':'failed'};
     const collect=!intent.status.ttnStatus,actor=getUserName();lineActionInFlight[id]='ttn';pendingStart();
     try{
       const result=await db.runTransaction(async tx=>{
@@ -2711,7 +2722,7 @@
     let now = Date.now(), cyc = (settings.cycleMinutes||15)*60000;
     let canEditArrive = hasPermission('action_arrive'), canEditLoad = hasPermission('action_load'), canEditTtn = hasPermission('action_ttn'); let showStats = hasPermission('view_card_stats');
     c.innerHTML = trucks.map(t => {
-      let st = state.truckStatus[t.id]||{}; let tLogs = logs.filter(l=>l.truckId===t.id), sum = tLogs.reduce((s,l)=>s+l.volume,0);
+      let st = state.truckStatus[t.id]||{}; let offlineFlag=offlinePendingForTruck(t.id); let tLogs = logs.filter(l=>l.truckId===t.id), sum = tLogs.reduce((s,l)=>s+l.volume,0);
       let isA = !!st.arriveStatus, lastL = st.lastLoadTimestamp||0, inC = lastL > 0 && (now-lastL)<cyc; let ttn = st.ttnStatus, faded = ttn===true; let lTs = tLogs.length ? tLogs[0].timestamp||0 : 0; let isGAI = !!t.isGAI;
       let arrBtn;
       if (inC) arrBtn = `<button class="btn btn-arrive" disabled><span style="display:flex;flex-direction:column;align-items:center;line-height:1.1;"><span class="idle-label">Ходка</span><span class="cooldown-timer" style="font-size:15px;" data-load-ts="${lastL}">${formatIdleDuration(cyc-(now-lastL))}</span></span></button>`;
@@ -2720,7 +2731,7 @@
       let ttnTxt = ttn ? '📄 Забрал ТТН ✓' : '📄 Забрать ТТН';
       let statsHtml = showStats ? (isGAI ? `<div class="truck-summary">Рейсов: <b>${tLogs.length}</b></div>` : `<div class="truck-summary">Рейсов: <b>${tLogs.length}</b> | <b>${sum} м³</b></div>`) : '';
       let loadBtnTxt = isGAI ? '⚡ Погрузка' : '⚡ Погрузка (+' + t.defaultVol + 'м³)';
-      return `<div class="truck-card ${isA?'arrived':''} ${faded?'faded':''}" data-truck-id="${t.id}"><div class="truck-header"><div class="truck-name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>${escapeHtml(t.brand)}</b>${renderRussianPlate(t.number)}<span style="font-size:13px;color:var(--muted);">${isGAI?'': '('+t.defaultVol+' м³)'}</span>${isA?`<span style="color:#f59e0b;font-size:12px;">(${escapeHtml(st.arriveBy||'')})</span>`:''}</div>${statsHtml}</div><div class="last-load-info">⏱ Последняя: <b class="time-ago-card" data-timestamp="${lTs}">${lTs>0?formatTimeAgo(lTs):'—'}</b></div><div class="action-row">${arrBtn}<button class="btn btn-quick" ${!canEditLoad||!isA?'disabled':''} ${canEditLoad&&isA?`onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${loadBtnTxt}</button><button class="btn btn-ttn ${ttn?'active-ttn':''}" ${!canEditTtn?'disabled':''} ${canEditTtn?`onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${ttnTxt}</button></div></div>`;
+      return `<div class="truck-card ${isA?'arrived':''} ${faded?'faded':''}" data-truck-id="${t.id}"><div class="truck-header"><div class="truck-name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>${escapeHtml(t.brand)}</b>${renderRussianPlate(t.number)}<span style="font-size:13px;color:var(--muted);">${isGAI?'': '('+t.defaultVol+' м³)'}</span>${isA?`<span style="color:#f59e0b;font-size:12px;">(${escapeHtml(st.arriveBy||'')})</span>`:''}${offlineFlag?`<span style="font-size:10px;font-weight:700;color:#f59e0b;">☁️ ОФЛАЙН</span>`:''}</div>${statsHtml}</div><div class="last-load-info">⏱ Последняя: <b class="time-ago-card" data-timestamp="${lTs}">${lTs>0?formatTimeAgo(lTs):'—'}</b></div><div class="action-row">${arrBtn}<button class="btn btn-quick" ${!canEditLoad||!isA?'disabled':''} ${canEditLoad&&isA?`onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${loadBtnTxt}</button><button class="btn btn-ttn ${ttn?'active-ttn':''}" ${!canEditTtn?'disabled':''} ${canEditTtn?`onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${ttnTxt}</button></div></div>`;
     }).join('');
     if (Object.keys(oldP).length) {
       c.querySelectorAll('.truck-card').forEach(card => { let old = oldP[card.dataset.truckId]; if(old === undefined) return; let delta = old - card.getBoundingClientRect().top;
@@ -2885,19 +2896,20 @@
 
   function renderStatusTicker() {
     let t = document.getElementById('statusTicker'); if (!t) return;
-    let last = lastValidNotification();
+    let last = offlineLocalTicker() || lastValidNotification();
     if (!last) { t.style.display = 'none'; t.innerHTML = ''; lastTickerTs = 0; lastTickerId = null; return; }
     let isNew = (last.timestamp || 0) !== lastTickerTs; let isNewId = last.id !== lastTickerId;
     if (t.style.display === 'none' || !t.querySelector('.ticker-text-wrapper')) {
       t.style.display = 'flex';
-      t.innerHTML = `<div class="ticker-row-top"><span>ПОСЛЕДНЕЕ ДЕЙСТВИЕ</span><span id="tickerTimeAgo" class="ticker-time" data-timestamp="${last.timestamp||Date.now()}">${formatTimeAgo(last.timestamp)}</span></div><div class="ticker-row-bottom"><div class="ticker-text-wrapper"><div class="ticker-left active">${last.html||''}</div></div>${canUndoCurrent(last) ? `<button class="btn-undo" onclick="undoLastAction()" title="Отменить">↩</button>` : ''}</div>`;
+      t.innerHTML = `<div class="ticker-row-top"><span>ПОСЛЕДНЕЕ ДЕЙСТВИЕ</span><span id="tickerTimeAgo" class="ticker-time" data-timestamp="${last.timestamp||Date.now()}">${formatTimeAgo(last.timestamp)}</span></div><div class="ticker-row-bottom"><div class="ticker-text-wrapper"><div class="ticker-left active">${last.html||''}</div></div>${canUndoCurrent(last) ? `<button class="btn-undo" onclick="${last.offlinePending?'undoLastOfflineAction()':'undoLastAction()'}" title="Отменить">↩</button>` : ''}</div>`;
       lastTickerTs = last.timestamp || 0; lastTickerId = last.id; t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); return;
     }
     if (isNew && isNewId) {
       let wrapper = t.querySelector('.ticker-text-wrapper'); let oldText = wrapper.querySelector('.ticker-left.active');
       if (oldText) { let newText = document.createElement('div'); newText.className = 'ticker-left enter'; newText.innerHTML = last.html || ''; wrapper.appendChild(newText); void newText.offsetWidth; oldText.classList.remove('active'); oldText.classList.add('leave'); newText.classList.remove('enter'); newText.classList.add('active'); setTimeout(() => { if (oldText.parentNode) oldText.remove(); }, 800); }
       let undoBtn = t.querySelector('.btn-undo'); let canUndo = canUndoCurrent(last);
-      if (canUndo && !undoBtn) { let btn = document.createElement('button'); btn.className = 'btn-undo'; btn.innerHTML = '↩'; btn.onclick = undoLastAction; t.querySelector('.ticker-row-bottom').appendChild(btn); } else if (!canUndo && undoBtn) { undoBtn.remove(); }
+      if (canUndo && !undoBtn) { let btn = document.createElement('button'); btn.className = 'btn-undo'; btn.innerHTML = '↩'; btn.onclick = last.offlinePending?undoLastOfflineAction:undoLastAction; t.querySelector('.ticker-row-bottom').appendChild(btn); } else if (!canUndo && undoBtn) { undoBtn.remove(); }
+      if(undoBtn&&canUndo)undoBtn.onclick=last.offlinePending?undoLastOfflineAction:undoLastAction;
       let timeEl = document.getElementById('tickerTimeAgo'); if(timeEl) { timeEl.textContent = formatTimeAgo(last.timestamp); timeEl.setAttribute('data-timestamp', last.timestamp); }
       t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); lastTickerTs = last.timestamp || 0; lastTickerId = last.id;
     }
