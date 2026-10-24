@@ -447,7 +447,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.1.2 · тест</span>
+        <span class="version-text">Версия 3.1.3 · тест</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -655,6 +655,17 @@
       </div>
       <button class="btn btn-quick" style="width:100%; margin-bottom:16px;" onclick="openPatchModal()">➕ Добавить патч</button>
       <div id="patchesListContainer"></div>
+      <div class="form-card" id="conflictAuthorPatchCard">
+        <div class="settings-row"><div>Кто уже отметил действие</div><label class="toggle-switch"><input type="checkbox" id="conflictAuthorPatch" checked aria-label="Показывать автора уже выполненного действия" onchange="setConflictAuthorPatch(this.checked)"><span class="toggle-slider"></span></label></div>
+        <details><summary>Подробно</summary><div style="font-size:13px;line-height:1.6;margin-top:10px;">
+          <p><b>Было:</b> общее сообщение о том, что действие уже выполнено другим пользователем.</p>
+          <p><b>Стало:</b> номер машины, название отметки, сохранённое имя автора и время. Дополнительного запроса к серверу для имени нет.</p>
+          <p><b>Если выключить:</b> вернутся общие сообщения. Защита от повторных рейсов и сохранённые данные продолжают работать.</p>
+          <p><b>Как проверить:</b> на двух устройствах откройте одну машину и почти одновременно отметьте её погрузку. Сохраниться должен один рейс; второе устройство покажет имя автора сохранённой отметки. Повторите с «Приехал».</p>
+          <p><b>Ограничение:</b> если автор старого изменения не сохранён, приложение прямо об этом сообщит. Проверка на двух реальных устройствах ещё нужна.</p>
+          <p><b>Как сообщить о проблеме:</b> «Кто уже отметил действие; объект …; машина …; дата и время …; нажал …; ожидал имя …; увидел …; интернет был/не был; патч включён/выключен».</p>
+        </div></details>
+      </div>
     </div>
 
     <div id="admin-sub-console" class="admin-section">
@@ -1106,6 +1117,21 @@
   let syncState = { fromCache: {}, everConnected: {}, docCount: {}, pendingWrites: {}, lastSuccessAt: 0 };
 
   // === СИСТЕМА ПАТЧЕЙ ===
+  function renderConflictAuthorPatch(){
+    const input=document.getElementById('conflictAuthorPatch');
+    if(input)input.checked=appConfig.testReviewFlags?.conflict_author!==false;
+  }
+  async function setConflictAuthorPatch(enabled){
+    if(!canAdmin()){renderConflictAuthorPatch();return;}
+    const input=document.getElementById('conflictAuthorPatch');
+    if(input)input.disabled=true;
+    try{
+      await appConfigRef.set({testReviewFlags:{conflict_author:!!enabled}},{merge:true});
+      appConfig.testReviewFlags={...appConfig.testReviewFlags,conflict_author:!!enabled};
+      showToastEl(enabled?'Уведомления с автором включены':'Вернулись общие уведомления',false);
+    }catch(e){showError('Настройка не сохранена: '+(e.message||e));}
+    finally{if(input)input.disabled=false;renderConflictAuthorPatch();}
+  }
   async function loadAndApplyPatches() {
     try {
       const snap = await refs.patches.where('enabled', '==', true).get();
@@ -1372,7 +1398,7 @@
     const rejected=offlineUnreviewedFailures();
     if(rejected.length) {
       lines.push('','── НЕПОДТВЕРЖДЁННЫЕ ДЕЙСТВИЯ ──');
-      rejected.forEach(x=>lines.push(x.truckName||truckName(x.truckId),new Date(x.createdAt).toLocaleString('ru-RU'),offlineReasonLabel(x.result),''));
+      rejected.forEach(x=>lines.push(x.truckName||truckName(x.truckId),new Date(x.createdAt).toLocaleString('ru-RU'),offlineReasonLabel(x.result,x.conflictDetails),''));
       lines.push('Карточки показывают итоговое серверное состояние.');
     }
     appNotice(lines.join('\n'));
@@ -1409,7 +1435,7 @@
       }, e=>reportSyncError('audit', e)));
     }
     if (!canAdmin()) usersUnsubscriber = usersRef.onSnapshot(s => { state.users = s.docs.map(d => Object.assign({id:d.id}, d.data())); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('analytics', 'renderAnalytics'); scheduleRenderForTab('line', 'renderLine'); }, e=>console.warn(e));
-    unsubscribers.push(appConfigRef.onSnapshot(doc => { if (doc.exists) { let d = doc.data(); if(Number.isFinite(d.cycleMinutes)){settings.cycleMinutes=Math.max(15,d.cycleMinutes);localStorage.setItem('dt_settings',JSON.stringify(settings));} appConfig = { maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '', notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true, notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true, notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true, notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true, notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true, notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true, notifyPdfMain: d.notifyPdfMain !== undefined ? !!d.notifyPdfMain : true, notifyPdfGai: d.notifyPdfGai !== undefined ? !!d.notifyPdfGai : true }; renderAppSettingsIfActive(); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } }, e => console.warn(e)));
+    unsubscribers.push(appConfigRef.onSnapshot(doc => { if (doc.exists) { let d = doc.data(); if(Number.isFinite(d.cycleMinutes)){settings.cycleMinutes=Math.max(15,d.cycleMinutes);localStorage.setItem('dt_settings',JSON.stringify(settings));} appConfig = { maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '', notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true, notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true, notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true, notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true, notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true, notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true, notifyPdfMain: d.notifyPdfMain !== undefined ? !!d.notifyPdfMain : true, notifyPdfGai: d.notifyPdfGai !== undefined ? !!d.notifyPdfGai : true, testReviewFlags: d.testReviewFlags || {} }; renderConflictAuthorPatch(); renderAppSettingsIfActive(); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } }, e => console.warn(e)));
 
     // === SECURITY: права и флаг готовности ===
     unsubscribers.push(permsRef.onSnapshot({ includeMetadataChanges: true }, doc => {
@@ -1737,7 +1763,7 @@
     if (tab === 'requests' || tab === 'users') renderAdminPanel();
     if (tab === 'requests') refreshRegistrationRequests();
     if (tab === 'plugins') renderPluginsList();
-    if (tab === 'patches') renderPatchesList();
+    if (tab === 'patches') {renderPatchesList();renderConflictAuthorPatch();}
     if (tab === 'console') renderConsole();
     if (tab === 'appsettings') renderAppSettingsIfActive();
   }
@@ -2459,7 +2485,8 @@
     updateSyncUI();
   }
   function offlineUnreviewedFailures(){return offlineJournalRead().filter(x=>x.status==='rejected'&&!x.reviewed);}
-  function offlineReasonLabel(reason){
+  function offlineReasonLabel(reason,details){
+    if(appConfig.testReviewFlags?.conflict_author!==false&&details)return details;
     const reasons={
       'arrival-changed':'Прибытие уже изменено другим оператором',
       'duplicate-or-arrival-changed':'Погрузка уже учтена или прибытие изменилось. Лишний рейс не добавлен',
@@ -2472,6 +2499,28 @@
       'not-on-line':'Самосвал снят с линии'
     };
     return reasons[reason]||('Ошибка: '+String(reason||'неизвестная'));
+  }
+  // Explain only the authoritative transaction result. No extra network read,
+  // and no attribution to the current user or to a newer, unrelated load.
+  function offlineConflictDetails(op,result){
+    const s=result.status||{},record=result.winningLog;
+    let action='',actor='',at=0;
+    if(result.reason==='duplicate'&&record&&record.truckId===op.truckId&&record.shiftId===op.shiftId&&Number(record.arrivalTimestamp||0)===Number(op.arrivalTimestamp||0)){
+      action='Погрузка';actor=record.createdBy;at=record.timestamp;
+    }else if(['arrival-changed','duplicate-or-arrival-changed'].includes(result.reason)){
+      if(s.arriveStatus&&Number(s.arriveTimestamp||0)!==Number(op.arrivalTimestamp||0)){
+        action='Приехал';actor=s.arriveBy;at=s.arriveTimestamp;
+      }else if(s.loadedAfterArrive&&Number(s.lastLoadTimestamp||0)!==Number(op.lastLoadTimestamp||0)){
+        action='Погрузка';actor=s.lastLoadBy;at=s.lastLoadTimestamp;
+      }
+    }else if(result.reason==='ttn-changed'&&s.ttnStatus){
+      action='Забрал ТТН';actor=s.ttnBy;
+    }
+    if(!['duplicate','arrival-changed','duplicate-or-arrival-changed','ttn-changed'].includes(result.reason))return '';
+    const truck=String(op.truckName||'Самосвал'),name=typeof actor==='string'?actor.trim():'';
+    if(!action)return truck+': '+offlineReasonLabel(result.reason)+'. Автор изменения не сохранён.';
+    const date=new Date(Number(at)),time=Number(at)>0&&Number.isFinite(date.getTime())?' · '+date.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}):'';
+    return truck+': «'+action+'» уже отмечено. '+(name?'Пользователь: '+name+time:'Автор отметки не сохранён')+'.'+(op.type==='load'?' Повторный рейс не добавлен.':'');
   }
   function offlineLocalTicker(){
     if(!state.shift)return null;
@@ -2662,7 +2711,7 @@
               if(existing.exists){
                 const record=existing.data();
                 if(record.clientOperationId===op.id)return {outcome:'confirmed',status:before,log:{id:logId,...record}};
-                return {outcome:'rejected',reason:'duplicate',status:before};
+                return {outcome:'rejected',reason:'duplicate',status:before,winningLog:{id:logId,...record}};
               }
               if(!before.arriveStatus||revision!==Number(op.expectedRevision||0)||Number(before.arriveTimestamp||0)!==Number(op.arrivalTimestamp||0))
                 return {outcome:'rejected',reason:'duplicate-or-arrival-changed',status:before};
@@ -2694,7 +2743,7 @@
             return {outcome:'rejected',reason:'unsupported'};
           });
           offlineTransportRecovered();offlineAdoptResult(op,result);
-          {const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);if(saved){saved.savedResult={status:result.status||null,beforeStatus:result.beforeStatus||op.beforeStatus,log:result.log||null};offlineJournalWrite(all);}}
+          {const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);if(saved){saved.savedResult={status:result.status||null,beforeStatus:result.beforeStatus||op.beforeStatus,log:result.log||null};if(result.outcome==='rejected')saved.conflictDetails=offlineConflictDetails(op,result);offlineJournalWrite(all);}}
           offlineResolve(op.id,result.outcome,result.reason||result.outcome);
           offlineProjectState();refreshLineViews();
           if(result.outcome==='confirmed'){
@@ -2708,7 +2757,7 @@
               }
             }
             await offlineNotifyAccepted(op,result);
-          }else showToastEl('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)),true);
+          }else showToastEl('⚠️ '+escapeHtml(offlineReasonLabel(result.reason,offlineConflictDetails(op,result))),true);
         }catch(e){
           if(offlineTransportError(e)){offlineTransportFailed(e);break;}
           if(!navigator.onLine||['aborted','cancelled'].includes(e.code)){offlineServerRetryAt=Date.now()+1500;break;}
@@ -3557,6 +3606,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.1.3 · тест',title:'Отчёт о работе и авторы отметок',items:['В админке появился полный отчёт: выполненное, незавершённое, ограничения и дальнейший план.','Для каждого согласованного пункта есть описание, проверка и шаблон сообщения о проблеме.','Повторный приезд, погрузка и ТТН показывают автора сохранённого действия, если имя есть в записи.','Новые роли и табель 3.2 сохранены отдельно и не включены до проверки правил базы.','Основная страница и механизм синхронизации не изменялись.']},
     {version:'3.1.2 · тест',title:'Смена по образцу таблицы',items:['Техника и её экипаж расположены рядом, в порядке исходной таблицы.','Цвета поливомойки, щётки, фрезы, погрузчиков и автобуса перенесены в смену.','Одно поле часов экипажа назначает часы каждому машинисту или водителю.','Справочники рабочих, ИТР, машинистов/водителей и техники разделены.','Экипаж назначается в смене объекта, а не в справочнике техники.','Общая установка часов доступна только рабочим.']},
     {version:'3.1.1 · тест',title:'Компактный табель',items:['Экипажи выбираются только из машинистов и водителей.','Рабочие, ИТР и машинисты считаются отдельно.','Компактные строки с вводом часов, кнопками 12/13 и плюс-минус.','Быстрая установка часов всем рабочим текущей смены.']},
     {version:'3.1 · тест',title:'Табель объекта',items:['Люди, техника и экипажи из нескольких машинистов.','Ввод за смену, месячная таблица, перенос состава и часы группе.','Материалы с единицами измерения, CSV и история изменений.','Локальная очередь табеля и проверка конфликтов при отправке.']},
@@ -3577,7 +3627,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
     .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1.2 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1.3 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
   button.addEventListener('click',()=>{
     if(document.getElementById('releaseHistoryDialog'))return;
     const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
@@ -3592,6 +3642,118 @@ function calculateTripAnalytics(sessions, trucks, now) {
 window.appConfirm=function(message){return window.showConfirmModal('Подтверждение',escapeHtml(String(message)).replace(/\n/g,'<br>'),{confirmLabel:'Подтвердить',cancelLabel:'Назад'});};
 window.appNotice=function(message){return window.showConfirmModal('Сообщение',escapeHtml(String(message)).replace(/\n/g,'<br>'),{confirmLabel:'Понятно',hideCancel:true});};
 </script>
+<!-- WORK REVIEW START -->
+<script>window.TEST_REVIEW_RELEASE={"label":"Тест 3.1.3 · отчёт и авторы отметок","features":["conflict_author","admin_report"],"note":"В этой публикации включены подробные уведомления о повторных действиях и отчёт с планом. Табель 3.2, новые роли и сброс старшим прорабом подготовлены в отдельной ветке test-v3-3 и ждут правил тестовой базы. Они здесь не включены."};</script>
+<script id="test-review-core">
+/* Test build review switches. Never injected into production index.html. */
+(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.TestReviewCore=api;})(globalThis,function(){
+  'use strict';
+  const definitions=[
+    ['object_summary','Сводка за весь объект','Месячная сетка с пустыми днями.','Весь период объекта, включая разные месяцы; только даты с записями.','Вернётся просмотр одного месяца.','Проверьте объект с работами в двух месяцах.'],
+    ['summary_colors','Цвета и клеточки сводки','Однотонная месячная таблица.','Цвет техники, её экипаж рядом, чёткие границы ячеек.','Останется однотонная сетка с теми же числами.','Два машиниста по 12 часов дают 24 чел.-ч.'],
+    ['standard_crew','Штатный экипаж своей техники','Людей выбирали при добавлении машины.','У своей техники сразу появляются безымянные места экипажа; у фрезы минимум два.','Автоматическое создание новых мест отключается; уже внесённые данные сохраняются.','Добавьте поливомойку и фрезу без выбора фамилий.'],
+    ['mill_directory','Справочник машинистов фрезы','Общий список машинистов и водителей.','Четыре раздела: техника, машинисты фрезы, дорожные рабочие, ИТР. Именной экипаж выбирается у фрезы.','Вернётся список всех специализаций.','Нажмите слово «Машинисты» под фрезой.'],
+    ['equipment_tiles','Техника одним нажатием','Выбор галочками и отдельное сохранение.','Плашка машины добавляет её в текущую смену.','Вернутся галочки и кнопка сохранения.','Добавьте машину, не выбирая людей.'],
+    ['equipment_frequency','Частая техника выше','Список отсортирован по типу и названию.','Сортировка по числу смен использования на объектах.','Вернётся порядок по типу техники.','Сравните часто используемую и новую машину.'],
+    ['inline_create','Добавить и выбрать из поиска','Нужно отдельно открывать справочник.','Новую запись можно создать из окна выбора и сразу назначить.','Создание останется только в справочнике.','Введите отсутствующую фамилию и создайте сотрудника.'],
+    ['hired_single','Наёмная техника без экипажа','Блок мог предлагать добавить экипаж.','Одна машина и её часы, без персонала.','Вернётся прежнее представление; сохранённые часы не удаляются.','У наёмной машины нет строки «Экипаж».'],
+    ['truck_participation','Самосвалы за всю смену','В итог попадали текущий состав или машины с погрузками.','Каждый приехавший самосвал считается один раз, даже без рейсов и после ухода.','Итог снова опирается на прежний состав.','Приезд без рейса и два возврата дают одну машину.'],
+    ['shift_material','Материал из рейсов','Материал приходилось вводить отдельно.','Название и направление связаны с объёмом обычных рейсов смены.','Автоматическая строка скрывается; ручные материалы и сохранённые направления остаются.','Исправление объёма меняет одну строку, не создаёт вторую.'],
+    ['conflict_author','Кто уже отметил действие','Общее уведомление о другом пользователе.','Конкретная машина, действие, сохранённое имя автора и время из ответа сервера.','Вернутся общие сообщения; защита от дублей остаётся.','Два пользователя одновременно отмечают приезд, погрузку или ТТН. Второй видит автора сохранённой отметки.'],
+    ['selector_reset','Пустой поиск при открытии','В поиске оставались старые цифры.','Каждое открытие выбора самосвалов начинается с пустого поиска.','Предыдущий запрос снова сохраняется.','Найдите 111, закройте и снова откройте выбор.'],
+    ['archive_groups','Архив по объектам','Все смены занимали общий экран.','Плашка объекта раскрывает его смены.','Вернётся развёрнутый список.','Откройте объект с несколькими сменами.'],
+    ['archive_search','Компактный поиск архива','Поле поиска всегда занимало место.','Значок раскрывает поле поиска.','Поле будет постоянно видно.','Нажмите поиск и найдите объект.'],
+    ['archive_fullscreen','Архив на весь экран','Небольшое модальное окно.','Лист открывается полноэкранным оверлеем.','Вернётся прежний размер окна.','Откройте широкий отчёт на телефоне.'],
+    ['archive_no_drawing','Убрать рисование в архиве','Поверх листа находились холст и кнопки рисования.','Отчёт открывается без инструментов рисования.','Инструменты рисования вернутся.','Нажатия на лист не должны оставлять рисунки.'],
+    ['archive_no_pdf','Убрать PDF из архива','Кнопка выгрузки PDF.','PDF убран из окна архива.','Кнопка PDF вернётся.','Проверьте панель действий архива.'],
+    ['archive_png','Сохранить отчёт изображением','Не было сохранения всего листа в галерейном формате.','«Сохранить отчёт» создаёт PNG всего листа с названием объекта и датой.','Сохранение PNG станет недоступно.','Сохраните файл и откройте его на телефоне; браузер может положить его в «Загрузки».'],
+    ['archive_controls','Кнопки архива снизу','Крупные служебные действия, закрытие сверху.','Закрытие снизу, возобновить/удалить — второстепенные действия.','Вернётся расположение кнопок прежней версии.','Убедитесь, что отчёт читается, а удаление требует подтверждения.'],
+    ['archive_hold','Переключение листа удержанием','Лист переключался обычным нажатием.','Компактная кнопка переключает лист после удержания 0,8 секунды.','Вернётся обычное нажатие.','Короткое нажатие не переключает лист.'],
+    ['security_ui','Настройки конфиденциального отображения','Подписи и счётчики могли видеть лишние роли.','Администратор управляет видимостью в «Безопасности». Серверный доступ отдельно ограничен admin/foreman.','Пользовательские настройки отображения скрываются; серверная защита не отключается.','Проверять отдельными аккаунтами; скрытая кнопка сама по себе не доказывает защищённость.'],
+    ['analytics_layout','Компактная аналитика','Несколько больших блоков подряд.','Короткие основные показатели; графики раскрываются.','Вернётся развёрнутый вид.','Сравните чтение на узком экране.'],
+    ['analytics_workdate','Аналитика по дате работы','История отбиралась по дате закрытия.','Период определяется началом работы смены.','Вернётся отбор по закрытию.','Закройте смену на следующий день и сравните период.'],
+    ['analytics_audit','Открытый аудит','Журнал был спрятан в раскрывающемся блоке.','Журнал действий виден внизу без дополнительного нажатия.','Для журнала опять потребуется раскрытие.','Прокрутите аналитику до конца.'],
+    ['analytics_methods','Подробная методика','Общее краткое объяснение.','Для каждого показателя объяснены источник, расчёт и пропуски.','Вернётся краткая методика.','Откройте «Как считаются показатели».'],
+    ['user_ranking','Рейтинг пользователей','Не было сравнительного списка активности.','Приезды, погрузки, общий итог по пользователям без дублей.','Список активности скрывается; история сохраняется.','Повтор синхронизации не увеличивает число действий.'],
+    ['game_mode','Игровой интерфейс','Без монет, лопат и отдельного рейтинга.','Администратор включает счётчик, анимацию и рейтинг; подсчёт идёт всегда.','Игровые элементы скрываются, начисления сохраняются.','Первый приезд 0, возврат 2, погрузка 1; отмена снимает награду.'],
+    ['game_penalties','Подтверждённые штрафы','Не было разбора ошибок с игровым штрафом.','Прораб/администратор назначает 10 монет за конкретную ошибку с причиной и возможностью отмены.','Новые штрафы из интерфейса недоступны; история штрафов сохраняется.','У обычного пользователя нет действия назначения штрафа.'],
+    ['admin_report','Отчёт о работе для владельца','Только техническая история версий.','Отдельный понятный отчёт: изменения, проверки, ограничения, возможные неудобства.','Вкладка отчёта скрывается; описания в «Патчах» остаются.','Сопоставьте статус проверки и реально доступные функции.']
+  ];
+  definitions.push(
+    ['senior_foreman_role','Роли прораба и старшего прораба','Одна роль прораба.','Старший прораб получает настроенные прежние права прораба; прораб получает права мастера.','Новое назначение старшего прораба недоступно. Существующие назначения и сохранённые права не удаляются.','Настройте разные права обеим ролям. Повторный вход не должен сбрасывать настройки.'],
+    ['senior_foreman_reset','Сброс таймера старшим прорабом','Сброс доступен администратору.','Старший прораб сбрасывает таймер удержанием с подтверждением и аудитом.','Сброс остаётся только у администратора.','Проверьте отмену подтверждения, сброс без сети и отклонение старого сброса после новой погрузки.'],
+    ['senior_foreman_crown','Корона старшего прораба','Обычный значок роли.','Над ником старшего прораба корона; права администратора не добавляются.','Корона скрывается, права сохраняются.','Включите и выключите оформление под старшим прорабом.'],
+    ['admin_tired_icon','Значок администратора','Обычный значок человека.','Маленький уставший человечек с красными глазами, без короны.','Вернётся обычный значок человека.','Проверьте подпись администратора и читаемость ника на телефоне.'],
+    ['shift_cycle','Общее время ходки при начале смены','Интервал настраивается отдельно.','При старте смены задаётся общий для всех интервал; сохраняются сверки и исключение через сброс таймера.','Вернётся прежнее место настройки интервала. Защита от дублей остаётся.','На двух аккаунтах проверьте одинаковое значение; слишком ранний возврат требует разбора.'],
+    ['truck_ranking','Долгосрочный рейтинг самосвалов','Нет согласованного представления полной истории.','Машины слева; справа время ходки, ожидание, обоснованный простой, рейсы и объём. История по объектам и сменам.','Новый рейтинг скрывается, исходные события сохраняются.','Сравните историю одной машины на двух объектах; незавершённый рейс не включается в среднее.'],
+    ['tables_editor','Нижняя вкладка «Таблицы»','Редактора таблиц нет.','Отдельный редактор с буквами столбцов, номерами строк, строкой формул и листами внизу. Целевой визуал — Google Таблицы.','Редактор скрывается; таблицы не удаляются.','Откройте на телефоне, добавьте и переименуйте два листа, переключитесь между ними.'],
+    ['tables_format','Форматирование таблиц','Редактора нет.','Цвета, шрифты, границы, объединение, выравнивание, перенос, числовые форматы и размеры строк/столбцов.','Инструменты форматирования скрываются; уже сохранённое оформление остаётся.','Измените оформление диапазона, закройте и откройте таблицу.'],
+    ['tables_formula','Простые формулы таблиц','Расчёты в новом редакторе отсутствуют.','Ссылки на ячейки, плюс, минус, умножение, деление и сумма диапазона.','Новый ввод формул отключается; сохранённые формулы не удаляются.','Введите 12 и 8 в A1/A2, проверьте =SUM(A1:A2) и =A1*A2: 20 и 96.'],
+    ['tables_symbols','Символы над клавиатурой','Нужно переключать раскладку.','Панель = + − × ÷ . , над клавиатурой вставляет символ в курсор и сохраняет фокус.','Символы придётся вводить обычной клавиатурой.','В середине формулы вставьте знак и замените выделение. Клавиатура не закрывается.'],
+    ['tables_access','Доступ к таблицам','Нового раздела прав нет.','По умолчанию доступ только админу. Для пользователей: нет доступа, просмотр, редактирование; восстановление отдельно.','Настройка нового модуля скрывается. Серверная защита не отключается.','Аккаунт без доступа не может читать данные прямым запросом; читатель не может записывать.'],
+    ['tables_history','История таблиц и восстановление','Истории нового редактора нет.','Каждое сохранённое изменение содержит автора, время и до/после. Восстановление создаёт новую версию.','Новые команды просмотра/восстановления скрываются; история не стирается.','Измените ячейку, оформление и лист; восстановите старую версию. Чужие новые правки не затираются молча.'],
+    ['offline_integrity','Сохранение логики и защита событий','Есть рабочие офлайн, проверки версий и защита от дублей.','Эти свойства обязательны для всех согласованных изменений.','Защиту отключать нельзя.','Два устройства, повторная отправка, закрытие без сети, новая погрузка до старого сброса.'],
+    ['sync_review','Оптимизация синхронизации — анализ','События долго ожидают подтверждения; ожидание подписано как офлайн.','Подготовлена оценка очереди, уведомлений, аудита и повторных попыток. Ускорение не внедрено.','Не применяется: это анализ, а не переключаемое изменение алгоритма.','Измерить время локального сохранения, отправки, подтверждения и появления у коллеги.'],
+    ['weekly_1c','Недельный отчёт для 1С — на потом','Отдельного согласованного недельного отчёта нет.','Понедельник–воскресенье; работы, своя техника, поступления, материалы, табель. Сверить по будущей фотографии.','Не применяется: задача отложена владельцем.','После получения образца сверить строки, даты, часы и оформление.']
+  );
+  const statuses={conflict_author:'tested',senior_foreman_role:'tested',senior_foreman_reset:'tested',senior_foreman_crown:'prepared',admin_tired_icon:'prepared',admin_report:'prepared',standard_crew:'partial',hired_single:'partial',shift_material:'partial',truck_participation:'partial',offline_integrity:'tested',sync_review:'analysis',weekly_1c:'deferred'};
+  const patches=definitions.map(([id,title,before,after,off,check])=>({id,title,before,after,off,check,status:statuses[id]||'planned',switchable:['conflict_author','senior_foreman_role','senior_foreman_reset','senior_foreman_crown','admin_tired_icon','admin_report'].includes(id),dependencies:id==='equipment_frequency'?['equipment_tiles']:id==='game_penalties'?['user_ranking']:id.startsWith('tables_')&&id!=='tables_editor'?['tables_editor']:[]}));
+  function enabled(config,id){return config?.testReviewFlags?.[id]!==false;}
+  function reward(event){return event.cancelled?0:event.kind==='load'?1:event.kind==='arrive'&&event.previousLoadAt>0?2:0;}
+  function level(coins){return coins>=5000?'👑 Золотая лопата':coins>=1000?'Серебряная лопата':coins>=100?'Деревянная лопата':'Новичок';}
+  function rank(events,penalties=[],from=0,to=Infinity){
+    const out=new Map(),seen=new Set();
+    for(const e of events){if(!e.id||seen.has(e.id)||e.at<from||e.at>to||e.cancelled||e.restricted)continue;seen.add(e.id);const key=e.uid||e.email;if(!key)continue;
+      const r=out.get(key)||{uid:key,name:e.name||key,arrivals:0,loads:0,coins:0,total:0};
+      if(e.kind==='arrive'){r.arrivals++;r.total++;}if(e.kind==='load'){r.loads++;r.total++;}r.coins+=reward(e);out.set(key,r);
+    }
+    const applied=new Set();for(const p of penalties){if(!p.id||applied.has(p.id)||p.cancelled||p.at<from||p.at>to)continue;applied.add(p.id);const r=out.get(p.uid)||{uid:p.uid,name:p.name||p.uid,arrivals:0,loads:0,coins:0,total:0};r.coins-=10;out.set(p.uid,r);}
+    return [...out.values()].sort((a,b)=>b.coins-a.coins||b.total-a.total||a.name.localeCompare(b.name,'ru'));
+  }
+  return {patches,enabled,reward,level,rank};
+});
+
+</script>
+<script id="work-report">
+/* Owner's review report. Only the test build loads this module. */
+(function () {
+  'use strict';
+  if (firebaseConfig.projectId !== 'samosval-offline' || window.WorkReport) return;
+  const core=window.TestReviewCore, esc=escapeHtml;
+  const names={planned:'Ещё не реализовано',partial:'Часть подготовлена',prepared:'В коде, нужна проверка',tested:'Автотесты пройдены',analysis:'Анализ без изменения алгоритма',deferred:'Отложено по договорённости'};
+  const legacyCards={conflict_author:'conflictAuthorPatchCard',senior_foreman_role:'seniorForemanRolePatchCard',senior_foreman_reset:'foremanResetPatchCard',senior_foreman_crown:'seniorForemanCrownPatchCard',admin_tired_icon:'adminTiredIconPatchCard'};
+  const existing=new Set(Object.keys(legacyCards).filter(id=>document.getElementById(legacyCards[id])));
+  const release=window.TEST_REVIEW_RELEASE||{label:'Рабочая тестовая сборка 3.3',features:core.patches.filter(p=>p.switchable).map(p=>p.id),note:'Эта сборка ещё не опубликована. Изменения ролей и табеля требуют предварительной проверки правил тестовой базы.'};
+  const available=p=>p.switchable&&release.features.includes(p.id);
+  const style=document.createElement('style');style.id='owner-work-report-style';style.textContent='#admin-sub-workreport{font-size:15px;line-height:1.6}#admin-sub-workreport .form-card{padding:16px}#admin-sub-workreport p,#test-review-pending p{margin:12px 0}#admin-sub-workreport h3{margin-bottom:10px}#admin-sub-workreport ol{padding-left:22px}#admin-sub-workreport li{margin:10px 0}#admin-sub-workreport summary,#test-review-pending summary{padding:8px 0;cursor:pointer;font-weight:700}#admin-sub-workreport textarea,#test-review-pending textarea{font-size:14px;line-height:1.5;padding:10px;border-radius:8px;resize:vertical}';document.head.append(style);
+  const button=document.createElement('button');button.type='button';button.className='admin-tab-btn';button.textContent='Отчёт о работе';button.hidden=true;button.onclick=()=>{if(canAdmin()){switchAdminTab('workreport',button);render();}};
+  document.querySelector('#tab-admin .admin-tabs').append(button);
+  const panel=document.createElement('div');panel.id='admin-sub-workreport';panel.className='admin-section';document.getElementById('tab-admin').append(panel);
+  const patchHost=document.createElement('div');patchHost.id='test-review-pending';document.getElementById('admin-sub-patches').append(patchHost);
+  let lastReport='',lastPatches='';
+  const problem=p=>`Пункт: ${p.title}\nВерсия: ${release.label}\nРоль:\nОбъект / дата / машина (если относятся к проблеме):\nЧто нажал:\nЧто ожидал:\nЧто получилось:\nСеть: была / отсутствовала\nТумблер: включён / выключен\nПовторяется ли после открытия заново:\n`;
+  function details(p){return `<details><summary>Подробно</summary><p><b>Было:</b> ${esc(p.before)}</p><p><b>${['planned','partial','deferred'].includes(p.status)?'Должно стать':'Изменение'}:</b> ${esc(p.after)}</p><p><b>При выключении:</b> ${esc(p.off)}</p><p><b>Как проверить:</b> ${esc(p.check)}</p>${p.dependencies.length?`<p><b>Связанные пункты:</b> ${p.dependencies.map(id=>esc(core.patches.find(x=>x.id===id)?.title||id)).join(', ')}</p>`:''}<p><b>Как сообщить о проблеме:</b> заполните шаблон ниже и отправьте его в наш чат. Само приложение ничего не отправляет.</p><textarea readonly rows="7" aria-label="Шаблон сообщения об ошибке" style="width:100%;box-sizing:border-box">${esc(problem(p))}</textarea><button type="button" class="btn btn-secondary btn-small" data-copy-report="${esc(p.id)}">Скопировать шаблон</button></details>`;}
+  function render(){
+    const admin=canAdmin();button.hidden=!admin||!core.enabled(appConfig,'admin_report');
+    if(!admin){panel.innerHTML='';patchHost.innerHTML='';lastReport='';lastPatches='';return;}
+    const cards=core.patches.map(p=>`<article class="form-card" data-report-id="${esc(p.id)}"><b>${esc(p.title)}</b><p style="color:var(--muted)">${esc(names[p.status])}${available(p)?' · на этой странице '+(core.enabled(appConfig,p.id)?'включён':'выключен'):p.switchable?' · в рабочей ветке, в эту страницу не включён':''}</p>${details(p)}</article>`).join('');
+    const report=`<div class="section-title">Что сделано и что осталось</div><div class="form-card"><b>${esc(release.label)}</b><p>${esc(release.note)}</p><p>Наличие пункта в списке не означает, что функция уже работает. Статус указан под каждым названием. Все согласованные пункты остаются в плане.</p><p>Автотесты не заменяют проверку на телефоне и на двух аккаунтах. Новые правила базы нужно проверять и публиковать отдельно; основной файл приложения не менялся.</p><p><b>Что проверено в рабочей ветке:</b> имя автора конфликтующей отметки, перенос прав ролей, офлайн-очередь и повтор без лишнего рейса, устаревший сброс таймера, расчёт часов экипажа, материал и повторное закрытие смены. Проверки на реальных телефонах ещё нужны.</p><p><b>Что может быть неудобно:</b> роли пока ожидают правил базы; точное совпадение редактора с Google Таблицами ещё не подтверждено; сохранение картинки может идти в «Загрузки»; слишком большое время ходки может блокировать реальный ранний возврат.</p><p><b>Синхронизация:</b> по коду очередь ждёт уведомления и аудит; после ошибки есть паузы повторов. Надпись «ОФЛАЙН» используется и для ожидающего отправки действия. Это кандидаты на задержку, не результат замера на телефоне. Алгоритм не ускорялся.</p></div><section class="form-card"><h3>Наш дальнейший план</h3><ol><li>Проверить опубликованные уведомления и этот отчёт на двух аккаунтах.</li><li>Подготовить правила тестовой базы и закончить роли, табель, справочники, сводку всего объекта, участие самосвалов и связанные материалы.</li><li>Сделать архив по объектам, полноэкранный лист, компактные действия и «Сохранить отчёт».</li><li>Завершить серверное разграничение конфиденциальных данных и раздел «Безопасность».</li><li>Доработать аналитику, открытый аудит, рейтинги, монеты и обратимые штрафы.</li><li>Собрать нижнюю вкладку «Таблицы»: листы, форматирование, формулы, панель над клавиатурой, доступ, история и восстановление.</li><li>Отдельно измерить задержку синхронизации. Изменения её механизма согласовать после замеров.</li><li>Проверить каждый тумблер. По вашему выбору включить принятые пункты в релиз и убрать отклонённые. Основной релиз — после вашего согласия.</li></ol><p>Отчёт 1С за неделю оставлен на будущее, после фотографии образца.</p></section>${cards}`;
+    if(report!==lastReport){panel.innerHTML=report;lastReport=report;}
+    const patches='<div class="section-title">Согласованные изменения</div>'+core.patches.filter(p=>!existing.has(p.id)).map(p=>`<article class="form-card"><div class="settings-row"><b>${esc(p.title)}</b><label class="toggle-switch"><input type="checkbox" data-review-flag="${esc(p.id)}" aria-label="${esc(p.title)}" ${available(p)?'':'disabled'} ${available(p)&&core.enabled(appConfig,p.id)?'checked':''}><span class="toggle-slider"></span></label></div><p style="color:var(--muted)">${esc(names[p.status])}${!available(p)?' · на этой странице переключение недоступно':''}</p>${details(p)}</article>`).join('');
+    if(patches!==lastPatches){patchHost.innerHTML=patches;lastPatches=patches;}
+    if(button.hidden&&panel.classList.contains('active'))switchAdminTab('patches',document.querySelector('.admin-tab-btn[onclick*="patches"]'));
+  }
+  async function toggle(event){const input=event.target.closest('[data-review-flag]');if(!input)return;const p=core.patches.find(p=>p.id===input.dataset.reviewFlag);if(!canAdmin()||!p||!available(p)){render();return;}input.disabled=true;try{await appConfigRef.set({testReviewFlags:{[p.id]:input.checked}},{merge:true});appConfig.testReviewFlags={...appConfig.testReviewFlags,[p.id]:input.checked};window.dispatchEvent(new Event('review-flags-changed'));}catch(e){showError('Не удалось сохранить настройку: '+e.message);}finally{lastPatches='';render();}}
+  async function copy(event){const b=event.target.closest('[data-copy-report]');if(!b||!canAdmin())return;const p=core.patches.find(p=>p.id===b.dataset.copyReport);try{await navigator.clipboard.writeText(problem(p));showToastEl('Шаблон скопирован',false);}catch(_){const text=b.previousElementSibling;text.focus();text.select();showToastEl('Выделен текст для копирования',false);}}
+  patchHost.addEventListener('change',toggle);patchHost.addEventListener('click',copy);panel.addEventListener('click',copy);
+  const before=window.renderAll;window.renderAll=function(){const result=before.apply(this,arguments);render();return result;};
+  const switchesName=typeof window.renderTestReviewSwitches==='function'?'renderTestReviewSwitches':'renderConflictAuthorPatch';
+  const previousSwitches=window[switchesName];if(previousSwitches)window[switchesName]=function(){previousSwitches.apply(this,arguments);render();window.dispatchEvent(new Event('review-flags-changed'));};
+  window.WorkReport={render};auth.onAuthStateChanged(render);render();
+})();
+
+</script>
+<!-- WORK REVIEW END -->
 <!-- TIMESHEET MODULE START -->
 <script id="timesheet-core">
 /* Test-site field ledger. Pure validation and transaction engine; no production writes. */
@@ -3962,7 +4124,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     if(!allowed()){host.innerHTML=note('Нет доступа к табелю.');return;}
     const pending=S.jobs.filter(x=>x.status==='queued').length,failed=S.jobs.filter(x=>x.status!=='queued');
     const syncText=pending?`На устройстве: ${pending} · ожидают отправки`:!navigator.onLine?'Нет связи · показываем сохранённые данные':S.objectId&&C.collections.every(c=>S.ready[c])?'Данные подтверждены сервером':'Проверяем данные с сервером…';
-    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div><span class="ts-version">Тест 3.1.2</span></div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
+    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div><span class="ts-version">Тест 3.1.3</span></div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
     if(html!==S.lastHtml){host.innerHTML=html;S.lastHtml=html;}
   }
   function dialog(title,body,onSubmit){
