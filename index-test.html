@@ -414,7 +414,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">ТЕСТОВАЯ ВЕРСИЯ · 2.92 · офлайн</span>
+        <span class="version-text">ТЕСТОВАЯ ВЕРСИЯ · 2.93 · офлайн</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -1286,20 +1286,20 @@
   function markSync(source, fromCache, hasPendingWrites, docCount) {
     if (syncState.errors) delete syncState.errors[source];
     syncState.fromCache[source] = !!fromCache; syncState.docCount[source] = docCount || 0;
-    if (!fromCache) { syncState.everConnected[source] = true; syncState.lastSuccessAt = Date.now(); }
+    if (!fromCache) { syncState.everConnected[source] = true; syncState.lastSuccessAt = Date.now(); if(source==='status'||source==='shift')offlineTransportRecovered(); }
     syncState.pendingWrites[source] = !!hasPendingWrites;
     if (!hasPendingWrites) delete syncState.pendingWrites[source];
     updateSyncUI();
   }
   function reportSyncError(source, error) {
     syncState.errors = syncState.errors || {};
-    syncState.errors[source] = { code: error?.code || 'unknown', message: error?.message || String(error), at: Date.now() };
+    syncState.errors[source] = { code: error?.code || 'unknown', message: error?.message || String(error), at: Date.now() }; if(offlineTransportError(error))offlineTransportFailed(error);
     console.error('[sync:' + source + ']', error);
     updateSyncUI();
   }
   function getSyncStatus() {
     const queued=offlinePendingCount();
-    if (!navigator.onLine) return { state: 'offline', text: 'Работа офлайн' + (queued ? ` · действий к отправке: ${queued}` : '') };
+    if (offlineServerUnreachable || !navigator.onLine) return { state: 'offline', text: 'Работа локально' + (queued ? ` · действий к отправке: ${queued}` : '') };
     if (Object.keys(syncState.errors || {}).length) return {state:'error',text:'Ошибка загрузки: ' + Object.keys(syncState.errors).join(', ')};
     if (!currentUserRole) return {state:'init',text:'Проверка учётной записи…'};
     if (!initialized || !permissionsLoaded) return { state: 'init', text: 'Загрузка данных и прав…' };
@@ -2397,6 +2397,26 @@
   function offlinePendingOps(){return offlineJournalRead().filter(x=>x.status==='pending');}
   function offlinePendingForTruck(id){return offlinePendingOps().some(x=>x.truckId===id&&state.shift&&x.shiftId===state.shift.id);}
   function offlinePendingCount(){return offlinePendingOps().length;}
+  // navigator.onLine is only a browser hint. Firestore may be unreachable even
+  // while it remains true (Wi-Fi without internet, DNS failure, captive portal).
+  let offlineServerRetryAt=0,offlineServerRetryDelay=0,offlineServerUnreachable=false;
+  function offlineTransportError(e){
+    const code=String(e?.code||'').toLowerCase(),message=String(e?.message||'').toLowerCase();
+    return ['unavailable','deadline-exceeded','network-request-failed','resource-exhausted'].includes(code)
+      || /connection failed|failed to fetch|network error|network request failed/.test(message);
+  }
+  function offlineTransportFailed(error){
+    offlineServerUnreachable=true;
+    offlineServerRetryDelay=Math.min(60000,offlineServerRetryDelay?offlineServerRetryDelay*2:4000);
+    offlineServerRetryAt=Date.now()+offlineServerRetryDelay;
+    console.warn('[offline] Сервер недоступен, локальная очередь сохранена:',error?.code||error?.message||error);
+    updateSyncUI();
+  }
+  function offlineTransportRecovered(){
+    if(!offlineServerUnreachable&&!offlineServerRetryAt)return;
+    offlineServerUnreachable=false;offlineServerRetryAt=0;offlineServerRetryDelay=0;
+    updateSyncUI();
+  }
   function offlineUnreviewedFailures(){return offlineJournalRead().filter(x=>x.status==='rejected'&&!x.reviewed);}
   function offlineReasonLabel(reason){
     const reasons={
@@ -2537,7 +2557,7 @@
     }catch(e){console.warn('Не удалось отправить аудит офлайн-действия',e);}
   }
   async function offlineReplayJournal(){
-    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
+    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||Date.now()<offlineServerRetryAt||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
     offlineReplayRunning=true;
     try{
       for(const op of offlinePendingOps()){
@@ -2604,162 +2624,40 @@
             }
             return {outcome:'rejected',reason:'unsupported'};
           });
-          offlineAdoptResult(op,result);
+          offlineTransportRecovered();offlineAdoptResult(op,result);
           offlineResolve(op.id,result.outcome,result.reason||result.outcome);
           offlineProjectState();refreshLineViews();
           if(result.outcome==='confirmed'){
             offlineNotifyAccepted(op,result).catch(()=>{});
           }else showToastEl('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)),true);
         }catch(e){
-          if(!navigator.onLine||['unavailable','deadline-exceeded','network-request-failed','aborted','cancelled'].includes(e.code))break;
+          if(offlineTransportError(e)){offlineTransportFailed(e);break;}
+          if(!navigator.onLine||['aborted','cancelled'].includes(e.code)){offlineServerRetryAt=Date.now()+1500;break;}
           offlineResolve(op.id,'rejected',e.code||e.message||'error');offlineProjectState();refreshLineViews();
           showToastEl('⚠️ Офлайн-действие отклонено: '+escapeHtml(e.message||e.code||'ошибка'),true);
         }
       }
     }finally{offlineReplayRunning=false;updateSyncUI();}
   }
-  async function performLoad(id,capturedIntent) {
+  // Offline-first operations. The UI moves immediately; the journal replays
+  // through server transactions even when navigator.onLine incorrectly says true.
+  async function performLoad(id,capturedIntent){
     if(!requireEdit('action_load')||loadInFlight[id]||lineActionInFlight[id])return {outcome:'ignored'};
-    const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
-    if(!navigator.onLine||offlinePendingForTruck(id))return {outcome:offlineQueueAction('load',id,intent)?'queued':'failed'};
-    loadInFlight[id]=true;lineActionInFlight[id]='load';pendingStart();
-    let committed=false;
-    try{
-      if(truckStatusWrites[id])await truckStatusWrites[id];
-      const truck=findTruck(id);if(!truck)return {outcome:'ignored'};
-      const actor=getUserName(),email=currentEmail,now=Date.now();
-      const result=await db.runTransaction(async tx=>{
-        const before=await readLineState(tx,id,intent.shiftId);
-        const expected=intent.status;
-        if(Number(before.cycleRevision||0)!==Number(expected.cycleRevision||0)||!before.arriveStatus){
-          if(before.lastLoadTimestamp && !before.arriveStatus)return {outcome:'already-applied',type:'load',status:before,log:await findWinningLoad(tx,id,intent.shiftId,before)};
-          if(before.arriveStatus)return {outcome:'changed',type:'load',status:before};
-          throw {code:'arrival-required',message:'Самосвал ещё не отмечен как прибывший'};
-        }
-        if((before.arriveTimestamp||null)!==(expected.arriveTimestamp||null)||(before.lastLoadTimestamp||null)!==(expected.lastLoadTimestamp||null))return {outcome:'changed',type:'load',status:before};
-        const gap=(settings.cycleMinutes||15)*60000;
-        if(before.lastLoadTimestamp && now-before.lastLoadTimestamp<gap)throw {code:'cycle-not-finished',message:'Ещё не истекло время ходки'};
-        const logId=`load_${id}_${intent.shiftId}_cycle_${Number(before.cycleRevision||0)}_${Number(before.arriveTimestamp||before.addedAt||0)}`;
-        const logRef=refs.logs.doc(logId),existing=await tx.get(logRef);
-        if(existing.exists)throw {code:'cycle-conflict',message:'Запись этой ходки уже существует. Данные будут обновлены'};
-        const timestamp=Math.max(now,Number(before.arriveTimestamp||0)+1,Number(before.lastLoadTimestamp||0)+1);
-        const log={shiftId:intent.shiftId,truckId:id,truckName:truck.brand+' '+truck.number,volume:truck.isGAI?0:truck.defaultVol,timeStr:new Date(timestamp).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),timestamp,arrivalTimestamp:Number(before.arriveTimestamp)||null,createdBy:actor,createdByEmail:email||'',isGAI:!!truck.isGAI,comment:''};
-        const update={lastLoadTimestamp:timestamp,lastLoadBy:actor,lastLoadLogId:logId,cycleRevision:Number(before.cycleRevision||0)+1,arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:true};
-        if(before.ttnStatus==='pending'){update.ttnStatus=true;update.ttnLogId=logId;}
-        tx.set(logRef,log);tx.update(refs.truckStatus.doc(id),update);
-        return {outcome:'committed',type:'load',beforeStatus:before,status:{...before,...update},log:{id:logId,...log},notification:{type:'load',truckId:id,logId,createdByEmail:email,...previousLoadSnapshot(before)}};
-      });
-      committed=result.outcome==='committed';acceptLineResult(id,result,intent);
-      if(!committed){
-        if(result.outcome==='already-applied'){
-          showToastEl('Погрузка уже записана: '+escapeHtml(result.status.lastLoadBy||'другой пользователь')+'. Повторный рейс не добавлен',false);
-          await addAudit('Повтор погрузки не добавлен: '+truckName(id)+' · уже отметил '+(result.status.lastLoadBy||'другой пользователь'),{eventType:'load_duplicate_ignored',truckId:id,logId:result.status.lastLoadLogId||''});
-        }else showToastEl('Состояние самосвала изменилось. Карточка обновлена; проверьте действие',false);
-        return result;
-      }
-      const counted=getLogs().filter(l=>l.truckId===id);
-      const count=counted.length+(counted.some(l=>l.id===result.log.id)?0:1);
-      const label=hasPermission('view_reis_in_ticker')?'Рейс №'+count+' · ':'';
-      showToast('⚡ Погрузка · '+truckLabelHtml(id),`⚡ ${label}+${result.log.volume} м³ · ${truckLabelHtml(id)} · ${actor}`,result.notification);
-      await auditTruckAction('load',id,{logId:result.log.id,volume:result.log.volume,loadTimestamp:result.log.timestamp});
-      if(appConfig.maxEnabled&&appConfig.notifyLoad)enqueueMax(`⚡ Погрузка\n🚛 ${truck.number}\n👤 ${actor}`,{truckId:id,logId:result.log.id,reis:count});
-      return result;
-    }catch(e){
-      // Rules can reject a losing commit before the SDK reports a write conflict.
-      // Confirm the winner with a read-only transaction instead of rolling back.
-      if(!committed && ['permission-denied','aborted','already-exists','failed-precondition'].includes(e.code)){
-        try{
-          const winner=await db.runTransaction(async tx=>{
-            const status=await readLineState(tx,id,intent.shiftId);
-            if(Number(status.cycleRevision||0)===Number(intent.status.cycleRevision||0)||status.arriveStatus||!status.lastLoadTimestamp)return null;
-            const log=await findWinningLoad(tx,id,intent.shiftId,status);
-            if(!log || Number(log.arrivalTimestamp||0)!==Number(intent.status.arriveTimestamp||0))return null;
-            return {outcome:'already-applied',type:'load',status,log};
-          });
-          if(winner){
-            acceptLineResult(id,winner,intent);
-            showToastEl('Погрузка уже записана: '+escapeHtml(winner.status.lastLoadBy||'другой пользователь')+'. Повторный рейс не добавлен',false);
-            await addAudit('Повтор погрузки не добавлен: '+truckName(id),{eventType:'load_duplicate_ignored',truckId:id,logId:winner.log.id});
-            return winner;
-          }
-        }catch(_){}
-      }
-      await recoverLineState(id,intent);reportSyncError('load',e);
-      showError((committed?'Рейс сохранён, ошибка после записи: ':'Погрузка не записана: ')+escapeHtml(e.message||'Ошибка Firebase')+' ['+escapeHtml(e.code||'unknown')+']');
-      return {outcome:committed?'committed':'failed'};
-    }finally{loadInFlight[id]=false;delete lineActionInFlight[id];pendingEnd();}
+    const intent=capturedIntent||captureLineIntent(id);
+    if(!intent)return {outcome:'ignored'};
+    return {outcome:offlineQueueAction('load',id,intent)?'queued':'failed'};
   }
   async function toggleArrive(id,capturedIntent){
     if(!requireEdit('action_arrive')||lineActionInFlight[id])return {outcome:'ignored'};
-    const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
-    if(!navigator.onLine||offlinePendingForTruck(id))return {outcome:offlineQueueAction('arrive',id,intent)?'queued':'failed'};
-    const wantArrived=!intent.status.arriveStatus,now=Date.now(),actor=getUserName();
-    lineActionInFlight[id]='arrive';pendingStart();
-    try{
-      const result=await db.runTransaction(async tx=>{
-        const before=await readLineState(tx,id,intent.shiftId);
-        if(Number(before.cycleRevision||0)!==Number(intent.status.cycleRevision||0))return {outcome:'already-applied',type:'arrive',status:before};
-        if(!!before.arriveStatus===wantArrived)return {outcome:'already-applied',type:'arrive',status:before};
-        if(wantArrived&&before.lastLoadTimestamp&&now-before.lastLoadTimestamp<(settings.cycleMinutes||15)*60000)throw {code:'cycle-not-finished',message:'Ещё не истекло время ходки'};
-        const timestamp=Math.max(now,Number(before.lastLoadTimestamp||0)+1);
-        const update=wantArrived?{arriveStatus:new Date(timestamp).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),arriveTimestamp:timestamp,arriveBy:actor,loadedAfterArrive:false,cycleRevision:Number(before.cycleRevision||0)+1}:{arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:Number(before.cycleRevision||0)+1};
-        tx.update(refs.truckStatus.doc(id),update);
-        return {outcome:'committed',type:'arrive',beforeStatus:before,status:{...before,...update},notification:{type:'arrive',truckId:id,wasArrived:!wantArrived,prevTime:before.arriveStatus||null,prevTs:before.arriveTimestamp||null,prevArriveBy:before.arriveBy||null,createdByEmail:currentEmail}};
-      });
-      acceptLineResult(id,result,intent);
-      if(result.outcome!=='committed'){showToastEl('Статус уже изменён другим пользователем. Карточка обновлена',false);return result;}
-      const text=(wantArrived?'🚛 Приехал: ':'↩️ Снят статус «Приехал»: ')+truckLabelHtml(id);
-      showToast(text,text,result.notification);
-      await auditTruckAction(wantArrived?'arrive':'arrive_cancel',id,{arrivalTimestamp:result.status.arriveTimestamp||null});
-      if(wantArrived&&appConfig.maxEnabled&&appConfig.notifyArrive)enqueueMax('🚛 Приехал на объект\n🚛 '+truckName(id)+'\n👤 '+actor);
-      return result;
-    }catch(e){
-      if(['permission-denied','aborted','failed-precondition'].includes(e.code)){
-        try{const status=await db.runTransaction(tx=>readLineState(tx,id,intent.shiftId));
-          if(Number(status.cycleRevision||0)!==Number(intent.status.cycleRevision||0)){
-            const result={outcome:'already-applied',type:'arrive',status};acceptLineResult(id,result,intent);showToastEl('Статус уже изменён другим пользователем. Карточка обновлена',false);return result;
-          }
-        }catch(_){}
-      }
-      await recoverLineState(id,intent);reportSyncError('arrive',e);showError('Статус не изменён: '+escapeHtml(e.message||'Ошибка Firebase')+' ['+escapeHtml(e.code||'unknown')+']');return {outcome:'failed'};}
-    finally{delete lineActionInFlight[id];pendingEnd();}
+    const intent=capturedIntent||captureLineIntent(id);
+    if(!intent)return {outcome:'ignored'};
+    return {outcome:offlineQueueAction('arrive',id,intent)?'queued':'failed'};
   }
   async function toggleTtn(id,capturedIntent){
     if(!requireEdit('action_ttn')||lineActionInFlight[id])return {outcome:'ignored'};
-    const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
-    if(!navigator.onLine||offlinePendingForTruck(id))return {outcome:offlineQueueAction('ttn',id,intent)?'queued':'failed'};
-    const collect=!intent.status.ttnStatus,actor=getUserName();lineActionInFlight[id]='ttn';pendingStart();
-    try{
-      const result=await db.runTransaction(async tx=>{
-        const before=await readLineState(tx,id,intent.shiftId);
-        if(Number(before.ttnRevision||0)!==Number(intent.status.ttnRevision||0)||!!before.ttnStatus===collect)return {outcome:'already-applied',type:'ttn',status:before};
-        let logId=before.lastLoadLogId||null;
-        if(collect&&before.loadedAfterArrive&&before.lastLoadTimestamp){
-          const log=await findWinningLoad(tx,id,intent.shiftId,before);
-          if(!log)throw {code:'log-reference-missing',message:'Не найдена последняя погрузка. Обновите карточку'};
-          logId=log.id;
-        }
-        const update=collect?{ttnStatus:before.loadedAfterArrive&&logId?true:'pending',ttnBy:actor,ttnLogId:before.loadedAfterArrive?logId:null}:{ttnStatus:null,ttnBy:null,ttnLogId:null};
-        update.ttnRevision=Number(before.ttnRevision||0)+1;
-        tx.update(refs.truckStatus.doc(id),update);
-        return {outcome:'committed',type:'ttn',beforeStatus:before,status:{...before,...update},notification:{type:'ttn',truckId:id,prevTtn:before.ttnStatus??null,prevTtnBy:before.ttnBy||null,prevTtnLogId:before.ttnLogId||null,createdByEmail:currentEmail}};
-      });
-      acceptLineResult(id,result,intent);
-      if(result.outcome!=='committed'){showToastEl('Отметка ТТН уже изменена. Карточка обновлена',false);return result;}
-      const text=(collect?'📄 Забрал ТТН: ':'↩️ Снята ТТН: ')+truckLabelHtml(id);showToast(text,text,result.notification);
-      await auditTruckAction(collect?'ttn':'ttn_cancel',id);
-      if(collect&&appConfig.maxEnabled&&appConfig.notifyTtn)enqueueMax('📄 Забрал ТТН\n🚛 '+truckName(id)+'\n👤 '+actor);
-      return result;
-    }catch(e){
-      if(['permission-denied','aborted','failed-precondition'].includes(e.code)){
-        try{const status=await db.runTransaction(tx=>readLineState(tx,id,intent.shiftId));
-          if(Number(status.ttnRevision||0)!==Number(intent.status.ttnRevision||0)){
-            const result={outcome:'already-applied',type:'ttn',status};acceptLineResult(id,result,intent);showToastEl('Отметка ТТН уже изменена. Карточка обновлена',false);return result;
-          }
-        }catch(_){}
-      }
-      await recoverLineState(id,intent);reportSyncError('ttn',e);showError('Отметка ТТН не изменена: '+escapeHtml(e.message||'Ошибка Firebase'));return {outcome:'failed'};}
-    finally{delete lineActionInFlight[id];pendingEnd();}
+    const intent=capturedIntent||captureLineIntent(id);
+    if(!intent)return {outcome:'ignored'};
+    return {outcome:offlineQueueAction('ttn',id,intent)?'queued':'failed'};
   }
 
   // === УДЕРЖАНИЕ ===
@@ -3118,7 +3016,7 @@
 
   window.addEventListener('DOMContentLoaded', () => {
     loadMaxQueue(); renderAll(); updateSyncUI();
-    window.addEventListener('online', () => { updateSyncUI(); runMaxQueue(); offlineReplayJournal(); });
+    window.addEventListener('online', () => { offlineTransportRecovered(); updateSyncUI(); runMaxQueue(); offlineReplayJournal(); });
     window.addEventListener('offline', updateSyncUI);
     let e = localStorage.getItem('dt_saved_email'); if(e) document.getElementById('userBadgeLabel').textContent = '👤 ' + sanitizeName(e);
     document.getElementById('newTruckType').addEventListener('change', toggleVolInput);
