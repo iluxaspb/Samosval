@@ -1,0 +1,19 @@
+{
+  "id": "/Samosval/",
+  "name": "Учёт самосвалов и Табель",
+  "short_name": "Учёт самосвалов",
+  "start_url": "/Samosval/",
+  "scope": "/Samosval/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
