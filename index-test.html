@@ -3592,26 +3592,42 @@ function calculateTripAnalytics(sessions, trucks, now) {
   // truck. Preserve the original animation; add a motion fallback only when
   // the old renderer did not start its multi-card animation.
   const originalAnimatedRenderLine=window.renderLine;
+  let delayedLoadAnimation=null;
+  function playSoloLoad(id){
+    const el=document.getElementById('trucksLineList');
+    const card=el&&Array.from(el.querySelectorAll('.truck-card[data-truck-id]'))
+      .find(x=>x.dataset.truckId===id);
+    if(!card)return;
+    card.classList.remove('solo-load-animation');
+    void card.offsetWidth;
+    card.classList.add('solo-load-animation');
+    setTimeout(()=>card.classList.remove('solo-load-animation'),1200);
+  }
   window.renderLine=function(){
     const loaded=window.__cardJustLoaded;
-    const fresh=loaded&&(Date.now()-loaded.time)<5000;
+    const fresh=loaded&&(Date.now()-loaded.time)<5500;
+    if(fresh&&window.__lineAnimating)delayedLoadAnimation={...loaded};
     const result=originalAnimatedRenderLine.apply(this,arguments);
-    if(fresh&&!window.__lineAnimating){
-      const el=document.getElementById('trucksLineList');
-      const card=el&&Array.from(el.querySelectorAll('.truck-card[data-truck-id]'))
-        .find(x=>x.dataset.truckId===loaded.id);
-      if(card){
-        card.classList.remove('solo-load-animation');
-        void card.offsetWidth;
-        card.classList.add('solo-load-animation');
-        setTimeout(()=>card.classList.remove('solo-load-animation'),1200);
+    if(fresh){
+      if(window.__lineAnimating){
+        // If the prior arrival animation is still running, retain the new
+        // loading animation even if the original module clears its flags.
+        if(!delayedLoadAnimation)delayedLoadAnimation={...loaded};
+      }else{
+        delayedLoadAnimation=null;
+        playSoloLoad(loaded.id);
+        if(window.__cardJustLoaded===loaded)window.__cardJustLoaded=null;
       }
-      // Consume only the already displayed event; prevents a later unrelated
-      // report refresh from animating the same load again.
-      if(window.__cardJustLoaded===loaded)window.__cardJustLoaded=null;
     }
     return result;
   };
+  setInterval(()=>{
+    if(delayedLoadAnimation&&!window.__lineAnimating){
+      const loaded=delayedLoadAnimation;
+      delayedLoadAnimation=null;
+      playSoloLoad(loaded.id);
+    }
+  },180);
   const list=document.getElementById('trucksLineList');
   if(!list)return;
   function markOfflineCards(){
