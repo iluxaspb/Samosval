@@ -1,0 +1,30 @@
+const fs=require('fs'),assert=require('node:assert/strict'),{JSDOM}=require('jsdom');
+const code=fs.readFileSync('patches/max-plate-notifications-v1.js','utf8'),CONTRACT='samosval-max-plate-v1';
+const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZusAAAAASUVORK5CYII=';
+function setup({supported=true,post=200,ack=true}={}){
+ const dom=new JSDOM('<div id="admin-sub-appsettings"><div class="form-card"></div></div>',{runScripts:'outside-only',url:'https://app.example/'}),w=dom.window,calls=[],legacy=[],queued=[],draws=[];
+ w.AbortController=AbortController;w.canAdmin=()=>true;w.appConfig={maxEnabled:true,maxUrl:'https://relay.example/send',maxToken:'relay-fixture',maxChatId:'-123'};
+ w.findTruck=id=>id==='truck'?{number:'Р555СТ98'}:undefined;w.sendMaxOnce=async item=>{legacy.push(item);return 'ok';};w.enqueueMax=(text,meta,notBefore)=>queued.push({id:'q_1',type:'text',text,meta,notBefore});w.applyAllPatches=()=>{};
+ w.HTMLCanvasElement.prototype.getContext=()=>new Proxy({measureText:t=>({width:t.length*40}),fillText:(...args)=>draws.push(args)}, {get:(t,k)=>k in t?t[k]:()=>{},set:(t,k,v)=>(t[k]=v,true)});w.HTMLCanvasElement.prototype.toDataURL=()=> 'data:image/png;base64,'+png;
+ w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+ w.fetch=async(url,opts)=>{calls.push({url,opts});if(opts.method==='GET')return{ok:true,status:200,headers:{get:()=> 'application/json'},json:async()=>supported?{contract:CONTRACT,capabilities:{image_png:true}}:{ok:true}};return{ok:post===200,status:post,json:async()=>ack?{contract:CONTRACT,success:true,message_id:'mid-fixture'}:{ok:true}};};
+ w.eval(code);return {w,dom,calls,legacy,queued,draws};
+}
+(async()=>{
+ let f=setup(),api=f.w.MaxPlateNotifications;
+ for(const number of ['А123ВС178','а 123 вс 78','A123BC178','Р555СТ98'])assert(api.parsePlate(number));for(const invalid of ['123','A123BC1789','А12ВС178','foo<script>'])assert.equal(api.parsePlate(invalid),null);
+ for(const title of ['⚡ Погрузка','🚛 Приехал на объект','📄 Забрал ТТН','🟢 На линию добавлен','🔴 С линии убран'])assert.equal(api.fromText(title+'\n🚛 КАМАЗ А123ВС178\n👤 Мастер').number,'А123ВС178');
+ assert.equal(api.fromText('👤 А123ВС178\n🏢 Объект'),null);assert.equal(api.fromText('🚛 А123ВС178 и Р555СТ98'),null);
+ f.w.enqueueMax('⚡ Погрузка\n🚛 А123ВС178',{truckId:'truck',logId:'log-1',reis:3},123);assert.equal(f.queued[0].meta.maxPlateNumber,'А123ВС178');assert.equal(f.queued[0].meta.reis,3);assert.equal(f.queued[0].notBefore,123);
+ assert.equal(await f.w.sendMaxOnce(f.queued[0]),'ok');assert.equal(f.legacy.length,0);let posts=f.calls.filter(c=>c.opts.method==='POST');assert.equal(posts.length,1);let body=JSON.parse(posts[0].opts.body);assert.equal(body.text,f.queued[0].text);assert.equal(body.image.mime_type,'image/png');assert.equal(body.request_id,'q_1');assert.equal(body.chat_id,'-123');assert(!body.document);assert.equal(posts[0].opts.headers.Authorization,'Bearer relay-fixture');assert(f.draws.some(a=>a[0]==='178'));assert(f.draws.some(a=>a[0]==='RUS'));
+ const pdf={type:'document',filename:'report.pdf',base64:'pdf',caption:'Отчёт'};await f.w.sendMaxOnce(pdf);assert.strictEqual(f.legacy[0],pdf);await f.w.sendMaxOnce({type:'text',text:'Смена началась'});assert.equal(f.calls.filter(c=>c.opts.method==='GET').length,1);
+ const wrapper=f.w.sendMaxOnce;f.w.eval(code);assert.strictEqual(f.w.sendMaxOnce,wrapper);assert.equal(f.w.document.querySelectorAll('#maxPlatePanel').length,1);
+ api.preview();assert(f.w.document.querySelector('#maxPlatePreview img').src.startsWith('data:image/png;base64,'));assert.equal(f.calls.filter(c=>c.opts.method==='POST').length,1);f.w.document.querySelector('#maxPlatePreview input').value='<script>';f.w.document.querySelector('#maxPlatePreview input').dispatchEvent(new f.w.Event('input'));assert(f.w.document.querySelector('#maxPlatePreview img').hidden);f.dom.window.close();
+ f=setup({supported:false});const original={id:'old',type:'text',text:'⚡ Погрузка\n🚛 А123ВС178'};await f.w.sendMaxOnce(original);assert.equal(f.calls.filter(c=>c.opts.method==='POST').length,0);assert.strictEqual(f.legacy[0],original);assert(f.w.document.querySelector('#maxPlateStatus').textContent.includes('прежним текстом'));f.dom.window.close();
+ for(const options of [{post:503},{post:429},{post:200,ack:false}]){f=setup(options);assert.equal(await f.w.sendMaxOnce(original),'retry');assert.equal(f.legacy.length,0);assert.equal(f.calls.filter(c=>c.opts.method==='POST').length,1);f.dom.window.close();}
+ f=setup();f.w.fetch=async()=>{throw Error('offline');};assert.equal(await f.w.sendMaxOnce(original),'ok');assert.equal(f.legacy.length,1);f.dom.window.close();
+ f=setup();f.w.currentUid='first';const priorFetch=f.w.fetch;f.w.fetch=async(...args)=>{const result=await priorFetch(...args);f.w.currentUid='second';return result;};assert.equal(await f.w.sendMaxOnce(original),'retry');assert.equal(f.calls.filter(c=>c.opts.method==='POST').length,0);f.dom.window.close();
+ f=setup();f.w.applyAllPatches=()=>{f.w.sendMaxOnce=async()=> 'replacement';};f.w.MaxPlateNotifications.install();f.w.applyAllPatches();assert(f.w.sendMaxOnce.__maxPlate);assert.equal(await f.w.sendMaxOnce(original),'ok');assert.equal(f.calls.filter(c=>c.opts.method==='POST').length,1);f.dom.window.close();
+ f=setup();f.w.appConfig.maxUrl='http://relay.example/send';assert.equal(await f.w.MaxPlateNotifications.checkServer(),false);assert(f.w.document.querySelector('#maxPlateStatus').textContent.includes('HTTPS'));assert.equal(f.calls.length,0);f.dom.window.close();
+ console.log('PASS patch: plate parsing/snapshots, existing event types and schedule, PNG payload, single message path, capability fallback, no blind text resend, untouched PDF, preview without sending, safe repeat install');
+})().catch(e=>{console.error(e);process.exitCode=1;});
