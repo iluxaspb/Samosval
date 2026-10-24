@@ -182,8 +182,8 @@ service cloud.firestore {
       // The application subscribes to these shared collections.
       // Non-admin writes are granted separately below.
       match /{collection}/{id} {
-        allow read: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetChanges']) && active();
-        allow write: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetChanges']) && admin();
+        allow read: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetShifts','timesheetSettings','timesheetChanges']) && active();
+        allow write: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetShifts','timesheetSettings','timesheetChanges']) && admin();
       }
 
       // Field ledger: enabled only on the separate samosval-offline test project.
@@ -192,7 +192,7 @@ service cloud.firestore {
       }
       function ledgerEdit() { return ledgerRead() && can('timesheet_edit'); }
       function ledgerManage() { return ledgerRead() && can('timesheet_manage'); }
-      function ledgerCollection(c) { return c in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials']; }
+      function ledgerCollection(c) { return c in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetShifts','timesheetSettings']; }
       function sameChange(c, collection, id) {
         return c.collection == collection && c.id == id && c.after == request.resource.data;
       }
@@ -221,10 +221,36 @@ service cloud.firestore {
           && d.shift in ['day','night']
           && d.scope == d.objectId + '|' + d.date.split('-')[0] + '-' + d.date.split('-')[1];
       }
+      function ledgerRole(d) { return d.get('operatorRole','unassigned') in ['mill','tractor','water','loader','bus','driver','other','unassigned']; }
+      function ledgerType(d) { return d.get('equipmentType','other') in ['water','brush','mill','loader','bus','xcmg','other']; }
+      function ledgerRoute(d) {
+        return d.material is string && d.material.size()>0 && d.material.size()<=160
+          && d.destinationType in ['stockpile','plant','object']
+          && d.destinationName is string && d.destinationName.size()>0 && d.destinationName.size()<=160
+          && d.targetObjectId is string && d.targetObjectId.size()<=160
+          && d.targetObjectName is string && d.targetObjectName.size()<=160
+          && (d.destinationType!='object' || (d.targetObjectId.matches('^[A-Za-z0-9_-]+$') && d.targetObjectId!=d.objectId && d.targetObjectName.size()>0));
+      }
+      function ledgerSettings(id) {
+        let d=request.resource.data;
+        return d.keys().hasOnly(['objectId','material','destinationType','destinationName','targetObjectId','targetObjectName','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
+          && d.objectId is string && d.objectId.matches('^[A-Za-z0-9_-]+$') && id=='object_'+d.objectId && ledgerRoute(d);
+      }
+      function ledgerShift(id) {
+        let d=request.resource.data;
+        return d.keys().hasOnly(['objectId','objectName','date','shift','scope','startTime','endTime','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
+          && ledgerPeriod(d) && id=='shift~'+d.objectId+'~'+d.date+'~'+d.shift
+          && d.startTime is string && d.startTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+          && d.endTime is string && d.endTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+      }
       function ledgerEntry(id) {
         let d=request.resource.data;
-        return d.keys().hasOnly(['kind','entityId','name','group','ownership','contractor','objectId','objectName','date','shift','scope','minutes','idleMinutes','status','equipmentId','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
-          && ledgerPeriod(d) && d.kind in ['person','equipment']
+        return d.keys().hasOnly(['equipmentType','operatorRole','personId','crewSlot','crewCount','kind','entityId','name','group','ownership','contractor','objectId','objectName','date','shift','scope','minutes','idleMinutes','status','equipmentId','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
+          && ledgerPeriod(d) && d.kind in ['person','equipment'] && ledgerType(d) && ledgerRole(d)
+          && d.get('personId','') is string && d.get('personId','').size()<=160
+          && (!('crewSlot' in d) || (d.kind=='person' && d.group=='operator' && d.crewSlot is int && d.crewSlot>=0 && d.crewSlot<=19))
+          && (!('crewCount' in d) || (d.kind=='equipment' && d.crewCount is int && d.crewCount>=0 && d.crewCount<=20
+            && (d.ownership=='hired'?d.crewCount==0:d.crewCount>=(d.get('equipmentType','other')=='mill'?2:1))))
           && d.entityId is string && d.entityId.matches('^[A-Za-z0-9_-]+$')
           && id == d.kind+'~'+d.objectId+'~'+d.date+'~'+d.shift+'~'+d.entityId
           && d.name is string && d.name.size()>0 && d.name.size()<=160
@@ -242,16 +268,17 @@ service cloud.firestore {
       }
       function ledgerPerson() {
         let d=request.resource.data;
-        return d.keys().hasOnly(['name','group','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
+        return d.keys().hasOnly(['name','group','operatorRole','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
           && d.name is string && d.name.size()>0 && d.name.size()<=160
-          && d.group in ['worker','itr','operator'];
+          && d.group in ['worker','itr','operator'] && ledgerRole(d);
       }
       function ledgerEquipment() {
         let d=request.resource.data;
-        return d.keys().hasOnly(['name','ownership','contractor','crewIds','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
+        return d.keys().hasOnly(['name','equipmentType','ownership','contractor','crewIds','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
           && d.name is string && d.name.size()>0 && d.name.size()<=160
           && d.ownership in ['own','hired'] && d.contractor is string && d.contractor.size()<=160
-          && d.crewIds is list && d.crewIds.size()<=20;
+          && d.crewIds is list && d.crewIds.size()<=20 && ledgerType(d)
+          && (!('equipmentType' in d) || d.ownership!='hired' || d.contractor.size()>0);
       }
       function ledgerMaterial() {
         let d=request.resource.data;
@@ -281,13 +308,25 @@ service cloud.firestore {
         allow read: if ledgerRead();
         allow create: if ledgerEdit() && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && request.resource.data.revision == 1;
         allow update: if ledgerEdit() && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && ledgerRevision()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','group','ownership','contractor','objectName','minutes','idleMinutes','status','equipmentId','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt']);
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['equipmentType','operatorRole','personId','crewSlot','crewCount','name','group','ownership','contractor','objectName','minutes','idleMinutes','status','equipmentId','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt']);
       }
       match /timesheetMaterials/{id} {
         allow read: if ledgerRead();
         allow create: if ledgerEdit() && ledgerMaterial() && ledgerEnvelope('timesheetMaterials',id) && request.resource.data.revision == 1;
         allow update: if ledgerEdit() && ledgerMaterial() && ledgerEnvelope('timesheetMaterials',id) && ledgerRevision()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['objectName','material','supplier','quantity','unit','document','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt']);
+      }
+      match /timesheetShifts/{id} {
+        allow read: if ledgerRead();
+        allow create: if ledgerEdit() && ledgerShift(id) && ledgerEnvelope('timesheetShifts',id) && request.resource.data.revision==1;
+        allow update: if ledgerEdit() && ledgerShift(id) && ledgerEnvelope('timesheetShifts',id) && ledgerRevision()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['objectName','startTime','endTime','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt']);
+      }
+      match /timesheetSettings/{id} {
+        allow read: if ledgerRead();
+        allow create: if ledgerManage() && ledgerSettings(id) && ledgerEnvelope('timesheetSettings',id) && request.resource.data.revision==1;
+        allow update: if ledgerManage() && ledgerSettings(id) && ledgerEnvelope('timesheetSettings',id) && ledgerRevision()
+          && request.resource.data.objectId==resource.data.objectId;
       }
       match /timesheetChanges/{id} {
         allow read: if ledgerRead();
