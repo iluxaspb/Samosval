@@ -2479,6 +2479,7 @@
     const statuses={...offlineRemoteStatuses},logs=offlineRemoteLogs.slice();
     for(const op of offlinePendingOps()){
       if(!state.shift||op.shiftId!==state.shift.id||!statuses[op.truckId])continue;
+      if(op.type==='reset'&&statuses[op.truckId].lastResetOperationId===op.id)continue;
       if(op.type==='load'&&(statuses[op.truckId].lastLoadLogId===op.logId||logs.some(l=>l.id===op.logId)))continue;
       if(op.type==='arrive'&&op.wantArrived!==false&&Number(statuses[op.truckId].arriveTimestamp||0)===Math.max(Number(op.createdAt),Number(op.lastLoadTimestamp||0)+1)&&statuses[op.truckId].arriveBy===op.actor)continue;
       const p=offlineProjection(statuses[op.truckId],op);statuses[op.truckId]=p.status;
