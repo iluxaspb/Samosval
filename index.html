@@ -3662,9 +3662,11 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
       const previous = window.sendMaxOnce;
       const wrapped = async function(item) {
         const plate = resolvePlate(item), config = { ...cfg() }, uid = account();
-        if (!plate || !config.maxEnabled || config.maxPlateEnabled === false || !config.maxUrl || !(await capabilities(config))) return previous.call(this, item);
+        if (!plate || !config.maxEnabled || config.maxPlateEnabled === false || !config.maxUrl) return previous.call(this, item);
+        const supported = await capabilities(config);
         // Settings/account may change while a server is waking up.
         const latest = cfg(); if (account() !== uid || latest.maxUrl !== config.maxUrl || latest.maxChatId !== config.maxChatId || latest.maxToken !== config.maxToken || !latest.maxEnabled || latest.maxPlateEnabled === false) return 'retry';
+        if (!supported) return previous.call(this, item);
         const result = await sendImage(item, plate, config); return result?.beforeSend ? previous.call(this, item) : result;
       }; wrapped.__maxPlate = true; window.sendMaxOnce = wrapped;
     }
