@@ -3606,18 +3606,19 @@ function calculateTripAnalytics(sessions, trucks, now) {
   window.renderLine=function(){
     const loaded=window.__cardJustLoaded;
     const fresh=loaded&&(Date.now()-loaded.time)<5500;
-    if(fresh&&window.__lineAnimating)delayedLoadAnimation={...loaded};
+    const priorAnimationRunning=!!window.__lineAnimating;
+    if(fresh&&priorAnimationRunning)delayedLoadAnimation={...loaded};
     const result=originalAnimatedRenderLine.apply(this,arguments);
     if(fresh){
-      if(window.__lineAnimating){
-        // If the prior arrival animation is still running, retain the new
-        // loading animation even if the original module clears its flags.
-        if(!delayedLoadAnimation)delayedLoadAnimation={...loaded};
-      }else{
+      if(priorAnimationRunning){
+        // The previous arrival animation must finish before the load can fly.
+      }else if(!window.__lineAnimating){
+        // No reorder happened: animate the loading card itself.
         delayedLoadAnimation=null;
         playSoloLoad(loaded.id);
         if(window.__cardJustLoaded===loaded)window.__cardJustLoaded=null;
       }
+      // Otherwise the existing animation already started, so do not replay it.
     }
     return result;
   };
