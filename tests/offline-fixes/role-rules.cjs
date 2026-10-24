@@ -1,0 +1,34 @@
+const fs=require('fs'),assert=require('node:assert/strict'),{spawn}=require('child_process');
+const firebase=require('firebase/compat/app');require('firebase/compat/firestore');
+const {initializeTestEnvironment,assertFails}=require('@firebase/rules-unit-testing');
+const project='demo-role-hierarchy',port=8096,apps=[];
+const child=spawn('java',['-jar',process.env.FIRESTORE_EMULATOR_JAR,'--host','127.0.0.1','--port',String(port),'--project_id',project]);
+let log='',env;child.stdout.on('data',d=>log+=d);child.stderr.on('data',d=>log+=d);child.on('error',e=>log+=e.message);
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+function client(uid){const app=firebase.initializeApp({projectId:project,apiKey:'demo'},uid);apps.push(app);const db=app.firestore();db.useEmulator('127.0.0.1',port,{mockUserToken:{sub:uid,email:uid+'@example.com'}});return db;}
+const ws='workspaces/main_workspace/';
+const initial={onLine:true,shiftId:'s',cycleRevision:3,lastLoadTimestamp:100,lastLoadBy:'Driver',lastLoadLogId:'kept',arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:true};
+const reset={lastLoadTimestamp:null,lastLoadBy:null,arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:4,lastResetOperationId:'reset-1'};
+(async()=>{try{
+  for(let i=0;i<200&&!log.includes('Dev App Server is now running');i++)await delay(100);
+  if(!log.includes('Dev App Server is now running'))throw Error(log||'Emulator did not start');
+  env=await initializeTestEnvironment({projectId:project,firestore:{host:'127.0.0.1',port,rules:fs.readFileSync('firestore-timesheet-test.rules','utf8')}});
+  const legacy={foreman:{tabs:['line','timesheet'],actions:['manage_trucks','archive_edit','action_arrive']},master:{tabs:['line'],actions:['action_arrive','edit_line']},viewer:{tabs:[],actions:[]}};
+  await env.withSecurityRulesDisabled(async ctx=>{const db=ctx.firestore();await db.doc('settings/permissions').set(legacy);await db.doc('settings/appConfig').set({testReviewFlags:{senior_foreman_reset:true}});
+    for(const [uid,role,status] of [['owner','admin','active'],['senior','senior_foreman','active'],['foreman','foreman','active'],['master','master','active'],['viewer','viewer','active'],['disabled','senior_foreman','disabled']])await db.doc('users/'+uid).set({email:uid+'@example.com',role,status});
+    await db.doc(ws+'truckStatus/t').set(initial);await db.doc(ws+'logs/kept').set({truckId:'t',volume:20});});
+  const owner=client('owner'),senior=client('senior'),foreman=client('foreman'),master=client('master'),viewer=client('viewer'),disabled=client('disabled');
+  await senior.doc(ws+'trucks/allowed').set({name:'Test'});await assertFails(foreman.doc(ws+'trucks/denied').set({name:'Test'}));await assertFails(master.doc(ws+'trucks/denied').set({name:'Test'}));
+  await senior.collection(ws+'timesheetPeople').get();await assertFails(foreman.collection(ws+'timesheetPeople').get());
+  await assertFails(senior.doc('settings/permissions').set({}));await assertFails(senior.doc('users/senior').update({role:'admin'}));
+  for(const db of [foreman,master,viewer,disabled])await assertFails(db.doc(ws+'truckStatus/t').update(reset));
+  await assertFails(senior.doc(ws+'truckStatus/t').update({...reset,shiftId:'wrong'}));
+  await senior.doc(ws+'truckStatus/t').update(reset);assert.equal((await senior.doc(ws+'truckStatus/t').get()).data().lastLoadLogId,'kept');assert.equal((await senior.doc(ws+'logs/kept').get()).data().volume,20);
+  await owner.doc(ws+'truckStatus/t').set(initial);await owner.doc('settings/appConfig').set({testReviewFlags:{senior_foreman_reset:false}});
+  await assertFails(senior.doc(ws+'truckStatus/t').update(reset));await owner.doc(ws+'truckStatus/t').update(reset);
+  await owner.doc('settings/appConfig').set({testReviewFlags:{senior_foreman_reset:true}});await owner.doc(ws+'truckStatus/t').set({...initial,cycleRevision:5,lastLoadTimestamp:200});
+  await assertFails(senior.doc(ws+'truckStatus/t').update(reset));
+  await owner.doc('settings/permissions').set({_roleHierarchyVersion:2,foreman:legacy.master,master:legacy.master,senior_foreman:{tabs:[],actions:[]}});
+  await assertFails(senior.doc(ws+'trucks/no-fallback').set({name:'Test'}));await assertFails(senior.collection(ws+'timesheetPeople').get());
+  console.log('PASS FIRESTORE: legacy role migration, no admin escalation, reset roles/revision/flag checks, preserved trip and explicit empty rights');
+}catch(e){console.error(e);console.error(log.slice(-2000));process.exitCode=1;}finally{for(const app of apps)await app.delete();if(env)await env.cleanup();child.kill();}})();

@@ -1,0 +1,23 @@
+const fs=require('fs'),assert=require('node:assert/strict');
+const {JSDOM}=require('../timesheet/node_modules/jsdom');
+const dom=new JSDOM('<div id="tab-admin"><div class="admin-tabs"><button class="admin-tab-btn" onclick="switchAdminTab(\'patches\',this)">Патчи</button></div><div id="admin-sub-patches" class="admin-section"></div></div>',{runScripts:'outside-only',url:'https://qa.example/'});
+const w=dom.window;
+w.eval(fs.readFileSync('tests/timesheet/fixture.js','utf8'));
+w.eval(`var appConfig={testReviewFlags:{}},writes=[];function canAdmin(){return currentUserRole==='admin'&&currentUserStatus==='active';}function renderConflictAuthorPatch(){};var appConfigRef={set:async(value)=>{writes.push(value);}};function switchAdminTab(tab,b){document.querySelectorAll('.admin-section').forEach(x=>x.classList.remove('active'));document.getElementById('admin-sub-'+tab).classList.add('active');}`);
+w.TEST_REVIEW_RELEASE={label:'Тест 3.1.3',features:['conflict_author','admin_report'],note:'Тестовая публикация'};
+w.eval(fs.readFileSync('assets/test-review-core.js','utf8'));
+w.eval(fs.readFileSync('assets/work-report.js','utf8'));
+const query=s=>w.document.querySelector(s);
+(async()=>{try{
+ assert(query('#admin-sub-workreport').textContent.includes('Наш дальнейший план'));
+ assert(query('#admin-sub-workreport').textContent.includes('Недельный отчёт для 1С'));
+ assert(query('[data-review-flag="tables_editor"]').disabled);
+ assert(query('[data-review-flag="senior_foreman_role"]').disabled);
+ const pending=query('[data-review-flag="tables_editor"]');pending.checked=true;pending.dispatchEvent(new w.Event('change',{bubbles:true}));await Promise.resolve();assert.equal(w.writes.length,0);
+ const report=query('[data-review-flag="admin_report"]');report.checked=false;report.dispatchEvent(new w.Event('change',{bubbles:true}));await Promise.resolve();await Promise.resolve();
+ assert.equal(w.writes.length,1);assert.equal(w.appConfig.testReviewFlags.admin_report,false);assert([...w.document.querySelectorAll('.admin-tab-btn')].find(x=>x.textContent==='Отчёт о работе').hidden);
+ w.currentUserRole='viewer';w.renderAll();assert.equal(query('#admin-sub-workreport').textContent,'');assert.equal(query('#test-review-pending').textContent,'');
+ w.currentUserRole='admin';w.renderAll();assert(query('#admin-sub-workreport').textContent.includes('Наш дальнейший план'));
+ assert(w.TestReviewCore.patches.every(p=>p.before&&p.after&&p.off&&p.check));assert.equal(new Set(w.TestReviewCore.patches.map(p=>p.id)).size,w.TestReviewCore.patches.length);
+ console.log('PASS owner-only report, complete plan/check descriptions, disabled unavailable patches, reversible visibility, account switch');
+ }finally{w.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
