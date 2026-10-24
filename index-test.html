@@ -33,6 +33,11 @@
     .top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; gap: 6px; }
 
     .version-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
+    .truck-card.offline-pending::after {
+      content: '☁️ ОФЛАЙН'; position:absolute; z-index:5; top:3px; right:7px;
+      font-size:9px; font-weight:900; color:#f59e0b; text-shadow:0 1px 2px #000;
+      pointer-events:none;
+    }
     .version-text { opacity: 1; color: #e11d48; font-weight: 800; font-size: 11px; }
 
     .sync-dot-wrap {
@@ -1281,6 +1286,8 @@
     const required = ['profile','permissions','trucks','status','shift'];
     if (required.some(source => !syncState.everConnected[source] || syncState.fromCache[source])) return {state:'init',text:'Данные из кеша. Ожидаем подтверждения сервера…'};
     if (pendingOps > 0 || queued > 0) return { state: 'syncing', text: `Синхронизация... (${pendingOps + queued})` };
+    const failures=offlineUnreviewedFailures().length;
+    if(failures)return {state:'error',text:'Не подтверждено действий: '+failures+' · Нажмите индикатор для подробностей'};
     return { state: 'ok', text: 'Всё на сервере' };
   }
   function updateSyncUI() {
@@ -1303,7 +1310,18 @@
     lines.push('Страница: ' + location.pathname, 'База: ' + firebaseConfig.projectId, 'UID: ' + (currentUid || '—'));
     Object.entries(syncState.errors || {}).forEach(([source,error]) => lines.push('ОШИБКА ' + source + ': ' + error.code + ' · ' + error.message));
     sources.forEach(s => { lines.push(`${s.padEnd(11)} | ${syncState.pendingWrites[s]?'ДА':'—'} | ${syncState.docCount[s]||0}`); });
+    const rejected=offlineUnreviewedFailures();
+    if(rejected.length) {
+      lines.push('','── НЕПОДТВЕРЖДЁННЫЕ ДЕЙСТВИЯ ──');
+      rejected.forEach(x=>lines.push(x.truckName||truckName(x.truckId),new Date(x.createdAt).toLocaleString('ru-RU'),offlineReasonLabel(x.result),''));
+      lines.push('Карточки показывают итоговое серверное состояние.');
+    }
     alert(lines.join('\n'));
+    if(rejected.length) {
+      const all=offlineJournalRead();
+      all.forEach(x=>{if(x.status==='rejected')x.reviewed=true;});
+      offlineJournalWrite(all);
+    }
   }
   function stopSync() {
     unsubscribers.forEach(u => { try { u(); } catch(e){} }); unsubscribers = [];
@@ -2359,6 +2377,21 @@
   function offlinePendingOps(){return offlineJournalRead().filter(x=>x.status==='pending');}
   function offlinePendingForTruck(id){return offlinePendingOps().some(x=>x.truckId===id&&state.shift&&x.shiftId===state.shift.id);}
   function offlinePendingCount(){return offlinePendingOps().length;}
+  function offlineUnreviewedFailures(){return offlineJournalRead().filter(x=>x.status==='rejected'&&!x.reviewed);}
+  function offlineReasonLabel(reason){
+    const reasons={
+      'arrival-changed':'Прибытие уже изменено другим оператором',
+      'duplicate-or-arrival-changed':'Погрузка уже учтена или прибытие изменилось. Лишний рейс не добавлен',
+      'previous-action-rejected':'Предыдущее действие не подтверждено сервером',
+      'cycle-time':'Не истекло установленное время ходки',
+      'ttn-changed':'Статус ТТН изменён другим оператором',
+      'duplicate':'Повторный рейс не добавлен',
+      'already-exists':'Рейс с таким номером уже существует',
+      'shift-changed':'Смена завершена или изменена',
+      'not-on-line':'Самосвал снят с линии'
+    };
+    return reasons[reason]||('Ошибка: '+String(reason||'неизвестная'));
+  }
   function offlineLocalTicker(){
     if(!state.shift)return null;
     const op=offlinePendingOps().filter(x=>x.shiftId===state.shift.id).slice(-1)[0];if(!op)return null;
@@ -2553,9 +2586,8 @@
           offlineResolve(op.id,result.outcome,result.reason||result.outcome);
           offlineProjectState();refreshLineViews();
           if(result.outcome==='confirmed'){
-            showToastEl('✅ Офлайн-действие синхронизировано',false);
             offlineNotifyAccepted(op,result).catch(()=>{});
-          }else showToastEl('⚠️ Действие отклонено сервером: '+(result.reason||'конфликт'),false);
+          }else showToastEl('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)),true);
         }catch(e){
           if(!navigator.onLine||['unavailable','deadline-exceeded','network-request-failed','aborted','cancelled'].includes(e.code))break;
           offlineResolve(op.id,'rejected',e.code||e.message||'error');offlineProjectState();refreshLineViews();
