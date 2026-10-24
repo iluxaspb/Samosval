@@ -3558,7 +3558,8 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
 <!-- MAX PLATE PNG PATCH START -->
 <script>
 /* Добавляемый патч: Админ → Патчи → тип «Заменить функцию». Вставить весь файл.
- * PNG не отправляется как PDF/документ: сервер явно подтверждает поддержку image.
+ * По умолчанию — текстовая табличка через существующую отправку, без проверки PNG.
+ * PNG включается только явным maxPlateMode: 'png' и подтверждением сервера.
  * Не отправляет пробных сообщений, не меняет триггеры и не читает токен бота.
  */
 (function () {
@@ -3569,7 +3570,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
   const cfg = () => typeof appConfig === 'object' && appConfig ? appConfig : {};
   const account = () => typeof currentUid === 'string' ? currentUid : '';
   const admin = () => typeof canAdmin === 'function' && canAdmin();
-  let status = 'PNG госномера готов. Проверка сервера выполняется перед отправкой.';
+  let status = 'Госномер оформляется текстовой табличкой с регионом и флагом. Поддержка PNG не требуется.';
   function setStatus(text) { status = text; const el = document.getElementById('maxPlateStatus'); if (el) el.textContent = text; }
   function parsePlate(value) {
     const clean = String(value || '').replace(/[\s\u00a0-]/g, '');
@@ -3592,6 +3593,27 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     if (text) return text; if (snapshot) return snapshot;
     if (item.meta?.truckId && typeof findTruck === 'function') return parsePlate(findTruck(item.meta.truckId)?.number);
     return null;
+  }
+  function formatPlateText(value) {
+    const p = parsePlate(value); if (!p) return String(value || '');
+    // Non-breaking spaces keep the compact plate together in a narrow message bubble.
+    return '【\u00a0' + p.first.toUpperCase() + p.digits + p.last.toUpperCase() + '\u00a0│\u00a0' + p.region + '\u00a0RUS\u00a0】 🇷🇺';
+  }
+  function formatText(text) {
+    if (typeof text !== 'string') return text;
+    // Only explicit truck/plate lines. Keep names, sites, totals and other content intact.
+    const decorated = text.split(/(\r?\n)/).map(line => {
+      if (!/^\s*(?:🚛|🚚|Госномер\s*:)/iu.test(line)) return line;
+      return line.replace(/(^|[^а-яёa-z0-9])([а-яёa-z][ \t\u00a0-]*\d{3}[ \t\u00a0-]*[а-яёa-z]{2}[ \t\u00a0-]*\d{2,3})(?=$|[^а-яёa-z0-9])/giu,
+        (_, prefix, number) => prefix + formatPlateText(number));
+    }).join('');
+    // Decoration must never turn a valid message into one over MAX's text limit.
+    return decorated.length <= 4000 ? decorated : text;
+  }
+  function textItem(item) {
+    if (!item || item.type !== 'text') return item;
+    const text = formatText(item.text);
+    return text === item.text ? item : { ...item, text };
   }
   function rounded(ctx, x, y, width, height, radius) {
     ctx.beginPath(); ctx.moveTo(x + radius, y); ctx.lineTo(x + width - radius, y); ctx.quadraticCurveTo(x + width, y, x + width, y + radius); ctx.lineTo(x + width, y + height - radius); ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height); ctx.lineTo(x + radius, y + height); ctx.quadraticCurveTo(x, y + height, x, y + height - radius); ctx.lineTo(x, y + radius); ctx.quadraticCurveTo(x, y, x + radius, y); ctx.closePath();
@@ -3634,7 +3656,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
       } catch (_) { /* No image POST without an explicit capability acknowledgement. */ }
       finally { clearTimeout(timer); }
       capabilityCache.set(key, { at: Date.now(), supported });
-      setStatus(supported ? 'Сервер поддерживает PNG: госномер будет картинкой в уведомлении.' : 'Сервер пока не подтвердил поддержку PNG. Уведомления отправляются прежним текстом.');
+      setStatus(supported ? 'Сервер поддерживает PNG. По умолчанию используется текстовая табличка.' : 'PNG сервером не подтверждён. Текстовая табличка отправляется через обычный канал.');
       return supported;
     })(); inflight.set(key, pending); try { return await pending; } finally { inflight.delete(key); }
   }
@@ -3662,12 +3684,13 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
       const previous = window.sendMaxOnce;
       const wrapped = async function(item) {
         const plate = resolvePlate(item), config = { ...cfg() }, uid = account();
-        if (!plate || !config.maxEnabled || config.maxPlateEnabled === false || !config.maxUrl) return previous.call(this, item);
+        if (!config.maxEnabled || config.maxPlateEnabled === false || !config.maxUrl) return previous.call(this, item);
+        if (config.maxPlateMode !== 'png' || !plate) return previous.call(this, textItem(item));
         const supported = await capabilities(config);
         // Settings/account may change while a server is waking up.
-        const latest = cfg(); if (account() !== uid || latest.maxUrl !== config.maxUrl || latest.maxChatId !== config.maxChatId || latest.maxToken !== config.maxToken || !latest.maxEnabled || latest.maxPlateEnabled === false) return 'retry';
-        if (!supported) return previous.call(this, item);
-        const result = await sendImage(item, plate, config); return result?.beforeSend ? previous.call(this, item) : result;
+        const latest = cfg(); if (account() !== uid || latest.maxUrl !== config.maxUrl || latest.maxChatId !== config.maxChatId || latest.maxToken !== config.maxToken || latest.maxPlateMode !== config.maxPlateMode || !latest.maxEnabled || latest.maxPlateEnabled === false) return 'retry';
+        if (!supported) return previous.call(this, textItem(item));
+        const result = await sendImage(item, plate, config); return result?.beforeSend ? previous.call(this, textItem(item)) : result;
       }; wrapped.__maxPlate = true; window.sendMaxOnce = wrapped;
     }
     if (typeof window.applyAllPatches === 'function' && !window.applyAllPatches.__maxPlate) {
@@ -3682,23 +3705,22 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     const input = document.createElement('input'); input.value = 'А123ВС178'; input.setAttribute('aria-label', 'Госномер для примера'); input.className = 'form-control'; input.maxLength = 18;
     const card = document.createElement('div'); card.style.cssText = 'margin:14px 0;padding:14px;background:#fff;color:#111827;border-radius:12px';
     const caption = document.createElement('p'); caption.textContent = '⚡ Погрузка'; caption.style.cssText = 'font-size:17px;font-weight:600;margin:0 0 12px';
-    const image = document.createElement('img'); image.alt = 'Российский госномер'; image.style.cssText = 'display:block;width:100%;height:auto';
-    const hint = document.createElement('p'); hint.textContent = 'Предпросмотр PNG. Сообщение в чат не отправляется.'; hint.style.cssText = 'font-size:12px;color:#94a3b8;margin:10px 0';
+    const sample = document.createElement('div'); sample.id = 'maxPlateTextSample'; sample.style.cssText = 'font-size:16px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere';
+    const hint = document.createElement('p'); hint.textContent = 'Пример текста уведомления. Шрифт и цвет сообщения определяет MAX. В чат ничего не отправляется.'; hint.style.cssText = 'font-size:12px;color:#94a3b8;margin:10px 0';
     const error = document.createElement('p'); error.setAttribute('role', 'status'); error.style.cssText = 'color:#fca5a5;font-size:12px';
     const close = document.createElement('button'); close.type = 'button'; close.className = 'btn btn-secondary'; close.textContent = 'Закрыть'; close.onclick = () => dialog.close();
-    const update = () => { try { const png = renderPng(input.value); image.src = png.dataUrl; image.alt = 'Госномер ' + png.number; image.hidden = false; error.textContent = ''; } catch (e) { image.hidden = true; error.textContent = e.message; } };
-    input.addEventListener('input', update); card.append(caption, image); dialog.append(title, input, card, error, hint, close); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); update(); dialog.showModal(); close.focus();
+    const update = () => { const p = parsePlate(input.value); sample.textContent = p ? formatText('🚛 ' + p.number) : ''; error.textContent = p ? '' : 'Введите госномер, например А123ВС178'; };
+    input.addEventListener('input', update); card.append(caption, sample); dialog.append(title, input, card, error, hint, close); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); update(); dialog.showModal(); close.focus();
   }
   function addPanel() {
     const parent = document.querySelector('#admin-sub-appsettings .form-card'); if (!parent || document.getElementById('maxPlatePanel')) return;
     const panel = document.createElement('div'); panel.id = 'maxPlatePanel'; panel.style.cssText = 'margin-top:16px;padding-top:12px;border-top:1px solid #334155';
-    const title = document.createElement('b'); title.textContent = 'Госномер картинкой'; const message = document.createElement('p'); message.id = 'maxPlateStatus'; message.textContent = status; message.style.cssText = 'color:#94a3b8;font-size:12px;line-height:1.4;margin:7px 0';
+    const title = document.createElement('b'); title.textContent = 'Госномер в уведомлениях MAX'; const message = document.createElement('p'); message.id = 'maxPlateStatus'; message.textContent = status; message.style.cssText = 'color:#94a3b8;font-size:12px;line-height:1.4;margin:7px 0';
     const actions = document.createElement('div'); actions.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
     const view = document.createElement('button'); view.type = 'button'; view.className = 'btn btn-secondary btn-small'; view.textContent = 'Посмотреть пример'; view.onclick = preview;
-    const check = document.createElement('button'); check.type = 'button'; check.className = 'btn btn-secondary btn-small'; check.textContent = 'Проверить поддержку'; check.onclick = async () => { if (!admin()) return; check.disabled = true; setStatus('Проверяем сервер…'); try { if (!cfg().maxUrl) setStatus('Сначала укажите URL в настройках MAX.'); else await capabilities({ ...cfg() }, true); } finally { check.disabled = false; } };
-    actions.append(view, check); panel.append(title, message, actions); parent.append(panel);
+    actions.append(view); panel.append(title, message, actions); parent.append(panel);
   }
-  window[KEY] = { version: '1.0.0', contract: CONTRACT, parsePlate, fromText, resolvePlate, renderPng, preview, install, checkServer: () => admin() ? capabilities({ ...cfg() }, true) : Promise.resolve(false) };
+  window[KEY] = { version: '1.1.0', contract: CONTRACT, parsePlate, fromText, resolvePlate, formatPlateText, formatText, renderPng, preview, install, checkServer: () => admin() ? capabilities({ ...cfg() }, true) : Promise.resolve(false) };
   install(); if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true });
 })();
 </script>
