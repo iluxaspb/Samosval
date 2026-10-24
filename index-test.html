@@ -1321,7 +1321,7 @@
     unsubscribers.push(refs.archive.onSnapshot({ includeMetadataChanges: true }, s => { state.archive = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('archive', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('archive', 'renderArchive'); scheduleRenderForTab('analytics', 'renderAnalytics'); }, e=>reportSyncError('archive', e)));
     unsubscribers.push(refs.trash.onSnapshot({ includeMetadataChanges: true }, s => { state.trash = s.docs.map(d => Object.assign({id:d.id}, d.data())); state.trash.sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0)); markSync('trash', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('archive', 'renderTrash'); }, e=>reportSyncError('trash', e)));
     unsubscribers.push(refs.audit.orderBy('timestamp','desc').limit(200).onSnapshot(s => { state.audit = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('audit', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); scheduleRenderForTab('analytics', 'renderAnalytics'); }, e=>reportSyncError('audit', e)));
-    unsubscribers.push(refs.notifications.orderBy('timestamp','desc').limit(50).onSnapshot({ includeMetadataChanges: true }, s => { state.notifications = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('notifications', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); renderStatusTicker(); }, e=>reportSyncError('notifications', e)));
+    unsubscribers.push(refs.notifications.orderBy('timestamp','desc').limit(50).onSnapshot({ includeMetadataChanges: true }, s => { state.notifications = s.docs.map(d => Object.assign({id:d.id}, d.data())); offlineProjectTicker(); markSync('notifications', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); renderStatusTicker(); }, e=>reportSyncError('notifications', e)));
     unsubscribers.push(refs.plugins.onSnapshot({ includeMetadataChanges: true }, s => { state.plugins = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('plugins', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); initPlugins(); if (canAdmin() && document.getElementById('tab-admin')?.classList.contains('active')) renderPluginsList(); }, e=>reportSyncError('plugins', e)));
     if (canAdmin()) {
       unsubscribers.push(refs.patches.onSnapshot(s => {
@@ -2366,6 +2366,12 @@
     return {id:op.id,type:'offline',offlinePending:true,createdByEmail:op.email,timestamp:op.createdAt,
       html:label+' · '+truckLabelHtml(op.truckId)+' <span style="color:#f59e0b;font-size:10px">☁️ ОФЛАЙН</span>'};
   }
+  function offlineProjectTicker(){
+    // ticker-v9 reads state.notifications: present a temporary local entry.
+    state.notifications=(state.notifications||[]).filter(x=>!x.offlinePending);
+    const local=offlineLocalTicker();
+    if(local)state.notifications.unshift({...local,userName:getUserName(),createdBy:getUserName()});
+  }
   function offlineProjection(before,op){
     if(!before||!before.onLine||before.shiftId!==op.shiftId)return {status:before};
     const st={...before},t=Number(op.createdAt);
@@ -2402,7 +2408,7 @@
       const p=offlineProjection(statuses[op.truckId],op);statuses[op.truckId]=p.status;
       if(p.log)logs.push(p.log);
     }
-    state.truckStatus=statuses;state.logs=logs.sort((x,y)=>(y.timestamp||0)-(x.timestamp||0));
+    state.truckStatus=statuses;state.logs=logs.sort((x,y)=>(y.timestamp||0)-(x.timestamp||0));offlineProjectTicker();
   }
   function offlineQueueAction(type,id,intent){
     if(!currentUid||!intent||!intent.status||!state.shift||state.shift.id!==intent.shiftId)return false;
@@ -2445,6 +2451,7 @@
     offlineProjectState();refreshLineViews();
   }
   function undoLastOfflineAction(){
+    if(!hasPermission('undo_action')&&!hasPermission('undo_any')){showError('Нет права отменять действия');return;}
     if(offlineReplayRunning&&navigator.onLine){showToastEl('Действие отправляется на сервер',false);return;}
     const all=offlineJournalRead();let i=-1;
     for(let n=all.length-1;n>=0;n--)if(all[n].status==='pending'&&state.shift&&all[n].shiftId===state.shift.id){i=n;break;}
@@ -3507,5 +3514,27 @@ function calculateTripAnalytics(sessions, trucks, now) {
   let saved=false;try{saved=localStorage.getItem(key)==='1';}catch(_){}apply(saved);toggle();const list=document.getElementById('patchesListContainer');if(list)new MutationObserver(toggle).observe(list,{childList:true});
 })();
 </script>
+
+<script>
+// Offline ticker + existing card animations: test-only bridge. Runs AFTER baked patches.
+(function(){
+  const previousUndo=window.undoLastAction;
+  if(typeof previousUndo==='function')window.undoLastAction=function(){
+    if(typeof offlineLocalTicker==='function'&&offlineLocalTicker())return undoLastOfflineAction();
+    return previousUndo.apply(this,arguments);
+  };
+  const list=document.getElementById('trucksLineList');
+  if(!list)return;
+  function markOfflineCards(){
+    list.querySelectorAll('.truck-card[data-truck-id]').forEach(card=>{
+      card.classList.toggle('offline-pending',offlinePendingForTruck(card.dataset.truckId));
+    });
+  }
+  new MutationObserver(markOfflineCards).observe(list,{childList:true});
+  setInterval(markOfflineCards,1000);
+  markOfflineCards();
+})();
+</script>
+
 </body>
 </html>
