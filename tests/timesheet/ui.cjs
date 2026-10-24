@@ -6,8 +6,9 @@ const q=s=>w.document.querySelector(s),click=s=>{assert(q(s),s);q(s).click();},s
 w.eval(fs.readFileSync('tests/timesheet/fixture.js','utf8'));w.eval(fs.readFileSync('assets/timesheet-core.js','utf8'));w.eval(fs.readFileSync('assets/timesheet.js','utf8'));
 (async()=>{try{
  await wait(()=>q('[data-action="add-equipment"]'));await wait(()=>w.document.body.textContent.includes('Данные подтверждены'));
+ click('[data-action="add-person"]');for(const box of w.document.querySelectorAll('dialog input[name=ids]'))box.checked=true;submit();await wait(()=>!q('dialog'));await wait(()=>[...w.__rows.keys()].filter(k=>k.includes('/timesheetEntries/')).length===3);
  click('[data-action="add-equipment"]');q('dialog input[value="w205"]').checked=true;submit();await wait(()=>!q('dialog'));await wait(()=>w.document.body.textContent.includes('Экипаж: 3'));
- await wait(()=>[...w.__rows.keys()].filter(k=>k.includes('/timesheetEntries/')).length===4);console.log('PASS add one machine with three people, no repeated personal time rows');
+ await wait(()=>[...w.__rows.keys()].filter(k=>k.includes('/timesheetEntries/')).length===4);console.log('PASS existing people attach to added machine without duplicate personal time rows');
  click('[data-action="bulk"]');submit();await wait(()=>!q('dialog'));await wait(()=>w.document.body.textContent.includes('36 чел.-ч'));console.log('PASS bulk hours, 3 operators × 12 hours = 36');
  const machineButton=[...w.document.querySelectorAll('[data-action="entry"]')].find(x=>x.dataset.id.startsWith('equipment'));
  machineButton.click();q('[name=hours]').value='11';q('[name=hours]').dispatchEvent(new w.Event('input'));submit();await wait(()=>!q('dialog'));await wait(()=>w.document.body.textContent.includes('11 ч'));assert(w.document.body.textContent.includes('36 чел.-ч'));console.log('PASS equipment and crew hours are independent');

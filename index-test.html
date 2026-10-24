@@ -3856,9 +3856,9 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
   }
   function addForm(kind){
     if(!edit()||!object())return;const col=kind==='person'?'timesheetPeople':'timesheetEquipment',list=sort(living(col));
-    const el=dialog(kind==='person'?'Добавить людей в смену':'Добавить технику и экипаж',note(kind==='person'?'Отметьте нужных сотрудников.':'Сохранённые машинисты добавятся с незаполненными часами. Уже внесённые люди повторно не добавляются.')+list.map(r=>`<label class="ts-check"><input type="checkbox" name="ids" value="${E(r.id)}">${E(r.name)}</label>`).join('')+(list.length?'':note('Сначала заполните справочник.')),async f=>{
+    const el=dialog(kind==='person'?'Добавить людей в смену':'Добавить технику и экипаж',note(kind==='person'?'Отметьте нужных сотрудников.':'Сохранённые машинисты добавятся с незаполненными часами. Уже внесённые люди без привязки будут включены в экипаж. Их часы и существующие назначения сохранятся.')+list.map(r=>`<label class="ts-check"><input type="checkbox" name="ids" value="${E(r.id)}">${E(r.name)}</label>`).join('')+(list.length?'':note('Сначала заполните справочник.')),async f=>{
       const changes=new Map(),existing=dayEntries();
-      const append=(k,e,machine='')=>{const id=C.entryId(k,S.objectId,S.date,S.shift,e.id);if(existing.some(x=>x.id===id)||changes.has(id))return;changes.set(id,change('timesheetEntries',id,blankEntry(k,e,machine)));};
+      const append=(k,e,machine='')=>{const id=C.entryId(k,S.objectId,S.date,S.shift,e.id),old=existing.find(x=>x.id===id);if(changes.has(id))return;if(old){if(k==='person'&&machine&&!old.equipmentId)changes.set(id,change('timesheetEntries',id,{...ownData(old),equipmentId:machine}));return;}changes.set(id,change('timesheetEntries',id,blankEntry(k,e,machine)));};
       for(const id of f.getAll('ids')){const entity=list.find(x=>x.id===id);append(kind,entity);if(kind==='equipment')for(const personId of entity.crewIds){const p=living('timesheetPeople').find(x=>x.id===personId);if(p)append('person',p,entity.id);}}
       if(!changes.size)throw Error('Выберите новые строки для этой смены');await enqueue([...changes.values()],'Добавлен состав смены');
     });return el;
