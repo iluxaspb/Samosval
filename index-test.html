@@ -2438,8 +2438,10 @@
     const statuses={...offlineRemoteStatuses},logs=offlineRemoteLogs.slice();
     for(const op of offlinePendingOps()){
       if(!state.shift||op.shiftId!==state.shift.id||!statuses[op.truckId])continue;
+      if(op.type==='load'&&statuses[op.truckId].lastLoadLogId===op.logId)continue;
+      if(op.type==='arrive'&&op.wantArrived!==false&&Number(statuses[op.truckId].arriveTimestamp||0)===Number(op.createdAt)&&statuses[op.truckId].arriveBy===op.actor)continue;
       const p=offlineProjection(statuses[op.truckId],op);statuses[op.truckId]=p.status;
-      if(p.log)logs.push(p.log);
+      if(p.log&&!logs.some(l=>l.id===op.logId))logs.push(p.log);
     }
     state.truckStatus=statuses;state.logs=logs.sort((x,y)=>(y.timestamp||0)-(x.timestamp||0));offlineProjectTicker();
   }
