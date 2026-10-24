@@ -414,7 +414,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">ТЕСТОВАЯ ВЕРСИЯ · 2.94 · офлайн</span>
+        <span class="version-text">Версия 3.0 · тест</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -3129,141 +3129,11 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
 <!-- === BAKED PATCHES END === -->
 
 <!-- Test-only reversible line card stacking fix -->
-<script>
-
-(function () {
-  const key = 'samosval:test:line-card-layers:v1';
-  const styleId = 'line-card-layers-fix';
-  const rowId = 'line-card-layers-toggle';
-  function enabled() {
-    try { return localStorage.getItem(key) === '1'; }
-    catch (_) { return false; }
-  }
-  function apply(on) {
-    document.getElementById(styleId)?.remove();
-    if (!on) return;
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = '#tab-line { position: relative; z-index: 0; isolation: isolate; }';
-    document.head.appendChild(style);
-  }
-  function renderToggle() {
-    const container = document.getElementById('patchesListContainer');
-    if (!container || document.getElementById(rowId)) return;
-    const row = document.createElement('div');
-    row.id = rowId;
-    row.className = 'user-row';
-    const title = document.createElement('div');
-    title.className = 'user-row-top';
-    const text = document.createElement('strong');
-    text.textContent = 'Слои карточек Линии (тест)';
-    const label = document.createElement('label');
-    label.className = 'toggle-switch';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = enabled();
-    const slider = document.createElement('span');
-    slider.className = 'toggle-slider';
-    input.addEventListener('change', () => {
-      try {
-        localStorage.setItem(key, input.checked ? '1' : '0');
-        apply(input.checked);
-      } catch (_) {
-        input.checked = enabled();
-        if (typeof window.showError === 'function') window.showError('Не удалось сохранить переключатель');
-      }
-    });
-    label.append(input, slider);
-    title.append(text, label);
-    const note = document.createElement('div');
-    note.style.cssText = 'font-size:11px;color:var(--muted);margin-top:8px';
-    note.textContent = 'Карточки проходят за верхней и нижней панелями. Только эта тестовая страница и этот браузер. Применяется сразу.';
-    row.append(title, note);
-    container.prepend(row);
-  }
-  const original = window.renderPatchesList;
-  window.renderPatchesList = function () {
-    const result = original.apply(this, arguments);
-    renderToggle();
-    return result;
-  };
-  apply(enabled());
-  renderToggle();
-  const list = document.getElementById('patchesListContainer');
-  if (list) new MutationObserver(renderToggle).observe(list, { childList: true });
-})();
-</script>
+<script>(function(){const style=document.createElement('style');style.id='line-card-layers-fix';style.textContent='#tab-line {position:relative;z-index:0;isolation:isolate}';document.head.appendChild(style);})();</script>
 
 
 
-<script>
-
-(function () {
-  const key = 'samosval:test:closed-shift-duplicate:v1';
-  const styleId = 'closed-shift-duplicate-fix';
-  const rowId = 'closed-shift-duplicate-toggle';
-  function enabled() {
-    try { return localStorage.getItem(key) === '1'; }
-    catch (_) { return false; }
-  }
-  window.__closedShiftDupEnabled = enabled;
-  function apply(on) {
-    document.getElementById(styleId)?.remove();
-    if (!on) return;
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = '';
-    document.head.appendChild(style);
-  }
-  function renderToggle() {
-    const container = document.getElementById('patchesListContainer');
-    if (!container || document.getElementById(rowId)) return;
-    const row = document.createElement('div');
-    row.id = rowId;
-    row.className = 'user-row';
-    const title = document.createElement('div');
-    title.className = 'user-row-top';
-    const text = document.createElement('strong');
-    text.textContent = 'Дубликат только после закрытия смены (тест)';
-    const label = document.createElement('label');
-    label.className = 'toggle-switch';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = enabled();
-    const slider = document.createElement('span');
-    slider.className = 'toggle-slider';
-    input.addEventListener('change', () => {
-      try {
-        localStorage.setItem(key, input.checked ? '1' : '0');
-        apply(input.checked);
-        if (typeof renderReport === 'function') renderReport();
-        const archived = state.archive.find(s => s.id === viewingArchiveId);
-        if (archived && typeof renderArchiveModalContent === 'function') renderArchiveModalContent(archived);
-      } catch (_) {
-        input.checked = enabled();
-        if (typeof window.showError === 'function') window.showError('Не удалось сохранить переключатель');
-      }
-    });
-    label.append(input, slider);
-    title.append(text, label);
-    const note = document.createElement('div');
-    note.style.cssText = 'font-size:11px;color:var(--muted);margin-top:8px';
-    note.textContent = 'В открытой смене надписи нет. В закрытой — только если ТТН не забрана.';
-    row.append(title, note);
-    container.prepend(row);
-  }
-  const original = window.renderPatchesList;
-  window.renderPatchesList = function () {
-    const result = original.apply(this, arguments);
-    renderToggle();
-    return result;
-  };
-  apply(enabled());
-  renderToggle();
-  const list = document.getElementById('patchesListContainer');
-  if (list) new MutationObserver(renderToggle).observe(list, { childList: true });
-})();
-</script>
+<script>window.__closedShiftDupEnabled = () => true;</script>
 <script>
 (function () {
   const key = 'samosval:test:summary-viewer:v1';
@@ -3326,10 +3196,7 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
   }
   tab.addEventListener('click',e=>{if(on&&e.target.closest('.paper-scroll-wrapper')){e.preventDefault();open();}},true);
   function apply(value){on=value;if(!on)close();document.body.classList.toggle('summary-viewer-on',on);if(on&&typeof drawMode!=='undefined'&&drawMode&&typeof toggleDrawMode==='function')toggleDrawMode();}
-  function enabled(){try{return localStorage.getItem(key)==='1';}catch(_){return false;}}
-  function render(){const list=document.getElementById('patchesListContainer');if(!list||document.getElementById('summary-viewer-toggle'))return;const row=document.createElement('div');row.id='summary-viewer-toggle';row.className='user-row';row.innerHTML='<div class="user-row-top"><strong>Сводка: просмотр листа (тест)</strong><label class="toggle-switch"><input type="checkbox"><span class="toggle-slider"></span></label></div><div style="font-size:11px;color:var(--muted);margin-top:8px">Без экспорта и рисования. Лист открывается поверх приложения с масштабированием и перемещением.</div>';const input=row.querySelector('input');input.checked=on;input.onchange=()=>{try{localStorage.setItem(key,input.checked?'1':'0');apply(input.checked);}catch(_){input.checked=on;}};list.prepend(row);}
-  const previous=window.renderPatchesList;window.renderPatchesList=function(){const result=previous?.apply(this,arguments);render();return result;};
-  apply(enabled());render();const list=document.getElementById('patchesListContainer');if(list)new MutationObserver(render).observe(list,{childList:true});
+  apply(true);
 })();
 </script>
 <script>
@@ -3506,9 +3373,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
   }
   window.renderAnalytics=function(){if(!enabled)return original.apply(this,arguments);render();};
   function apply(value){enabled=value;legacy.hidden=value;dashboard.hidden=!value;if(hasTabAccess('analytics'))window.renderAnalytics();}
-  function toggle(){const list=document.getElementById('patchesListContainer');if(!list||document.getElementById('analytics-v2-toggle'))return;const row=document.createElement('div');row.id='analytics-v2-toggle';row.className='user-row';row.innerHTML='<div class="user-row-top"><strong>Аналитика ходок (тест)</strong><label class="toggle-switch"><input type="checkbox"><span class="toggle-slider"></span></label></div><div style="font-size:11px;color:var(--muted);margin-top:8px">Время ходки, сравнение машин, графики, фильтры по объекту и периоду.</div>';const input=row.querySelector('input');input.checked=enabled;input.onchange=()=>{try{localStorage.setItem(key,input.checked?'1':'0');apply(input.checked);}catch(_){input.checked=enabled;}};list.prepend(row);}
-  const prev=window.renderPatchesList;window.renderPatchesList=function(){const result=prev.apply(this,arguments);toggle();return result;};
-  let saved=false;try{saved=localStorage.getItem(key)==='1';}catch(_){}apply(saved);toggle();const list=document.getElementById('patchesListContainer');if(list)new MutationObserver(toggle).observe(list,{childList:true});
+  apply(true);
 })();
 </script>
 
@@ -3585,5 +3450,37 @@ function calculateTripAnalytics(sessions, trucks, now) {
 })();
 </script>
 
+<script>
+(function(){
+  const releases=[
+    {version:'3.0',title:'Встроенные функции и история версий',items:['Четыре модуля стали постоянной частью приложения: слои карточек, отметка «Дубликат» после закрытия смены, просмотр листа, аналитика ходок.','Убраны переключатели этих модулей из списка патчей.','История версий открывается нажатием на номер версии.','Окно истории версий и оформленные окна подтверждения открываются без затемнения и размытия страницы.']},
+    {version:'2.94',title:'Исправления офлайн-режима',items:['Сброс таймера ходки сохраняется локально и синхронизируется после подключения.','Журнал отмены открывается без ожидания ответа сервера и показывает локальные действия.','Сохраняется предыдущее состояние для отмены погрузки.','Добавлены повторная отправка аудита и общая настройка времени ходки.']},
+    {version:'2.93',title:'Офлайн-очередь',items:['Локальное сохранение погрузок, прибытия и отметок ТТН.','Передача накопленных действий после восстановления связи с проверкой дублей.','Отображение ожидающих синхронизации действий и причин отклонения.']},
+    {version:'2.90',title:'Многопользовательская синхронизация',items:['Согласованная запись погрузки и состояния самосвала.','Защита от повторного рейса при одновременной погрузке несколькими операторами.','Обновление карточек у других пользователей и проверка конфликтов при отмене.']}
+  ];
+  const css=document.createElement('style');css.textContent=`
+    .version-text{background:none;border:0;padding:3px 0;font:inherit;font-size:11px;cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:3px}
+    .version-text:focus-visible{outline:2px solid #60a5fa;outline-offset:4px;border-radius:4px}
+    .pcm-overlay{background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+    .release-dialog{color:var(--text,#eef2ff);background:var(--card,#1e293b);border:1px solid var(--border,#475569);border-radius:18px;width:min(560px,calc(100vw - 32px));max-height:85dvh;padding:0;box-shadow:0 12px 36px #0005}
+    .release-dialog::backdrop{background:transparent;backdrop-filter:none}
+    .release-heading{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border,#475569)}
+    .release-heading h2{font-size:19px;margin:0}.release-heading button{color:inherit;background:transparent;border:0;font-size:26px;min-width:40px;min-height:40px;cursor:pointer}
+    .release-body{padding:0 20px 20px;overflow-y:auto;max-height:65dvh}.release-body section{padding:18px 0;border-bottom:1px solid var(--border,#475569)}
+    .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
+  `;document.head.appendChild(css);
+  const label=document.querySelector('.version-text');if(!label)return;
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.0 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
+  button.addEventListener('click',()=>{
+    if(document.getElementById('releaseHistoryDialog'))return;
+    const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
+    const header=document.createElement('div');header.className='release-heading';const title=document.createElement('h2');title.id='releaseHistoryTitle';title.textContent='История версий';const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Закрыть историю версий');close.onclick=()=>dialog.close();header.append(title,close);dialog.append(header);
+    const body=document.createElement('div');body.className='release-body';for(const release of releases){const section=document.createElement('section'),h=document.createElement('h3'),ul=document.createElement('ul');h.textContent=release.version+' — '+release.title;for(const item of release.items){const li=document.createElement('li');li.textContent=item;ul.append(li);}section.append(h,ul);body.append(section);}
+    const note=document.createElement('p');note.className='release-note';note.textContent='Указаны версии и изменения, подтверждённые сохранённым кодом. История более ранних обновлений неполная.';body.append(note);dialog.append(body);document.body.append(dialog);dialog.addEventListener('close',()=>{dialog.remove();button.focus();},{once:true});dialog.showModal();close.focus();
+  });
+})();
+
+</script>
 </body>
 </html>
+
