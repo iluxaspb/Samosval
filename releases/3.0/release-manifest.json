@@ -8,7 +8,12 @@
   "unchanged_test_blob": "4607847d127c027a7e8d0b8a82fff1f36493766e",
   "candidate_sha256": "7c5756f90d814e5b1c47aa0e708b54ad40ec9a730418762435d5baeeeb103b94",
   "database_migration": false,
-  "status": "prepared-not-deployed",
-  "blocker": "Read and verify currently deployed production Firestore rules before promotion",
-  "optional_patch": "patches/line-motion-settings-v1.js"
+  "status": "approved-for-production",
+  "optional_patch": "patches/line-motion-settings-v1.js",
+  "rules_review": {
+    "source": "User supplied current production rules",
+    "replacement": "firestore-v3.rules",
+    "compatibility": "Old-client and v3 history scenarios passed in Firestore Emulator",
+    "publication": "User is publishing rules; production rollout explicitly authorized"
+  }
 }
