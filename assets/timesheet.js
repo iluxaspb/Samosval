@@ -179,10 +179,11 @@
     }:null);if(!edit())el.querySelectorAll('input,select,textarea').forEach(i=>i.disabled=true);
   }
   function copyForm(){
-    if(!edit()||!object())return;const prev=new Date(S.date+'T12:00:00Z');prev.setUTCDate(prev.getUTCDate()-1);const fromDate=S.shift==='night'?S.date:prev.toISOString().slice(0,10);
+    if(!edit()||!object())return;const generation=S.generation;const prev=new Date(S.date+'T12:00:00Z');prev.setUTCDate(prev.getUTCDate()-1);const fromDate=S.shift==='night'?S.date:prev.toISOString().slice(0,10);
     dialog('Взять состав прошлой смены',note('Переносится только состав людей, техники и привязка машинистов. Часы будут пустыми. Заполненные строки текущей смены сохранятся.')+field('Дата исходной смены',input('date',fromDate,'type="date" required'))+field('Смена',`<select name="shift">${choice('day','День',S.shift==='night'?'day':'night')}${choice('night','Ночь',S.shift==='night'?'day':'night')}</select>`),async f=>{
       const date=C.date(f.get('date')),shift=f.get('shift'),scope=C.scope(S.objectId,date);if(date===S.date&&shift===S.shift)throw Error('Выберите другую смену');
       let remote=S.remote.timesheetEntries;if(scope!==S.scope){const cached=await local('cache','get','timesheetEntries:'+scope);if(navigator.onLine){const snap=await wsRef.collection('timesheetEntries').where('scope','==',scope).get({source:'server'});remote=snap.docs.map(d=>({...d.data(),id:d.id}));}else if(cached)remote=cached.rows;else throw Error('Эта смена не сохранена на устройстве. Подключитесь к интернету.');}
+      if(generation!==S.generation)throw Error('Учётная запись изменилась. Откройте форму заново.');
       const source=C.project(remote,S.jobs,'timesheetEntries').filter(x=>!x.deleted&&x.objectId===S.objectId&&x.date===date&&x.shift===shift);
       if(!source.length)throw Error('В выбранной смене нет состава');const existing=dayEntries();const changes=[];
       for(const r of source){const id=C.entryId(r.kind,S.objectId,S.date,S.shift,r.entityId);if(existing.some(x=>x.id===id))continue;changes.push(change('timesheetEntries',id,{...ownData(r),date:S.date,shift:S.shift,scope:S.scope,objectName:object().name,minutes:null,idleMinutes:0,status:'unfilled',note:'',deleted:false}));}
@@ -199,7 +200,7 @@
   }
   function describe(r){if(!r)return 'Записи нет';if('minutes'in r)return `${r.name}: ${statuses[r.status]}${r.minutes===null?'':' · '+C.fmt(r.minutes)+' ч'}${r.deleted?' · удалено':''}${r.note?' · '+r.note:''}`;if('quantity'in r)return `${r.material}: ${r.quantity} ${r.unit} · ${r.supplier}${r.deleted?' · удалено':''}`;return r.name+(r.deleted?' · в архиве':'');}
   async function conflictForm(id){
-    const op=S.jobs.find(x=>x.id===id);if(!op)return;
+    const op=S.jobs.find(x=>x.id===id);if(!op)return;const generation=S.generation;
     const canRetry=op.changes.every(ch=>['timesheetPeople','timesheetEquipment'].includes(ch.collection)?manage():edit());
     const el=dialog('Проверка изменений',`<p>${E(op.label)}</p><div class="ts-warning">${E(op.error||'Изменения не отправлены')}</div>${(op.conflicts||[]).map(c=>`<div class="ts-conflict"><p><b>В базе:</b> ${E(describe(c.server))}</p><p><b>Ваша правка:</b> ${E(describe(c.proposed))}</p></div>`).join('')}<div class="ts-toolbar">${canRetry?btn(op.status==='conflict'?'Применить мою правку':'Повторить отправку','resolve-local'):''}${btn('Оставить данные базы','resolve-server')}</div>`);
     el.querySelector('[data-action=resolve-server]').onclick=async()=>{try{await local('jobs','delete',op.id);await loadJobs();el.close();render();}catch(e){error(e);}};
@@ -207,6 +208,7 @@
       if(!navigator.onLine)return error(Error('Для проверки нужна связь'));e.target.disabled=true;
       try{
         const refs=op.changes.map(ch=>wsRef.collection(ch.collection).doc(ch.id));const snaps=await Promise.all(refs.map(r=>r.get({source:'server'})));
+        if(generation!==S.generation)return;
         if(op.status==='conflict'){
           // Do not overwrite an edit that happened after the comparison was shown.
           const changedAgain=snaps.some((s,i)=>{const shown=(op.conflicts||[]).find(c=>c.id===op.changes[i].id&&c.collection===op.changes[i].collection);return shown&&(s.exists?s.data().revision||0:0)!==(shown.server?.revision||0);});
