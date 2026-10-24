@@ -8,6 +8,7 @@
   const existing=new Set(Object.keys(legacyCards).filter(id=>document.getElementById(legacyCards[id])));
   const release=window.TEST_REVIEW_RELEASE||{label:'Рабочая тестовая сборка 3.3',features:core.patches.filter(p=>p.switchable).map(p=>p.id),note:'Эта сборка ещё не опубликована. Изменения ролей и табеля требуют предварительной проверки правил тестовой базы.'};
   const available=p=>p.switchable&&release.features.includes(p.id);
+  const style=document.createElement('style');style.id='owner-work-report-style';style.textContent='#admin-sub-workreport{font-size:15px;line-height:1.6}#admin-sub-workreport .form-card{padding:16px}#admin-sub-workreport p,#test-review-pending p{margin:12px 0}#admin-sub-workreport h3{margin-bottom:10px}#admin-sub-workreport ol{padding-left:22px}#admin-sub-workreport li{margin:10px 0}#admin-sub-workreport summary,#test-review-pending summary{padding:8px 0;cursor:pointer;font-weight:700}#admin-sub-workreport textarea,#test-review-pending textarea{font-size:14px;line-height:1.5;padding:10px;border-radius:8px;resize:vertical}';document.head.append(style);
   const button=document.createElement('button');button.type='button';button.className='admin-tab-btn';button.textContent='Отчёт о работе';button.hidden=true;button.onclick=()=>{if(canAdmin()){switchAdminTab('workreport',button);render();}};
   document.querySelector('#tab-admin .admin-tabs').append(button);
   const panel=document.createElement('div');panel.id='admin-sub-workreport';panel.className='admin-section';document.getElementById('tab-admin').append(panel);

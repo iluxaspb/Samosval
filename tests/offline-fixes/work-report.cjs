@@ -1,5 +1,5 @@
 const fs=require('fs'),assert=require('node:assert/strict');
-const {JSDOM}=require('../timesheet/node_modules/jsdom');
+const {JSDOM}=require('jsdom');
 const dom=new JSDOM('<div id="tab-admin"><div class="admin-tabs"><button class="admin-tab-btn" onclick="switchAdminTab(\'patches\',this)">Патчи</button></div><div id="admin-sub-patches" class="admin-section"></div></div>',{runScripts:'outside-only',url:'https://qa.example/'});
 const w=dom.window;
 w.eval(fs.readFileSync('tests/timesheet/fixture.js','utf8'));
