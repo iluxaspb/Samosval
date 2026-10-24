@@ -2333,10 +2333,90 @@
       if(snap.exists)acceptLineResult(id,{status:snap.data(),type:'load'},intent);
     }catch(_){}
   }
+  // Offline journal: local-only intents, never counted as confirmed trips.
+  const offlineJournalKey = () => 'samosval_offline_v1_' + firebaseConfig.projectId + '_' + WORKSPACE_ID + '_' + currentUid;
+  let offlineReplayRunning = false;
+  function offlineJournalRead() {
+    try { return JSON.parse(localStorage.getItem(offlineJournalKey()) || '[]').filter(x => x && x.id && x.shiftId && x.truckId); }
+    catch (_) { return []; }
+  }
+  function offlineJournalWrite(items) {
+    localStorage.setItem(offlineJournalKey(), JSON.stringify(items));
+    updateSyncUI();
+  }
+  function offlineQueueAction(type, id, intent) {
+    if (!currentUid || !intent || !intent.status || !state.shift || state.shift.id !== intent.shiftId) return false;
+    try {
+      const items = offlineJournalRead();
+      if (items.some(x => x.truckId === id && x.shiftId === intent.shiftId && x.status === 'pending')) {
+        showToastEl('У этого самосвала уже есть действие, ожидающее синхронизации', false);
+        return true;
+      }
+      items.push({ id: 'op_' + Date.now() + '_' + Math.random().toString(36).slice(2), type, truckId:id,
+        shiftId:intent.shiftId, createdAt:Date.now(), actor:getUserName(), email:currentEmail,
+        expectedRevision:Number(intent.status.cycleRevision||0),
+        arrivalTimestamp:Number(intent.status.arriveTimestamp||0), lastLoadTimestamp:Number(intent.status.lastLoadTimestamp||0),
+        status:'pending' });
+      offlineJournalWrite(items);
+      showToastEl('Без интернета: действие сохранено на устройстве и ожидает проверки сервером', false);
+      return true;
+    } catch (e) { showError('Не удалось сохранить действие офлайн: ' + (e.message||e)); return false; }
+  }
+  async function offlineReplayJournal() {
+    if (offlineReplayRunning || !navigator.onLine || !currentUid || !permissionsLoaded) return;
+    offlineReplayRunning = true;
+    try {
+      const items = offlineJournalRead();
+      for (const op of items) {
+        if (!navigator.onLine) break;
+        if (op.status !== 'pending') continue;
+        try {
+          const result = await db.runTransaction(async tx => {
+            const before = await readLineState(tx, op.truckId, op.shiftId);
+            const truck = findTruck(op.truckId);
+            if (!truck) throw {code:'truck-missing',message:'Самосвал отсутствует'};
+            const gap = (settings.cycleMinutes||15)*60000;
+            if (op.type === 'arrive') {
+              if (before.arriveStatus) return {outcome:'duplicate'};
+              if (before.lastLoadTimestamp && op.createdAt - before.lastLoadTimestamp < gap) return {outcome:'cycle-conflict'};
+              if (Number(before.cycleRevision||0)!==op.expectedRevision) return {outcome:'stale'};
+              const timestamp=Math.max(op.createdAt,Number(before.lastLoadTimestamp||0)+1);
+              tx.update(refs.truckStatus.doc(op.truckId), {arriveStatus:new Date(timestamp).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),arriveTimestamp:timestamp,arriveBy:op.actor,loadedAfterArrive:false,cycleRevision:Number(before.cycleRevision||0)+1});
+              return {outcome:'committed'};
+            }
+            if (op.type === 'load') {
+              if (!before.arriveStatus || Number(before.arriveTimestamp||0)!==op.arrivalTimestamp) return {outcome:'duplicate'};
+              if (Number(before.cycleRevision||0)!==op.expectedRevision) return {outcome:'stale'};
+              if (before.lastLoadTimestamp && op.createdAt - before.lastLoadTimestamp < gap) return {outcome:'cycle-conflict'};
+              const logId='load_'+op.truckId+'_'+op.shiftId+'_cycle_'+Number(before.cycleRevision||0)+'_'+Number(before.arriveTimestamp||before.addedAt||0);
+              const logRef=refs.logs.doc(logId),existing=await tx.get(logRef);
+              if(existing.exists)return {outcome:'duplicate'};
+              const timestamp=Math.max(op.createdAt,Number(before.arriveTimestamp||0)+1,Number(before.lastLoadTimestamp||0)+1);
+              const log={shiftId:op.shiftId,truckId:op.truckId,truckName:truck.brand+' '+truck.number,volume:truck.isGAI?0:truck.defaultVol,timeStr:new Date(timestamp).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),timestamp,arrivalTimestamp:Number(before.arriveTimestamp)||null,createdBy:op.actor,createdByEmail:op.email||'',isGAI:!!truck.isGAI,comment:''};
+              const update={lastLoadTimestamp:timestamp,lastLoadBy:op.actor,lastLoadLogId:logId,cycleRevision:Number(before.cycleRevision||0)+1,arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:true};
+              if(before.ttnStatus==='pending'){update.ttnStatus=true;update.ttnLogId=logId;}
+              tx.set(logRef,log);tx.update(refs.truckStatus.doc(op.truckId),update);
+              return {outcome:'committed'};
+            }
+            return {outcome:'unsupported'};
+          });
+          op.status=result.outcome==='committed'?'confirmed':'rejected';
+          op.result=result.outcome;
+          offlineJournalWrite(items);
+          if(op.status==='confirmed') showToastEl('Офлайн-действие подтверждено сервером',false);
+          else showToastEl('Офлайн-действие не добавлено: '+result.outcome,false);
+        } catch(e) {
+          if (['unavailable','deadline-exceeded','network-request-failed','aborted'].includes(e.code)) break;
+          op.status='rejected';op.result=e.code||e.message||'error';offlineJournalWrite(items);
+          showToastEl('Офлайн-действие отклонено: '+op.result,false);
+        }
+      }
+    } finally { offlineReplayRunning=false; updateSyncUI(); }
+  }
   async function performLoad(id,capturedIntent) {
     if(!requireEdit('action_load')||loadInFlight[id]||lineActionInFlight[id])return {outcome:'ignored'};
     const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
-    if(!navigator.onLine){showError('Нет связи с сервером. Погрузка не записана');return {outcome:'failed'};}
+    if(!navigator.onLine)return {outcome:offlineQueueAction('load',id,intent)?'queued':'failed'};
     loadInFlight[id]=true;lineActionInFlight[id]='load';pendingStart();
     let committed=false;
     try{
@@ -2407,7 +2487,7 @@
   async function toggleArrive(id,capturedIntent){
     if(!requireEdit('action_arrive')||lineActionInFlight[id])return {outcome:'ignored'};
     const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
-    if(!navigator.onLine){showError('Нет связи с сервером. Прибытие не записано');return {outcome:'failed'};}
+    if(!navigator.onLine)return {outcome:offlineQueueAction('arrive',id,intent)?'queued':'failed'};
     const wantArrived=!intent.status.arriveStatus,now=Date.now(),actor=getUserName();
     lineActionInFlight[id]='arrive';pendingStart();
     try{
@@ -2832,13 +2912,14 @@
 
   window.addEventListener('DOMContentLoaded', () => {
     loadMaxQueue(); renderAll(); updateSyncUI();
-    window.addEventListener('online', () => { updateSyncUI(); runMaxQueue(); });
+    window.addEventListener('online', () => { updateSyncUI(); runMaxQueue(); offlineReplayJournal(); });
     window.addEventListener('offline', updateSyncUI);
     let e = localStorage.getItem('dt_saved_email'); if(e) document.getElementById('userBadgeLabel').textContent = '👤 ' + sanitizeName(e);
     document.getElementById('newTruckType').addEventListener('change', toggleVolInput);
     setTimeout(runMaxQueue, 2000);
   });
   setInterval(updateSyncUI, 3000);
+  setInterval(offlineReplayJournal, 8000);
   setInterval(() => { if (maxQueue.length && !maxSenderRunning) runMaxQueue(); }, 20000);
 </script>
 
