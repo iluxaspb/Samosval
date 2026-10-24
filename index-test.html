@@ -988,6 +988,11 @@
   try { db.settings({ experimentalForceLongPolling: true }); } catch (e) {}
   try { db.enablePersistence({ synchronizeTabs: true }).catch(function(){}); } catch (e) {}
 
+  // Тестовый стенд: отдельный Firebase-проект, не производственная база.
+  const TEST_FIREBASE_PROJECT_ID = 'samosval-test';
+  if (firebase.app().options.projectId !== TEST_FIREBASE_PROJECT_ID) {
+    throw new Error('Защита тестового стенда: подключён неверный Firebase-проект');
+  }
   const WORKSPACE_ID = 'main_workspace';
   const wsRef = db.collection('workspaces').doc(WORKSPACE_ID);
   const refs = {
