@@ -1,4 +1,4 @@
-/* Field ledger 3.1. Loaded only by index-test.html. */
+/* Field ledger 3.1.1. Loaded only by index-test.html. */
 (function () {
   'use strict';
   if (window.Timesheet || firebaseConfig.projectId !== 'samosval-offline') return;
@@ -8,7 +8,7 @@
   const statuses={unfilled:'Не заполнено',work:'Работал',off:'Выходной',absent:'Отсутствовал'};
   const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow'}).format(new Date());
   const uid=()=>{if(crypto.randomUUID)return crypto.randomUUID();const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');};
-  const S={user:'',generation:0,local:null,jobs:[],remote:{},unsubs:[],periodUnsubs:[],objectId:'',date:today(),shift:'day',view:'day',scope:'',ready:{},errors:{},busy:false,dialog:null,lastHtml:''};
+  const S={user:'',generation:0,local:null,jobs:[],remote:{},unsubs:[],periodUnsubs:[],objectId:'',date:today(),shift:'day',view:'day',scope:'',ready:{},errors:{},busy:false,dialog:null,lastHtml:'',bulkWorkers:false,bulkRows:[],bulkValue:'12',bulkSaving:false};
   for(const k of C.collections) S.remote[k]=[];
   const host=document.getElementById('tab-timesheet');
   const byId=id=>document.getElementById(id);
@@ -31,12 +31,12 @@
   function choice(value,label,selected){return `<option value="${E(value)}"${value===selected?' selected':''}>${E(label)}</option>`;}
   function field(label,control){return `<label class="ts-field"><span>${label}</span>${control}</label>`;}
   function input(name,value='',extra=''){return `<input name="${name}" value="${E(value)}" ${extra}>`;}
-  function btn(label,action,extra=''){return `<button type="button" class="ts-btn" data-action="${action}" ${extra}>${label}</button>`;}
+  function btn(label,action,extra=''){return `<button type="button" class="ts-btn${action==='entry'?' ts-details':''}" data-action="${action}" ${extra}>${label}</button>`;}
   function note(s){return `<p class="ts-muted">${s}</p>`;}
   function localOpen(name){return new Promise((resolve,reject)=>{const req=indexedDB.open(name,1);req.onupgradeneeded=()=>{req.result.createObjectStore('jobs',{keyPath:'id'});req.result.createObjectStore('cache',{keyPath:'key'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);req.onblocked=()=>reject(Error('Закройте другие вкладки, чтобы открыть локальное хранилище'));});}
   function local(store,method,value){const database=S.local;if(!database)return Promise.reject(Error('Локальное хранилище ещё не готово'));return new Promise((resolve,reject)=>{const tx=database.transaction(store,method==='get'||method==='getAll'?'readonly':'readwrite');const req=tx.objectStore(store)[method](value);let result;req.onsuccess=()=>{result=req.result;};tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error||req.error);tx.onabort=()=>reject(tx.error||Error('Не удалось сохранить на устройстве'));});}
   async function loadJobs(){const generation=S.generation;const jobs=await local('jobs','getAll');if(generation===S.generation)S.jobs=jobs.sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));}
-  function reset(){S.generation++;for(const u of [...S.unsubs,...S.periodUnsubs])u();S.unsubs=[];S.periodUnsubs=[];S.local?.close();S.local=null;S.user='';S.scope='';S.jobs=[];S.ready={};S.errors={};S.busy=false;for(const k of C.collections)S.remote[k]=[];S.dialog?.close();S.lastHtml='';host.innerHTML='';}
+  function reset(){S.generation++;inlineDrafts.clear();inlineChains.clear();S.bulkWorkers=false;S.bulkRows=[];S.bulkSaving=false;for(const u of [...S.unsubs,...S.periodUnsubs])u();S.unsubs=[];S.periodUnsubs=[];S.local?.close();S.local=null;S.user='';S.scope='';S.jobs=[];S.ready={};S.errors={};S.busy=false;for(const k of C.collections)S.remote[k]=[];S.dialog?.close();S.lastHtml='';host.innerHTML='';}
   async function session(){
     if(!allowed()){if(S.user)reset();return;}
     if(S.user===currentUid)return;
@@ -69,7 +69,7 @@
     render();
   }
   let adding=false;
-  async function enqueue(changes,label){
+  async function enqueue(changes,label,quiet=false){
     if(!allowed()||!S.local)throw Error('Войдите в приложение и дождитесь открытия табеля');
     if(!changes.length)return;
     if(changes.some(ch=>['timesheetPeople','timesheetEquipment'].includes(ch.collection)?!manage():!edit()))throw Error('Нет права на изменение этого раздела');
@@ -78,7 +78,7 @@
     const generation=S.generation;
     await new Promise((resolve,reject)=>{const tx=S.local.transaction('jobs','readwrite');for(const op of ops)tx.objectStore('jobs').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('Очередь не сохранена'));});
     if(generation!==S.generation)return;
-    await loadJobs();render();toast(navigator.onLine?'Сохранено на устройстве · отправляем':'Сохранено на устройстве · ожидает связи');replay();
+    await loadJobs();render();if(!quiet)toast(navigator.onLine?'Сохранено на устройстве · отправляем':'Сохранено на устройстве · ожидает связи');replay();
   }
   async function replay(){
     if(!allowed()||!S.local||S.busy||!navigator.onLine)return;
@@ -105,9 +105,58 @@
     catch(e){if(generation===S.generation)S.errors.queue=e.message;}
     finally{if(generation===S.generation){S.busy=false;render();}}
   }
-  function summary(){const d=dayEntries();return `<div class="ts-stats"><div><strong>${d.filter(x=>x.kind==='person').length}</strong><span>человек</span></div><div><strong>${C.fmt(d.filter(x=>x.kind==='person').reduce((n,x)=>n+(x.minutes||0),0))}</strong><span>чел.-ч</span></div><div><strong>${d.filter(x=>x.kind==='equipment').length}</strong><span>ед. техники</span></div><div><strong>${d.filter(x=>x.status==='unfilled').length}</strong><span>не заполнено</span></div></div>`;}
-  function rowCard(r){const machine=living('timesheetEquipment').find(x=>x.id===r.equipmentId);const crew=r.kind==='equipment'?dayEntries().filter(x=>x.kind==='person'&&x.equipmentId===r.entityId):[];return `<div class="ts-row ${r.pending?'ts-pending':''}"><div class="ts-row-name"><strong>${E(r.name)}</strong><small>${E(r.kind==='person'?(machine?.name||groups[r.group]||'Сотрудник'):(r.ownership==='hired'?'Привлечённая · '+r.contractor:'Своя техника'))}</small>${crew.length?`<small>Экипаж: ${crew.length} · ${C.fmt(crew.reduce((n,x)=>n+(x.minutes||0),0))} чел.-ч</small>`:''}${r.note?`<small>${E(r.note)}</small>`:''}</div><div class="ts-hours">${r.status==='unfilled'?'—':r.status==='work'?C.fmt(r.minutes)+' ч':E(statuses[r.status])}${r.idleMinutes?`<small>простой ${C.fmt(r.idleMinutes)} ч</small>`:''}${r.pending?'<small>Ожидает отправки</small>':''}</div>${btn(edit()?'Изменить':'Открыть','entry',`data-id="${E(r.id)}"`)}</div>`;}
-  function dayView(){const d=dayEntries();return summary()+`<div class="ts-toolbar">${edit()?btn('＋ Люди','add-person')+btn('＋ Техника и экипаж','add-equipment')+btn('Часы группе','bulk')+btn('Взять состав','copy'):''}</div>`+note('Дата — начало смены. Ночная смена сохраняется целиком под этой датой; переход через полночь не создаёт вторую запись.')+['equipment','person'].map(kind=>`<section class="ts-section"><h3>${kind==='person'?'Люди':'Техника'}</h3>${sort(d.filter(x=>x.kind===kind)).map(rowCard).join('')||note(kind==='person'?'Добавьте сотрудников из справочника.':'Добавьте технику — сохранённый экипаж появится вместе с ней.')}</section>`).join('')+materialsView(false);}
+  function personGroup(r){return Object.hasOwn(groups,r.group)?r.group:(living('timesheetPeople').find(p=>p.id===r.entityId)?.group||'worker');}
+  function summary(){const d=dayEntries();return `<div class="ts-stats">${[['worker','Рабочие'],['itr','ИТР'],['operator','Машинисты'],['equipment','Техника']].map(([kind,label])=>{const a=d.filter(r=>kind==='equipment'?r.kind==='equipment':r.kind==='person'&&personGroup(r)===kind);return `<div data-summary="${kind}"><strong>${a.length}</strong><span>${label}</span><small>${C.fmt(a.reduce((n,r)=>n+(r.minutes||0),0))} ${kind==='equipment'?'маш.-ч':'чел.-ч'}</small></div>`;}).join('')}</div>`;}
+  function hourButtons(id){return `<button type="button" class="ts-hour-btn" data-action="hours-preset" data-id="${E(id)}" data-value="12" aria-label="Поставить 12 часов">12</button><button type="button" class="ts-hour-btn" data-action="hours-preset" data-id="${E(id)}" data-value="13" aria-label="Поставить 13 часов">13</button>`;}
+  function rowCard(r){
+    const machine=living('timesheetEquipment').find(x=>x.id===r.equipmentId),crew=r.kind==='equipment'?dayEntries().filter(x=>x.kind==='person'&&x.equipmentId===r.entityId):[];
+    const detail=r.kind==='person'?(machine?.name||''):[r.ownership==='hired'?r.contractor:'',crew.length?'Экипаж: '+crew.length+' · '+C.fmt(crew.reduce((n,x)=>n+(x.minutes||0),0))+' чел.-ч':'',r.idleMinutes?'простой '+C.fmt(r.idleMinutes)+' ч':''].filter(Boolean).join(' · ');
+    const status=['off','absent'].includes(r.status)?statuses[r.status]:'';const draft=inlineDrafts.get(r.id);
+    return `<div class="ts-row ts-entry-row ${r.pending?'ts-pending':''}" data-entry-id="${E(r.id)}"><div class="ts-row-name"><strong title="${E(r.name)}">${E(r.name)}${r.pending?'<span class="ts-pending-dot" aria-label="Ожидает отправки">●</span>':''}</strong>${detail||status?`<small>${E([detail,status].filter(Boolean).join(' · '))}</small>`:''}</div>${edit()?`<div class="ts-inline-editor">${hourButtons(r.id)}<button type="button" class="ts-hour-btn ts-step" data-action="hours-step" data-id="${E(r.id)}" data-delta="-1" aria-label="Уменьшить на час">−</button><input class="ts-inline-hours" data-id="${E(r.id)}" value="${E(draft?.dirty?draft.raw:C.fmt(r.minutes))}" aria-invalid="${!!draft?.error}" inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Часы: ${E(r.name)}" placeholder="—" title="Любое число от 0 до 24, например 7,5"><button type="button" class="ts-hour-btn ts-step" data-action="hours-step" data-id="${E(r.id)}" data-delta="1" aria-label="Добавить час">+</button></div>`:`<span class="ts-hours">${r.status==='unfilled'?'—':status||C.fmt(r.minutes)+' ч'}</span>`}${btn('⋯','entry',`data-id="${E(r.id)}" aria-label="Подробности: ${E(r.name)}" title="Отметка, комментарий и другие поля"`)}<span class="ts-row-feedback${draft?.error?' ts-inline-error':''}" role="status">${E(draft?.error||'')}</span></div>`;
+  }
+  function workersBar(){if(!S.bulkWorkers)return '';return `<div class="ts-workers-bar"><span>Всем рабочим: <b>${S.bulkRows.length}</b></span><div class="ts-workers-controls"><button class="ts-hour-btn" type="button" data-action="workers-value" data-value="12">12</button><button class="ts-hour-btn" type="button" data-action="workers-value" data-value="13">13</button><button class="ts-hour-btn" type="button" data-action="workers-value" data-delta="-1" aria-label="Уменьшить часы рабочим">−</button><input id="ts-workers-hours" inputmode="decimal" enterkeyhint="done" aria-label="Часы всем рабочим" value="${E(S.bulkValue)}"><button class="ts-hour-btn" type="button" data-action="workers-value" data-delta="1" aria-label="Добавить час рабочим">+</button>${btn('Поставить','workers-apply',S.bulkSaving?'disabled':'')}</div><small>Заменит часы всех рабочих этой смены.</small></div>`;}
+  function dayView(){
+    const d=dayEntries();
+    const sections=[['worker','Рабочие'],['itr','ИТР'],['operator','Машинисты / водители'],['equipment','Техника']];
+    return summary()+`<div class="ts-toolbar ts-day-toolbar">${edit()?btn('＋ Люди','add-person')+btn('＋ Техника','add-equipment')+btn('Часы всем рабочим','workers-open')+btn('Взять состав','copy'):''}</div>`+workersBar()+sections.map(([kind,label])=>{const a=sort(d.filter(r=>kind==='equipment'?r.kind==='equipment':r.kind==='person'&&personGroup(r)===kind));return `<section class="ts-section ts-compact-section" data-group="${kind}"><div class="ts-section-title"><h3>${label}<span class="ts-section-count">${a.length}</span></h3>${edit()&&a.length&&['itr','operator'].includes(kind)?btn('Часы группе','bulk',`data-group="${kind}"`):''}</div>${a.map(rowCard).join('')||note('Пока нет записей.')}</section>`;}).join('')+materialsView(false);
+  }
+  const inlineDrafts=new Map(),inlineChains=new Map();
+  function inlineInput(id){return [...host.querySelectorAll('.ts-inline-hours')].find(x=>x.dataset.id===id);}
+  function inlineFeedback(id,message,invalid=false){const input=inlineInput(id);if(!input)return;const draft=inlineDrafts.get(id);if(draft){if(invalid)draft.error=message;else delete draft.error;}input.setAttribute('aria-invalid',String(invalid));input.removeAttribute('aria-busy');const feedback=input.closest('.ts-entry-row').querySelector('.ts-row-feedback');if(feedback){feedback.textContent=message;feedback.classList.toggle('ts-inline-error',invalid);}}
+  function captureInline(input){const id=input.dataset.id;if(!inlineDrafts.has(id)){const r=rows('timesheetEntries').find(x=>x.id===id);if(r)inlineDrafts.set(id,{row:C.clone(r),raw:input.value,dirty:false,generation:S.generation});}return inlineDrafts.get(id);}
+  function inlineHours(id,operation,snapshot){
+    if(!edit())return Promise.reject(Error('Нет права изменять часы'));
+    let chain=inlineChains.get(id);
+    if(!chain){const r=snapshot||rows('timesheetEntries').find(x=>x.id===id);if(!r||r.deleted)return Promise.resolve();chain={row:C.clone(r),promise:Promise.resolve(),count:0,generation:S.generation};inlineChains.set(id,chain);}
+    chain.count++;
+    let attempted;
+    const task=chain.promise.then(async()=>{
+      if(chain.generation!==S.generation||!edit())return;
+      const r=chain.row;let minutes;
+      if(operation.type==='step'){const base=operation.raw!==undefined?C.hours(operation.raw):r.minutes;minutes=Math.max(0,Math.min(1440,(base??720)+operation.delta*60));}
+      else minutes=C.hours(operation.value);
+      attempted=C.fmt(minutes);const status=minutes===null?'unfilled':'work';
+      if(r.minutes===minutes&&r.status===status){const input=inlineInput(id);if(input)input.value=C.fmt(minutes);const draft=inlineDrafts.get(id);if(draft){draft.row=C.clone(r);draft.raw=C.fmt(minutes);draft.dirty=false;}inlineFeedback(id,'');return;}
+      const data={...ownData(r),minutes,status};C.validate('timesheetEntries',data,id);
+      inlineInput(id)?.setAttribute('aria-busy','true');
+      await enqueue([{collection:'timesheetEntries',id,baseRevision:r.revision||0,before:ownData(r),data}],'Часы: '+r.name,true);
+      if(chain.generation!==S.generation)return;
+      chain.row={...data,id,revision:(r.revision||0)+1};
+      const draft=inlineDrafts.get(id),input=inlineInput(id);
+      if(!draft?.dirty){if(input)input.value=C.fmt(minutes);inlineDrafts.set(id,{row:C.clone(chain.row),raw:C.fmt(minutes),dirty:false,generation:S.generation});}
+      inlineFeedback(id,'');
+    });
+    chain.promise=task.catch(e=>{if(chain.generation===S.generation){const draft=inlineDrafts.get(id);if(attempted!==undefined&&!draft?.dirty){inlineDrafts.set(id,{row:C.clone(chain.row),raw:attempted,dirty:true,generation:S.generation});const input=inlineInput(id);if(input)input.value=attempted;}inlineFeedback(id,e.message,true);error(e);}});
+    return chain.promise.finally(()=>{chain.count--;if(!chain.count&&inlineChains.get(id)===chain)inlineChains.delete(id);S.lastHtml='';render();});
+  }
+  function saveInlineInput(input){const draft=inlineDrafts.get(input.dataset.id);if(!draft?.dirty||draft.generation!==S.generation)return;draft.raw=input.value;try{C.hours(draft.raw);}catch(e){inlineFeedback(input.dataset.id,e.message,true);return;}draft.dirty=false;return inlineHours(input.dataset.id,{type:'set',value:draft.raw},draft.row);}
+  function inlineButton(id,value,delta){const input=inlineInput(id),draft=inlineDrafts.get(id);const snapshot=draft?.row;const raw=draft?.dirty?input?.value:undefined;
+    if(draft)draft.dirty=false;
+    return inlineHours(id,delta!==undefined?{type:'step',delta:Number(delta),raw}:{type:'set',value},snapshot);
+  }
+  function openWorkers(){if(!edit())return;S.bulkWorkers=!S.bulkWorkers;S.bulkRows=dayEntries().filter(r=>r.kind==='person'&&personGroup(r)==='worker').map(C.clone);S.bulkValue='12';render();}
+  function workersValue(button){const input=byId('ts-workers-hours');if(!input)return;try{const minutes=button.dataset.value!==undefined?C.hours(button.dataset.value,false):Math.max(0,Math.min(1440,(C.hours(input.value)??720)+Number(button.dataset.delta)*60));input.value=C.fmt(minutes);S.bulkValue=input.value;input.removeAttribute('aria-invalid');}catch(e){input.setAttribute('aria-invalid','true');error(e);}}
+  async function applyWorkers(){if(!edit()||S.bulkSaving)return;const input=byId('ts-workers-hours');if(!input)return;const minutes=C.hours(input.value,false),list=S.bulkRows;if(!list.length)throw Error('В эту смену ещё не добавлены рабочие');S.bulkSaving=true;try{await enqueue(list.map(r=>({collection:'timesheetEntries',id:r.id,baseRevision:r.revision||0,before:ownData(r),data:{...ownData(r),minutes,status:'work'}})),'Часы всем рабочим');S.bulkWorkers=false;}finally{S.bulkSaving=false;render();}}
   function materialsView(month){const list=living('timesheetMaterials').filter(x=>x.scope===S.scope&&(month||x.date===S.date&&x.shift===S.shift));const totals=new Map();for(const r of list){const k=r.material+'|'+r.unit;totals.set(k,{name:r.material,unit:r.unit,total:(totals.get(k)?.total||0)+r.quantity});}return `<section class="ts-section"><div class="ts-section-title"><h3>Поступление материалов</h3>${edit()&&!month?btn('＋ Поступление','material'):''}</div>${[...totals.values()].map(t=>`<span class="ts-chip">${E(t.name)} · ${Number(t.total.toFixed(3)).toLocaleString('ru-RU')} ${E(t.unit)}</span>`).join('')}${list.length?list.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<div class="ts-row"><div class="ts-row-name"><strong>${E(r.material)}</strong><small>${E(r.supplier)}${r.document?' · № '+E(r.document):''}${month?' · '+fmtDate(r.date)+' '+shiftName(r.shift):''}</small>${r.pending?'<small>Ожидает отправки</small>':''}</div><b>${r.quantity.toLocaleString('ru-RU')} ${E(r.unit)}</b>${btn(edit()?'Изменить':'Открыть','material',`data-id="${E(r.id)}"`)}</div>`).join(''):note('Материалы считаются отдельно от часов техники подрядчиков.')}</section>`;}
   function monthView(){
     const a=entries(),month=S.date.slice(0,7),days=new Date(Number(month.slice(0,4)),Number(month.slice(5)),0).getDate();const keys=new Map();for(const r of a)keys.set(r.kind+'|'+r.entityId,{kind:r.kind,entityId:r.entityId,name:r.name});
@@ -122,7 +171,7 @@
     if(!allowed()){host.innerHTML=note('Нет доступа к табелю.');return;}
     const pending=S.jobs.filter(x=>x.status==='queued').length,failed=S.jobs.filter(x=>x.status!=='queued');
     const syncText=pending?`На устройстве: ${pending} · ожидают отправки`:!navigator.onLine?'Нет связи · показываем сохранённые данные':S.objectId&&C.collections.every(c=>S.ready[c])?'Данные подтверждены сервером':'Проверяем данные с сервером…';
-    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div><span class="ts-version">Тест 3.1</span></div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
+    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div><span class="ts-version">Тест 3.1.1</span></div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
     if(html!==S.lastHtml){host.innerHTML=html;S.lastHtml=html;}
   }
   function dialog(title,body,onSubmit){
@@ -131,10 +180,10 @@
   }
   function catalogForm(col,id){
     if(!manage())return;const r=rows(col).find(x=>x.id===id),isPerson=col==='timesheetPeople';
-    const body=field(isPerson?'Фамилия и имя':'Название / номер техники',input('name',r?.name,'required maxlength="160"'))+(isPerson?field('Группа',`<select name="group">${Object.entries(groups).map(([k,v])=>choice(k,v,r?.group||'worker')).join('')}</select>`):field('Принадлежность',`<select name="ownership">${choice('own','Своя',r?.ownership||'own')}${choice('hired','Привлечённая',r?.ownership)}</select>`)+field('Организация',input('contractor',r?.contractor,'maxlength="160"'))+`<fieldset><legend>Обычный экипаж</legend>${sort(living('timesheetPeople')).map(p=>`<label class="ts-check"><input type="checkbox" name="crew" value="${E(p.id)}"${r?.crewIds.includes(p.id)?' checked':''}>${E(p.name)}</label>`).join('')||note('Сначала добавьте сотрудников.')}</fieldset>`)+(r?'<label class="ts-check"><input type="checkbox" name="archive">Убрать из справочника (историю сохранить)</label>':'');
+    const body=field(isPerson?'Фамилия и имя':'Название / номер техники',input('name',r?.name,'required maxlength="160"'))+(isPerson?field('Группа',`<select name="group">${Object.entries(groups).map(([k,v])=>choice(k,v,r?.group||'worker')).join('')}</select>`):field('Принадлежность',`<select name="ownership">${choice('own','Своя',r?.ownership||'own')}${choice('hired','Привлечённая',r?.ownership)}</select>`)+field('Организация',input('contractor',r?.contractor,'maxlength="160"'))+`<fieldset><legend>Обычный экипаж</legend>${sort(living('timesheetPeople').filter(p=>p.group==='operator')).map(p=>`<label class="ts-check"><input type="checkbox" name="crew" value="${E(p.id)}"${r?.crewIds.includes(p.id)?' checked':''}>${E(p.name)}</label>`).join('')||note('Добавьте сотрудников с группой «Машинисты / водители».')}</fieldset>`)+(r?'<label class="ts-check"><input type="checkbox" name="archive">Убрать из справочника (историю сохранить)</label>':'');
     dialog(isPerson?'Сотрудник':'Техника и экипаж',body,async f=>{
       const name=C.text(f.get('name'),'Название');if(living(col).some(p=>p.id!==id&&p.name.trim().toLocaleLowerCase('ru')===name.toLocaleLowerCase('ru')))throw Error('Такое имя уже есть. Для тёзки добавьте отчество или табельный номер.');
-      const data=isPerson?{name,group:f.get('group'),deleted:f.has('archive')}:{name,ownership:f.get('ownership'),contractor:String(f.get('contractor')||'').trim(),crewIds:f.getAll('crew'),deleted:f.has('archive')};
+      const data=isPerson?{name,group:f.get('group'),deleted:f.has('archive')}:{name,ownership:f.get('ownership'),contractor:String(f.get('contractor')||'').trim(),crewIds:f.getAll('crew').filter(id=>living('timesheetPeople').some(p=>p.id===id&&p.group==='operator')),deleted:f.has('archive')};
       await enqueue([{collection:col,id:id||uid(),baseRevision:r?.revision||0,before:r?ownData(r):null,data}],isPerson?'Справочник сотрудников':'Справочник техники');
     });
   }
@@ -147,7 +196,7 @@
     const el=dialog(kind==='person'?'Добавить людей в смену':'Добавить технику и экипаж',note(kind==='person'?'Отметьте нужных сотрудников.':'Сохранённые машинисты добавятся с незаполненными часами. Уже внесённые люди без привязки будут включены в экипаж. Их часы и существующие назначения сохранятся.')+list.map(r=>`<label class="ts-check"><input type="checkbox" name="ids" value="${E(r.id)}">${E(r.name)}</label>`).join('')+(list.length?'':note('Сначала заполните справочник.')),async f=>{
       const changes=new Map(),existing=dayEntries();
       const append=(k,e,machine='')=>{const id=C.entryId(k,S.objectId,S.date,S.shift,e.id),old=existing.find(x=>x.id===id);if(changes.has(id))return;if(old){if(k==='person'&&machine&&!old.equipmentId)changes.set(id,change('timesheetEntries',id,{...ownData(old),equipmentId:machine}));return;}changes.set(id,change('timesheetEntries',id,blankEntry(k,e,machine)));};
-      for(const id of f.getAll('ids')){const entity=list.find(x=>x.id===id);append(kind,entity);if(kind==='equipment')for(const personId of entity.crewIds){const p=living('timesheetPeople').find(x=>x.id===personId);if(p)append('person',p,entity.id);}}
+      for(const id of f.getAll('ids')){const entity=list.find(x=>x.id===id);append(kind,entity);if(kind==='equipment')for(const personId of entity.crewIds){const p=living('timesheetPeople').find(x=>x.id===personId&&x.group==='operator');if(p)append('person',p,entity.id);}}
       if(!changes.size)throw Error('Выберите новые строки для этой смены');await enqueue([...changes.values()],'Добавлен состав смены');
     });return el;
   }
@@ -163,9 +212,9 @@
     if(!edit())el.querySelectorAll('input,select,textarea').forEach(i=>i.disabled=true);
     else el.querySelector('[name=hours]').addEventListener('input',e=>{if(e.target.value.trim())el.querySelector('[name=status]').value='work';});
   }
-  function bulkForm(){
-    if(!edit())return;const list=sort(dayEntries().filter(x=>x.kind==='person'));
-    dialog('Часы группе',field('Всем выбранным, часов',input('hours','12','inputmode="decimal" required'))+list.map(r=>`<label class="ts-check"><input type="checkbox" name="ids" value="${E(r.id)}"${r.status==='unfilled'?' checked':''}>${E(r.name)} <span class="ts-muted">${r.status==='unfilled'?'не заполнено':C.fmt(r.minutes)+' ч'}</span></label>`).join(''),async f=>{
+  function bulkForm(group){
+    if(!edit())return;const list=sort(dayEntries().filter(x=>x.kind==='person'&&(!group||personGroup(x)===group)));
+    dialog('Часы: '+(groups[group]||'выбранным сотрудникам'),field('Всем выбранным, часов',input('hours','12','inputmode="decimal" required'))+list.map(r=>`<label class="ts-check"><input type="checkbox" name="ids" value="${E(r.id)}"${r.status==='unfilled'?' checked':''}>${E(r.name)} <span class="ts-muted">${r.status==='unfilled'?'не заполнено':C.fmt(r.minutes)+' ч'}</span></label>`).join(''),async f=>{
       const minutes=C.hours(f.get('hours'),false),ids=f.getAll('ids');if(!ids.length)throw Error('Выберите сотрудников');
       await enqueue(ids.map(id=>{const r=list.find(x=>x.id===id);return {collection:'timesheetEntries',id,baseRevision:r.revision||0,before:ownData(r),data:{...ownData(r),minutes,status:'work'}};}),'Часы группе');
     });
@@ -223,11 +272,16 @@
     const el=dialog('История изменений',note('Загружаем…'));const scope=S.scope;
     try{const snap=await wsRef.collection('timesheetChanges').where('scope','==',scope).get({source:'server'});const list=snap.docs.map(d=>d.data()).sort((a,b)=>b.createdAt-a.createdAt).slice(0,100);el.querySelector('.ts-dialog-body').innerHTML=list.map(x=>`<section class="ts-history"><b>${E(x.label)}</b><small>${E(x.name)} · ${new Date(x.createdAt).toLocaleString('ru-RU')}</small>${x.changes.map(c=>`<p>${E(describe(c.before))} → ${E(describe(c.after))}</p>`).join('')}</section>`).join('')||note('Изменений пока нет.');}catch(e){el.querySelector('.ts-dialog-body').textContent='Не удалось загрузить историю: '+e.message;}
   }
-  host.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const {action,id,col,view}=b.dataset;
-    const actions={view:()=>{S.view=view;render();},'add-person':()=>addForm('person'),'add-equipment':()=>addForm('equipment'),entry:()=>entryForm(id),bulk:bulkForm,copy:copyForm,catalog:()=>catalogForm(col,id),material:()=>materialForm(id),retry:replay,conflict:()=>conflictForm(id),export:()=>exportCsv(false),'export-materials':()=>exportCsv(true),history};
+  host.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const {action,id,col,view,group}=b.dataset;
+    const actions={view:()=>{S.view=view;render();},'add-person':()=>addForm('person'),'add-equipment':()=>addForm('equipment'),entry:()=>entryForm(id),bulk:()=>bulkForm(group),'hours-preset':()=>inlineButton(id,b.dataset.value),'hours-step':()=>inlineButton(id,undefined,b.dataset.delta),'workers-open':openWorkers,'workers-value':()=>workersValue(b),'workers-apply':applyWorkers,copy:copyForm,catalog:()=>catalogForm(col,id),material:()=>materialForm(id),retry:replay,conflict:()=>conflictForm(id),export:()=>exportCsv(false),'export-materials':()=>exportCsv(true),history};
     try{Promise.resolve(actions[action]?.()).catch(error);}catch(e){error(e);}
   });
-  host.addEventListener('change',e=>{const t=e.target;if(t.id==='ts-object')S.objectId=t.value;else if(t.id==='ts-date'){if(!t.value)return;S.date=t.type==='month'?t.value+'-01':t.value;}else if(t.id==='ts-shift')S.shift=t.value;else return;t.blur();period().catch(error);render();});
+  host.addEventListener('change',e=>{const t=e.target;if(t.matches('.ts-inline-hours')){saveInlineInput(t);return;}if(t.id==='ts-workers-hours'){S.bulkValue=t.value;return;}if(t.id==='ts-object')S.objectId=t.value;else if(t.id==='ts-date'){if(!t.value)return;S.date=t.type==='month'?t.value+'-01':t.value;}else if(t.id==='ts-shift')S.shift=t.value;else return;S.bulkWorkers=false;t.blur();period().catch(error);render();});
+  host.addEventListener('focusin',e=>{if(e.target.matches('.ts-inline-hours')){captureInline(e.target);e.target.select();}});
+  host.addEventListener('input',e=>{if(e.target.matches('.ts-inline-hours')){const draft=captureInline(e.target);if(draft){draft.raw=e.target.value;draft.dirty=true;}e.target.removeAttribute('aria-invalid');}else if(e.target.id==='ts-workers-hours')S.bulkValue=e.target.value;});
+  host.addEventListener('focusout',e=>{if(!e.target.matches('.ts-inline-hours'))return;saveInlineInput(e.target);const id=e.target.dataset.id;setTimeout(()=>{if(document.activeElement!==e.target&&!inlineDrafts.get(id)?.dirty){inlineDrafts.delete(id);render();}},0);});
+  host.addEventListener('keydown',e=>{if(!e.target.matches('.ts-inline-hours'))return;if(e.key==='Enter'){e.preventDefault();saveInlineInput(e.target);e.target.blur();}else if(e.key==='Escape'){e.preventDefault();const draft=inlineDrafts.get(e.target.dataset.id);if(draft){e.target.value=C.fmt(draft.row.minutes);draft.dirty=false;}e.target.blur();}});
+  host.addEventListener('pointerdown',e=>{if(e.target.closest('[data-action^="hours-"]')&&document.activeElement?.matches('.ts-inline-hours'))e.preventDefault();});
   window.Timesheet={session,render,reset};
   const previousRender=window.renderAll;window.renderAll=function(){previousRender.apply(this,arguments);session();render();};
   const previousStop=window.stopSync;window.stopSync=function(){reset();return previousStop.apply(this,arguments);};
