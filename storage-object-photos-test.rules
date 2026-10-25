@@ -1,0 +1,38 @@
+// TEST ONLY: samosval-offline / samosval-offline.firebasestorage.app.
+// Deploying this file to GitHub does not publish Firebase Storage rules.
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function owner() { return request.auth != null && request.auth.uid == 'LxibEkd18ASZ3euK5MPCJxTJitZ2'; }
+    function account() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    function active() {
+      return request.auth != null && (owner() || account().get('status', '') == 'active');
+    }
+    function admin() {
+      return active() && (owner() || account().get('role', '') == 'admin');
+    }
+    function photo(id) {
+      return firestore.get(/databases/(default)/documents/workspaces/main_workspace/objectPhotos/$(id)).data;
+    }
+    match /workspaces/main_workspace/objectPhotos/{objectKey}/{shiftId}/{photoId}/image.jpg {
+      allow read: if active();
+      allow create, update: if admin()
+        && photo(photoId).status == 'uploading'
+        && photo(photoId).createdByUid == request.auth.uid
+        && photo(photoId).path == 'workspaces/main_workspace/objectPhotos/' + objectKey + '/' + shiftId + '/' + photoId + '/image.jpg'
+        && request.resource.size > 0
+        && request.resource.size <= 12 * 1024 * 1024
+        && request.resource.size == photo(photoId).pendingSize
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.metadata.uid == request.auth.uid
+        && request.resource.metadata.photoId == photoId;
+      allow delete: if admin() && photo(photoId).status == 'deleting';
+    }
+    // Allow listing this feature's prefix for an administrator's inventory.
+    match /workspaces/main_workspace/objectPhotos/{path=**} {
+      allow list: if admin();
+    }
+  }
+}
