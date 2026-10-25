@@ -1473,7 +1473,7 @@
       }, e=>reportSyncError('audit', e)));
     }
     if (!canAdmin()) usersUnsubscriber = usersRef.onSnapshot(s => { state.users = s.docs.map(d => Object.assign({id:d.id}, d.data())); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('analytics', 'renderAnalytics'); scheduleRenderForTab('line', 'renderLine'); }, e=>console.warn(e));
-    unsubscribers.push(appConfigRef.onSnapshot(doc => { if (doc.exists) { let d = doc.data(); if(Number.isFinite(d.cycleMinutes)){settings.cycleMinutes=Math.max(15,d.cycleMinutes);localStorage.setItem('dt_settings',JSON.stringify(settings));} appConfig = { maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '', notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true, notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true, notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true, notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true, notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true, notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true, notifyPdfMain: d.notifyPdfMain !== undefined ? !!d.notifyPdfMain : true, notifyPdfGai: d.notifyPdfGai !== undefined ? !!d.notifyPdfGai : true, testReviewFlags: d.testReviewFlags || {} }; renderConflictAuthorPatch(); renderAppSettingsIfActive(); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } }, e => console.warn(e)));
+    unsubscribers.push(appConfigRef.onSnapshot(doc => { if (doc.exists) { let d = doc.data(); if(Number.isFinite(d.cycleMinutes)){settings.cycleMinutes=Math.max(15,d.cycleMinutes);localStorage.setItem('dt_settings',JSON.stringify(settings));} appConfig = { maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '', notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true, notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true, notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true, notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true, notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true, notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true, notifyPdfMain: d.notifyPdfMain !== undefined ? !!d.notifyPdfMain : true, notifyPdfGai: d.notifyPdfGai !== undefined ? !!d.notifyPdfGai : true, testReviewFlags: d.testReviewFlags || {} }; window.__gameConfigChanged?.(); renderConflictAuthorPatch(); renderAppSettingsIfActive(); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } }, e => console.warn(e)));
 
     // === SECURITY: права и флаг готовности ===
     unsubscribers.push(permsRef.onSnapshot({ includeMetadataChanges: true }, doc => {
@@ -2366,10 +2366,10 @@
     const controls=document.getElementById('testGameModeControls');
     const details=document.getElementById('testActivityCoinsDetails');
     const visible=testGameModeVisible();
-    if(controls)controls.style.display=canAdmin()?'':'none';
+    if(controls)controls.style.display='none';
     const checkbox=document.getElementById('testGameModeEnabled');
     if(checkbox)checkbox.checked=visible;
-    if(details)details.hidden=!visible;
+    if(details)details.hidden=true;
     const host=document.getElementById('userActivityRanking');
     if(host) {
       const records=Array.isArray(state.audit)?state.audit:[];
@@ -2780,6 +2780,7 @@
         truckName:truck.brand+' '+truck.number,volume:truck.isGAI?0:truck.defaultVol,isGAI:!!truck.isGAI,status:'pending'};
       if(type==='load')op.logId='load_'+id+'_'+op.shiftId+'_cycle_'+op.expectedRevision+'_'+op.arrivalTimestamp;
       items.push(op);offlineJournalWrite(items); // Commit locally first; never silently lose an action.
+      try{window.__gameCoinQueued?.(op);}catch(e){console.warn('[game animation]',e);}
       const old=state.truckStatus[id];offlineProjectState();signalLineTransition(id,old,state.truckStatus[id]);refreshLineViews();
       const label=type==='reset'?'🔄 Сброс таймера':type==='load'?'⚡ Погрузка':type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
       showToastEl(label+' · '+truckLabelHtml(id),false);
@@ -4804,7 +4805,106 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
 
 </script>
 <!-- MAX PLATES PARITY END -->
+<style id="game-coins-style">
+#game-wallet{position:fixed;right:12px;top:max(12px,env(safe-area-inset-top));z-index:9900;border:1px solid #fbbf24;border-radius:24px;padding:9px 15px;background:linear-gradient(135deg,#422006,#854d0e);color:#fef3c7;box-shadow:0 4px 24px #0005;font-weight:800;cursor:pointer}
+#game-wallet[hidden],#game-admin[hidden]{display:none!important}
+#game-ranking{width:min(540px,calc(100% - 24px));max-height:85dvh;margin:auto;padding:24px;border:1px solid #b88932;border-radius:24px;background:var(--card);color:var(--text);box-shadow:0 24px 90px #0008}
+#game-ranking::backdrop{background:#020617b8;backdrop-filter:blur(5px)}
+.game-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.game-head button{background:var(--border);color:var(--text);border:0;border-radius:50%;width:40px;height:40px;font-size:22px;cursor:pointer}
+.game-profile{padding:20px;border-radius:18px;background:linear-gradient(120deg,#78350f,#422006);color:#fef3c7;margin-bottom:20px}.game-profile strong{display:block;font-size:32px;margin:8px 0}.game-profile progress{width:100%;accent-color:#fbbf24;margin:10px 0}
+.game-row{display:flex;gap:12px;align-items:center;padding:13px 10px;border-bottom:1px solid var(--border)}.game-row.me{background:#fbbf2414;border-radius:12px}.game-place{font-size:21px;min-width:32px}.game-person{flex:1;min-width:0;overflow-wrap:anywhere}.game-person small{display:block;color:var(--muted);margin-top:4px}.game-score{color:#fbbf24;white-space:nowrap}.game-note{font-size:12px;line-height:1.6;color:var(--muted);margin:12px 0}
+.game-flying-coin{position:fixed;z-index:11000;pointer-events:none;font-size:30px;filter:drop-shadow(0 3px 7px #f59e0b80)}
+</style>
+<script id="game-coins-v2">
+(function(){
+  'use strict';
+  const levels=[{at:0,name:'🌱 Новичок'},{at:25,name:'🚛 На колёсах'},{at:100,name:'🥉 Мастер рейса'},{at:500,name:'🥈 Профи карьера'},{at:1000,name:'🥇 Легенда линии'},{at:5000,name:'👑 Золотая лопата'}];
+  const rank=n=>levels.filter(x=>n>=x.at).at(-1)||levels[0];
+  const key=s=>String(s||'').trim().toLowerCase();
+  // Rebuild from durable transaction history: replay and snapshots cannot add coins twice.
+  // Undo/redo toggles history. Deleting a load removes its reward as well.
+  function calculate(records){
+    const rewards=new Map(),seen=new Set();
+    for(const e of records.slice().sort((a,b)=>(a.timestamp||0)-(b.timestamp||0)||String(a.id).localeCompare(String(b.id)))){
+      if(!e.id||seen.has(e.id)||!e.history||e.history.undone)continue;seen.add(e.id);
+      const ops=e.history.operations||[],user=key(e.userEmail||e.history.userEmail),name=e.userName||e.history.user||user;
+      const loading=ops.some(o=>o.collection==='logs'&&!o.before&&o.after);
+      const archiving=ops.some(o=>o.collection==='archive'&&o.after);
+      for(const o of ops){
+        const b=o.before||{},a=o.after||{};
+        if(o.collection==='logs'){
+          const id='load:'+o.id;
+          if(!o.after){if(!archiving)rewards.delete(id);}
+          else if(!o.before&&a.clientOperationId)rewards.set(id,{user:key(a.createdByEmail)||user,name:a.createdBy||name,coins:1});
+        }
+        if(o.collection==='truckStatus'){
+          const id=t=>'arrive:'+o.id+':'+(t.shiftId||'')+':'+t.arriveTimestamp;
+          if(b.arriveTimestamp&&o.after&&!a.arriveTimestamp&&!loading&&!archiving&&a.shiftId===b.shiftId&&a.lastResetOperationId===b.lastResetOperationId&&a.lastLoadTimestamp===b.lastLoadTimestamp)rewards.delete(id(b));
+          if(a.arriveTimestamp&&a.arriveTimestamp!==b.arriveTimestamp&&b.lastLoadTimestamp&&a.arriveTimestamp>b.lastLoadTimestamp)
+            rewards.set(id(a),{user,name,coins:2});
+        }
+      }
+    }
+    const users=new Map();
+    for(const r of rewards.values()){if(!r.user)continue;const row=users.get(r.user)||{user:r.user,name:r.name,coins:0};row.coins+=r.coins;users.set(r.user,row);}
+    return [...users.values()].sort((a,b)=>b.coins-a.coins||a.name.localeCompare(b.name,'ru'));
+  }
+  window.__gameCoinsCore={calculate,rank};
+  let records=[],unsubscribe=null,owner='',ready=false,error='',board=[],configReady=false,lastView='';
+  const enabled=()=>configReady&&permissionsLoaded&&!!currentUid&&appConfig?.testReviewFlags?.game_mode!==false;
+  const wallet=document.createElement('button');wallet.id='game-wallet';wallet.hidden=true;wallet.type='button';wallet.setAttribute('aria-label','Монеты и рейтинг пользователей');document.body.append(wallet);
+  const modal=document.createElement('dialog');modal.id='game-ranking';modal.setAttribute('aria-labelledby','game-title');document.body.append(modal);
+  const admin=document.createElement('div');admin.id='game-admin';admin.className='form-card';admin.hidden=true;
+  admin.innerHTML='<label style="display:flex;align-items:center;gap:12px;font-weight:700"><input type="checkbox" id="game-enabled"> 🪙 Игровой режим для всех</label><p class="game-note">Монеты за погрузки и возвращения, личный ранг и рейтинг команды. Выключение скрывает весь игровой интерфейс у всех пользователей. Накопления сохраняются в истории.</p>';
+  document.getElementById('tab-admin')?.prepend(admin);
+  const checkbox=admin.querySelector('input');
+  checkbox.onchange=async()=>{if(!canAdmin())return;checkbox.disabled=true;try{await appConfigRef.set({testReviewFlags:{game_mode:checkbox.checked}},{merge:true});}catch(e){checkbox.checked=enabled();showError('Не удалось сохранить игровой режим: '+e.message);}finally{checkbox.disabled=false;}};
+  function paint(){
+    wallet.hidden=!enabled();admin.hidden=!canAdmin();if(!checkbox.disabled)checkbox.checked=enabled();
+    if(!enabled()){if(modal.open)modal.close();document.querySelectorAll('.game-flying-coin').forEach(e=>e.remove());return;}
+    board=calculate(records);const me=board.find(r=>r.user===key(currentEmail)),coins=me?.coins||0;
+    wallet.textContent='🪙 '+(ready?coins.toLocaleString('ru-RU'):'…');wallet.title=rank(coins).name+' · Открыть рейтинг';
+    if(!modal.open)return;
+    const view=JSON.stringify([board,currentEmail,ready,error]);if(view===lastView&&modal.innerHTML)return;lastView=view;
+    const level=rank(coins),next=levels.find(x=>x.at>coins),esc=escapeHtml;
+    modal.innerHTML='<div class="game-head"><h2 id="game-title">Лига самосвалов</h2><button aria-label="Закрыть рейтинг">×</button></div>'
+      +'<div class="game-profile"><span>'+esc(getUserName())+' · '+esc(level.name)+'</span><strong>🪙 '+coins.toLocaleString('ru-RU')+'</strong>'
+      +(next?'<progress value="'+(coins-level.at)+'" max="'+(next.at-level.at)+'" aria-label="Прогресс до следующего ранга"></progress><div>Ещё '+(next.at-coins)+' до ранга «'+esc(next.name)+'»</div>':'<div>Высший ранг — вы легенда команды!</div>')+'</div>'
+      +'<h3>Рейтинг команды</h3><p class="game-note">Погрузка +1 · Возвращение после погрузки +2. Первый приезд — без монет. Начисление после подтверждения сервером; отменённые действия не учитываются. Рейтинг по сохранённой истории операций.</p>'
+      +(error?'<p role="status">'+esc(error)+'</p>':!ready?'<p role="status">Загружаем накопления…</p>':board.length?board.map((r,i)=>'<div class="game-row '+(r.user===key(currentEmail)?'me':'')+'"><span class="game-place">'+(['🥇','🥈','🥉'][i]||i+1)+'</span><div class="game-person"><b>'+esc(resolveUserDisplayName(r.user,r.name))+(r.user===key(currentEmail)?' · вы':'')+'</b><small>'+esc(rank(r.coins).name)+'</small></div><b class="game-score">'+r.coins+' 🪙</b></div>').join(''):'<p class="game-note">Первый рейс — первый шаг к вершине. Здесь появятся участники с монетами.</p>');
+    modal.querySelector('button').onclick=()=>modal.close();
+  }
+  wallet.onclick=()=>{modal.showModal();paint();};
+  modal.addEventListener('click',e=>{if(e.target===modal){const r=modal.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)modal.close();}});
+  window.__gameCoinQueued=function(op){
+    if(!enabled()||!(op.type==='load'||op.type==='arrive'&&op.wantArrived&&op.lastLoadTimestamp))return;
+    const card=[...document.querySelectorAll('.truck-card[data-truck-id]')].find(c=>c.dataset.truckId===op.truckId),button=card?.querySelector(op.type==='load'?'.btn-quick':'.btn-arrive');
+    const r=button?.getBoundingClientRect();
+    // Immediate visual feedback; balance remains server-confirmed.
+    if(!r||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+    const target=wallet.getBoundingClientRect(),coin=document.createElement('span');coin.className='game-flying-coin';coin.textContent='🪙';coin.setAttribute('aria-hidden','true');coin.style.left=(r.left+r.width/2-15)+'px';coin.style.top=(r.top+r.height/2-15)+'px';document.body.append(coin);
+    const dx=target.left+target.width/2-(r.left+r.width/2),dy=target.top+target.height/2-(r.top+r.height/2);
+    const a=coin.animate([{transform:'translate(0,0) scale(1)',opacity:1},{transform:'translate('+dx*.35+'px,'+(dy*.65-70)+'px) scale(1.3)',opacity:1},{transform:'translate('+dx+'px,'+dy+'px) scale(.45)',opacity:0}],{duration:800,easing:'cubic-bezier(.2,.7,.3,1)'});a.onfinish=()=>coin.remove();setTimeout(()=>coin.remove(),1200);
+  };
+  function sync(){
+    const identity=permissionsLoaded?String(currentUid||''):'';
+    if(identity!==owner||(!enabled()&&unsubscribe)){
+      unsubscribe?.();unsubscribe=null;owner=identity;records=[];board=[];ready=false;error='';
+    }
+    if(enabled()&&!unsubscribe){
+      const session=owner;
+      unsubscribe=refs.audit.where('eventType','==','history').onSnapshot(s=>{if(owner!==session)return;records=s.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()}));ready=true;error='';paint();},e=>{if(owner!==session)return;error='Не удалось загрузить рейтинг. Проверьте подключение и доступ к истории.';ready=false;paint();console.warn('[game coins]',e);});
+    }
+    paint();
+  }
+  window.__gameConfigChanged=()=>{configReady=true;sync();};
+  // Existing appConfig listener is registered first and applies the shared flags.
+  setInterval(sync,1000);
+})();
+</script>
+
 </body>
 </html>
+
 
 
