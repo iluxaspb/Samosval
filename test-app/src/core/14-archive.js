@@ -52,7 +52,10 @@
     let tV = stdLogs.reduce((x,y)=>x+y.volume,0);
     document.getElementById('modalArchiveTitle').textContent = s.date;
     let e = hasPermission('archive_edit');
-    document.getElementById('archiveRestoreBtn').style.display = e?'':'none';
+    const restoreButton=document.getElementById('archiveRestoreBtn');
+    restoreButton.style.display=e?'':'none';
+    restoreButton.textContent=state.shift?.restoring&&state.shift.restoredFrom===s.id?'♻️ Продолжить восстановление':'♻️ Восстановить смену';
+    restoreButton.disabled=archiveRestoreInFlight;
     document.getElementById('archiveDeleteBtn').style.display = hasPermission('archive_delete')?'':'none';
     let toggleBtnHtml = `<div style="text-align:center; margin-bottom: 12px;"><button class="btn btn-secondary btn-small" style="min-width:135px;font-size:12px;touch-action:none;user-select:none" aria-label="Удерживайте 0,8 секунды для переключения листа" onpointerdown="startArchiveHold(event)" onpointerup="cancelArchiveHold()" onpointercancel="cancelArchiveHold()" onpointerleave="cancelArchiveHold()" oncontextmenu="event.preventDefault()" onkeydown="archiveHoldKey(event)" onkeyup="cancelArchiveHold()" onblur="cancelArchiveHold()">${viewingArchiveGAITable ? '📄 Обычный' : '📄 ГАИ'} · удерживать 0,8 с</button></div>`;
     let activeLineIds = s.activeLineIds || []; let ttnStatus = s.ttnStatus || {}; let html = '';
@@ -85,66 +88,181 @@
     setTimeout(() => { setupStylus('draw-canvas-archive', 'archive-paper-wrapper'); }, 100);
   }
   async function saveArchivePNG() {
-    if(!hasTabAccess('archive') || !viewingArchiveId)return;
-    const archive=state.archive.find(x=>x.id===viewingArchiveId);
-    const paper=document.querySelector('#modalArchiveBody .paper-report-container');
-    const button=document.getElementById('archiveSavePngBtn');
-    if(!archive || !paper || typeof window.html2pdf!=='function'){
-      showError('Экспорт изображения недоступен');return;
+    if (!hasTabAccess('archive') || !viewingArchiveId) return;
+    const archive = state.archive.find(x => x.id === viewingArchiveId);
+    const paper = document.querySelector('#modalArchiveBody .paper-report-container');
+    const button = document.getElementById('archiveSavePngBtn');
+    const isGai = viewingArchiveGAITable;
+    if (isGai && !hasPermission('view_gai_report')) { showError('Нет прав'); return; }
+    if (!archive || !paper || typeof generatePNGFromHTML !== 'function') {
+      showError('Экспорт изображения недоступен'); return;
     }
-    const holder=document.createElement('div');
-    holder.style.cssText='position:fixed;left:-100000px;top:0;width:max-content;z-index:-1;background:#fff;pointer-events:none';
-    const clone=paper.cloneNode(true);
-    clone.style.zoom='1';
-    clone.style.transform='none';
-    clone.style.width='max-content';
-    holder.appendChild(clone);
-    document.body.appendChild(holder);
-    if(button)button.disabled=true;
-    try{
-      if(document.fonts?.ready)await document.fonts.ready;
-      const canvas=await window.html2pdf().set({
-        margin:0,
-        html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,scrollX:0,scrollY:0},
-        jsPDF:{unit:'px',format:'a4'}
-      }).from(clone).toCanvas().get('canvas');
-      if(!canvas || !canvas.width || !canvas.height)throw Error('Пустое изображение');
-      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
-      if(!blob)throw Error('Браузер не смог создать PNG');
-      const safeName=String(archive.objectName||'Объект').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,70);
-      const safeDate=String(archive.date||'').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_');
-      const url=URL.createObjectURL(blob),link=document.createElement('a');
-      link.href=url;link.download=safeName+'_'+safeDate+(viewingArchiveGAITable?'_ГАИ':'')+'.png';
-      document.body.appendChild(link);link.click();link.remove();
-      setTimeout(()=>URL.revokeObjectURL(url),60000);
-      showToastEl('Отчёт PNG сохранён',false);
-    }catch(e){console.warn('Archive PNG',e);showError('Не удалось сохранить PNG: '+e.message);}
-    finally{holder.remove();if(button)button.disabled=false;}
+    // Snapshot the visible sheet and filename before an awaited render: users can change tabs.
+    const html = paper.innerHTML;
+    const safeName = String(archive.objectName || 'Объект').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 70);
+    const safeDate = String(archive.date || '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_');
+    if (button) button.disabled = true;
+    try {
+      const blob = await generatePNGFromHTML(html);
+      downloadReportPNG(blob, safeName + '_' + safeDate + (isGai ? '_ГАИ' : '') + '.png');
+      showToastEl('Отчёт PNG сохранён', false);
+    } catch(e) { console.warn('Archive PNG', e); showError('Не удалось сохранить PNG: ' + e.message); }
+    finally { if (button) button.disabled = false; }
   }
   function closeArchiveModal() {
     cancelArchiveHold();
     document.getElementById('archiveModal').classList.remove('open');
     viewingArchiveId=null;
   }
-  async function restoreArchiveToShift() {
-    if (!requireEdit('archive_edit') || !viewingArchiveId) return;
-    const s = state.archive.find(x => x.id === viewingArchiveId); if (!s) return;
-    const hasActive = state.shift && state.shift.isActive;
-    const msg = hasActive ? `Активная смена "${state.shift.objectName}" будет заменена.\n\nВосстановить "${s.objectName}" от ${s.date}?` : `Восстановить смену "${s.objectName}" от ${s.date}?`;
-    if (!(await appConfirm(msg))) return;
-    try {
-      showToastEl('⏳ Восстановление...', false);
-      await cleanupOldShiftData(); await clearAllNotifications();
-      const newSid = 'shift_' + Date.now();
-      await tfAwait(refs.shift.set({ id: newSid, objectName: s.objectName, objectId: s.objectId || '', startDate: s.date, startedAt: Date.now(), startedBy: getUserName(), isActive: true, restoredFrom: viewingArchiveId }));
-      const batch = db.batch(); const logsByTruck = {};
-      (s.logs || []).forEach((l, idx) => { const lid = `load_${l.truckId}_${newSid}_${l.timestamp || Date.now()}_${idx}`; batch.set(refs.logs.doc(lid), { shiftId: newSid, truckId: l.truckId, truckName: l.truckName, volume: l.volume, timeStr: l.timeStr, timestamp: l.timestamp, createdBy: l.createdBy, createdByEmail: l.createdByEmail || '', isGAI: !!l.isGAI, comment: l.comment || '' }); if (!logsByTruck[l.truckId]) logsByTruck[l.truckId] = []; logsByTruck[l.truckId].push({ id: lid, ts: l.timestamp || 0 }); });
-      const allIds = new Set(); (s.activeLineIds || []).forEach(id => allIds.add(id)); (s.logs || []).forEach(l => allIds.add(l.truckId));
-      allIds.forEach(id => { const truckLogs = (logsByTruck[id] || []).slice().sort((a, b) => a.ts - b.ts); const lastLog = truckLogs[truckLogs.length - 1]; let ttnStatus = null, ttnLogId = null; if (s.ttnStatus && s.ttnStatus[id]) { ttnStatus = true; ttnLogId = lastLog ? lastLog.id : null; } batch.set(refs.truckStatus.doc(id), { id, shiftId: newSid, onLine: true, addedBy: getUserName(), addedAt: Date.now(), arriveStatus: null, arriveTimestamp: null, arriveBy: null, ttnStatus, ttnBy: null, ttnLogId, lastLoadTimestamp: lastLog ? lastLog.ts : null, lastLoadBy: null, lastLoadLogId:lastLog?lastLog.id:null, cycleRevision:0, loadedAfterArrive: false }); });
-      await tfAwait(batch.commit()); await tfAwait(refs.archive.doc(viewingArchiveId).delete());
-      addAudit(`♻️ Смена восстановлена из архива: ${s.objectName} (${s.date})`).catch(()=>{});
-      closeArchiveModal(); showToastEl('✅ Смена восстановлена', false);
-    } catch(e) { showError('Ошибка восстановления: ' + e.message); }
+  function archiveRestoreJSON(value) {
+    return JSON.stringify(value,(_,item)=>item&&typeof item==='object'&&!Array.isArray(item)
+      ?Object.keys(item).sort().reduce((out,key)=>(out[key]=item[key],out),{}):item);
   }
-  async function deleteArchiveShift() { if(!requireEdit('archive_delete') || !viewingArchiveId || !(await appConfirm('В корзину?'))) return; let s = state.archive.find(x=>x.id===viewingArchiveId); try { await tfAwait(refs.trash.doc().set({ shift: s, deletedAt: Date.now(), deletedBy: getUserName() })); await tfAwait(refs.archive.doc(viewingArchiveId).delete()); closeArchiveModal(); } catch(e){ showError(e.message); } }
-
+  async function archiveRestoreFingerprint(archive) {
+    if(!crypto.subtle)throw Error('Для восстановления откройте приложение по HTTPS');
+    const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(archiveRestoreJSON(archive)));
+    return Array.from(new Uint8Array(hash),byte=>byte.toString(16).padStart(2,'0')).join('');
+  }
+  function archiveRestorePlan(archive,shift) {
+    if(!Array.isArray(archive.logs))throw Error('Архив повреждён: отсутствует список рейсов');
+    const writes=[],logsByTruck={},mappedLogIds={},savedStatuses=archive.truckStatuses||{};
+    const validTruck=id=>typeof id==='string'&&id.length>0&&!id.includes('/');
+    archive.logs.forEach((log,index)=>{
+      if(!validTruck(log.truckId)||!Number.isFinite(Number(log.timestamp))||!Number.isFinite(Number(log.volume||0)))
+        throw Error('Архив повреждён: некорректный рейс '+(index+1));
+      const id='restored_'+shift.restoredFrom+'_'+index;
+      const data={shiftId:shift.id,truckId:log.truckId,truckName:log.truckName||'',volume:Number(log.volume||0),
+        timeStr:log.timeStr||'',timestamp:Number(log.timestamp),arrivalTimestamp:Number(log.arrivalTimestamp)||null,
+        returnedAt:Number(log.returnedAt)||null,createdBy:log.createdBy||'',createdByEmail:log.createdByEmail||'',
+        isGAI:!!log.isGAI,comment:log.comment||''};
+      writes.push({ref:refs.logs.doc(id),data});
+      if(log.id)mappedLogIds[log.id]=id;
+      (logsByTruck[log.truckId]||(logsByTruck[log.truckId]=[])).push({id,...data});
+    });
+    const ids=new Set([...(archive.activeLineIds||[]),...Object.keys(logsByTruck),...Object.keys(savedStatuses)]);
+    ids.forEach(id=>{
+      if(!validTruck(id))throw Error('Архив повреждён: некорректный самосвал');
+      const last=(logsByTruck[id]||[]).slice().sort((a,b)=>a.timestamp-b.timestamp).at(-1);
+      const original=savedStatuses[id];
+      const returnedAt=last&&last.returnedAt>last.timestamp?last.returnedAt:null;
+      const ttn=archive.ttnStatus?.[id];
+      const data={id,shiftId:shift.id,onLine:Array.isArray(archive.activeLineIds)?archive.activeLineIds.includes(id):true,
+        addedBy:shift.startedBy,addedAt:shift.startedAt,
+        arriveStatus:returnedAt?new Date(returnedAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}):null,
+        arriveTimestamp:returnedAt,arriveBy:null,ttnStatus:ttn===true?true:ttn==='pending'?'pending':null,ttnBy:null,
+        ttnLogId:ttn===true&&last?last.id:null,lastLoadTimestamp:last?.timestamp||null,lastLoadBy:last?.createdBy||null,
+        lastLoadLogId:last?.id||null,cycleRevision:0,ttnRevision:0,loadedAfterArrive:!!last&&!returnedAt};
+      if(original){
+        for(const key of ['onLine','arriveStatus','arriveTimestamp','arriveBy','ttnStatus','ttnBy','lastLoadTimestamp','lastLoadBy','cycleRevision','ttnRevision','loadedAfterArrive'])
+          if(original[key]!==undefined)data[key]=original[key];
+        data.lastLoadLogId=original.lastLoadLogId?mappedLogIds[original.lastLoadLogId]||null:data.lastLoadLogId;
+        data.ttnLogId=original.ttnLogId?mappedLogIds[original.ttnLogId]||null:null;
+      }
+      writes.push({ref:refs.truckStatus.doc(id),data});
+    });
+    return writes;
+  }
+  let archiveRestoreInFlight=false;
+  async function restoreArchiveToShift() {
+    if(archiveRestoreInFlight||!requireEdit('archive_edit')||!viewingArchiveId)return;
+    if(offlinePendingCount()){showError('Сначала синхронизируйте действия перед восстановлением смены');return;}
+    const archiveId=viewingArchiveId,sessionUid=currentUid,archiveRef=refs.archive.doc(archiveId);
+    const local=state.archive.find(item=>item.id===archiveId);if(!local)return;
+    if(state.shift&&(!state.shift.restoring||state.shift.restoredFrom!==archiveId)){
+      showError('Сначала закройте текущую смену или завершите восстановление другого архива');return;
+    }
+    archiveRestoreInFlight=true;
+    const button=document.getElementById('archiveRestoreBtn'),label=button?.textContent;
+    let phase='подтверждение';
+    try{
+      if(!await appConfirm(state.shift?.restoring?'Продолжить восстановление этой смены?':`Восстановить смену "${local.objectName}" от ${local.date}?`))return;
+      if(button){button.disabled=true;button.textContent='⏳ Восстанавливаем смену…';}
+      phase='проверка исходного архива';
+      const snapshot=await archiveRef.get({source:'server'});
+      if(!snapshot.exists)throw Error('Исходный архив отсутствует. Обновите страницу.');
+      const archive=snapshot.data(),fingerprint=await archiveRestoreFingerprint(archive),shiftId='restored_'+archiveId;
+      const candidate={id:shiftId,objectName:archive.objectName||'',objectId:archive.objectId||'',startDate:archive.date||'',
+        startedAt:Date.now(),startedBy:getUserName(),isActive:false,restoring:true,restoredFrom:archiveId,
+        restoreArchiveFingerprint:fingerprint,photoShiftIds:[...new Set([...(archive.photoShiftIds||[]),archive.sourceShiftId].filter(Boolean))]};
+      archiveRestorePlan(archive,candidate); // Validate before reserving the workspace.
+      const shift=await tfAwait(db.runTransaction(async tx=>{
+        requireShiftSession(sessionUid);
+        const [current,source]=await Promise.all([tx.get(refs.shift),tx.get(archiveRef)]);
+        if(!source.exists||await archiveRestoreFingerprint(source.data())!==fingerprint)throw Error('Архив изменился. Повторите восстановление.');
+        if(current.exists){
+          const data=current.data();
+          if(data.id!==shiftId||!data.restoring||data.restoredFrom!==archiveId)
+            throw Error('Другая смена уже существует. Сначала завершите её.');
+          if(data.restoreArchiveFingerprint!==fingerprint)throw Error('Архив изменён после начала восстановления. Исходные данные сохранены; требуется проверка архива.');
+          return data;
+        }
+        tx.set(refs.shift,candidate);return candidate;
+      }));
+      const writes=archiveRestorePlan(archive,shift),chunkSize=currentUserRole==='admin'?20:4;
+      phase='восстановление рейсов и линии';
+      for(let i=0;i<writes.length;i+=chunkSize){
+        const chunk=writes.slice(i,i+chunkSize);
+        const continuing=await tfAwait(db.runTransaction(async tx=>{
+          requireShiftSession(sessionUid);
+          const current=await tx.get(refs.shift),data=current.exists?current.data():null;
+          if(data?.id===shiftId&&data.isActive&&!data.restoring)return false; // Another device completed the same restore.
+          if(data?.id!==shiftId||!data.restoring||data.restoreArchiveFingerprint!==fingerprint)
+            throw Error('Восстанавливаемая смена изменилась. Другая смена не затронута.');
+          const saved=await Promise.all(chunk.map(item=>tx.get(item.ref)));
+          saved.forEach((doc,index)=>{
+            if(doc.exists&&archiveRestoreJSON(doc.data())!==archiveRestoreJSON(chunk[index].data))
+              throw Error('Запись '+doc.id+' уже содержит другие данные. Перезапись отменена.');
+          });
+          saved.forEach((doc,index)=>{if(!doc.exists)tx.set(chunk[index].ref,chunk[index].data);});
+          return true;
+        }));
+        if(!continuing)break;
+      }
+      phase='завершение восстановления';
+      const activated=await tfAwait(db.runTransaction(async tx=>{
+        requireShiftSession(sessionUid);
+        const [current,source]=await Promise.all([tx.get(refs.shift),tx.get(archiveRef)]);
+        const data=current.exists?current.data():null;
+        if(data?.id===shiftId&&data.isActive&&!data.restoring&&!source.exists)return data;
+        if(data?.id!==shiftId||!data.restoring||data.restoreArchiveFingerprint!==fingerprint)
+          throw Error('Смена изменилась. Исходный архив сохранён.');
+        if(!source.exists||await archiveRestoreFingerprint(source.data())!==fingerprint)
+          throw Error('Исходный архив изменился. Удаление отменено.');
+        // Include every restored record in the final transaction's read set. A concurrent
+        // deletion/edit must retry and fail validation before the only source is removed.
+        for(let i=0;i<writes.length;i+=20){
+          const chunk=writes.slice(i,i+20),saved=await Promise.all(chunk.map(item=>tx.get(item.ref)));
+          saved.forEach((doc,index)=>{
+            if(!doc.exists||archiveRestoreJSON(doc.data())!==archiveRestoreJSON(chunk[index].data))
+              throw Error('Восстановленные записи изменены или отсутствуют. Исходный архив сохранён; повторите восстановление.');
+          });
+        }
+        const ready={isActive:true,restoring:false,restoredAt:Date.now()};
+        tx.update(refs.shift,ready);tx.delete(archiveRef);return {...data,...ready};
+      }));
+      if(currentUid!==sessionUid)return;
+      state.shift=activated;offlineProjectState();renderAll();
+      addAudit(`♻️ Смена восстановлена из архива: ${archive.objectName} (${archive.date})`).catch(()=>{});
+      closeArchiveModal();showToastEl('✅ Смена восстановлена',false);
+    }catch(e){console.error('[restoreArchive:'+phase+']',e);showError('Не удалось восстановить смену ('+phase+'): '+(e.message||e)+'. Исходный архив сохранён. Откройте его и повторите восстановление.');}
+    finally{archiveRestoreInFlight=false;if(button){button.disabled=false;button.textContent=label||'♻️ Восстановить смену';}if(typeof renderShiftLifecycle==='function')renderShiftLifecycle();}
+  }
+  async function deleteArchiveShift() {
+    if(!requireEdit('archive_delete')||!viewingArchiveId)return;
+    const archiveId=viewingArchiveId,sessionUid=currentUid;
+    if(!await appConfirm('В корзину?'))return;
+    const archiveRef=refs.archive.doc(archiveId),trashRef=refs.trash.doc();
+    try{
+      await tfAwait(db.runTransaction(async tx=>{
+        requireShiftSession(sessionUid);
+        const [archive,current]=await Promise.all([tx.get(archiveRef),tx.get(refs.shift)]);
+        if(!archive.exists)return;
+        const shift=current.exists?current.data():null;
+        if(shift?.closing&&(shift.closeArchiveId||('closed_'+shift.id))===archiveId||shift?.restoring&&shift.restoredFrom===archiveId)
+          throw Error('Этот архив нужен для незавершённого закрытия или восстановления смены. Сначала завершите операцию.');
+        tx.set(trashRef,{shift:{...archive.data(),id:archiveId},deletedAt:Date.now(),deletedBy:getUserName()});
+        tx.delete(archiveRef);
+      }));
+      closeArchiveModal();
+    }catch(e){showError(e.message);}
+  }

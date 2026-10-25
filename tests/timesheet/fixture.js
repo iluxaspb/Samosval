@@ -1,5 +1,6 @@
 /* Local QA only. Never loaded by index-test.html. */
 var firebaseConfig={projectId:'samosval-offline'},WORKSPACE_ID='main_workspace';
+var appConfig={testReviewFlags:{}};
 var currentUid='qa-admin',currentUserStatus='active',permissionsLoaded=true,currentUserRole='admin';
 var state={objects:[{id:'obj',name:'Всеволожск · ул. Свердлова'}],shift:{objectId:'obj'}};
 var __messages=[],__authListeners=[],__rows=new Map(),__subscriptions=[];

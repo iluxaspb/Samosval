@@ -16,6 +16,9 @@
       const notificationRef = refs.notifications.doc(last.id), statusRef = refs.truckStatus.doc(last.truckId);
       let update = null;
       await db.runTransaction(async tx => {
+        const shift = await tx.get(refs.shift);
+        if (!shift.exists || shift.data().id !== before.shiftId || shift.data().isActive === false || shift.data().closing || shift.data().restoring)
+          throw {code:'shift-changed',message:'Смена закрывается, восстанавливается или уже изменилась. Отмена не выполнена'};
         const notification = await tx.get(notificationRef);
         const status = await tx.get(statusRef);
         const logRef = last.type === 'load' && last.logId ? refs.logs.doc(last.logId) : null;

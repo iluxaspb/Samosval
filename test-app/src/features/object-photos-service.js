@@ -72,7 +72,30 @@
   async function forgetLocal(id){const job=await localPhoto(id);if(!job.synced&&!job.remoteDeleted)throw fail('Сначала сохраните фото в облаке или скачайте его. Неотправленный снимок остаётся на устройстве.','photo/pending');if(running.has(id))throw fail('Дождитесь завершения загрузки.','photo/busy');await local('delete',id);window.dispatchEvent(new Event('object-photos-changed'));}
   async function sync(){await flush(true);}
   async function hasShift(id){if((await localPhotos()).some(job=>job.meta.shiftId===id))return true;const result=await photos.where('shiftId','==',id).get();return result.docs.some(doc=>doc.data().status!=='deleted');}
-  async function list(filter={}){if(!active()||!(canAdmin()||hasTabAccess('archive')))throw fail('Нет доступа к фотографиям.','photo/access');let query=photos;if(filter.objectKey)query=query.where('objectKey','==',filter.objectKey);const result=await query.get();return result.docs.map(doc=>({id:doc.id,...doc.data()})).filter(p=>p.status!=='deleted'&&(!filter.shiftId||p.shiftId===filter.shiftId)).sort((a,b)=>b.capturedAt-a.capturedAt);}
+  async function list(filter={}){
+    const uid=currentUid;
+    const checkAccess=()=>{if(!active()||currentUid!==uid||!(canAdmin()||hasTabAccess('archive')))throw fail('Доступ к фотографиям изменился. Откройте их в текущей учётной записи.','photo/access');};
+    checkAccess();
+    const shiftIds=[...new Set([...(Array.isArray(filter.photoShiftIds)?filter.photoShiftIds:[]),filter.shiftId].filter(id=>typeof id==='string'&&id.length>0))];
+    const object=typeof filter.objectKey==='string'?filter.objectKey:'';
+    const found=new Map();
+    const collect=result=>result.docs.forEach(doc=>found.set(doc.id,{...doc.data(),id:doc.id}));
+    if(shiftIds.length){
+      // A restored shift can include photos taken before its object changed. Query
+      // only its known ancestors, without an "in" limit or unrelated object photos.
+      for(let i=0;i<shiftIds.length;i+=4){
+        checkAccess();
+        const results=await Promise.all(shiftIds.slice(i,i+4).map(id=>photos.where('shiftId','==',id).get()));
+        checkAccess();results.forEach(collect);
+      }
+    }else{
+      const result=await (object?photos.where('objectKey','==',object):photos).get();
+      checkAccess();collect(result);
+    }
+    const selected=new Set(shiftIds);
+    return [...found.values()].filter(photo=>photo.status!=='deleted'&&(!selected.size||selected.has(photo.shiftId))&&
+      (selected.size||!object||photo.objectKey===object)).sort((a,b)=>b.capturedAt-a.capturedAt);
+  }
   async function usage(){if(!admin())throw fail('Нет прав администратора.','photo/access');const snap=await usageRef.get({source:'server'});return {...(snap.exists?snap.data():{}),limitBytes:limit(),pending:await pending()};}
   async function url(photo){if(!active()||!(canAdmin()||hasTabAccess('archive')))throw fail('Нет доступа к фото.','photo/access');if(!photo.path?.startsWith(ROOT+'/'))throw fail('Неверный путь снимка.','photo/path');return storage().ref(photo.path).getDownloadURL();}
   async function remove(id){

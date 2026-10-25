@@ -14,7 +14,7 @@
     trucks.forEach((t, idx) => {
       const tLogs = filteredLogs.filter(l => l.truckId === t.id).slice().reverse();
       const sum = tLogs.reduce((s, l) => s + l.volume, 0);
-      let st = state.truckStatus[t.id] || {};
+      let st = isClosed ? { ttnStatus: reportTtnStatus?.[t.id] } : (state.truckStatus[t.id] || {});
       let savedTtn = reportTtnStatus ? reportTtnStatus[t.id] : st.ttnStatus;
       let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (isClosed && tLogs.length > 0 && savedTtn !== true && savedTtn !== 'pending') : (tLogs.length > 0 && st.ttnStatus !== true);
       let dupHtml = isDup ? ' <span style="color:red; font-size:10px; font-weight:bold;">ДУБЛИКАТ</span>' : '';
@@ -40,70 +40,33 @@
     return html;
   }
 
-  async function sendShiftReportToMax(shift, logs) {
-    const activeLineIds = getActiveLineIds(); const stdLogs = logs.filter(l => !l.isGAI); const gaiLogs = logs.filter(l => l.isGAI);
-    const safeDate = String(shift.startDate || '').replace(/[^\w]/g, '_');
-    if (stdLogs.length > 0 && appConfig.notifyPdfMain) {
-      try {
-        const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, isClosed: true, logs: stdLogs, activeLineIds, type: 'regular', checkTTN: (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId });
-        const canvas = document.getElementById('draw-canvas-main'); let finalHtml = html;
-        if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-        const blob = await generatePDFFromHTML(finalHtml, 'report_regular.pdf'); const b64 = await blobToBase64(blob);
-        enqueueMaxDocument(`report_regular_${safeDate}.pdf`, b64, `📊 Отчет (ОСНОВНЫЕ): ${shift.objectName} / ${shift.startDate}`, null, 0);
-      } catch(e) { console.warn('PDF regular fail:', e); }
-    }
-    if (gaiLogs.length > 0 && appConfig.notifyPdfGai) {
-      try {
-        const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, isClosed: true, logs: gaiLogs, activeLineIds, type: 'gai', checkTTN: null });
-        const canvas = document.getElementById('draw-canvas-gai'); let finalHtml = html;
-        if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-        const blob = await generatePDFFromHTML(finalHtml, 'report_gai.pdf'); const b64 = await blobToBase64(blob);
-        enqueueMaxDocument(`report_gai_${safeDate}.pdf`, b64, `📊 Отчет (ГАИ): ${shift.objectName} / ${shift.startDate}`, null, Date.now() + GAI_PDF_DELAY_MS);
-      } catch(e) { console.warn('PDF gai fail:', e); }
-    }
-  }
-
-  async function exportCurrentReportPDF(type) {
+  async function exportCurrentReportPNG(type) {
+    if (!hasTabAccess('report')) { showError('Нет прав'); return; }
     if (!state.shift) { showError('Смена не начата'); return; }
     if (type === 'gai' && !hasPermission('view_gai_report')) { showError('Нет прав'); return; }
     const logs = getLogs().filter(l => type === 'gai' ? l.isGAI : !l.isGAI);
     if (!logs.length) { showError('Нет данных'); return; }
     try {
-      showToastEl('⏳ Генерация PDF...', false);
+      showToastEl('⏳ Подготовка PNG...', false);
       const html = buildReportHTML({ objectName: state.shift.objectName, date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
       const canvas = document.getElementById(type === 'gai' ? 'draw-canvas-gai' : 'draw-canvas-main'); let finalHtml = html;
       if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-      const blob = await generatePDFFromHTML(finalHtml, `report_${type}.pdf`); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `report_${type}_${Date.now()}.pdf`; a.click(); URL.revokeObjectURL(url); showToastEl('✅ PDF готов', false);
-    } catch(e) { showError('Ошибка PDF: ' + e.message); }
+      const blob = await generatePNGFromHTML(finalHtml); downloadReportPNG(blob, `report_${type}_${Date.now()}.png`); showToastEl('✅ PNG готов', false);
+    } catch(e) { showError('Ошибка PNG: ' + e.message); }
   }
-  async function sendActiveReportToMax() {
-    if (!state.shift) { showError('Смена не начата'); return; }
-    if (!appConfig.maxEnabled || !appConfig.maxUrl) { showError('Max не настроен'); return; }
-    const type = showGAITable ? 'gai' : 'regular';
-    const logs = getLogs().filter(l => type === 'gai' ? l.isGAI : !l.isGAI);
-    if (!logs.length) { showError('Нет данных для отчета'); return; }
-    showToastEl('⏳ Генерация PDF для Max...', false);
-    try {
-      const html = buildReportHTML({ objectName: state.shift.objectName, date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
-      const canvas = document.getElementById(type === 'gai' ? 'draw-canvas-gai' : 'draw-canvas-main'); let finalHtml = html;
-      if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-      const blob = await generatePDFFromHTML(finalHtml, `report_${type}.pdf`); const b64 = await blobToBase64(blob);
-      const safeDate = String(state.shift.startDate || '').replace(/[^\w]/g, '_');
-      enqueueMaxDocument(`report_${type}_${safeDate}.pdf`, b64, `📊 Отчет (${type === 'gai' ? 'ГАИ' : 'ОСНОВНЫЕ'}): ${state.shift.objectName} / ${state.shift.startDate}`, null, 0);
-      showToastEl('✅ PDF в очереди Max', false);
-    } catch(e) { showError('Ошибка: ' + e.message); }
-  }
-  async function exportArchivePDF() {
+  async function exportArchivePNG() {
+    if (!hasTabAccess('archive')) { showError('Нет прав'); return; }
     const s = state.archive.find(x => x.id === viewingArchiveId); if (!s) return;
     const type = viewingArchiveGAITable ? 'gai' : 'regular';
+    if (type === 'gai' && !hasPermission('view_gai_report')) { showError('Нет прав'); return; }
     const logs = (s.logs || []).filter(l => type === 'gai' ? l.isGAI : !l.isGAI); if (!logs.length) { showError('Нет данных'); return; }
     try {
-      showToastEl('⏳ Генерация PDF...', false);
-      const html = buildReportHTML({ objectName: s.objectName, date: s.date, logs, activeLineIds: s.activeLineIds || [], type, isClosed: true, reportTtnStatus: s.ttnStatus || {}, checkTTN: type === 'regular' ? (id, logId, isLast) => s.ttnStatus && s.ttnStatus[id] && isLast : null });
+      showToastEl('⏳ Подготовка PNG...', false);
+      const html = buildReportHTML({ objectName: s.objectName, date: s.date, logs, activeLineIds: s.activeLineIds || [], type, isClosed: true, reportTtnStatus: s.ttnStatus || {}, checkTTN: type === 'regular' ? (id, logId, isLast) => s.ttnStatus?.[id] === true && isLast : null });
       const canvas = document.getElementById('draw-canvas-archive'); let finalHtml = html;
       if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-      const blob = await generatePDFFromHTML(finalHtml, `archive_${type}.pdf`); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `archive_${type}.pdf`; a.click(); URL.revokeObjectURL(url); showToastEl('✅ PDF готов', false);
-    } catch(e) { showError('Ошибка PDF: ' + e.message); }
+      const blob = await generatePNGFromHTML(finalHtml); downloadReportPNG(blob, `archive_${type}.png`); showToastEl('✅ PNG готов', false);
+    } catch(e) { showError('Ошибка PNG: ' + e.message); }
   }
 
   // === ОТЧЕТЫ РЕНДЕР ===
@@ -182,20 +145,66 @@
     setTimeout(() => { setupStylus('draw-canvas-main', 'paperReportContainer'); setupStylus('draw-canvas-gai', 'gaiPaperContainer'); }, 50);
   }
   function toggleReportType() { if (!hasPermission('view_gai_report')) { showError('Нет прав'); return; } showGAITable = !showGAITable; renderReport(); }
-  function openEditLog(id) { if(!requireEdit('edit_logs')) return; let l=state.logs.find(x=>x.id===id); if(!l) return; editingLogId=id; document.getElementById('editLogTruckInfo').innerHTML=`<b>${escapeHtml(l.truckName)}</b>`; document.getElementById('editLogVolume').value=l.volume; document.getElementById('editLogTime').value=l.timeStr; document.getElementById('editLogComment').value=l.comment || ''; document.getElementById('editLogModal').classList.add('open'); }
-  function closeEditLogModal() { document.getElementById('editLogModal').classList.remove('open'); editingLogId=null; }
-  async function saveLogEdit() {
-    if(!requireEdit('edit_logs') || !editingLogId) return;
-    let l=state.logs.find(x=>x.id===editingLogId); if(!l) return closeEditLogModal();
-    let v=parseFloat(document.getElementById('editLogVolume').value); let t=document.getElementById('editLogTime').value; let comm=document.getElementById('editLogComment').value.trim();
-    if(isNaN(v)||v<0 || !/^\d{2}:\d{2}$/.test(t)) { appNotice('Проверьте правильность ввода объема и времени (ЧЧ:ММ)'); return; }
-    let ts=l.timestamp; if(ts){ let d=new Date(ts), p=t.split(':'); d.setHours(p[0],p[1],0,0); ts=d.getTime(); }
-    const logIdToSave = editingLogId;
-    Object.assign(l, {volume:v, timeStr:t, timestamp:ts, comment:comm}); saveCache(); renderReport(); closeEditLogModal();
-    tf((async()=>{ await refs.logs.doc(logIdToSave).update({volume:v, timeStr:t, timestamp:ts, comment:comm}); await addAudit('✏️ Изменён рейс: ' + l.truckName + ' · ' + v + ' м³ · ' + t, {eventType:'log_edit',logId:logIdToSave,truckId:l.truckId}); })());
-    showToastEl('✅ Рейс обновлен', false);
+  let editingLogOriginal = null;
+  let logEditInFlight = false;
+  function logEditSnapshot(log) {
+    return { shiftId: log.shiftId, truckId: log.truckId, volume: log.volume, timeStr: log.timeStr, timestamp: log.timestamp, comment: log.comment || '' };
   }
-  async function deleteLog(id) { if(!requireEdit('edit_logs') || !(await appConfirm('Удалить?'))) return; state.logs=state.logs.filter(x=>x.id!==id); saveCache(); renderReport(); tf(refs.logs.doc(id).delete()); }
+  function openEditLog(id) {
+    if (!requireEdit('edit_logs')) return;
+    const log = state.logs.find(x => x.id === id);
+    if (!log || log.offlinePending) return;
+    editingLogId = id; editingLogOriginal = logEditSnapshot(log);
+    document.getElementById('editLogTruckInfo').innerHTML = `<b>${escapeHtml(log.truckName)}</b>`;
+    document.getElementById('editLogVolume').value = log.volume;
+    document.getElementById('editLogTime').value = log.timeStr;
+    document.getElementById('editLogComment').value = log.comment || '';
+    document.getElementById('editLogModal').classList.add('open');
+  }
+  function closeEditLogModal() { document.getElementById('editLogModal').classList.remove('open'); editingLogId = null; editingLogOriginal = null; }
+  async function commitReportLogChange(logId, before, changes) {
+    const uid = currentUid;
+    if (!before?.shiftId || before.shiftId !== state.shift?.id) throw Error('Рейс относится к другой смене. Обновите страницу.');
+    return await tfAwait(db.runTransaction(async tx => {
+      const shift = await tx.get(refs.shift), ref = refs.logs.doc(logId), log = await tx.get(ref);
+      if (currentUid !== uid || !requireEdit('edit_logs')) throw Error('Учётная запись или права изменились.');
+      if (!shift.exists || shift.data().id !== before.shiftId || !shift.data().isActive || shift.data().closing || shift.data().restoring)
+        throw Error('Смена закрывается, восстанавливается или уже изменилась. Рейс не изменён.');
+      if (!log.exists) throw Error('Рейс уже удалён. Обновите отчёт.');
+      if (JSON.stringify(logEditSnapshot(log.data())) !== JSON.stringify(before))
+        throw Error('Рейс изменён другим пользователем. Откройте его заново.');
+      if (changes) tx.update(ref, changes); else tx.delete(ref);
+    }));
+  }
+  async function saveLogEdit() {
+    if (!requireEdit('edit_logs') || !editingLogId || logEditInFlight) return;
+    const logId = editingLogId, log = state.logs.find(x => x.id === logId);
+    if (!log || log.offlinePending) return closeEditLogModal();
+    const before = editingLogOriginal || logEditSnapshot(log);
+    const volumeInput = document.getElementById('editLogVolume').value, volume = Number(volumeInput), timeStr = document.getElementById('editLogTime').value;
+    const comment = document.getElementById('editLogComment').value.trim();
+    if (!String(volumeInput).trim() || !Number.isFinite(volume) || volume < 0 || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(timeStr)) { appNotice('Проверьте правильность ввода объема и времени (ЧЧ:ММ)'); return; }
+    let timestamp = before.timestamp;
+    if (timestamp) { const date = new Date(timestamp), parts = timeStr.split(':'); date.setHours(Number(parts[0]), Number(parts[1]), 0, 0); timestamp = date.getTime(); }
+    const changes = { volume, timeStr, comment }; if (timestamp !== undefined) changes.timestamp = timestamp;
+    logEditInFlight = true;
+    try {
+      await commitReportLogChange(logId, before, changes);
+      // Firestore subscriptions are the source of truth; failed writes never change the local report.
+      if (editingLogId === logId) closeEditLogModal();
+      showToastEl('✅ Рейс обновлен', false);
+      addAudit('✏️ Изменён рейс: ' + log.truckName + ' · ' + volume + ' м³ · ' + timeStr, { eventType:'log_edit', logId, truckId:log.truckId, shiftId:before.shiftId }).catch(() => {});
+    } catch(e) { showError(e.message); }
+    finally { logEditInFlight = false; }
+  }
+  async function deleteLog(id) {
+    if (!requireEdit('edit_logs')) return;
+    const log = state.logs.find(x => x.id === id); if (!log || log.offlinePending) return;
+    const before = logEditSnapshot(log);
+    if (!(await appConfirm('Удалить?'))) return;
+    try { await commitReportLogChange(id, before, null); showToastEl('Рейс удалён', false); }
+    catch(e) { showError(e.message); }
+  }
 
   function exportCSV() {
     if (!state.shift) return;

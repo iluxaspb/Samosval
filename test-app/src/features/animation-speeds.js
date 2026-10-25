@@ -292,6 +292,7 @@ try { (function(){
 
   // ===== renderLine =====
   window.renderLine = function() {
+    if(renderShiftLifecycle()){window.__linePendingRender=false;return;}
     if (window.__lineAnimating) {
       window.__linePendingRender = true;
       return;

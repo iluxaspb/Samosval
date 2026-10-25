@@ -5,7 +5,7 @@
   function cancelHold(b) { if(holdTimer) clearTimeout(holdTimer); if(vibInt) clearInterval(vibInt); if(b) b.classList.remove('holding'); }
   function startHold(e, type, id) {
     let action = type === 'load' ? 'action_load' : (type === 'arrive' ? 'action_arrive' : 'action_ttn');
-    if (!requireEdit(action) || !state.shift || isScrolling) return;
+    if (!requireEdit(action) || !state.shift?.isActive || state.shift.closing || state.shift.restoring || isScrolling) return;
     let b = e.currentTarget, hs = 0.5; if(type==='load') hs = settings.holdLoad??0.5; else if(type==='arrive') hs = settings.holdArrive??0.5; else hs = settings.holdTtn??0.5;
     let st = state.truckStatus[id]; if(!st) return;
     let lastL = st.lastLoadTimestamp||0, gap = (settings.cycleMinutes||15)*60000;
@@ -24,7 +24,79 @@
   function startQuickLoadHold(e, id) { startHold(e, 'load', id); }
   function startTtnHold(e, id) { startHold(e, 'ttn', id); }
 
+  let shiftRestoreRetryInFlight=false;
+  async function resumeShiftRestore(){
+    if(shiftRestoreRetryInFlight||!requireEdit('archive_edit'))return;
+    const shift=state.shift,uid=currentUid;
+    if(!shift?.restoring||!shift.restoredFrom)return;
+    shiftRestoreRetryInFlight=true;renderShiftLifecycle();
+    try{
+      let archive=state.archive.find(item=>item.id===shift.restoredFrom);
+      if(!archive){
+        const snapshot=await refs.archive.doc(shift.restoredFrom).get({source:'server'});
+        if(currentUid!==uid||state.shift?.id!==shift.id||!state.shift?.restoring)return;
+        if(!snapshot.exists)throw Error('Исходный архив не найден. Обновите страницу и проверьте архив смен.');
+        archive={...snapshot.data(),id:shift.restoredFrom};
+        state.archive=[...state.archive.filter(item=>item.id!==archive.id),archive];
+      }
+      if(currentUid!==uid||state.shift?.id!==shift.id||!state.shift?.restoring)return;
+      if(hasTabAccess('archive'))openArchiveModal(archive.id);
+      else viewingArchiveId=archive.id;
+      await restoreArchiveToShift();
+    }catch(error){showError('Не удалось продолжить восстановление: '+error.message);}
+    finally{shiftRestoreRetryInFlight=false;renderShiftLifecycle();}
+  }
+  function renderShiftLifecycle(){
+    const shift=state.shift,closing=!!shift?.closing,restoring=!!shift?.restoring;
+    const active=!!shift?.isActive&&!closing&&!restoring,frozen=!!shift&&!active;
+    const closeBusy=typeof closeShiftInFlight!=='undefined'&&closeShiftInFlight;
+    const restoreBusy=shiftRestoreRetryInFlight||(typeof archiveRestoreInFlight!=='undefined'&&archiveRestoreInFlight);
+    const sc=document.getElementById('startShiftContainer'),ac=document.getElementById('activeShiftContainer');
+    const change=document.getElementById('changeObjBtn'),select=document.getElementById('selectTrucksBtn');
+    const close=document.getElementById('closeShiftBtn'),start=document.getElementById('startShiftBtn');
+    if(sc)sc.style.display=!shift&&hasPermission('start_shift')?'block':'none';
+    if(ac)ac.style.display=shift?'block':'none';
+    if(change){change.style.display=active&&hasPermission('edit_line')?'inline-block':'none';change.disabled=!active;}
+    if(select){select.style.display=active&&hasPermission('edit_line')?'':'none';select.disabled=!active;}
+    if(start)start.disabled=!!shift||(typeof startShiftInFlight!=='undefined'&&startShiftInFlight);
+    if(close){
+      close.style.display=(active||closing)&&hasPermission('close_shift')?'':'none';
+      close.disabled=closeBusy||restoring||!shift;
+      close.textContent=closeBusy?'⏳ Закрываем смену…':closing?'🔄 Продолжить закрытие':'🔄 Закрыть смену';
+    }
+    const trucks=document.getElementById('trucksLineList');if(trucks)trucks.hidden=frozen;
+    let notice=document.getElementById('shiftLifecycleNotice');
+    const container=document.getElementById('tab-line')?.parentElement;
+    if(!notice&&container){
+      notice=document.createElement('div');notice.id='shiftLifecycleNotice';notice.className='form-card';
+      notice.setAttribute('role','status');notice.setAttribute('aria-live','polite');
+      const title=document.createElement('b');title.id='shiftLifecycleTitle';
+      const message=document.createElement('p');message.id='shiftLifecycleMessage';
+      const retry=document.createElement('button');retry.id='shiftLifecycleRetry';retry.type='button';retry.className='btn btn-secondary btn-small';
+      notice.append(title,message,retry);container.prepend(notice);
+    }
+    if(notice){
+      notice.hidden=!frozen||!(hasTabAccess('line')||hasTabAccess('report')||hasTabAccess('archive'));
+      if(frozen){
+        const title=document.getElementById('shiftLifecycleTitle'),message=document.getElementById('shiftLifecycleMessage'),retry=document.getElementById('shiftLifecycleRetry');
+        const busy=closing?closeBusy:restoreBusy,allowed=closing?hasPermission('close_shift'):restoring&&hasPermission('archive_edit');
+        title.textContent=closing?(busy?'Закрываем смену…':'Закрытие смены не завершено'):restoring?(busy?'Восстанавливаем смену…':'Восстановление смены не завершено'):'Смена недоступна для отметок';
+        message.textContent=closing?'Новые отметки недоступны до завершения закрытия.':restoring?'Исходный архив сохранён. Новые отметки станут доступны после восстановления.':'Обновите страницу, чтобы проверить состояние смены.';
+        if(!allowed&&(closing||restoring))message.textContent+=' Продолжить операцию может сотрудник с соответствующим доступом.';
+        retry.hidden=!allowed;retry.style.display=allowed?'':'none';retry.disabled=busy||!allowed;retry.textContent=closing?'Продолжить закрытие':'Продолжить восстановление';
+        retry.onclick=closing?()=>closeShift():()=>resumeShiftRestore();
+        cancelHold(document.querySelector('.holding'));
+      }
+    }
+    const archiveButton=document.getElementById('archiveRestoreBtn');
+    if(archiveButton&&restoring&&viewingArchiveId===shift.restoredFrom){
+      archiveButton.disabled=restoreBusy;archiveButton.textContent=restoreBusy?'⏳ Восстанавливаем смену…':'♻️ Продолжить восстановление';
+    }
+    return frozen;
+  }
+
   function renderLine() {
+    if(renderShiftLifecycle())return;
     let sc = document.getElementById('startShiftContainer'), ac = document.getElementById('activeShiftContainer'), cb = document.getElementById('changeObjBtn');
     if (!state.shift) { sc.style.display = hasPermission('start_shift') ? 'block' : 'none'; ac.style.display = 'none'; cb.style.display = 'none'; return; }
     sc.style.display = 'none'; ac.style.display = 'block'; cb.style.display = hasPermission('edit_line') ? 'inline-block' : 'none';
@@ -56,7 +128,10 @@
   }
 
   function renderHeaderStats() {
+    renderShiftLifecycle();
     let d = state.shift ? `Смена от ${state.shift.startDate}` : 'Смена не начата'; let o = state.shift ? state.shift.objectName : 'Не выбран';
+    if(state.shift?.closing)d='Закрытие смены · '+(state.shift.startDate||'');
+    else if(state.shift?.restoring)d='Восстановление смены · '+(state.shift.startDate||'');
     let act = state.shift ? getActiveLineIds().filter(id => { let t = findTruck(id); if (!t || t.isGAI) return false; return !state.truckStatus[id] || state.truckStatus[id].ttnStatus !== true; }).length : 0;
     let logs = getLogs(); let stdLogs = logs.filter(l => !l.isGAI); let v = stdLogs.reduce((s,l)=>s+l.volume,0);
     document.getElementById('shiftDate').textContent = d; document.getElementById('headerObject').textContent = 'Объект: ' + o;

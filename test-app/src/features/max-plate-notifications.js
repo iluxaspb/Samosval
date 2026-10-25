@@ -1,20 +1,16 @@
 
 
 /* Добавляемый патч: Админ → Патчи → тип «Заменить функцию». Вставить весь файл.
- * По умолчанию — текстовая табличка через существующую отправку, без проверки PNG.
- * PNG включается только явным maxPlateMode: 'png' и подтверждением сервера.
+ * Только текстовая табличка через существующую отправку MAX.
+ * Изображения, документы и проверка возможностей сервера не отправляются.
  * Не отправляет пробных сообщений, не меняет триггеры и не читает токен бота.
  */
 (function () {
   'use strict';
-  const KEY = 'MaxPlateNotifications', CONTRACT = 'samosval-max-plate-v1';
+  const KEY = 'MaxPlateNotifications';
   if (window[KEY]) { window[KEY].install(); return; }
-  const capabilityCache = new Map(), pngCache = new Map(), inflight = new Map();
-  const cfg = () => typeof appConfig === 'object' && appConfig ? appConfig : {};
-  const account = () => typeof currentUid === 'string' ? currentUid : '';
   const admin = () => typeof canAdmin === 'function' && canAdmin();
-  let status = 'Госномер оформляется текстовой табличкой с регионом и флагом. Поддержка PNG не требуется.';
-  function setStatus(text) { status = text; const el = document.getElementById('maxPlateStatus'); if (el) el.textContent = text; }
+  const status = 'Госномер оформляется текстовой табличкой с регионом и флагом. MAX получает только текстовые уведомления.';
   function parsePlate(value) {
     const clean = String(value || '').replace(/[\s\u00a0-]/g, '');
     const m = clean.match(/^([а-яёa-z])(\d{3})([а-яёa-z]{2})(\d{2,3})$/i);
@@ -58,65 +54,6 @@
     const text = formatText(item.text);
     return text === item.text ? item : { ...item, text };
   }
-  function rounded(ctx, x, y, width, height, radius) {
-    ctx.beginPath(); ctx.moveTo(x + radius, y); ctx.lineTo(x + width - radius, y); ctx.quadraticCurveTo(x + width, y, x + width, y + radius); ctx.lineTo(x + width, y + height - radius); ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height); ctx.lineTo(x + radius, y + height); ctx.quadraticCurveTo(x, y + height, x, y + height - radius); ctx.lineTo(x, y + radius); ctx.quadraticCurveTo(x, y, x + radius, y); ctx.closePath();
-  }
-  function renderPng(number) {
-    const p = parsePlate(number); if (!p) throw Error('Введите госномер, например А123ВС178');
-    if (pngCache.has(p.number)) return pngCache.get(p.number);
-    const canvas = document.createElement('canvas'); canvas.width = 600; canvas.height = 144;
-    const ctx = canvas.getContext('2d'); if (!ctx) throw Error('PNG недоступен в этом браузере');
-    ctx.fillStyle = '#fff'; rounded(ctx, 4, 4, 592, 136, 16); ctx.fill(); ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 6; ctx.stroke();
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 1; rounded(ctx, 8, 8, 584, 128, 12); ctx.stroke();
-    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(457, 5); ctx.lineTo(457, 139); ctx.stroke();
-    ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    // Same letter/digit hierarchy, white field, dark frame and region block as ru-plate.
-    const parts = [[p.first, 70], [p.digits, 82], [p.last, 70]], gap = 7;
-    const widths = parts.map(([text, size]) => { ctx.font = '900 ' + size + 'px Arial, sans-serif'; return ctx.measureText(text).width; });
-    const total = widths.reduce((a, b) => a + b, 0) + gap * 2; let x = 231 - total / 2;
-    parts.forEach(([text, size], i) => { ctx.font = '900 ' + size + 'px Arial, sans-serif'; ctx.fillText(text, x + widths[i] / 2, 103); x += widths[i] + gap; });
-    ctx.font = '900 54px Arial, sans-serif'; ctx.fillText(p.region, 526, 64);
-    ctx.font = '700 23px Arial, sans-serif'; ctx.fillText('RUS', 526, 93);
-    ctx.fillStyle = '#fff'; ctx.fillRect(502, 102, 48, 9); ctx.fillStyle = '#0039a6'; ctx.fillRect(502, 111, 48, 9); ctx.fillStyle = '#d52b1e'; ctx.fillRect(502, 120, 48, 9); ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(502, 102, 48, 27);
-    const dataUrl = canvas.toDataURL('image/png'); if (!dataUrl.startsWith('data:image/png;base64,') || dataUrl.length > 90000) throw Error('Не удалось подготовить компактный PNG');
-    const result = { number: p.number, filename: 'gosnomer-' + p.digits + '-' + p.region + '.png', mime_type: 'image/png', content_base64: dataUrl.split(',')[1], dataUrl };
-    pngCache.set(p.number, result); if (pngCache.size > 100) pngCache.delete(pngCache.keys().next().value); return result;
-  }
-  function authHeaders(config) { const headers = { 'Content-Type': 'application/json' }, token = String(config.maxToken || '').trim(); if (token) headers.Authorization = token.startsWith('Bearer ') ? token : 'Bearer ' + token; return headers; }
-  function validEndpoint(value) { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password; } catch (_) { return false; } }
-  async function capabilities(config, force = false) {
-    if (!validEndpoint(config.maxUrl)) { setStatus('Для PNG нужен корректный HTTPS-адрес сервера MAX.'); return false; }
-    const key = config.maxUrl, now = Date.now(), cached = capabilityCache.get(key);
-    if (!force && cached && now - cached.at < (cached.supported ? 600000 : 60000)) return cached.supported;
-    if (inflight.has(key)) return inflight.get(key);
-    const pending = (async () => {
-      const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 15000); let supported = false;
-      try {
-        const response = await fetch(key, { method: 'GET', headers: authHeaders(config), signal: ctrl.signal, cache: 'no-store', redirect: 'error' });
-        if (response.ok && (response.headers.get('content-type') || '').includes('application/json')) {
-          const body = await response.json(); supported = body?.contract === CONTRACT && body?.capabilities?.image_png === true;
-        }
-      } catch (_) { /* No image POST without an explicit capability acknowledgement. */ }
-      finally { clearTimeout(timer); }
-      capabilityCache.set(key, { at: Date.now(), supported });
-      setStatus(supported ? 'Сервер поддерживает PNG. По умолчанию используется текстовая табличка.' : 'PNG сервером не подтверждён. Текстовая табличка отправляется через обычный канал.');
-      return supported;
-    })(); inflight.set(key, pending); try { return await pending; } finally { inflight.delete(key); }
-  }
-  async function sendImage(item, plate, config) {
-    let image;
-    try { image = renderPng(plate.number); } catch (_) { return { beforeSend: true }; }
-    const requestId = item.id || item.maxPlateRequestId || (item.maxPlateRequestId = 'preview_' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '_' + Math.random().toString(36).slice(2)));
-    const body = { contract: CONTRACT, request_id: requestId, chat_id: config.maxChatId || '', text: item.text, image: { filename: image.filename, mime_type: image.mime_type, content_base64: image.content_base64 } };
-    const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 60000);
-    try {
-      const response = await fetch(config.maxUrl, { method: 'POST', headers: authHeaders(config), body: JSON.stringify(body), signal: ctrl.signal, redirect: 'error' });
-      if (response.ok) { const ack = await response.json(); if (ack?.contract === CONTRACT && ack.success === true && typeof ack.message_id === 'string' && ack.message_id) { try { localStorage.setItem('dt_max_last_success', String(Date.now())); } catch (_) {} return 'ok'; } return 'retry'; }
-      if (response.status === 401 || response.status === 403) return 'auth'; if (response.status === 413) return 'too_large'; if (response.status === 429 || response.status >= 500) return 'retry'; return 'http_' + response.status;
-    } catch (_) { return 'retry'; }
-    finally { clearTimeout(timer); }
-    // Never send a second text message after an image POST: its outcome may be uncertain.
-  }
   function install() {
     if (typeof window.enqueueMax === 'function' && !window.enqueueMax.__maxPlate) {
       const previous = window.enqueueMax;
@@ -124,17 +61,12 @@
       wrapped.__maxPlate = true; window.enqueueMax = wrapped;
     }
     if (typeof window.sendMaxOnce === 'function' && !window.sendMaxOnce.__maxPlate) {
-      const previous = window.sendMaxOnce;
-      const wrapped = async function(item) {
-        const plate = resolvePlate(item), config = { ...cfg() }, uid = account();
-        if (!config.maxEnabled || config.maxPlateEnabled === false || !config.maxUrl) return previous.call(this, item);
-        if (config.maxPlateMode !== 'png' || !plate) return previous.call(this, textItem(item));
-        const supported = await capabilities(config);
-        // Settings/account may change while a server is waking up.
-        const latest = cfg(); if (account() !== uid || latest.maxUrl !== config.maxUrl || latest.maxChatId !== config.maxChatId || latest.maxToken !== config.maxToken || latest.maxPlateMode !== config.maxPlateMode || !latest.maxEnabled || latest.maxPlateEnabled === false) return 'retry';
-        if (!supported) return previous.call(this, textItem(item));
-        const result = await sendImage(item, plate, config); return result?.beforeSend ? previous.call(this, textItem(item)) : result;
-      }; wrapped.__maxPlate = true; window.sendMaxOnce = wrapped;
+      const previous=window.sendMaxOnce;
+      const wrapped=async function(item){
+        if(!item||item.type!=='text')return 'drop';
+        return previous.call(this,textItem(item));
+      };
+      wrapped.__maxPlate=true;window.sendMaxOnce=wrapped;
     }
     if (typeof window.applyAllPatches === 'function' && !window.applyAllPatches.__maxPlate) {
       const previous = window.applyAllPatches, wrapped = function() { try { return previous.apply(this, arguments); } finally { install(); } }; wrapped.__maxPlate = true; window.applyAllPatches = wrapped;
@@ -163,7 +95,7 @@
     const view = document.createElement('button'); view.type = 'button'; view.className = 'btn btn-secondary btn-small'; view.textContent = 'Посмотреть пример'; view.onclick = preview;
     actions.append(view); panel.append(title, message, actions); parent.append(panel);
   }
-  window[KEY] = { version: '1.1.0', contract: CONTRACT, parsePlate, fromText, resolvePlate, formatPlateText, formatText, renderPng, preview, install, checkServer: () => admin() ? capabilities({ ...cfg() }, true) : Promise.resolve(false) };
+  window[KEY] = { version: '1.2.0', parsePlate, fromText, resolvePlate, formatPlateText, formatText, preview, install };
   install(); if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true });
 })();
 

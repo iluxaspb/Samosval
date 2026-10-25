@@ -54,7 +54,7 @@
       }
       if(!state.objects.some(o=>o.id===S.objectId))S.objectId=state.shift?.objectId||state.objects[0]?.id||'';
       await period();if(S.view==='object')await objectPeriod();render();replay();
-    }catch(e){if(generation===S.generation){S.errors.local='Не удалось открыть хранилище: '+e.message;render();}}
+    }catch(e){if(generation===S.generation){reset();S.errors.local='Не удалось открыть хранилище: '+e.message;render();}}
   }
   function syncError(key,e,generation){if(generation!==S.generation)return;S.ready[key]=false;S.errors[key]=(e.code==='permission-denied'?'Нет доступа к базе табеля. Администратору нужно применить правила для тестовой базы.':e.message);render();}
   function receive(col,key,snap,generation){if(generation!==S.generation)return;if(snap.metadata.fromCache&&snap.docs.length===0&&S.remote[col].length){S.ready[col]=false;render();return;}S.remote[col]=snap.docs.map(d=>({...d.data(),id:d.id}));S.ready[col]=!snap.metadata.fromCache;delete S.errors[col];local('cache','put',{key,rows:S.remote[col]}).catch(e=>{S.errors.local='Кэш не сохранён: '+e.message;render();});render();}
@@ -344,8 +344,8 @@
   }
   function render(){
     if(!active())return;
+    if(!allowed()){host.innerHTML=note('Нет доступа к табелю.');S.lastHtml='';S.dialog?.close();return;}
     if(host.contains(document.activeElement)&&['INPUT','SELECT'].includes(document.activeElement.tagName))return;
-    if(!allowed()){host.innerHTML=note('Нет доступа к табелю.');return;}
     const pending=S.jobs.filter(x=>x.status==='queued').length,failed=S.jobs.filter(x=>x.status!=='queued');
     const syncText=pending?`На устройстве: ${pending} · ожидают отправки`:!navigator.onLine?'Нет связи · показываем сохранённые данные':S.objectId&&C.collections.every(c=>S.ready[c])?'Данные подтверждены сервером':'Проверяем данные с сервером…';
     const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div><span class="ts-version">Тест 3.1.7</span></div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${S.view==='object'?'':field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],...(objectSummaryEnabled()?[['object','Весь объект']]:[]),['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():S.view==='object'?objectView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
@@ -462,7 +462,7 @@
     });
   }
   function exportCsv(materials){
-    if(!hasPermission('timesheet_export'))return;
+    if(!allowed()||!hasPermission('timesheet_export'))return;
     if(S.jobs.some(j=>j.scope===S.scope))return error(Error('Сначала отправьте и разберите все изменения этого месяца.'));
     const col=materials?'timesheetMaterials':'timesheetEntries';if(!navigator.onLine||!S.ready[col])return error(Error('Для выгрузки дождитесь подтверждения данных сервером.'));
     const list=living(col).filter(x=>x.scope===S.scope).sort((a,b)=>a.date.localeCompare(b.date)||a.shift.localeCompare(b.shift));
@@ -491,10 +491,11 @@
     });
   }
   async function history(){
+    if(!allowed())return;
     const el=dialog('История изменений',note('Загружаем…'));const scope=S.scope;
     try{const snap=await wsRef.collection('timesheetChanges').where('scope','==',scope).get({source:'server'});const list=snap.docs.map(d=>d.data()).sort((a,b)=>b.createdAt-a.createdAt).slice(0,100);el.querySelector('.ts-dialog-body').innerHTML=list.map(x=>`<section class="ts-history"><b>${E(x.label)}</b><small>${E(x.name)} · ${new Date(x.createdAt).toLocaleString('ru-RU')}</small>${x.changes.map(c=>`<p>${E(describe(c.before))} → ${E(describe(c.after))}</p>`).join('')}</section>`).join('')||note('Изменений пока нет.');}catch(e){el.querySelector('.ts-dialog-body').textContent='Не удалось загрузить историю: '+e.message;}
   }
-  host.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const {action,id,col,view,group}=b.dataset;
+  host.addEventListener('click',e=>{if(!allowed())return;const b=e.target.closest('[data-action]');if(!b)return;const {action,id,col,view,group}=b.dataset;
     const actions={view:()=>{if(view==='object'&&!objectSummaryEnabled())return;const previous=S.view;S.view=view;if(previous==='object'&&view!=='object')stopObjectView();if(view==='object')objectPeriod().catch(error);render();},'object-day':()=>{S.date=b.dataset.date;S.shift=b.dataset.shift;S.view='day';stopObjectView();period().catch(error);render();},'add-person':()=>addForm('person',group),'add-equipment':()=>addForm('equipment'),entry:()=>entryForm(id),crew:()=>crewForm(id),'add-crew':()=>addCrew(id),'hours-preset':()=>inlineButton(id,b.dataset.value),'hours-step':()=>inlineButton(id,undefined,b.dataset.delta),'workers-value':()=>workersValue(b),'workers-apply':applyWorkers,copy:copyForm,'catalog-group':()=>{S.catalogGroup=group;render();},catalog:()=>catalogForm(col,id,group),material:()=>materialForm(id),retry:replay,conflict:()=>conflictForm(id),export:()=>exportCsv(false),'export-materials':()=>exportCsv(true),history};
     try{Promise.resolve(actions[action]?.()).catch(error);}catch(e){error(e);}
   });

@@ -3,7 +3,7 @@ const dom=new JSDOM('<!doctype html><div id="tab-timesheet" class="tab-content a
 const w=dom.window;w.indexedDB=require('./memory-idb.cjs')();w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
 const wait=async test=>{for(let i=0;i<200;i++){if(test())return;await new Promise(r=>setTimeout(r,10));}throw Error('Timed out: '+test.toString()+'\n'+w.document.body.textContent.slice(-2000));};
 const q=s=>w.document.querySelector(s),click=s=>{assert(q(s),s);q(s).click();},submit=()=>q('dialog form').dispatchEvent(new w.Event('submit',{cancelable:true}));
-w.eval(fs.readFileSync('tests/timesheet/fixture.js','utf8'));w.eval(fs.readFileSync('assets/timesheet-core.js','utf8'));w.eval(fs.readFileSync('assets/timesheet.js','utf8'));
+w.eval(fs.readFileSync('tests/timesheet/fixture.js','utf8'));w.eval(fs.readFileSync('test-app/src/features/timesheet-core.js','utf8'));w.eval(fs.readFileSync('test-app/src/features/timesheet-app.js','utf8'));
 (async()=>{try{
  await wait(()=>q('[data-action="add-equipment"]'));await wait(()=>w.document.body.textContent.includes('Данные подтверждены'));
  click('[data-action="add-equipment"]');for(const box of w.document.querySelectorAll('dialog input[name=operatorIds]'))box.checked=true;submit();await wait(()=>!q('dialog'));await wait(()=>[...w.__rows.keys()].filter(k=>k.includes('/timesheetEntries/')).length===4);

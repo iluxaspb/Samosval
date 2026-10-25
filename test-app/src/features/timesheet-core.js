@@ -99,7 +99,11 @@
     if (actor.uid !== op.uid) fail('Операция принадлежит другой учётной записи','wrong-account');
     const receipt=ws.collection('timesheetChanges').doc(op.id);
     return runTransaction(async tx=>{
-      const ack=await tx.get(receipt); if (ack.exists) return {duplicate:true};
+      const ack=await tx.get(receipt);
+      if (ack.exists) {
+        if (ack.data().uid !== actor.uid) fail('Идентификатор операции занят другой учётной записью','wrong-account');
+        return {duplicate:true};
+      }
       const refs=op.changes.map(ch=>ws.collection(ch.collection).doc(ch.id));
       const snapshots=[]; for (const ref of refs) snapshots.push(await tx.get(ref));
       const conflicts=[];

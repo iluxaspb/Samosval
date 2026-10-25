@@ -1,14 +1,83 @@
   // TEST ONLY. Persistent, optimistic offline actions; server remains authoritative.
   const offlineJournalKey=()=> 'samosval_offline_v1_'+firebaseConfig.projectId+'_'+WORKSPACE_ID+'_'+currentUid;
+  // One editing tab owns this account's synchronous localStorage journal.
+  // Web Locks provides actual mutual exclusion; a storage-event lease does not.
+  let offlineJournalOwner=null,offlineJournalSuspended=false;
+  function offlineReleaseJournalOwnership(){
+    const owner=offlineJournalOwner;
+    offlineJournalOwner=null;
+    if(owner){owner.ready=false;owner.resolveReady(false);owner.abort?.abort();owner.release?.();}
+  }
+  function offlineEnsureJournalOwnership(){
+    if(offlineJournalSuspended)return Promise.resolve(false);
+    if(!currentUid){offlineReleaseJournalOwnership();return Promise.resolve(false);}
+    if(offlineJournalOwner?.uid===currentUid)return offlineJournalOwner.promise;
+    offlineReleaseJournalOwnership();
+    const owner={uid:currentUid,ready:false,release:null,abort:null,error:''};
+    owner.promise=new Promise(resolve=>{owner.resolveReady=resolve;});
+    offlineJournalOwner=owner;
+    if(!navigator.locks?.request||typeof AbortController==='undefined'){
+      owner.error='Этот браузер не поддерживает безопасную запись офлайн-очереди. Откройте приложение в актуальном Chrome, Safari или Firefox через HTTPS. Сейчас доступен просмотр.';
+      owner.resolveReady(false);return owner.promise;
+    }
+    owner.abort=new AbortController();
+    navigator.locks.request(offlineJournalKey()+':writer',{mode:'exclusive',signal:owner.abort.signal},async()=>{
+      if(offlineJournalOwner!==owner||currentUid!==owner.uid){owner.resolveReady(false);return;}
+      owner.ready=true;
+      const released=new Promise(resolve=>{owner.release=resolve;});
+      owner.resolveReady(true);
+      // The previous tab may have added actions while this tab was waiting.
+      offlineProjectState();refreshLineViews();updateSyncUI();
+      offlineReplayJournal();
+      await released;
+      owner.ready=false;
+    }).catch(error=>{
+      owner.resolveReady(false);
+      if(offlineJournalOwner===owner&&error?.name!=='AbortError'){
+        owner.ready=false;owner.error='Не удалось получить безопасный доступ к очереди. Закройте другие окна приложения и откройте его заново.';updateSyncUI();
+      }
+    });
+    return owner.promise;
+  }
+  function offlineJournalSessionToken(){return offlineJournalOwner;}
+  function offlineJournalOwns(owner){return !!owner&&owner===offlineJournalOwner&&owner.ready&&owner.uid===currentUid;}
+  function offlineJournalCanWrite(){offlineEnsureJournalOwnership();return offlineJournalOwns(offlineJournalOwner);}
+  function offlineJournalOwnershipStatus(){
+    if(!currentUid)return '';
+    offlineEnsureJournalOwnership();
+    return offlineJournalOwns(offlineJournalOwner)?'':offlineJournalOwner?.error||'Учёт открыт в другой вкладке. Продолжите там или закройте её.';
+  }
+  if(typeof window.addEventListener==='function'){
+    window.addEventListener('pagehide',()=>{offlineJournalSuspended=true;offlineReleaseJournalOwnership();});
+    window.addEventListener('pageshow',()=>{offlineJournalSuspended=false;offlineEnsureJournalOwnership();});
+    window.addEventListener('storage',event=>{
+      if(event.key===offlineJournalKey()&&!offlineJournalCanWrite()){offlineProjectState();refreshLineViews();updateSyncUI();}
+    });
+  }
   let offlineReplayRunning=false,offlineRemoteStatuses={},offlineRemoteLogs=[];
   function offlineJournalRead(){
     if(!currentUid)return [];
     try{const a=JSON.parse(localStorage.getItem(offlineJournalKey())||'[]');return Array.isArray(a)?a.filter(x=>x&&x.id&&x.shiftId&&x.truckId):[];}catch(e){console.error(e);return [];}
   }
-  function offlineJournalWrite(items){localStorage.setItem(offlineJournalKey(),JSON.stringify(items));updateSyncUI();}
+  function offlineJournalCompact(items){
+    // This is a transport journal, not the audit history. Bound fully settled
+    // rows only; never discard unsent actions, effects, penalties or conflicts.
+    const dependencies=new Set(items.filter(x=>x.status==='pending'&&x.dependencyId).map(x=>x.dependencyId));
+    let settled=0;
+    return items.slice().reverse().filter(x=>{
+      const complete=(x.status==='confirmed'&&x.effectsDelivered)
+        ||(x.status==='cancelled'&&x.penaltyDelivered)||(x.status==='rejected'&&x.reviewed);
+      return !complete||dependencies.has(x.id)||++settled<=200;
+    }).reverse();
+  }
+  function offlineJournalWrite(items){
+    if(!offlineJournalCanWrite())throw new Error(offlineJournalOwnershipStatus());
+    localStorage.setItem(offlineJournalKey(),JSON.stringify(offlineJournalCompact(items)));updateSyncUI();
+  }
   function offlinePendingOps(){return offlineJournalRead().filter(x=>x.status==='pending');}
   function offlinePendingForTruck(id){return offlinePendingOps().some(x=>x.truckId===id&&state.shift&&x.shiftId===state.shift.id);}
   function offlinePendingCount(){return offlinePendingOps().length;}
+  function offlineUndeliveredEffects(){return offlineJournalRead().filter(x=>x.status==='confirmed'&&!x.effectsDelivered);}
   // navigator.onLine is only a browser hint. Firestore may be unreachable even
   // while it remains true (Wi-Fi without internet, DNS failure, captive portal).
   let offlineServerRetryAt=0,offlineServerRetryDelay=0,offlineServerUnreachable=false;
@@ -122,9 +191,17 @@
     }
     state.truckStatus=statuses;state.logs=logs.sort((x,y)=>(y.timestamp||0)-(x.timestamp||0));offlineProjectTicker();
   }
+  function offlineActionAllowed(type){
+    if(currentUserStatus!=='active'||!permissionsLoaded)return false;
+    if(type==='reset')return canAdmin();
+    const action={arrive:'action_arrive',load:'action_load',ttn:'action_ttn'}[type];
+    return !!action&&hasPermission(action);
+  }
   function offlineQueueAction(type,id,intent){
+    if(!offlineJournalCanWrite()){showError(offlineJournalOwnershipStatus());return false;}
     if(!currentUid||!intent||!intent.status||!state.shift||state.shift.id!==intent.shiftId)return false;
-    if(type==='reset'&&!canAdmin()){showError('Только для администратора');return false;}
+    if(!offlineActionAllowed(type)){showError('Нет доступа к этому действию');return false;}
+    if(!editableLineShift(state.shift)||intent.status.shiftId!==intent.shiftId||!intent.status.onLine){showError('Смена закрывается, восстанавливается или самосвал снят с линии');return false;}
     const before=intent.status,now=Date.now(),gap=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES)*60000;
     if(type==='load'&&!before.arriveStatus){showError('Сначала отметьте прибытие');return false;}
     if((type==='load'||(type==='arrive'&&!before.arriveStatus))&&before.lastLoadTimestamp&&now-before.lastLoadTimestamp<gap){
@@ -154,48 +231,85 @@
     if(op&&op.status==='pending'){op.status=status;op.result=reason;op.resolvedAt=Date.now();offlineJournalWrite(all);}
   }
   function offlineAdoptResult(op,result){
-    if(result.status){
+    if(!state.shift||state.shift.id!==op.shiftId)return;
+    if(result.status&&result.status.shiftId===op.shiftId){
       const old=offlineRemoteStatuses[op.truckId];
-      if(!old||old.shiftId!==op.shiftId||Number(old.cycleRevision||0)<=Number(result.status.cycleRevision||0))
-        offlineRemoteStatuses[op.truckId]={id:op.truckId,...result.status};
+      // Arrival/load and TTN have independent revisions. A delayed transaction
+      // reply must preserve a newer TTN snapshot even when its cycle is equal.
+      offlineRemoteStatuses[op.truckId]={id:op.truckId,...mergeCachedTruckStatus(result.status,old)};
     }
     if(result.log&&!offlineRemoteLogs.some(l=>l.id===result.log.id)){
       offlineRemoteLogs.push(result.log);confirmedLoadIds.add(result.log.id);
     }
-    offlineProjectState();refreshLineViews();
+    // The caller projects/renders once, after durably resolving the journal row.
   }
   function undoLastOfflineAction(){
+    if(!offlineJournalCanWrite()){showError(offlineJournalOwnershipStatus());return;}
     if(!hasPermission('undo_action')&&!hasPermission('undo_any')){showError('Нет права отменять действия');return;}
     if(offlineReplayRunning){showToastEl('Действие отправляется на сервер',false);return;}
     const all=offlineJournalRead();let i=-1;
     for(let n=all.length-1;n>=0;n--)if(all[n].status==='pending'&&state.shift&&all[n].shiftId===state.shift.id){i=n;break;}
     if(i<0)return;all[i].status='cancelled';all[i].cancelledAt=Date.now();offlineJournalWrite(all);offlineProjectState();refreshLineViews();showToastEl('↩️ Ошибочное действие отменено. Штраф −3 🪙 будет учтён после связи с сервером.',true);window.__gameFlushPenalties?.();
   }
-  async function offlineNotifyAccepted(op,result){
+  function offlineEffectRequest(request){
+    let timer;
+    const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject({code:'deadline-exceeded',message:'Истекло время отправки журнала'}),6000);});
+    return Promise.race([request,timeout]).finally(()=>clearTimeout(timer));
+  }
+  let offlineEffectsTask=null,offlineEffectsRetryAt=0;
+  function offlineReplayEffects(){
+    if(offlineEffectsTask)return offlineEffectsTask;
+    if(!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||Date.now()<offlineEffectsRetryAt||!offlineJournalCanWrite())return Promise.resolve();
+    const uid=currentUid,owner=offlineJournalSessionToken();
+    const task=(async()=>{
+      const attempted=new Set();
+      // New transactions may finish while an earlier effect is in flight.
+      // Drain those too instead of delaying them until the next 8-second tick.
+      for(let op;(op=offlineUndeliveredEffects().find(x=>!attempted.has(x.id)));){
+        attempted.add(op.id);
+        if(currentUid!==uid||currentUserStatus!=='active'||!navigator.onLine||!offlineJournalOwns(owner))break;
+        if(!await offlineNotifyAccepted(op,op.savedResult||{},uid,owner)){
+          if(currentUid===uid)offlineEffectsRetryAt=Date.now()+8000;
+        }
+      }
+    })().catch(error=>{
+      if(currentUid===uid)offlineEffectsRetryAt=Date.now()+8000;
+      console.warn('[offline effects]',error);
+    }).finally(()=>{if(offlineEffectsTask===task)offlineEffectsTask=null;updateSyncUI();});
+    offlineEffectsTask=task;
+    return task;
+  }
+  async function offlineNotifyAccepted(op,result,uid=currentUid,owner=offlineJournalSessionToken()){
+    const sameSession=()=>currentUid===uid&&currentUserStatus==='active'&&permissionsLoaded&&offlineJournalOwns(owner);
+    if(!sameSession())return false;
     let delivered=true;
     try{
-      const ref=refs.notifications.doc('offline_'+op.id),snap=await ref.get({source:'server'});
+      const ref=refs.notifications.doc('offline_'+op.id),snap=await offlineEffectRequest(ref.get({source:'server'}));
+      if(!sameSession())return false;
       if(!snap.exists){
         const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
-        await ref.set({...offlineUndoFields(op,result.beforeStatus||op.beforeStatus),gamePenaltyKey:window.__gamePenaltyKey(op.type,op.truckId,result.status||{},result.log?.id,op.id),type:op.type,truckId:op.truckId,logId:result.log?.id||null,
+        await offlineEffectRequest(ref.set({...offlineUndoFields(op,result.beforeStatus||op.beforeStatus),gamePenaltyKey:window.__gamePenaltyKey(op.type,op.truckId,result.status||{},result.log?.id,op.id),type:op.type,truckId:op.truckId,logId:result.log?.id||null,
           createdBy:op.actor,createdByEmail:op.email||'',timestamp:op.createdAt,shiftId:op.shiftId,objectId:op.objectId||'',objectName:op.objectName||'',
-          html:label+' · '+truckLabelHtml(op.truckId)});
+          html:label+' · '+truckLabelHtml(op.truckId)}));
       }
     }catch(e){delivered=false;console.warn('Не удалось отправить уведомление офлайн-действия',e);}
+    if(!sameSession())return false;
     try{
-      const ref=refs.audit.doc('offline_'+op.id),snap=await ref.get({source:'server'});
+      const ref=refs.audit.doc('offline_'+op.id),snap=await offlineEffectRequest(ref.get({source:'server'}));
+      if(!sameSession())return false;
       if(!snap.exists){
         const names={reset:'🔄 Сброс таймера',arrive:op.wantArrived?'🚛 Прибытие на линию':'↩️ Снято прибытие на линию',
           load:'⚡ Погрузка самосвала',ttn:op.collect?'📄 Забрана ТТН':'↩️ Снята отметка ТТН'};
-        await ref.set({text:(names[op.type]||op.type)+': '+op.truckName,
+        await offlineEffectRequest(ref.set({text:(names[op.type]||op.type)+': '+op.truckName,
           timeStr:new Date(op.createdAt).toLocaleString('ru-RU'),
-          objectName:state.shift?.objectName||'—',objectId:state.shift?.objectId||'',
+          objectName:op.objectName||'—',objectId:op.objectId||'',
           shiftId:op.shiftId,truckId:op.truckId,truckName:op.truckName,
           userEmail:op.email||'',userName:op.actor,createdByEmail:op.email||'',
-          timestamp:op.createdAt,eventType:op.type,offlineOperationId:op.id});
+          timestamp:op.createdAt,eventType:op.type,offlineOperationId:op.id}));
       }
     }catch(e){delivered=false;console.warn('Не удалось отправить аудит офлайн-действия',e);}
-      if(delivered){const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);if(saved){saved.effectsDelivered=true;offlineJournalWrite(all);}}
+    if(delivered&&sameSession()){const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);if(saved){saved.effectsDelivered=true;offlineJournalWrite(all);}}
+    return delivered&&sameSession();
   }
   function offlineUndoFields(op,b){
     if(!b)return {};
@@ -204,12 +318,15 @@
     return {prevTtn:b.ttnStatus??null,prevTtnBy:b.ttnBy||null,prevTtnLogId:b.ttnLogId||null};
   }
   async function offlineReplayJournal(){
-    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||Date.now()<offlineServerRetryAt||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
+    // Delivery is durable but independent: a stalled notification must never
+    // delay the next truck transaction or hold the line's in-flight guard.
+    offlineReplayEffects();
+    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||Date.now()<offlineServerRetryAt||syncState.pendingWrites.status||syncState.pendingWrites.shift||!offlineJournalCanWrite())return;
+    const replayUid=currentUid,owner=offlineJournalSessionToken();
     offlineReplayRunning=true;
     try{
-      for(const op of offlineJournalRead().filter(x=>x.status==='confirmed'&&!x.effectsDelivered))await offlineNotifyAccepted(op,op.savedResult||{});
       for(const op of offlinePendingOps()){
-        if(!navigator.onLine||currentUserStatus!=='active')break;
+        if(!navigator.onLine||currentUserStatus!=='active'||currentUid!==replayUid||!offlineJournalOwns(owner))break;
         if(!offlineJournalRead().some(x=>x.id===op.id&&x.status==='pending'))continue;
         if(op.dependencyId){
           const previous=offlineJournalRead().find(x=>x.id===op.dependencyId);
@@ -220,9 +337,15 @@
         }
         try{
           const result=await db.runTransaction(async tx=>{
+            const checkAccess=()=>{
+              if(currentUid!==replayUid||!offlineJournalOwns(owner))throw {code:'cancelled',message:'Учётная запись или вкладка изменилась'};
+              if(!offlineActionAllowed(op.type))throw {code:'permission-denied',message:'Доступ к действию ограничен'};
+            };
+            checkAccess();
             const policy=await tx.get(appConfigRef);
             const sharedCycle=policy.exists?Number(policy.data().cycleMinutes)||15:15;
             const before=await readLineState(tx,op.truckId,op.shiftId);
+            checkAccess();
             const truck=findTruck(op.truckId);if(!truck)throw {code:'truck-missing',message:'Самосвал не найден'};
             const revision=Number(before.cycleRevision||0),gap=Math.max(MIN_CYCLE_MINUTES,sharedCycle,op.cycleMinutes||MIN_CYCLE_MINUTES)*60000;
             if(op.type==='reset'){
@@ -254,6 +377,7 @@
               // *before* rejecting a changed status: the first commit may
               // have succeeded while its acknowledgement was lost.
               const ref=refs.logs.doc(logId),existing=await tx.get(ref);
+              checkAccess();
               if(existing.exists){
                 const record=existing.data();
                 if(record.clientOperationId===op.id)return {outcome:'confirmed',status:before,log:{id:logId,...record}};
@@ -288,6 +412,7 @@
             }
             return {outcome:'rejected',reason:'unsupported'};
           });
+          if(currentUid!==replayUid||!offlineJournalOwns(owner))break;
           offlineTransportRecovered();offlineAdoptResult(op,result);
           {const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);if(saved){saved.savedResult={status:result.status||null,beforeStatus:result.beforeStatus||op.beforeStatus,log:result.log||null};if(result.outcome==='rejected')saved.conflictDetails=offlineConflictDetails(op,result);offlineJournalWrite(all);}}
           offlineResolve(op.id,result.outcome,result.reason||result.outcome);
@@ -302,9 +427,10 @@
                 if(op.type==='ttn'&&op.collect&&appConfig.notifyTtn)enqueueMax('📄 Забрал ТТН\n🚛 '+name+'\n👤 '+actor);
               }
             }
-            await offlineNotifyAccepted(op,result);
+            offlineReplayEffects();
           }else showToastEl('⚠️ '+escapeHtml(offlineReasonLabel(result.reason,offlineConflictDetails(op,result))),true);
         }catch(e){
+          if(currentUid!==replayUid||!offlineJournalOwns(owner))break;
           if(offlineTransportError(e)){offlineTransportFailed(e);break;}
           if(!navigator.onLine||['aborted','cancelled'].includes(e.code)){offlineServerRetryAt=Date.now()+1500;break;}
           offlineResolve(op.id,'rejected',e.code||e.message||'error');offlineProjectState();refreshLineViews();

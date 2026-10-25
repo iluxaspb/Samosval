@@ -1,4 +1,4 @@
-const assert=require('node:assert/strict'),C=require('../../assets/timesheet-core.js');
+const assert=require('node:assert/strict'),C=require('../../test-app/src/features/timesheet-core.js');
 assert.equal(C.hours('7,5'),450);assert.equal(C.hours(''),null);assert.equal(C.hours('0'),0);assert.equal(C.hours('24'),1440);
 for(const x of ['-1','25','12oops','Infinity','0x10','1e2'])assert.throws(()=>C.hours(x));
 assert.equal(C.quantity('80,125'),80.125);assert.throws(()=>C.quantity('0'));
@@ -14,7 +14,7 @@ const ack={...entry,id,revision:1,lastOpId:'op1'};assert.equal(C.project([ack],[
 assert.equal(C.project([{...ack,revision:2,minutes:600}],[queued],'timesheetEntries')[0].minutes,600);
 assert.equal(C.project([],[{...queued,status:'conflict'}],'timesheetEntries').length,0);
 assert(C.csv([['=HYPERLINK("bad")','+123','Имя; Фамилия','a"b']]).includes('"\'=HYPERLINK'));
-const fs=require('fs'),vm=require('vm'),html=fs.readFileSync('index-test.html','utf8');for(const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi))new vm.Script(m[1]);
+const fs=require('fs'),vm=require('vm'),html=require('../../tools/read-test-html.cjs')();for(const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi))new vm.Script(m[1]);
 for(const m of html.matchAll(/try \{ \(0, eval\)\(("(?:[^"\\]|\\.)*")\);/g))new vm.Script(JSON.parse(m[1]));
 assert(html.includes("TEST_FIREBASE_PROJECT_ID = 'samosval-offline'"));assert(html.includes('id="nav-timesheet"'));assert(html.includes('id="tab-timesheet"'));
 console.log('PASS validation, hours, independent shifts, 3-person totals, idempotent projection, CSV escaping, test HTML and embedded patch syntax');

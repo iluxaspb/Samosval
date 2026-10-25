@@ -40,6 +40,7 @@
     <div class="pending-icon">⏳</div>
     <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--warning);">Ожидание подтверждения</div>
     <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;"><span id="registrationStatusText">Ваша заявка отправлена. Ожидайте решения администратора.</span></div>
+    <button class="btn btn-quick" style="width:100%;margin-bottom:10px;" onclick="retryAccountCheck()">Повторить проверку</button>
     <button class="btn btn-secondary" style="width: 100%;" onclick="handleLogout()">Выйти</button>
   </div>
 </div>
@@ -61,7 +62,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.1.17 · тест</span>
+        <span class="version-text">Версия 3.1.18 · тест</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -149,12 +150,11 @@
     </div>
     
     <div class="action-row" style="margin-bottom: 12px; grid-template-columns: 1fr 1fr;">
-      <button class="btn btn-secondary btn-small" onclick="sendActiveReportToMax()">✈️ Отчет в Max (PDF)</button>
       <button class="btn btn-quick btn-small" onclick="exportCSV()">📥 Скачать Excel</button>
     </div>
     <div class="action-row" style="margin-bottom: 12px; grid-template-columns: 1fr 1fr;">
-      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPDF('regular')">📄 PDF (обычные)</button>
-      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPDF('gai')">📄 PDF (ГАИ)</button>
+      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPNG('regular')">🖼 PNG (обычные)</button>
+      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPNG('gai')">🖼 PNG (ГАИ)</button>
     </div>
     <div id="pluginPdfButtonsContainer" class="action-row" style="margin-bottom: 12px; flex-wrap: wrap;"></div>
 
@@ -327,8 +327,6 @@
         <div class="settings-row"><div>📄 Забрал ТТН</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyTtn" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         <div class="settings-row"><div>🟢 Добавлен на линию</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLineStart" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         <div class="settings-row"><div>🔴 Убран с линии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLineEnd" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
-        <div class="settings-row"><div>📄 PDF (Основные) при закрытии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyPdfMain" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
-        <div class="settings-row"><div>📄 PDF (ГАИ) при закрытии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyPdfGai" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         
         <button class="btn btn-secondary" style="width:100%; margin-top:16px; margin-bottom:8px;" onclick="testMaxMessage()">🧪 Тест</button>
         <button class="btn btn-secondary btn-small" style="width:100%;" onclick="showMaxQueueStatus()">📋 Очередь</button>

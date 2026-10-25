@@ -48,7 +48,7 @@
     return `<b>${escapeHtml(t.brand)}</b> ${renderRussianPlate(t.number)}`;
   }
   function truckName(id) { let t = findTruck(id); return t ? `${t.brand} ${t.number}` : 'Машина'; }
-  function getActiveLineIds() { return Object.keys(state.truckStatus).filter(id => state.truckStatus[id] && state.truckStatus[id].onLine === true); }
+  function getActiveLineIds() { const shiftId=state.shift?.id; return shiftId ? Object.keys(state.truckStatus).filter(id => state.truckStatus[id]?.onLine === true && state.truckStatus[id].shiftId === shiftId) : []; }
   // Reports, paper sheets, header totals and PDF must all see the same LOCAL
   // pending trips, even if an older Firestore cache snapshot arrives meanwhile.
   function getLogs() {

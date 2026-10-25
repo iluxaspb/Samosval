@@ -18,6 +18,8 @@
   }
   function getSyncStatus() {
     const queued=offlinePendingCount();
+    const ownership=offlineJournalOwnershipStatus();
+    if(ownership)return {state:'error',text:ownership};
     if (offlineServerUnreachable || !navigator.onLine) return { state: 'offline', text: 'Работа локально' + (queued ? ` · действий к отправке: ${queued}` : '') };
     if (Object.keys(syncState.errors || {}).length) return {state:'error',text:'Ошибка загрузки: ' + Object.keys(syncState.errors).join(', ')};
     if (!currentUserRole) return {state:'init',text:'Проверка учётной записи…'};
@@ -27,6 +29,8 @@
     if (pendingOps > 0 || queued > 0) return { state: 'syncing', text: `Синхронизация... (${pendingOps + queued})` };
     const failures=offlineUnreviewedFailures().length;
     if(failures)return {state:'error',text:'Не подтверждено действий: '+failures+' · Нажмите индикатор для подробностей'};
+    const effects=offlineUndeliveredEffects().length;
+    if(effects)return {state:'syncing',text:'Действия сохранены · отправка журнала и уведомлений: '+effects};
     return { state: 'ok', text: 'Всё на сервере' };
   }
   function updateSyncUI() {
@@ -56,7 +60,7 @@
       lines.push('Карточки показывают итоговое серверное состояние.');
     }
     appNotice(lines.join('\n'));
-    if(rejected.length) {
+    if(rejected.length&&offlineJournalCanWrite()) {
       const all=offlineJournalRead();
       all.forEach(x=>{if(x.status==='rejected')x.reviewed=true;});
       offlineJournalWrite(all);
@@ -105,7 +109,7 @@
       }, e=>reportSyncError('audit', e)));
     }
     if (!canAdmin()) usersUnsubscriber = usersRef.onSnapshot(s => { state.users = s.docs.map(d => Object.assign({id:d.id}, d.data())); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('analytics', 'renderAnalytics'); scheduleRenderForTab('line', 'renderLine'); }, e=>console.warn(e));
-    unsubscribers.push(appConfigRef.onSnapshot(doc => { if (doc.exists) { let d = doc.data(); if(Number.isFinite(d.cycleMinutes)){settings.cycleMinutes=Math.max(15,d.cycleMinutes);localStorage.setItem('dt_settings',JSON.stringify(settings));} appConfig = { maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '', notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true, notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true, notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true, notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true, notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true, notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true, notifyPdfMain: d.notifyPdfMain !== undefined ? !!d.notifyPdfMain : true, notifyPdfGai: d.notifyPdfGai !== undefined ? !!d.notifyPdfGai : true, testReviewFlags: d.testReviewFlags || {}, photoStorageLimitBytes: Number(d.photoStorageLimitBytes)||536870912 }; window.__gameConfigChanged?.(); renderConflictAuthorPatch(); renderAppSettingsIfActive(); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } }, e => console.warn(e)));
+    unsubscribers.push(appConfigRef.onSnapshot(doc => { if (doc.exists) { let d = doc.data(); if(Number.isFinite(d.cycleMinutes)){settings.cycleMinutes=Math.max(15,d.cycleMinutes);localStorage.setItem('dt_settings',JSON.stringify(settings));} appConfig = { maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '', notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true, notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true, notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true, notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true, notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true, notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true, testReviewFlags: d.testReviewFlags || {}, photoStorageLimitBytes: Number(d.photoStorageLimitBytes)||536870912 }; window.__gameConfigChanged?.(); renderConflictAuthorPatch(); renderAppSettingsIfActive(); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } }, e => console.warn(e)));
 
     // === SECURITY: права и флаг готовности ===
     unsubscribers.push(permsRef.onSnapshot({ includeMetadataChanges: true }, doc => {

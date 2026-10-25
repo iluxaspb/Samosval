@@ -5,10 +5,18 @@
   const bytes=value=>{const n=Number(value)||0;return n<1048576?(n/1024).toFixed(1)+' КБ':n<1073741824?(n/1048576).toFixed(1)+' МБ':(n/1073741824).toFixed(2)+' ГБ';};
   const say=(text,error=false)=>{$('message').textContent=text;$('message').className=error?'op-error':'';};
   function close(){generation++;observer?.disconnect();observer=null;owner='';rows=[];$('usage').hidden=true;$('usage').replaceChildren();$('grid').replaceChildren();if(dialog.open)dialog.close();}
-  async function open(options={}){if(currentUserStatus!=='active'||!permissionsLoaded||!(canAdmin()||hasTabAccess('archive')))return;owner=currentUid;filter={...options};shown=60;if(!dialog.open)dialog.showModal();await refresh();}
+  const uniqueShiftIds=ids=>[...new Set(ids.filter(id=>typeof id==='string'&&id.length>0))];
+  async function open(options={}){
+    if(currentUserStatus!=='active'||!permissionsLoaded||!(canAdmin()||hasTabAccess('archive')))return;
+    owner=currentUid;
+    const photoShiftIds=uniqueShiftIds([...(Array.isArray(options.photoShiftIds)?options.photoShiftIds:[]),options.shiftId]);
+    const sourceShiftIds=uniqueShiftIds([...(Array.isArray(options.sourceShiftIds)?options.sourceShiftIds:[]),options.sourceShiftId,...photoShiftIds]);
+    filter={...options,photoShiftIds,sourceShiftIds};shown=60;
+    if(!dialog.open)dialog.showModal();await refresh();
+  }
   async function refresh(){
-    if(!permitted()){close();return;}if(busy)return;const token=++generation;say('Загружаем фотографии…');$('title').textContent=filter.name?'Фото · '+filter.name:'Фотографии объектов';$('all').hidden=!filter.objectKey;$('shift').hidden=!filter.sourceShiftId;$('select-label').hidden=$('delete').hidden=!canAdmin();$('all').disabled=!filter.shiftId;$('shift').disabled=!!filter.shiftId;
-    try{const result=await service.list(filter);if(token!==generation||!permitted())return;rows=result;draw();if(canAdmin())await showUsage(token);else $('usage').hidden=true;}catch(error){if(token===generation)say(service.message(error),true);}
+    if(!permitted()){close();return;}if(busy)return;const token=++generation;say('Загружаем фотографии…');$('title').textContent=filter.name?'Фото · '+filter.name:'Фотографии объектов';$('all').hidden=!filter.objectKey;$('shift').hidden=!filter.sourceShiftIds.length;$('select-label').hidden=$('delete').hidden=!canAdmin();const shiftSelected=!!filter.shiftId||filter.photoShiftIds.length>0;$('all').disabled=!shiftSelected;$('shift').disabled=shiftSelected;
+    try{const result=await service.list(filter);if(token!==generation||!permitted())return;rows=result;draw();if(canAdmin())await showUsage(token);else $('usage').hidden=true;}catch(error){if(token===generation){if(!permitted()){close();return;}say(service.message(error),true);}}
   }
   function draw(){
     observer?.disconnect();const visible=rows.slice(0,shown);$('grid').replaceChildren();$('select').checked=false;$('more').hidden=rows.length<=shown;
@@ -34,9 +42,17 @@
     busy=true;$('delete').disabled=true;let done=0;try{for(const id of selected){if(!permitted()||!canAdmin())break;await service.remove(id);done++;say('Удалено '+done+' из '+selected.length);}busy=false;await refresh();}catch(e){say('Удалено '+done+' из '+selected.length+'. '+service.message(e),true);}finally{busy=false;$('delete').disabled=false;}
   }
   $('close').onclick=close;$('refresh').onclick=refresh;$('more').onclick=()=>{shown+=60;draw();};$('delete').onclick=removeSelected;$('select').onchange=()=>{$('grid').querySelectorAll('[data-photo-id]').forEach(input=>input.checked=$('select').checked);};
-  $('all').onclick=()=>{filter.shiftId='';refresh();};$('shift').onclick=()=>{filter.shiftId=filter.sourceShiftId;refresh();};dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
+  $('all').onclick=()=>{filter={...filter,shiftId:'',photoShiftIds:[]};shown=60;return refresh();};$('shift').onclick=()=>{filter={...filter,shiftId:'',photoShiftIds:[...filter.sourceShiftIds]};shown=60;return refresh();};dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
   window.openObjectPhotos=open;
-  window.__attachArchivePhotos=shift=>{const body=document.getElementById('modalArchiveBody');if(!body)return;const bar=document.createElement('div');bar.className='op-toolbar';const settings={name:shift.objectName,objectKey:service.objectKey({objectId:shift.objectId,name:shift.objectName}),sourceShiftId:shift.sourceShiftId||''};const all=document.createElement('button');all.type='button';all.className='btn btn-secondary btn-small';all.textContent='📷 Фото объекта';all.onclick=()=>open(settings);bar.append(all);if(shift.sourceShiftId){const one=document.createElement('button');one.type='button';one.className=all.className;one.textContent='Фото этой смены';one.onclick=()=>open({...settings,shiftId:shift.sourceShiftId});bar.append(one);}body.prepend(bar);};
+  window.__attachArchivePhotos=shift=>{
+    const body=document.getElementById('modalArchiveBody');if(!body)return;
+    const bar=document.createElement('div');bar.className='op-toolbar';
+    const sourceShiftIds=uniqueShiftIds([...(Array.isArray(shift.photoShiftIds)?shift.photoShiftIds:[]),shift.sourceShiftId]);
+    const settings={name:shift.objectName,objectKey:service.objectKey({objectId:shift.objectId,name:shift.objectName}),sourceShiftId:shift.sourceShiftId||'',sourceShiftIds};
+    const all=document.createElement('button');all.type='button';all.className='btn btn-secondary btn-small';all.textContent='📷 Фото объекта';all.onclick=()=>open(settings);bar.append(all);
+    if(sourceShiftIds.length){const one=document.createElement('button');one.type='button';one.className=all.className;one.textContent='Фото этой смены';one.onclick=()=>open({...settings,photoShiftIds:sourceShiftIds});bar.append(one);}
+    body.prepend(bar);
+  };
   document.addEventListener('click',event=>{const button=event.target.closest('[data-photo-object]');if(button)open({name:button.dataset.photoObject,objectKey:service.objectKey({objectId:button.dataset.photoObjectId,name:button.dataset.photoObject})});});
   const adminSettings=document.getElementById('admin-sub-appsettings');if(adminSettings){const section=document.createElement('details');section.className='admin-settings-group';section.id='admin-photo-storage';section.innerHTML='<summary>📷 Фотографии и место <span>Архив объектов, загрузки и очистка</span></summary><div class="form-card"><p class="admin-settings-note">Фотографии сохраняются по объектам и сменам. Здесь можно посмотреть объём, выбрать лимит и удалить ненужные снимки.</p><button type="button" class="btn btn-secondary btn-small">Открыть фотографии и хранилище</button></div>';section.querySelector('button').onclick=()=>open();adminSettings.append(section);}
   setInterval(()=>{if(dialog.open&&!permitted())close();},1000);

@@ -428,12 +428,12 @@
     const button=document.createElement('button');button.type='button';button.textContent='Понятно';button.onclick=()=>{for(const e of pending)read.add(e.id);try{localStorage.setItem(ackKey(),JSON.stringify([...read]));closePenaltyNotice();}catch(e){showError('Не удалось сохранить прочтение уведомления');}};el.append(button);document.body.append(el);penaltyNotice=el;
   }
   window.__gameFlushPenalties=async()=>{
-    if(flushBusy||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active')return;
-    const session=currentUid;flushBusy=true;
+    if(flushBusy||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||!offlineJournalCanWrite())return;
+    const session=currentUid,owner=offlineJournalSessionToken();flushBusy=true;
     try{for(const op of offlineJournalRead().filter(o=>o.status==='cancelled'&&!o.penaltyDelivered)){
-      if(session!==currentUid)break;
-      await window.__historyRawTransaction(async tx=>{if(session!==currentUid)throw new Error('Учётная запись изменилась');const save=await window.__gameStagePenalty(tx,'local:'+op.id,{user:op.email,name:op.actor,description:({load:'Погрузка',arrive:'Прибытие',ttn:'ТТН',reset:'Сброс таймера'}[op.type]||op.type)+' · '+op.truckName,shiftId:op.shiftId,objectId:op.objectId,objectName:op.objectName});save();});
-      if(session!==currentUid)break;const all=offlineJournalRead(),saved=all.find(o=>o.id===op.id);if(saved){saved.penaltyDelivered=true;offlineJournalWrite(all);}
+      if(session!==currentUid||!offlineJournalOwns(owner)||currentUserStatus!=='active'||!permissionsLoaded)break;
+      await window.__historyRawTransaction(async tx=>{if(session!==currentUid||!offlineJournalOwns(owner))throw new Error('Учётная запись или вкладка изменилась');const save=await window.__gameStagePenalty(tx,'local:'+op.id,{user:op.email,name:op.actor,description:({load:'Погрузка',arrive:'Прибытие',ttn:'ТТН',reset:'Сброс таймера'}[op.type]||op.type)+' · '+op.truckName,shiftId:op.shiftId,objectId:op.objectId,objectName:op.objectName});if(session!==currentUid||!offlineJournalOwns(owner)||currentUserStatus!=='active'||!permissionsLoaded)throw new Error('Доступ изменился');save();});
+      if(session!==currentUid||!offlineJournalOwns(owner)||currentUserStatus!=='active'||!permissionsLoaded)break;const all=offlineJournalRead(),saved=all.find(o=>o.id===op.id);if(saved){saved.penaltyDelivered=true;offlineJournalWrite(all);}
     }}catch(e){console.warn('[game penalty sync]',e);}finally{flushBusy=false;}
   };
   setInterval(()=>window.__gameFlushPenalties(),5000);

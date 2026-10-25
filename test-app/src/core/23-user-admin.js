@@ -26,13 +26,39 @@
       });
       const user=state.users.find(u=>u.id===uid);if(user)user.status=targetStatus;
       showToastEl(enabled?'Доступ пользователя восстановлен':'Доступ пользователя временно ограничен',false);
-      await addAudit((enabled?'🔓 Восстановлен доступ: ':'🔒 Ограничен доступ: ')+targetName,{eventType:'user_access',targetUid:uid,status:targetStatus});
+      addAudit((enabled?'🔓 Восстановлен доступ: ':'🔒 Ограничен доступ: ')+targetName,{eventType:'user_access',targetUid:uid,status:targetStatus}).catch(e=>reportSyncError('audit',e));
     }catch(e){showError('Не удалось изменить доступ: '+e.message);}
     finally{userAccessWrites.delete(uid);renderAdminPanel();}
   }
-  async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ nickname: nickname.trim() || null })); await addAudit('✏️ Изменено имя пользователя: ' + uid + ' → ' + nickname.trim(), {eventType:'user_nickname',targetUid:uid}); } catch(e) { showError(e.message); } }
-  async function changeUserRole(uid, newRole) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ role: newRole })); await addAudit('🔐 Изменена роль пользователя: ' + uid + ' → ' + newRole, {eventType:'user_role',targetUid:uid}); } catch(e) { showError(e.message); } }
-  async function deleteUser(uid) { if (!canAdmin() || !(await appConfirm('Удалить доступ?'))) return; try { await tfAwait(usersRef.doc(uid).delete()); await addAudit('🗑 Удалён доступ пользователя: ' + uid, {eventType:'user_delete',targetUid:uid}); } catch(e) { showError(e.message); } }
+  async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ nickname: nickname.trim() || null })); addAudit('✏️ Изменено имя пользователя: ' + uid + ' → ' + nickname.trim(), {eventType:'user_nickname',targetUid:uid}).catch(e=>reportSyncError('audit',e)); } catch(e) { showError(e.message); } }
+  async function changeUserRole(uid, newRole) {
+    if(!canAdmin())return;
+    if(!Object.prototype.hasOwnProperty.call(ROLES,newRole)){showError('Неизвестная роль');renderAdminPanel();return;}
+    if(uid===currentUid&&newRole!=='admin'){showError('Нельзя снять с себя права администратора');renderAdminPanel();return;}
+    try {
+      await tfAwait(db.runTransaction(async tx=>{
+        const ref=usersRef.doc(uid),snap=await tx.get(ref);
+        if(!snap.exists)throw Error('Пользователь не найден');
+        if(isForcedAdminEmail(snap.data().email)&&newRole!=='admin')throw Error('Роль владельца приложения защищена');
+        if(snap.data().role!==newRole)tx.update(ref,{role:newRole});
+      }));
+      addAudit('🔐 Изменена роль пользователя: '+uid+' → '+newRole,{eventType:'user_role',targetUid:uid}).catch(e=>reportSyncError('audit',e));
+    } catch(e){showError(e.message);renderAdminPanel();}
+  }
+  async function deleteUser(uid) {
+    if(!canAdmin())return;
+    if(uid===currentUid){showError('Нельзя удалить собственный доступ');return;}
+    if(!(await appConfirm('Удалить доступ?')))return;
+    try {
+      await tfAwait(db.runTransaction(async tx=>{
+        const ref=usersRef.doc(uid),snap=await tx.get(ref);
+        if(!snap.exists)return;
+        if(isForcedAdminEmail(snap.data().email))throw Error('Доступ владельца приложения защищён');
+        tx.delete(ref);
+      }));
+      addAudit('🗑 Удалён доступ пользователя: '+uid,{eventType:'user_delete',targetUid:uid}).catch(e=>reportSyncError('audit',e));
+    }catch(e){showError(e.message);}
+  }
   const registrationDecisions = new Set();
   async function decideRegistration(reqId, approve) {
     if (!canAdmin() || registrationDecisions.has(reqId)) return;
@@ -57,19 +83,32 @@
         tx.update(profileRef,approve?{role,status:'active',approvedAt:Date.now(),approvedBy:currentEmail,rejectionReason:null}:{status:'disabled',rejectedAt:Date.now(),rejectedBy:currentEmail,rejectionReason:'Заявка отклонена администратором.'});
         if(request.exists)tx.delete(requestRef);
       });
-      await addAudit((approve?'✅ Подтверждена регистрация: ':'⛔ Отклонена регистрация: ')+accountEmail+(approve?' · роль '+ROLES[role].label:''),{eventType:approve?'registration_approved':'registration_rejected'});
+      addAudit((approve?'✅ Подтверждена регистрация: ':'⛔ Отклонена регистрация: ')+accountEmail+(approve?' · роль '+ROLES[role].label:''),{eventType:approve?'registration_approved':'registration_rejected'}).catch(e=>reportSyncError('audit',e));
       showToastEl(approve?'Доступ открыт':'Заявка отклонена',false);
     }catch(e){showError(escapeHtml(e.message||'Не удалось обработать заявку'));}
     finally{registrationDecisions.delete(reqId);pendingEnd();}
   }
   async function approveRequest(reqId) { return decideRegistration(reqId,true); }
   async function rejectRequest(reqId) { return decideRegistration(reqId,false); }
+  let addingUser = false;
   async function addNewUser() {
-    if (!canAdmin()) return;
-    const email = document.getElementById('newUserEmail').value.trim(); const pass = document.getElementById('newUserPassword').value; const role = document.getElementById('newUserRole').value;
-    if (!email || !pass) { showError('Заполните поля'); return; }
-    try { const secAuth = secondaryApp.auth(); const cred = await secAuth.createUserWithEmailAndPassword(email, pass); await secAuth.signOut(); await tfAwait(usersRef.doc(cred.user.uid).set({ email, role, status: 'active', nickname: sanitizeName(email) })); showToastEl('✅ Создан', false); }
-    catch(e) { showError(e.message); }
+    if(!canAdmin()||addingUser)return;
+    const email=document.getElementById('newUserEmail').value.trim(),passwordInput=document.getElementById('newUserPassword'),password=passwordInput.value,role=document.getElementById('newUserRole').value;
+    if(!email||!password){showError('Заполните поля');return;}
+    if(!Object.prototype.hasOwnProperty.call(ROLES,role)){showError('Выберите роль');return;}
+    addingUser=true;
+    const secondaryAuth=secondaryApp.auth();let createdUser=null;
+    try {
+      const credential=await secondaryAuth.createUserWithEmailAndPassword(email,password);createdUser=credential.user;
+      await tfAwait(usersRef.doc(createdUser.uid).set({email:createdUser.email||email,role,status:'active',nickname:sanitizeName(email)}));
+      showToastEl('✅ Пользователь создан',false);
+    }catch(e){
+      showError(createdUser?'Учётная запись создана, но доступ не сохранён: '+(e.message||e.code)+'. Пользователь может войти и отправить заявку для подтверждения.':e.message||'Не удалось создать пользователя');
+    }finally{
+      passwordInput.value='';
+      try {await secondaryAuth.signOut();}catch(e){reportSyncError('secondary-auth',e);}
+      addingUser=false;
+    }
   }
   function renderPermissionsMatrix(){
     const role=document.getElementById('permRoleSelect').value,config=permissionsConfig[role]||{tabs:[],actions:[]},cont=document.getElementById('permissionsMatrixContainer');
