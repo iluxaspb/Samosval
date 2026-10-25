@@ -4005,7 +4005,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
         S.unsubs.push(wsRef.collection(col).onSnapshot({includeMetadataChanges:true},snap=>receive(col,col,snap,generation),e=>syncError(col,e,generation)));
       }
       if(!state.objects.some(o=>o.id===S.objectId))S.objectId=state.shift?.objectId||state.objects[0]?.id||'';
-      await period();render();replay();
+      await period();if(S.view==='object')await objectPeriod();render();replay();
     }catch(e){if(generation===S.generation){S.errors.local='Не удалось открыть хранилище: '+e.message;render();}}
   }
   function syncError(key,e,generation){if(generation!==S.generation)return;S.ready[key]=false;S.errors[key]=(e.code==='permission-denied'?'Нет доступа к базе табеля. Администратору нужно применить правила для тестовой базы.':e.message);render();}
@@ -4248,7 +4248,8 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     for(const r of list){const key=r.kind+'|'+r.entityId;if(!entityMap.has(key))entityMap.set(key,{kind:r.kind,entityId:r.entityId,name:r.name,group:r.group});}
     const grid=summaryColorsEnabled()?coloredSummaryRows(list):[...entityMap.values()].sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name,'ru'));
     const byEntityDate=new Map(list.map(r=>[r.kind+'|'+r.entityId+'|'+r.date+'|'+r.shift,r]));
-    const totalMinutes=list.filter(r=>r.status==='work').reduce((n,r)=>n+(r.minutes||0),0);
+    const personMinutes=list.filter(r=>r.kind==='person'&&r.status==='work').reduce((n,r)=>n+(r.minutes||0),0);
+    const machineMinutes=list.filter(r=>r.kind==='equipment'&&r.status==='work').reduce((n,r)=>n+(r.minutes||0),0);
     const range=dates.length?fmtDate(dates[0].date)+' — '+fmtDate(dates[dates.length-1].date):'нет записей';
     const waiting=(!S.objectReady.timesheetEntries||!S.objectReady.timesheetMaterials)?'<div class="ts-warning">Данные взяты из кэша устройства. Новые записи коллег появятся после синхронизации.</div>':'';
     const headers=dates.map(d=>`<th><button type="button" data-action="object-day" data-date="${E(d.date)}" data-shift="${d.shift}" title="Открыть смену">${fmtDate(d.date)}<small>${d.shift==='night'?'Н':'Д'}</small></button></th>`).join('');
@@ -4263,8 +4264,8 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     }).join('');
     const mt=new Map();
     for(const r of materials){const k=r.material+'|'+r.unit;const a=mt.get(k)||{name:r.material,unit:r.unit,total:0};a.total+=r.quantity;mt.set(k,a);}
-    return `<section class="ts-section"><div class="ts-section-title"><h3>Сводка за весь объект</h3></div><p class="ts-muted">${E(object()?.name||'Объект')} · ${range}</p><div class="ts-stats"><div><strong>${dates.length}</strong><span>Смен с записями</span></div><div><strong>${grid.length}</strong><span>Людей и техники</span></div><div><strong>${C.fmt(totalMinutes)}</strong><span>Всего часов</span></div></div></section>`+
-      waiting+note('Только даты с записями. Д — день, Н — ночь. Нажмите дату, чтобы открыть смену. В итогах суммируются только отработанные часы.')+
+    return `<section class="ts-section"><div class="ts-section-title"><h3>Сводка за весь объект</h3></div><p class="ts-muted">${E(object()?.name||'Объект')} · ${range}</p><div class="ts-stats"><div><strong>${dates.length}</strong><span>Смен с записями</span></div><div><strong>${grid.length}</strong><span>Людей и техники</span></div><div><strong>${C.fmt(personMinutes)}</strong><span>Человеко-часов</span></div><div><strong>${C.fmt(machineMinutes)}</strong><span>Машино-часов</span></div></div></section>`+
+      waiting+note('Только даты с записями. Д — день, Н — ночь. Нажмите дату, чтобы открыть смену. Человеко-часы и машино-часы считаются отдельно; только фактически отработанные часы.')+
       `<div class="ts-table-wrap"><table class="ts-table ts-object-table${summaryColorsEnabled()?' ts-colored-summary':''}"><thead><tr><th>Сотрудник / техника</th>${headers}<th>Итого, ч</th></tr></thead><tbody>${body}</tbody></table></div>`+
       (!grid.length?note('За весь период объекта в табеле пока нет записей.'):'')+
       `<section class="ts-section"><div class="ts-section-title"><h3>Материалы за объект</h3></div>${[...mt.values()].map(x=>`<span class="ts-chip">${E(x.name)} · ${Number(x.total.toFixed(3)).toLocaleString('ru-RU')} ${E(x.unit)}</span>`).join('')||note('Поступлений материалов пока нет.')}</section>`;
