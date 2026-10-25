@@ -4806,7 +4806,9 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
 </script>
 <!-- MAX PLATES PARITY END -->
 <style id="game-coins-style">
-#game-wallet{position:fixed;right:12px;top:max(12px,env(safe-area-inset-top));z-index:9900;border:1px solid #fbbf24;border-radius:24px;padding:9px 15px;background:linear-gradient(135deg,#422006,#854d0e);color:#fef3c7;box-shadow:0 4px 24px #0005;font-weight:800;cursor:pointer}
+#game-wallet{position:static;flex:0 0 auto;min-height:36px;max-width:100%;border:1px solid #fbbf24;border-radius:24px;padding:6px 11px;background:linear-gradient(135deg,#422006,#854d0e);color:#fef3c7;box-shadow:0 4px 24px #0005;font-weight:800;cursor:pointer}
+#mainHeader .top-row{flex-wrap:wrap}
+.game-button-coin{display:inline-block;margin-left:5px;line-height:1;pointer-events:none}
 #game-wallet[hidden],#game-admin[hidden]{display:none!important}
 #game-ranking{width:min(540px,calc(100% - 24px));max-height:85dvh;margin:auto;padding:24px;border:1px solid #b88932;border-radius:24px;background:var(--card);color:var(--text);box-shadow:0 24px 90px #0008}
 #game-ranking::backdrop{background:#020617b8;backdrop-filter:blur(5px)}
@@ -4852,7 +4854,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
   window.__gameCoinsCore={calculate,rank};
   let records=[],unsubscribe=null,owner='',ready=false,error='',board=[],configReady=false,lastView='';
   const enabled=()=>configReady&&permissionsLoaded&&!!currentUid&&appConfig?.testReviewFlags?.game_mode!==false;
-  const wallet=document.createElement('button');wallet.id='game-wallet';wallet.hidden=true;wallet.type='button';wallet.setAttribute('aria-label','Монеты и рейтинг пользователей');document.body.append(wallet);
+  const wallet=document.createElement('button');wallet.id='game-wallet';wallet.hidden=true;wallet.type='button';wallet.setAttribute('aria-label','Монеты и рейтинг пользователей');document.querySelector('#mainHeader .top-row')?.insertBefore(wallet,document.querySelector('#mainHeader .gear-btn'));
   const modal=document.createElement('dialog');modal.id='game-ranking';modal.setAttribute('aria-labelledby','game-title');document.body.append(modal);
   const admin=document.createElement('div');admin.id='game-admin';admin.className='form-card';admin.hidden=true;
   admin.innerHTML='<label style="display:flex;align-items:center;gap:12px;font-weight:700"><input type="checkbox" id="game-enabled"> 🪙 Игровой режим для всех</label><p class="game-note">Монеты за погрузки и возвращения, личный ранг и рейтинг команды. Выключение скрывает весь игровой интерфейс у всех пользователей. Накопления сохраняются в истории.</p>';
@@ -4860,7 +4862,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
   const checkbox=admin.querySelector('input');
   checkbox.onchange=async()=>{if(!canAdmin())return;checkbox.disabled=true;try{await appConfigRef.set({testReviewFlags:{game_mode:checkbox.checked}},{merge:true});}catch(e){checkbox.checked=enabled();showError('Не удалось сохранить игровой режим: '+e.message);}finally{checkbox.disabled=false;}};
   function paint(){
-    wallet.hidden=!enabled();admin.hidden=!canAdmin();if(!checkbox.disabled)checkbox.checked=enabled();
+    decorateButtons();wallet.hidden=!enabled();admin.hidden=!canAdmin();if(!checkbox.disabled)checkbox.checked=enabled();
     if(!enabled()){if(modal.open)modal.close();document.querySelectorAll('.game-flying-coin').forEach(e=>e.remove());return;}
     board=calculate(records);const me=board.find(r=>r.user===key(currentEmail)),coins=me?.coins||0;
     wallet.textContent='🪙 '+(ready?coins.toLocaleString('ru-RU'):'…');wallet.title=rank(coins).name+' · Открыть рейтинг';
@@ -4876,15 +4878,52 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
   }
   wallet.onclick=()=>{modal.showModal();paint();};
   modal.addEventListener('click',e=>{if(e.target===modal){const r=modal.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)modal.close();}});
+  function decorateButtons(){
+    document.querySelectorAll('.truck-card[data-truck-id]').forEach(card=>{
+      const st=state.truckStatus[card.dataset.truckId]||{};
+      card.querySelectorAll('.btn-quick,.btn-arrive').forEach(button=>{
+        const earns=enabled()&&!button.disabled&&(button.classList.contains('btn-quick')||(!st.arriveStatus&&!!st.lastLoadTimestamp));
+        const icon=button.querySelector('.game-button-coin');
+        if(earns&&!icon){const span=document.createElement('span');span.className='game-button-coin';span.textContent='🪙';span.setAttribute('aria-hidden','true');button.append(span);}
+        else if(!earns&&icon)icon.remove();
+      });
+    });
+  }
+  let audioContext;
+  function unlockCoinAudio(){
+    if(!enabled())return;
+    try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;
+      audioContext=audioContext||new Audio();if(audioContext.state==='suspended')audioContext.resume().catch(()=>{});
+    }catch(e){/* Audio is optional; action and animation must still work. */}
+  }
+  document.addEventListener('pointerdown',e=>{if(e.target.closest('.btn-quick,.btn-arrive'))unlockCoinAudio();},true);
+  document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.closest('.btn-quick,.btn-arrive'))unlockCoinAudio();},true);
+  function coinDing(){
+    if(!enabled()||!audioContext||audioContext.state!=='running')return;
+    try{const t=audioContext.currentTime;
+      [1318.51,2637.02].forEach((frequency,i)=>{const osc=audioContext.createOscillator(),gain=audioContext.createGain();
+        osc.type='sine';osc.frequency.value=frequency;gain.gain.setValueAtTime(0,t);gain.gain.linearRampToValueAtTime(i?.025:.07,t+.008);gain.gain.exponentialRampToValueAtTime(.0001,t+.65);
+        osc.connect(gain);gain.connect(audioContext.destination);osc.start(t);osc.stop(t+.7);osc.onended=()=>{osc.disconnect();gain.disconnect();};
+      });
+    }catch(e){/* Sound must never interrupt the action. */}
+  }
+  const line=document.getElementById('trucksLineList');
+  if(line)new MutationObserver(decorateButtons).observe(line,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled']});
   window.__gameCoinQueued=function(op){
     if(!enabled()||!(op.type==='load'||op.type==='arrive'&&op.wantArrived&&op.lastLoadTimestamp))return;
     const card=[...document.querySelectorAll('.truck-card[data-truck-id]')].find(c=>c.dataset.truckId===op.truckId),button=card?.querySelector(op.type==='load'?'.btn-quick':'.btn-arrive');
-    const r=button?.getBoundingClientRect();
+    const icon=button?.querySelector('.game-button-coin'),r=(icon||button)?.getBoundingClientRect();
     // Immediate visual feedback; balance remains server-confirmed.
-    if(!r||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-    const target=wallet.getBoundingClientRect(),coin=document.createElement('span');coin.className='game-flying-coin';coin.textContent='🪙';coin.setAttribute('aria-hidden','true');coin.style.left=(r.left+r.width/2-15)+'px';coin.style.top=(r.top+r.height/2-15)+'px';document.body.append(coin);
+    if(!r||matchMedia('(prefers-reduced-motion: reduce)').matches){coinDing();return;}
+    const target=wallet.getBoundingClientRect();if(!target.width||!target.height){coinDing();return;}
+    const coin=document.createElement('span');coin.className='game-flying-coin';coin.textContent='🪙';coin.setAttribute('aria-hidden','true');coin.style.left=(r.left+r.width/2-15)+'px';coin.style.top=(r.top+r.height/2-15)+'px';document.body.append(coin);
+    if(icon)icon.style.visibility='hidden';
     const dx=target.left+target.width/2-(r.left+r.width/2),dy=target.top+target.height/2-(r.top+r.height/2);
-    const a=coin.animate([{transform:'translate(0,0) scale(1)',opacity:1},{transform:'translate('+dx*.35+'px,'+(dy*.65-70)+'px) scale(1.3)',opacity:1},{transform:'translate('+dx+'px,'+dy+'px) scale(.45)',opacity:0}],{duration:800,easing:'cubic-bezier(.2,.7,.3,1)'});a.onfinish=()=>coin.remove();setTimeout(()=>coin.remove(),1200);
+    let finished=false;
+    function finish(sound){if(finished)return;finished=true;coin.remove();if(icon)icon.style.visibility='';if(sound)coinDing();}
+    if(typeof coin.animate!=='function'){finish(true);return;}
+    const a=coin.animate([{transform:'translate(0,0)',opacity:1},{transform:'translate('+dx+'px,'+dy+'px)',opacity:1}],{duration:2200,easing:'linear'});
+    a.onfinish=()=>finish(coin.isConnected);a.oncancel=()=>finish(false);setTimeout(()=>finish(false),2600);
   };
   function sync(){
     const identity=permissionsLoaded?String(currentUid||''):'';
