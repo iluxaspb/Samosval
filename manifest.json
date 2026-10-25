@@ -1,6 +1,6 @@
 {
   "id": "/Samosval/",
-  "name": "Учёт самосвалов",
+  "name": "Учёт самосвалов и Табель",
   "short_name": "Учёт самосвалов",
   "start_url": "/Samosval/",
   "scope": "/Samosval/",
@@ -9,18 +9,6 @@
   "theme_color": "#0f172a",
   "lang": "ru",
   "icons": [
-    {
-      "src": "./app/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "./app/icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
     {
       "src": "./icon.svg",
       "sizes": "any",
