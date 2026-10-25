@@ -462,7 +462,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.1.11 · тест</span>
+        <span class="version-text">Версия 3.1.12 · тест</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -641,6 +641,7 @@
       <button class="admin-tab-btn" onclick="switchAdminTab('patches', this)">🔧 Патчи</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('console', this)">🖥 Консоль</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('appsettings', this)">⚙️ Настройки</button>
+      <button type="button" class="admin-tab-btn" id="admin-camera-button" aria-haspopup="dialog" aria-controls="geo-photo-dialog">📷 Камера</button>
     </div>
     
     <div id="admin-sub-requests" class="admin-section active"><div id="requestsListContainer"></div></div>
@@ -3863,6 +3864,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.1.12 · тест',title:'Фото объекта с координатами',items:['Кнопка «Камера» в админке открывает камеру смартфона.','На фото наносятся название текущего объекта, координаты телефона, точность геопозиции и время съёмки.','Снимок можно скачать или сохранить через меню телефона. Для съёмки нужны свежая геопозиция и разрешения камеры.']},
     {version:'3.1.11 · тест',title:'Праздничный салют',items:['Поздравление с новым рангом расположено сверху по центру.','В центре экрана появляется короткий салют из пяти вспышек с искрами и светящимися следами.','Аплодисменты стали объёмнее; эффект не блокирует управление и автоматически исчезает.']},
     {version:'3.1.10 · тест',title:'Поздравления с новым рангом',items:['Короткое поздравление и аплодисменты при достижении нового ранга после подтверждения монет сервером.','Шесть рангов для учётчиков, дорожных рабочих, мастеров и прорабов на линии фрезерования. Кнопка «Все ранги» показывает пороги и путь к следующему.','При открытии отображается рейтинг текущей смены.','Администратор может проверить поздравление для каждого ранга без изменения монет и достижений.','Поздравление не перекрывает полёт монетки и учитывает настройки игровых звуков и эффектов.']},
     {version:'3.1.9 · тест',title:'Компактные настройки и псевдонимы',items:['MAX и игровой режим собраны во вкладке «Настройки» админки.','Отдельные переключатели звука монет и игровых эффектов; общее время ходки и доступ к настройкам устройства.','В рейтинге используются актуальные псевдонимы, в том числе после их изменения.','В списке пользователей добавлен тумблер временного ограничения доступа с отдельным экраном и восстановлением прежней роли.']},
@@ -3891,7 +3893,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
     .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1.11 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1.12 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
   button.addEventListener('click',()=>{
     if(document.getElementById('releaseHistoryDialog'))return;
     const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
@@ -5347,8 +5349,174 @@ body.game-coin-feedback #toast{visibility:hidden}
 })();
 </script>
 
+<!-- GEO PHOTO START -->
+<style id="geo-photo-style">
+#geo-photo-dialog{width:min(640px,calc(100vw - 20px));max-height:94vh;max-height:94dvh;margin:auto;padding:0;border:1px solid var(--border);border-radius:16px;background:var(--bg);color:var(--text);overflow:auto;box-shadow:0 20px 70px #0008}#geo-photo-dialog::backdrop{background:#020617b8}#geo-photo-dialog [hidden]{display:none!important}.geo-photo-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}.geo-photo-header h2{margin:0;font-size:18px}.geo-photo-close{width:36px;height:36px;border:0;border-radius:10px;background:var(--card);color:var(--text);font-size:25px;cursor:pointer}.geo-photo-body{padding:14px 16px max(16px,env(safe-area-inset-bottom,0px))}.geo-photo-object{margin:0 0 12px;font-size:13px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}.geo-photo-object b{color:var(--text)}.geo-photo-frame{display:flex;align-items:center;justify-content:center;min-height:180px;border-radius:12px;overflow:hidden;background:#020617;border:1px solid var(--border)}#geo-photo-video,#geo-photo-result{display:block;width:100%;max-height:48vh;max-height:48dvh;object-fit:contain}#geo-photo-status,#geo-photo-location{font-size:12px;line-height:1.5;overflow-wrap:anywhere;margin:10px 0}#geo-photo-status{color:var(--muted)}#geo-photo-status[data-error="true"],#geo-photo-location[data-warning="true"]{color:#fbbf24}#geo-photo-location{color:#86efac}.geo-photo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.geo-photo-actions>.btn{flex:1;min-width:135px;text-align:center;text-decoration:none;padding:12px}.geo-photo-actions .btn:disabled{opacity:.45;cursor:default}.geo-photo-note{font-size:11px;line-height:1.5;color:var(--muted);margin:12px 0 0}.geo-photo-gps-row{display:flex;align-items:center;gap:10px}.geo-photo-gps-row>p{flex:1}.geo-photo-gps-row>button{flex-shrink:0}#geo-photo-open-file{font-size:12px;color:#93c5fd;text-decoration:underline}
+</style>
+<dialog id="geo-photo-dialog" aria-labelledby="geo-photo-title">
+  <div class="geo-photo-header"><h2 id="geo-photo-title">📷 Фото объекта</h2><button type="button" id="geo-photo-close" class="geo-photo-close" aria-label="Закрыть камеру">×</button></div>
+  <div class="geo-photo-body">
+    <p class="geo-photo-object">Текущий объект: <b id="geo-photo-object"></b></p>
+    <div class="geo-photo-frame"><video id="geo-photo-video" autoplay muted playsinline aria-label="Изображение камеры"></video><img id="geo-photo-result" hidden alt="Снимок с названием объекта и координатами"></div>
+    <p id="geo-photo-status" role="status" aria-live="polite"></p>
+    <div class="geo-photo-gps-row" id="geo-photo-gps-row"><p id="geo-photo-location"></p><button type="button" id="geo-photo-refresh-gps" class="btn btn-secondary btn-small">Обновить GPS</button></div>
+    <div class="geo-photo-actions" id="geo-photo-shoot-actions"><button type="button" id="geo-photo-shutter" class="btn btn-quick" disabled>📷 Сделать фото</button><button type="button" id="geo-photo-restart" class="btn btn-secondary" hidden>Включить камеру</button></div>
+    <div class="geo-photo-actions" id="geo-photo-save-actions" hidden><a id="geo-photo-download" class="btn btn-quick">Скачать фото</a><button type="button" id="geo-photo-share" class="btn btn-secondary" hidden>Сохранить / поделиться</button><button type="button" id="geo-photo-retake" class="btn btn-secondary">Переснять</button></div>
+    <p id="geo-photo-file-row" hidden><a id="geo-photo-open-file" target="_blank" rel="noopener">Открыть фото</a></p>
+    <p class="geo-photo-note">На снимке будут название объекта, координаты, точность геопозиции и время съёмки. Фото остаётся на устройстве, пока вы сами не сохраните или не отправите его.</p>
+  </div>
+</dialog>
+<script id="geo-photo-script">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById('geo-photo-'+id),dialog=$('dialog'),video=$('video');
+  const MAX_FIX_AGE=15000,MAX_EDGE=1920;
+  let session=0,owner='',stream=null,watch=null,locationRequest=0,ticker=null,fix=null,mode='closed',cameraError='',gpsError='',resultURL='',resultFile=null;
+  function allowed(){return canAdmin()&&!!currentUid&&currentUid===owner;}
+  function live(token){return token===session&&dialog.open&&allowed();}
+  function context(){
+    const shift=state.shift;if(!shift?.id)return null;
+    const name=String((state.objects||[]).find(o=>o.id===shift.objectId)?.name||shift.objectName||'').trim();
+    return name?{shiftId:shift.id,objectId:shift.objectId||'',name}:null;
+  }
+  function validFix(position,now=Date.now()){
+    const c=position?.coords,t=position?.timestamp;
+    if(!c||!Number.isFinite(c.latitude)||Math.abs(c.latitude)>90||!Number.isFinite(c.longitude)||Math.abs(c.longitude)>180||!Number.isFinite(c.accuracy)||c.accuracy<0||!Number.isFinite(t)||t>now+1000||now-t>MAX_FIX_AGE)return null;
+    return {latitude:c.latitude,longitude:c.longitude,accuracy:c.accuracy,timestamp:t};
+  }
+  function fresh(){return fix&&Date.now()-fix.timestamp>=-1000&&Date.now()-fix.timestamp<=MAX_FIX_AGE;}
+  function coordinates(value){return value.latitude.toFixed(6)+', '+value.longitude.toFixed(6);}
+  function status(text,error=false){$('status').textContent=text;$('status').dataset.error=String(error);}
+  function stopLocation(){locationRequest++;if(watch!==null)navigator.geolocation?.clearWatch(watch);watch=null;}
+  function stopCamera(){const old=stream;stream=null;video.onloadeddata=null;video.srcObject=null;old?.getTracks().forEach(track=>{track.onended=null;track.stop();});}
+  function clearResult(){if(resultURL)URL.revokeObjectURL(resultURL);resultURL='';resultFile=null;$('share').disabled=false;$('result').removeAttribute('src');$('download').removeAttribute('href');$('open-file').removeAttribute('href');}
+  function cleanup(){session++;stopCamera();stopLocation();clearInterval(ticker);ticker=null;fix=null;owner='';mode='closed';clearResult();}
+  function close(){cleanup();if(dialog.open)dialog.close();}
+  function cameraMessage(error){
+    if(error?.name==='NotAllowedError'||error?.name==='SecurityError')return 'Доступ к камере не разрешён. Разрешите камеру в настройках сайта и нажмите «Включить камеру».';
+    if(error?.name==='NotFoundError')return 'Камера не найдена. Откройте страницу на смартфоне с камерой.';
+    if(error?.name==='NotReadableError')return 'Камера занята другим приложением. Закройте его и включите камеру снова.';
+    return 'Не удалось включить камеру. Попробуйте снова или откройте страницу в браузере Safari / Chrome.';
+  }
+  function render(){
+    if(!dialog.open)return;if(!allowed()){close();return;}
+    const ctx=context();
+    if(mode!=='result'&&mode!=='encoding')$('object').textContent=ctx?.name||'Нет текущего объекта — откройте смену';
+    $('video').hidden=mode==='result';$('result').hidden=mode!=='result';
+    $('save-actions').hidden=mode!=='result';$('file-row').hidden=mode!=='result';$('shoot-actions').hidden=mode==='result';$('gps-row').hidden=mode==='result'||mode==='encoding';
+    $('restart').hidden=mode!=='paused'&&mode!=='error';$('shutter').hidden=mode==='paused'||mode==='error';
+    $('shutter').disabled=mode!=='preview'||!ctx||!fresh()||video.readyState<2||!video.videoWidth||!stream?.getVideoTracks().some(t=>t.readyState==='live');
+    $('refresh-gps').disabled=mode==='paused'||mode==='error'||mode==='encoding';
+    if(mode==='result'||mode==='encoding')return;
+    const good=fresh(),age=fix?Math.max(0,Math.floor((Date.now()-fix.timestamp)/1000)):0;
+    $('location').dataset.warning=String(!good||fix.accuracy>100);
+    $('location').textContent=good?coordinates(fix)+' · ±'+Math.ceil(fix.accuracy)+' м · '+age+' с назад'+(fix.accuracy>100?' · Низкая точность: подождите на открытом месте.':''):(gpsError||(fix?'Координаты устарели. Нажмите «Обновить GPS».':'Определяем геопозицию телефона…'));
+    if(mode==='paused')status('Камера приостановлена. Нажмите «Включить камеру», чтобы продолжить.');
+    else if(cameraError)status(cameraError,true);
+    else if(mode==='opening')status('Разрешите доступ к камере и геопозиции. Включаем камеру…');
+    else if(!ctx)status('Текущая смена закрыта. Для снимка нужен выбранный объект.',true);
+    else if(video.readyState<2)status('Ожидаем изображение камеры…');
+    else if(!good)status('Для снимка нужны свежие координаты телефона. Разрешите точную геопозицию и включите службу геолокации.',true);
+    else status('Наведите камеру и нажмите «Сделать фото».');
+  }
+  function startLocation(token){
+    stopLocation();fix=null;gpsError='';const request=locationRequest;
+    if(!navigator.geolocation){gpsError='Геолокация недоступна в этом браузере.';render();return;}
+    try{watch=navigator.geolocation.watchPosition(position=>{
+      if(!live(token)||request!==locationRequest||!['opening','preview'].includes(mode))return;
+      const next=validFix(position);if(next){fix=next;gpsError='';}else{fix=null;gpsError='Телефон вернул устаревшую или некорректную геопозицию. Обновите GPS.';}render();
+    },error=>{
+      if(!live(token)||request!==locationRequest)return;
+      fix=null;gpsError=error.code===1?'Доступ к геопозиции запрещён. Разрешите точную геопозицию в настройках сайта и обновите GPS.':error.code===3?'Не удалось определить координаты за 15 секунд. Выйдите на открытое место и обновите GPS.':'Геопозиция недоступна. Включите геолокацию телефона и обновите GPS.';render();
+    },{enableHighAccuracy:true,maximumAge:0,timeout:15000});}catch(e){gpsError='Не удалось запросить геопозицию. Проверьте разрешения сайта.';render();}
+  }
+  async function begin(){
+    if(!dialog.open||!allowed()||document.hidden)return;
+    const token=++session;stopCamera();stopLocation();clearResult();fix=null;gpsError='';cameraError='';mode='opening';render();
+    if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){mode='error';cameraError='Камера недоступна. Откройте эту страницу по HTTPS в Safari или Chrome.';render();return;}
+    startLocation(token);
+    try{
+      const acquired=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
+      if(!live(token)||document.hidden){acquired.getTracks().forEach(t=>t.stop());return;}
+      stream=acquired;video.muted=true;video.srcObject=acquired;mode='preview';
+      video.onloadeddata=()=>{if(live(token))render();};
+      acquired.getVideoTracks().forEach(track=>{track.onended=()=>{if(live(token)&&mode==='preview'){stopCamera();stopLocation();mode='error';cameraError='Камера отключилась. Нажмите «Включить камеру».';render();}};});
+      await video.play();if(live(token))render();
+    }catch(e){if(!live(token))return;stopCamera();stopLocation();mode='error';cameraError=cameraMessage(e);render();}
+  }
+  function open(){
+    if(!canAdmin()||!currentUid)return;
+    if(!context()){showError('Для фото с названием объекта сначала откройте смену и выберите объект.');return;}
+    if(dialog.open)return;
+    owner=currentUid;dialog.showModal();ticker=setInterval(render,1000);begin();
+  }
+  function wrap(ctx,text,width){
+    const lines=[];let line='';
+    for(const word of String(text).trim().split(/\s+/)){
+      const joined=line?line+' '+word:word;
+      if(ctx.measureText(joined).width<=width){line=joined;continue;}
+      if(line){lines.push(line);line='';}
+      for(const char of word){if(line&&ctx.measureText(line+char).width>width){lines.push(line);line='';}line+=char;}
+    }
+    if(line)lines.push(line);return lines;
+  }
+  function localTime(timestamp){
+    const d=new Date(timestamp),offset=-d.getTimezoneOffset(),zone='UTC'+(offset>=0?'+':'−')+String(Math.floor(Math.abs(offset)/60)).padStart(2,'0')+':'+String(Math.abs(offset)%60).padStart(2,'0');
+    return d.toLocaleString('ru-RU',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' ('+zone+')';
+  }
+  function stamp(source,width,height,meta){
+    const scale=Math.min(1,MAX_EDGE/Math.max(width,height)),w=Math.round(width*scale),h=Math.round(height*scale);
+    const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas unavailable');
+    const font=Math.max(12,Math.round(w*.024)),pad=Math.round(w*.035),lineHeight=Math.ceil(font*1.45);
+    ctx.font='700 '+font+'px sans-serif';
+    const lines=[...wrap(ctx,'Объект: '+meta.name,w-pad*2).map(text=>({text,bold:true})),{text:'Координаты: '+coordinates(meta),bold:false},{text:'Точность: ±'+Math.ceil(meta.accuracy)+' м · геопозиция за '+Math.max(0,Math.round((meta.shotAt-meta.timestamp)/1000))+' с до снимка',bold:false},{text:'Снято: '+localTime(meta.shotAt),bold:false}].flatMap(line=>wrap(ctx,line.text,w-pad*2).map(text=>({...line,text})));
+    canvas.width=w;canvas.height=h+pad*2+lines.length*lineHeight;
+    ctx.drawImage(source,0,0,w,h);ctx.fillStyle='#0f172a';ctx.fillRect(0,h,w,canvas.height-h);ctx.fillStyle='#fbbf24';ctx.fillRect(0,h,w,Math.max(2,w*.003));ctx.textBaseline='top';
+    lines.forEach((line,i)=>{ctx.font=(line.bold?'700 ':'400 ')+font+'px sans-serif';ctx.fillStyle=line.bold?'#fef3c7':'#f1f5f9';ctx.fillText(line.text,pad,h+pad+i*lineHeight);});
+    return canvas;
+  }
+  function filename(meta,extension){
+    const date=new Date(meta.shotAt),parts=[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join(''),time=[date.getHours(),date.getMinutes(),date.getSeconds()].map(x=>String(x).padStart(2,'0')).join('');
+    return (meta.name.replace(/[^a-zA-Z0-9а-яА-ЯёЁ_-]+/g,'_').slice(0,60)||'Объект')+'_'+parts+'_'+time+'.'+extension;
+  }
+  async function capture(){
+    const token=session,ctx=context();
+    if(!live(token)||mode!=='preview'||!ctx||!fresh()||video.readyState<2||!video.videoWidth||!stream?.getVideoTracks().some(t=>t.readyState==='live')){render();return;}
+    const meta={...ctx,...fix,shotAt:Date.now()};mode='encoding';$('object').textContent=meta.name;status('Готовим фото с координатами…');render();
+    try{
+      const canvas=stamp(video,video.videoWidth,video.videoHeight,meta);stopCamera();stopLocation();
+      const blob=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('Photo encoding failed')),'image/jpeg',.92));
+      if(!live(token))return;
+      const name=filename(meta,blob.type==='image/jpeg'?'jpg':'png');resultFile=typeof File==='function'?new File([blob],name,{type:blob.type,lastModified:meta.shotAt}):null;
+      resultURL=URL.createObjectURL(blob);$('result').src=resultURL;$('download').href=resultURL;$('download').download=name;$('open-file').href=resultURL;
+      let shareable=false;try{shareable=!!resultFile&&!!navigator.share&&!!navigator.canShare?.({files:[resultFile]});}catch(e){}
+      $('share').hidden=!shareable;mode='result';status('Фото готово. Название объекта и координаты уже нанесены на изображение.');render();
+    }catch(e){if(!live(token))return;stopCamera();stopLocation();mode='error';cameraError='Не удалось подготовить фото. Включите камеру и попробуйте ещё раз.';render();}
+  }
+  function pause(){
+    if(!dialog.open||!['opening','preview','error'].includes(mode))return;
+    session++;stopCamera();stopLocation();fix=null;mode='paused';render();
+  }
+  async function share(){
+    if(!dialog.open||!allowed()||!resultFile||mode!=='result')return;
+    const token=session;$('share').disabled=true;
+    try{await navigator.share({files:[resultFile]});}
+    catch(e){if(live(token)&&e.name!=='AbortError')status('Не удалось открыть меню сохранения. Нажмите «Скачать фото» или «Открыть фото».',true);}
+    finally{if(live(token))$('share').disabled=false;}
+  }
+  document.getElementById('admin-camera-button').addEventListener('click',open);
+  $('close').onclick=close;$('shutter').onclick=capture;$('restart').onclick=begin;$('retake').onclick=begin;$('share').onclick=share;
+  $('refresh-gps').onclick=()=>{if(dialog.open&&allowed()&&['opening','preview'].includes(mode)){startLocation(session);render();}};
+  for(const id of ['download','open-file'])$(id).onclick=e=>{if(!dialog.open||!allowed()||mode!=='result'){e.preventDefault();close();}};
+  dialog.addEventListener('cancel',e=>{e.preventDefault();close();});dialog.addEventListener('close',()=>{if(mode!=='closed')cleanup();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});window.addEventListener('pagehide',close);
+})();
+</script>
+<!-- GEO PHOTO END -->
+
 </body>
 </html>
+
 
 
 
