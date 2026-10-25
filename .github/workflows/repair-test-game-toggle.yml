@@ -1,0 +1,169 @@
+name: Repair test game toggle (one-time)
+on:
+  push:
+    branches: [root]
+    paths: ['.github/workflows/repair-test-game-toggle.yml']
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Repair only index-test.html with optimistic locking
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const vm = require('node:vm');
+          const repo = process.env.GITHUB_REPOSITORY;
+          const api = 'https://api.github.com/repos/' + repo + '/contents/';
+          async function request(path, method = 'GET', body) {
+            const res = await fetch(api + path, {
+              method,
+              headers: { Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28' },
+              ...(body ? {body: JSON.stringify(body)} : {})
+            });
+            if (!res.ok) throw new Error(method + ' ' + path + ': HTTP ' + res.status);
+            return res.json();
+          }
+          function replaceOnce(text, from, to) {
+            assert.equal(text.split(from).length, 2, 'Expected unique patch anchor');
+            return text.replace(from, () => to);
+          }
+          function checkScripts(html) {
+            let count = 0;
+            for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+              if (/\bsrc\s*=/i.test(match[1]) || /\btype\s*=\s*["'](?:application\/json|application\/ld\+json)/i.test(match[1])) continue;
+              new vm.Script(match[2], { filename: 'index-test.inline-' + (++count) + '.js' });
+            }
+            return count;
+          }
+          const fix = String.raw`/* Keep test game controls outside the hidden legacy analytics container. */
+          (function () {
+            'use strict';
+            if (window.__testGameVisibilityFixV1 || !document.getElementById('testGameModeControls')) return;
+            window.__testGameVisibilityFixV1 = true;
+            const storageKey = 'samosval_test_game_mode_visible_v1';
+            const admin = () => typeof canAdmin === 'function' && canAdmin();
+            const analyticsAllowed = () => typeof hasTabAccess === 'function' && hasTabAccess('analytics');
+            const visible = () => typeof testGameModeVisible === 'function' && testGameModeVisible();
+            function mount() {
+              const tab = document.getElementById('tab-analytics');
+              if (tab) {
+                let panel = document.getElementById('testGameVisiblePanel');
+                if (!panel) {
+                  panel = document.createElement('div');
+                  panel.id = 'testGameVisiblePanel';
+                  tab.prepend(panel);
+                }
+                for (const id of ['testGameModeControls', 'testActivityCoinsDetails']) {
+                  const node = document.getElementById(id);
+                  if (node && node.parentNode !== panel) panel.append(node);
+                }
+              }
+              const patches = document.getElementById('admin-sub-patches');
+              if (patches && !document.getElementById('testGameAdminControls')) {
+                const card = document.createElement('div');
+                card.id = 'testGameAdminControls';
+                card.className = 'form-card';
+                card.hidden = true;
+                const heading = document.createElement('h3');
+                heading.textContent = 'Игровые очки (тест)';
+                const label = document.createElement('label');
+                label.style.cssText = 'display:flex;gap:10px;align-items:center;min-height:44px;cursor:pointer';
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.id = 'testGameAdminEnabled';
+                input.addEventListener('change', () => window.toggleTestGameMode(input.checked));
+                label.append(input, document.createTextNode('Показывать игровые очки на этом устройстве'));
+                const note = document.createElement('p');
+                note.textContent = 'Локальная настройка этого браузера. Табло находится вверху вкладки «Аналитика». Общая настройка пользователей и запись очков в Firebase ещё не реализованы.';
+                note.style.cssText = 'font-size:12px;color:var(--muted);line-height:1.5;margin-top:8px';
+                const status = document.createElement('p');
+                status.id = 'testGameAdminStatus';
+                status.setAttribute('role', 'status');
+                card.append(heading, label, note, status);
+                patches.prepend(card);
+              }
+            }
+            function sync() {
+              mount();
+              const allowed = analyticsAllowed(), isAdmin = admin(), on = visible();
+              const panel = document.getElementById('testGameVisiblePanel');
+              if (panel) panel.hidden = !allowed;
+              const controls = document.getElementById('testGameModeControls');
+              if (controls) { controls.hidden = !isAdmin; controls.style.display = isAdmin ? '' : 'none'; }
+              const details = document.getElementById('testActivityCoinsDetails');
+              if (details) details.hidden = !allowed || !on;
+              for (const id of ['testGameModeEnabled', 'testGameAdminEnabled']) {
+                const input = document.getElementById(id);
+                if (input) { input.checked = on; input.disabled = !isAdmin; }
+              }
+              const card = document.getElementById('testGameAdminControls');
+              if (card) card.hidden = !isAdmin;
+              const status = document.getElementById('testGameAdminStatus');
+              const text = on ? 'Включено на этом устройстве.' : 'Выключено на этом устройстве.';
+              if (status && status.textContent !== text) status.textContent = text;
+            }
+            const previousToggle = window.toggleTestGameMode;
+            if (typeof previousToggle === 'function') {
+              window.toggleTestGameMode = function (value) {
+                if (!admin()) { sync(); return; }
+                try { return previousToggle.apply(this, arguments); }
+                finally {
+                  sync();
+                  const details = document.getElementById('testActivityCoinsDetails');
+                  if (details && value && visible() && analyticsAllowed()) details.open = true;
+                }
+              };
+            }
+            for (const name of ['renderAnalytics', 'renderAdminPanel', 'renderAll', 'switchAdminTab']) {
+              const previous = window[name];
+              if (typeof previous !== 'function') continue;
+              window[name] = function () {
+                try { return previous.apply(this, arguments); }
+                finally { sync(); }
+              };
+            }
+            window.addEventListener('storage', event => {
+              if (event.key === storageKey || event.key === null) {
+                sync();
+                if (analyticsAllowed()) window.renderAnalytics();
+              }
+            });
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync, { once: true });
+            sync();
+          })();`;
+          (async () => {
+            const file = await request('index-test.html?ref=root');
+            assert.equal(file.sha, 'f3c26a199f8251229bed5dea6b4f616a156e3997', 'Test page changed; review before retrying');
+            const production = await request('index.html?ref=root');
+            const original = Buffer.from(file.content, 'base64').toString('utf8');
+            const beforeCount = checkScripts(original);
+            const oldRenderer = 'window.renderAnalytics=function(){if(!enabled)return original.apply(this,arguments);render();};';
+            const newRenderer = 'window.renderAnalytics=function(){const result=original.apply(this,arguments);if(enabled)render();return result;};';
+            let html = replaceOnce(original, oldRenderer, newRenderer);
+            const marker = '<b>Журнал разработки · 25.10.2026</b>';
+            html = replaceOnce(html, marker, marker + '<p><b>Исправление видимости переключателя:</b> новая аналитика скрывала старый экран и не вызывала его обновление. Переключатель перенесён за пределы скрытого блока; добавлена синхронная настройка «Админ → Патчи → Игровые очки (тест)». Переключатель в аналитике находится сверху. Настройка по-прежнему локальная; Firebase и производственный index.html не меняются.</p><p><b>Проверки этого исправления:</b> 10 проверок в изолированном Chromium-стенде с тестовыми данными и имитацией локального хранилища: видимость на узком и широком экране, включение/выключение, восстановление сохранённого значения, ограничения ролей, повторная перерисовка и ошибка хранилища. Проверка на реальном аккаунте Firebase не выполнялась.</p>');
+            html = replaceOnce(html, '</body>', '<script id="test-game-visibility-fix-v1">\n' + fix + '\n</script>\n</body>');
+            assert.equal(checkScripts(html), beforeCount + 1);
+            const calls = [];
+            const sandbox = {window:{}, enabled:true, original:()=>{calls.push('original');return 42;},render:()=>calls.push('dashboard')};
+            vm.runInNewContext(newRenderer, sandbox);
+            assert.equal(sandbox.window.renderAnalytics(), 42);
+            assert.deepEqual(calls, ['original','dashboard']);
+            calls.length = 0; sandbox.enabled = false; sandbox.window.renderAnalytics();
+            assert.deepEqual(calls, ['original']);
+            const written = await request('index-test.html', 'PUT', {message:'test: fix hidden game switch in analytics and admin patches; record verified limits',content:Buffer.from(html).toString('base64'),sha:file.sha,branch:'root'});
+            const verify = await request('index-test.html?ref=root');
+            assert.equal(verify.sha, written.content.sha);
+            assert.equal((await request('index.html?ref=root')).sha, production.sha);
+            console.log('TEST_PAGE_COMMIT=' + written.commit.sha);
+            console.log('TEST_PAGE_BLOB=' + written.content.sha);
+            console.log('INLINE_SCRIPTS_CHECKED=' + (beforeCount + 1));
+            console.log('PRODUCTION_UNCHANGED=' + production.sha);
+          })().catch(error => {console.error(error.message);process.exitCode=1;});
+          NODE
