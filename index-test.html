@@ -5954,10 +5954,10 @@ body.game-coin-feedback #toast{visibility:hidden}
     ['king','👑 Царь карьера',350,'Повелевает щебнем, но не диспетчером.','#211e19','#322b22','#fff5dd','#cdbc99','#886016','#a18a53',9,'double',3,'inset 0 1px 0 #ffe7a144','none'],
     ['space','🛸 Асфальт с другой планеты',350,'Неоновая разметка. Объезд через Марс.','#1b1231','#2e2047','#faf4ff','#c9b9e5','#8b46ba','#7954a1',18,'solid',1,'0 0 14px #bd74ff55','lines'],
     ['sea','🏖️ Ещё рейс — и на море',350,'Бирюза и песок. Кузов в отпуск не берём.','#e8f7f5','#fffdf4','#173d43','#506f71','#176d7a','#a6d2cc',22,'solid',1,'0 3px 0 #206b6b22','lines'],
-    ['season-spring','🌱 Весенняя оттепель',200,'Зелёные обочины, свежий воздух. Лужи — только за окном.','#eaf5ed','#f8fff9','#173d2c','#4c6d59','#27694a','#a7ccb6',16,'dashed',1,'0 3px 0 #27694a22','lines'],
-    ['season-summer','☀️ Летняя трасса',200,'Солнечные панели и тёплый песок. Асфальт горячий, кнопки не обжигают.','#fff5d6','#fffdf4','#49351a','#786240','#a65413','#d8bb79',24,'solid',2,'0 4px 0 #a6541326','stripes'],
-    ['season-autumn','🍂 Осенний рейс',200,'Медные акценты, тёмные панели и уютный свет. Листья в кузов не считаем.','#2a1e1a','#403029','#fff2dc','#ceb59b','#a05220','#977253',8,'double',3,'inset 0 2px 0 #fbbf2433','lines'],
-    ['season-winter','🌨️ Зимняя смена',200,'Морозная синяя дорога и светлые рамки. Термос готов к работе.','#0d2032','#19364c','#edf8ff','#abcadc','#296e99','#5e8ba2',12,'solid',2,'0 0 12px #9bdcff33','grid']
+    ['season-spring','🌱 Весенняя оттепель',200,'Зелёные обочины, лёгкие лепестки и капель. Лужи — только за окном.','#eaf5ed','#f8fff9','#173d2c','#4c6d59','#27694a','#a7ccb6',16,'dashed',1,'0 3px 0 #27694a22','lines'],
+    ['season-summer','☀️ Летняя трасса',200,'Тёплый песок и солнышко, которое иногда выглядывает. Кнопки не обжигают.','#fff5d6','#fffdf4','#49351a','#786240','#a65413','#d8bb79',24,'solid',2,'0 4px 0 #a6541326','stripes'],
+    ['season-autumn','🍂 Осенний рейс',200,'Медные акценты и плавно падающие золотые листья. В кузов их не считаем.','#2a1e1a','#403029','#fff2dc','#ceb59b','#a05220','#977253',8,'double',3,'inset 0 2px 0 #fbbf2433','lines'],
+    ['season-winter','🌨️ Зимняя смена',200,'Тихий снегопад, снежные шапки на карточках и кнопках. Термос готов к работе.','#0d2032','#19364c','#edf8ff','#abcadc','#296e99','#5e8ba2',12,'solid',2,'0 0 12px #9bdcff33','grid']
   ].map(([id,name,price,description,bg,card,text,muted,primary,border,radius,edge,width,shadow,pattern])=>({id,name,price,description,bg,card,text,muted,primary,border,radius,edge,width,shadow,pattern}));
   const canUse=(role,status,perms)=>!!perms&&status==='active'&&!!ROLES[role]&&role!=='viewer';
   const purchaseId=(uid,id)=>'game_purchase_'+encodeURIComponent(uid)+'_'+id;
@@ -5973,9 +5973,9 @@ body.game-coin-feedback #toast{visibility:hidden}
   const localKey=()=>['samosval-road-theme-v1',firebaseConfig.projectId,WORKSPACE_ID,currentUid].join(':');
   function snapshot(){return window.__gameEconomy?.snapshot()||{enabled:false,ready:false,records:[],earned:0};}
   function themeCSS(t){if(!t)return '';const pattern=t.pattern==='grid'?'linear-gradient(#88888810 1px,transparent 1px),linear-gradient(90deg,#88888810 1px,transparent 1px)':t.pattern==='lines'?'repeating-linear-gradient(90deg,transparent 0 92px,#8888880b 92px 96px)':t.pattern==='stripes'?'repeating-linear-gradient(135deg,transparent 0 22px,#8888880b 22px 30px)':'none';return ':root{--bg:'+t.bg+';--card:'+t.card+';--text:'+t.text+';--muted:'+t.muted+';--primary:'+t.primary+';--border:'+t.border+'}body{background-image:'+pattern+';background-size:'+(t.pattern==='grid'?'24px 24px':'auto')+'}.truck-card,.form-card{border-radius:'+t.radius+'px}.btn,.nav-btn{border-radius:'+t.radius+'px!important;border-style:'+t.edge+';border-width:'+t.width+'px;box-shadow:'+t.shadow+'}.btn:active{box-shadow:none}.btn:disabled{box-shadow:none}';}
-  function apply(){const s=snapshot(),owned=purchases(s.records,currentUid);const id=canOpen()?(preview||(owned.has(selected)?selected:'')):'';if(applied!==id){style.textContent=themeCSS(THEMES.find(t=>t.id===id));applied=id;}}
+  function apply(){const s=snapshot(),owned=purchases(s.records,currentUid);const id=canOpen()?(preview||(owned.has(selected)?selected:'')):'';if(applied!==id){style.textContent=themeCSS(THEMES.find(t=>t.id===id));applied=id;window.dispatchEvent(new Event('road-theme-changed'));}}
   function setSelected(id){if(!canOpen()||(id&&!purchases(snapshot().records,currentUid).has(id)))return;selected=id;preview=null;try{localStorage.setItem(localKey(),id);}catch(e){message='Тема применена до закрытия страницы: браузер не разрешил сохранить выбор.';}apply();renderKey='';render();}
-  function sample(t){return '<div class="shop-theme-sample" style="--sample-bg:'+t.bg+';--sample-card:'+t.card+';--sample-text:'+t.text+';--sample-border:'+t.border+';--sample-primary:'+t.primary+';--sample-radius:'+t.radius+'px;--sample-edge:'+t.width+'px;--sample-shadow:'+t.shadow+'"><small>🚧 Объект · Дорожная бригада</small><div class="sample-card">🚛 Самосвал · 12 м³</div><span class="sample-btn">Погрузка 🪙</span> <span class="sample-btn">Приехал</span></div>';}
+  function sample(t){return '<div class="shop-theme-sample" data-road-sample="'+t.id+'" style="--sample-bg:'+t.bg+';--sample-card:'+t.card+';--sample-text:'+t.text+';--sample-border:'+t.border+';--sample-primary:'+t.primary+';--sample-radius:'+t.radius+'px;--sample-edge:'+t.width+'px;--sample-shadow:'+t.shadow+'"><small>🚧 Объект · Дорожная бригада</small><div class="sample-card">🚛 Самосвал · 12 м³</div><span class="sample-btn">Погрузка 🪙</span> <span class="sample-btn">Приехал</span></div>';}
   function render(){if(!dialog.open)return;if(!canOpen()){dialog.close();return;}const s=snapshot(),owned=purchases(s.records,currentUid),cost=spent(s.records,currentUid),balance=available(s.earned,cost,currentUserRole,currentUserStatus);
     const k=JSON.stringify([s.ready,s.earned,[...owned.keys()],preview,selected,filter,busy,message,currentUserRole]);if(k===renderKey)return;renderKey=k;
     dialog.innerHTML='<div class="shop-head"><h2 id="road-shop-title">🚧 Лавка дорожника</h2><button class="shop-close" aria-label="Закрыть магазин">×</button></div><div class="shop-balance">Кошелёк: <b>'+balance+' 🪙</b> · Рейтинг: <b>'+s.earned+'</b> · Потрачено: '+cost+'</div>'+(bonus(currentUserRole,currentUserStatus)?'<p class="shop-hint">🧪 Администратору выделено 10 000 тестовых монет. Покупки расходуют этот запас; обновление страницы его не пополняет. Бонус не влияет на рейтинг и ранг.</p>':'')+'<p class="shop-hint">Покупки не снижают рейтинг и ранг. Купленная тема остаётся у аккаунта, а оформление выбирается отдельно на каждом устройстве. Предпросмотр бесплатный.</p>'
@@ -6021,7 +6021,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   }
   const admin=document.createElement('details');admin.className='admin-settings-group';admin.id='road-shop-admin';admin.innerHTML='<summary>🧪 Магазин · тест '+THEMES.length+' интерфейсов</summary><div class="form-card"><p class="shop-hint">Бесплатная примерка всех тем без покупок. В магазине доступны выбор темы, предыдущая/следующая и возврат оформления.</p><button type="button" class="btn btn-secondary">Посмотреть все интерфейсы</button></div>';document.getElementById('admin-game-settings-slot')?.append(admin);admin.querySelector('button').onclick=()=>{if(canAdmin())open(THEMES[0].id);};
   const settingsButton=document.createElement('button');settingsButton.type='button';settingsButton.className='btn btn-secondary';settingsButton.textContent='🛍 Лавка дорожника';settingsButton.onclick=()=>{closeSettingsModal();open();};document.querySelector('#settingsModal .modal-body')?.append(settingsButton);
-  window.RoadShop={open,spent,bonus,available,canUse,purchases,themes:THEMES,purchaseId};
+  window.RoadShop={open,spent,bonus,available,canUse,purchases,themes:THEMES,purchaseId,getAppliedTheme:()=>applied};
   window.addEventListener('storage',e=>{if(e.key===localKey()){selected=e.newValue||'';apply();renderKey='';render();}});
   window.addEventListener('review-flags-changed',sync);setInterval(sync,500);sync();
 })();
@@ -6082,6 +6082,116 @@ body.game-coin-feedback #toast{visibility:hidden}
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&showing)hide();});
   window.addEventListener('storage',e=>{if(owner&&e.key===storageKey()){data=read();if(data.mode==='never')hide();identity();}});
   setInterval(()=>{identity();if(!active()){hide();clearTimeout(timer);}else if(showing&&blocked())hide();},500);
+})();
+</script>
+
+<style id="road-season-effects-style">
+#road-season-layer{position:fixed;inset:0;width:100vw;height:100dvh;z-index:70;overflow:hidden;pointer-events:none!important;user-select:none;contain:strict}
+#road-season-layer canvas{display:block;width:100%;height:100%;pointer-events:none!important}
+body[data-road-season="winter"] .season-snow-surface{position:relative}
+.season-snow-cap{display:none!important;pointer-events:none!important;user-select:none}
+body[data-road-season="winter"] .season-snow-cap{display:block!important;position:absolute;z-index:2;top:0;left:5px;right:5px;height:7px;border-radius:6px 6px 45% 35%;background:radial-gradient(ellipse at 12% 0,#fff 0 55%,transparent 59%) 0 0/31px 7px repeat-x,linear-gradient(#eefaff,#e3f3fa);box-shadow:0 1px 2px #a3cde666;opacity:.94}
+body[data-road-season="winter"] :is(.btn,.nav-btn,.sample-btn)>.season-snow-cap{left:3px;right:3px;height:4px;background-size:23px 4px;opacity:.88}
+.road-season-setting{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}.road-season-setting .settings-row{gap:12px}.road-season-setting p{font-size:12px;color:var(--muted);line-height:1.5;margin-top:6px}.road-season-setting label[for]{font-weight:700;font-size:13px}
+@media print{#road-season-layer,.season-snow-cap{display:none!important}}
+</style>
+<script id="road-season-effects-v1">
+(function(){
+  'use strict';
+  const seasonForTheme=id=>({'season-winter':'winter','season-autumn':'autumn','season-summer':'summer','season-spring':'spring'})[id]||'';
+  function createParticles(season,w,h,random=Math.random){
+    const count=season==='winter'?(w<600?24:36):season==='autumn'?(w<600?10:16):season==='spring'?(w<600?14:20):0;
+    return Array.from({length:count},(_,i)=>({x:random()*w,y:random()*h,phase:random()*Math.PI*2,angle:random()*Math.PI*2,
+      size:season==='winter'?1.2+random()*2:season==='autumn'?6+random()*4:3+random()*2,
+      speed:season==='winter'?14+random()*17:season==='autumn'?12+random()*12:16+random()*15,
+      drift:(random()-.5)*12,opacity:season==='winter'?.35+random()*.4:.35+random()*.3,
+      color:i%3,drop:season==='spring'&&i%4===0}));
+  }
+  function advanceParticles(particles,dt,w,h,random=Math.random){
+    const step=Math.max(0,Math.min(.08,dt));
+    for(const p of particles){p.phase+=step*.7;p.angle+=step*.45;p.y+=p.speed*step;p.x+=(p.drift+Math.sin(p.phase)*7)*step;
+      if(p.y>h+16){p.y=-16;p.x=random()*w;}if(p.x<-20)p.x=w+20;if(p.x>w+20)p.x=-20;}
+  }
+  function sunOpacity(seconds){const phase=((seconds%24)+24)%24;return phase<2?phase/2:phase<6?1:phase<9?(9-phase)/3:0;}
+  window.__seasonEffectsCore={seasonForTheme,createParticles,advanceParticles,sunOpacity};
+  const motion=matchMedia('(prefers-reduced-motion: reduce)');
+  let owner='',preference=true,season='',frame=0,syncFrame=0,previous=0,start=0,width=0,height=0,particles=[],active=false;
+  const sessionPreferences=new Map();
+  const key=()=>['samosval-season-effects-v1',firebaseConfig.projectId,WORKSPACE_ID,owner].join(':');
+  const root=document.createElement('div');root.id='road-season-layer';root.setAttribute('aria-hidden','true');root.inert=true;
+  const canvas=document.createElement('canvas');root.append(canvas);const ctx=canvas.getContext('2d');
+  function readPreference(){try{const saved=localStorage.getItem(key());return saved===null?(sessionPreferences.get(key())??true):saved!=='0';}catch(e){return sessionPreferences.get(key())??true;}}
+  function savePreference(value){preference=!!value;sessionPreferences.set(key(),preference);try{localStorage.setItem(key(),preference?'1':'0');}catch(e){showError('Сезонные эффекты переключены до закрытия страницы: браузер не разрешил сохранить настройку.');}sync();}
+  function control(id){const row=document.createElement('div');row.className='road-season-setting';row.innerHTML='<div class="settings-row"><label for="'+id+'">🌦 Сезонные украшения</label><label class="toggle-switch"><input type="checkbox" id="'+id+'"><span class="toggle-slider"></span></label></div><p data-season-note></p>';row.querySelector('input').onchange=e=>savePreference(e.target.checked);return row;}
+  const settingsControl=control('road-season-enabled');document.querySelector('#settingsModal .modal-body')?.append(settingsControl);
+  function updateControls(){
+    const preview=document.querySelector('#road-shop-dialog[open] .shop-preview-tools');
+    if(preview&&!preview.querySelector('.road-season-setting'))preview.append(control('road-season-preview-enabled'));
+    document.querySelectorAll('.road-season-setting').forEach(row=>{const input=row.querySelector('input');if(input.checked!==preference)input.checked=preference;input.disabled=!owner;
+      const note=!owner?'Войдите, чтобы выбрать украшения.':appConfig?.testReviewFlags?.game_effects===false?'Общие игровые эффекты выключены администратором. Ваш личный выбор сохранён.':motion.matches?'В системе включено уменьшение движения: падающие частицы и солнце не анимируются. Снег на кнопках остаётся.':'Снег, листья, солнце и весенние лепестки. Выключатель убирает и движение, и снег с кнопок. Личный выбор для аккаунта в этом браузере.';
+      const label=row.querySelector('[data-season-note]');if(label.textContent!==note)label.textContent=note;
+    });
+  }
+  function decorateSnow(){
+    if(season!=='winter'||!active)return;
+    const targets='.truck-card,.form-card,.btn,.nav-btn,[data-road-sample="season-winter"] .sample-card,[data-road-sample="season-winter"] .sample-btn';
+    document.querySelectorAll(targets).forEach(el=>{
+      if(/^(INPUT|IMG|CANVAS|BR)$/.test(el.tagName))return;
+      if(!el.classList.contains('season-snow-surface'))el.classList.add('season-snow-surface');
+      if(!el.querySelector(':scope > .season-snow-cap')){const cap=document.createElement('span');cap.className='season-snow-cap';cap.setAttribute('aria-hidden','true');el.append(cap);}
+    });
+  }
+  function clearSnow(){document.querySelectorAll('.season-snow-cap').forEach(el=>el.remove());document.querySelectorAll('.season-snow-surface').forEach(el=>el.classList.remove('season-snow-surface'));delete document.body.dataset.roadSeason;}
+  function resize(){if(!ctx)return;const w=Math.max(1,innerWidth),h=Math.max(1,innerHeight);if(w===width&&h===height)return;width=w;height=h;const scale=Math.min(devicePixelRatio||1,1.5);canvas.width=Math.round(w*scale);canvas.height=Math.round(h*scale);ctx.setTransform(scale,0,0,scale,0,0);particles=createParticles(season,w,h);}
+  function stopAnimation(){if(frame)cancelAnimationFrame(frame);frame=0;previous=0;root.remove();if(ctx)ctx.clearRect(0,0,width,height);}
+  function drawParticle(p){
+    ctx.save();ctx.globalAlpha=p.opacity;ctx.translate(p.x,p.y);
+    if(season==='winter'){ctx.fillStyle='#f1faff';ctx.beginPath();ctx.arc(0,0,p.size,0,Math.PI*2);ctx.fill();}
+    else if(season==='autumn'){ctx.rotate(p.angle);ctx.fillStyle=['#edc451','#e5a635','#cc832c'][p.color];ctx.beginPath();ctx.moveTo(0,-p.size);ctx.quadraticCurveTo(p.size*1.2,-p.size*.15,0,p.size);ctx.quadraticCurveTo(-p.size*.8,0,0,-p.size);ctx.fill();ctx.strokeStyle='#85562b';ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(0,-p.size*.65);ctx.lineTo(0,p.size*1.25);ctx.stroke();}
+    else if(p.drop){ctx.strokeStyle='#69aab9';ctx.lineWidth=1.2;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-1,p.size*1.6);ctx.stroke();}
+    else {ctx.rotate(p.angle);ctx.fillStyle=['#e9b7ce','#93be97','#f5d2df'][p.color];ctx.beginPath();ctx.ellipse(0,0,p.size*.55,p.size,Math.PI/5,0,Math.PI*2);ctx.fill();}
+    ctx.restore();
+  }
+  function drawSun(seconds){
+    const opacity=sunOpacity(seconds);if(!opacity)return;
+    const header=document.getElementById('mainHeader')?.getBoundingClientRect();const y=Math.min(height*.35,Math.max(54,(header?.bottom||0)+48));const x=Math.max(40,width-45);
+    ctx.save();ctx.translate(x,y);ctx.globalAlpha=opacity*.7;
+    const halo=ctx.createRadialGradient(0,0,15,0,0,43);halo.addColorStop(0,'#f9ca5a55');halo.addColorStop(1,'#f9ca5a00');ctx.fillStyle=halo;ctx.beginPath();ctx.arc(0,0,43,0,Math.PI*2);ctx.fill();
+    ctx.save();ctx.rotate(seconds*.035);ctx.strokeStyle='#dc9a27';ctx.lineWidth=2;ctx.lineCap='round';for(let i=0;i<10;i++){ctx.rotate(Math.PI/5);ctx.beginPath();ctx.moveTo(0,-25);ctx.lineTo(0,-31);ctx.stroke();}ctx.restore();
+    ctx.fillStyle='#f2b943';ctx.beginPath();ctx.arc(0,0,18,0,Math.PI*2);ctx.fill();ctx.fillStyle='#8c6424';ctx.beginPath();ctx.arc(-5,-2,1.2,0,Math.PI*2);ctx.arc(5,-2,1.2,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#8c6424';ctx.lineWidth=1.1;ctx.beginPath();ctx.arc(0,2,5,.15,Math.PI-.15);ctx.stroke();ctx.restore();
+  }
+  function tick(now){
+    frame=0;if(!active||motion.matches||document.hidden||!ctx)return;
+    if(!root.isConnected){queueSync();return;}
+    if(!previous)previous=now;if(!start)start=now;
+    if(now-previous>=32){const dt=(now-previous)/1000;previous=now;ctx.clearRect(0,0,width,height);
+      if(season==='summer')drawSun((now-start)/1000);else{advanceParticles(particles,dt,width,height);for(const p of particles)drawParticle(p);}}
+    frame=requestAnimationFrame(tick);
+  }
+  function sync(){
+    const user=permissionsLoaded&&currentUserStatus==='active'?String(currentUid||''):'';
+    if(user!==owner){stopAnimation();clearSnow();owner=user;preference=owner?readPreference():true;season='';active=false;start=0;}
+    const next=seasonForTheme(window.RoadShop?.getAppliedTheme?.());
+    const allow=!!owner&&preference&&appConfig?.testReviewFlags?.game_mode!==false&&appConfig?.testReviewFlags?.game_effects!==false&&!!next;
+    const changed=season!==next||active!==allow;
+    if(changed){stopAnimation();clearSnow();season=next;active=allow;start=0;particles=createParticles(season,width||innerWidth,height||innerHeight);}
+    updateControls();
+    if(!active){stopAnimation();return;}
+    if(season==='winter'){document.body.dataset.roadSeason='winter';decorateSnow();}
+    if(document.hidden||motion.matches||!ctx){stopAnimation();return;}
+    // A native dialog is in the browser's top layer. Host the same canvas there
+    // during shop previews so the selected season is actually visible.
+    const host=document.querySelector('#road-shop-dialog[open]')||document.body;if(root.parentNode!==host)host.append(root);
+    resize();if(!frame)frame=requestAnimationFrame(tick);
+  }
+  function queueSync(){if(!syncFrame)syncFrame=requestAnimationFrame(()=>{syncFrame=0;sync();});}
+  new MutationObserver(changes=>{if(changes.some(c=>c.target!==root&&c.target!==canvas))queueSync();}).observe(document.body,{childList:true,subtree:true});
+  window.addEventListener('road-theme-changed',sync);window.addEventListener('review-flags-changed',sync);
+  window.addEventListener('storage',e=>{if(owner&&e.key===key()){preference=readPreference();sync();}});
+  window.addEventListener('resize',()=>{width=0;queueSync();});document.addEventListener('visibilitychange',sync);
+  if(motion.addEventListener)motion.addEventListener('change',sync);else motion.addListener(sync);
+  window.addEventListener('pagehide',()=>{stopAnimation();if(syncFrame)cancelAnimationFrame(syncFrame);syncFrame=0;});window.addEventListener('pageshow',sync);
+  setInterval(sync,500);sync();
 })();
 </script>
 
