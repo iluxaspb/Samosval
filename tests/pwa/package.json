@@ -1,0 +1,13 @@
+{
+  "name": "samosval-test-pwa-checks",
+  "private": true,
+  "scripts": {
+    "test": "cd ../.. && node tests/pwa/modules.cjs && node tests/pwa/service-worker.cjs && node tests/pwa/run-regressions.cjs",
+    "browser": "cd ../.. && node tests/pwa/browser.cjs"
+  },
+  "devDependencies": {
+    "firebase": "10.8.0",
+    "@firebase/rules-unit-testing": "3.0.4",
+    "playwright": "1.62.1"
+  }
+}

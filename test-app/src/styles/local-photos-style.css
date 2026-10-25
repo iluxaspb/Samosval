@@ -1,0 +1,2 @@
+
+#local-photos-dialog{width:min(900px,calc(100vw - 20px));max-height:92dvh;margin:auto;padding:16px;border:1px solid var(--border);border-radius:18px;background:var(--bg);color:var(--text)}#local-photos-dialog::backdrop{background:#000b}#local-photos-dialog [hidden]{display:none!important}.lp-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.lp-status{font-size:11px;line-height:1.5;color:var(--muted);margin-top:5px}.lp-thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#131720}

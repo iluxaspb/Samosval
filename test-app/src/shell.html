@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <link rel="manifest" href="./manifest-test.webmanifest">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="./test-app/icons/icon-192.png">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <title>Учет самосвалов и Табель</title>
+
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <!-- TEST-MODULE:base -->
+<!-- TIMESHEET CSS START -->
+<!-- TEST-MODULE:timesheet-css -->
+<!-- TIMESHEET CSS END -->
+</head>
+<body>
+
+<div id="authOverlay" style="display:none;">
+  <div class="auth-card">
+    <div class="auth-title">🚛 Учет самосвалов</div>
+    <div id="authError" class="auth-error"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="authEmail" class="form-control" placeholder="you@example.com" autocomplete="username"></div>
+    <div class="form-group"><label>Пароль</label><input type="password" id="authPassword" class="form-control" placeholder="••••••••" autocomplete="current-password"></div>
+    <div style="display: flex; gap: 8px; margin-top: 20px;">
+      <button class="btn btn-quick" style="flex:1;" onclick="handleLogin()">Войти</button>
+      <button id="registerBtn" class="btn btn-secondary" style="flex:1;" onclick="handleRegister()">Регистрация</button>
+    </div>
+  </div>
+</div>
+
+<div id="pendingScreen" class="pending-screen">
+  <div class="pending-card">
+    <div class="pending-icon">⏳</div>
+    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--warning);">Ожидание подтверждения</div>
+    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;"><span id="registrationStatusText">Ваша заявка отправлена. Ожидайте решения администратора.</span></div>
+    <button class="btn btn-secondary" style="width: 100%;" onclick="handleLogout()">Выйти</button>
+  </div>
+</div>
+
+<div id="disabledScreen" class="pending-screen">
+  <div class="pending-card" style="border-color: var(--danger);">
+    <div class="pending-icon" style="animation: none;">⛔</div>
+    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--danger);"><span id="disabledStatusTitle">Доступ временно ограничен</span></div>
+    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;"><span id="disabledStatusText">Доступ ограничен администратором. Обратитесь к администратору, чтобы восстановить доступ, или попробуйте войти позже.</span></div>
+    <button class="btn btn-secondary" style="width: 100%;" onclick="handleLogout()">Выйти</button>
+  </div>
+</div>
+
+<header id="mainHeader">
+  <div class="header-inner">
+    <div class="top-row">
+      <div class="version-label">
+        <span class="sync-dot-wrap" onclick="showSyncDiagnostics()" title="Синхронизация">
+          <span id="syncDot" class="sync-dot init"></span>
+          <span id="syncBadge" class="sync-badge"></span>
+        </span>
+        <span class="version-text">Версия 3.1.17 · тест</span>
+      </div>
+      <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
+      <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
+    </div>
+
+    <div id="headerExtraContent">
+      <div class="header-main-row" style="margin-top: 4px;">
+        <div class="object-banner-compact">
+          <span id="headerObject">Объект: Не выбран</span>
+          <button class="btn btn-secondary btn-small" id="changeObjBtn" style="padding: 2px 6px; font-size: 10px; min-height: 22px; display:none;" onclick="openChangeObjectModal()">Изменить</button>
+        </div>
+        <div class="shift-title-compact" id="shiftDate">Смена не начата</div>
+      </div>
+      <div class="stats-bar-compact">
+        <div class="stat-item">На линии: <b id="activeLineCount">0 маш.</b></div>
+        <div class="stat-item">Рейсов: <b id="totalTrips">0</b></div>
+        <div class="stat-item">Объем: <b class="green" id="totalVolume">0 м³</b></div>
+      </div>
+    </div>
+  </div>
+  <div id="statusTicker" class="status-ticker" style="display:none;"></div>
+</header>
+
+<div class="container">
+  <div id="tab-timesheet" class="tab-content"></div>
+  <div id="tab-line" class="tab-content active">
+    <div id="viewOnlyBanner" class="view-only-banner" style="display:none;">👁 Режим просмотра — действия недоступны</div>
+    <div id="startShiftContainer" style="text-align: center; padding: 40px 20px; display: none;">
+      <div style="font-size: 18px; font-weight: 700; margin-bottom: 16px; color: var(--text);">Смена еще не начата</div>
+      <p style="color: var(--muted); font-size: 13px; margin-bottom: 24px;">Нажмите кнопку ниже, чтобы выбрать или создать объект и начать новую смену.</p>
+      <button class="btn btn-quick" id="startShiftBtn" style="width: 100%; font-size: 16px; padding: 16px;" onclick="openStartShiftModal()">🚀 Начать смену</button>
+    </div>
+    <div id="activeShiftContainer" style="display: none;">
+      <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+        <button class="btn btn-secondary btn-small" id="selectTrucksBtn" style="flex:1;" onclick="openSelectorModal()">🔍 Выбрать машины из базы на смену</button>
+      </div>
+      <div id="trucksLineList"></div>
+    </div>
+  </div>
+
+  <div id="tab-report" class="tab-content">
+    <div style="display:flex; gap:8px; margin-bottom: 8px;">
+        <button class="btn btn-secondary btn-small" id="btnDrawToggle" style="flex:1;" onclick="toggleDrawMode()">✏️ Рисовать</button>
+        <button class="btn btn-danger btn-small" style="flex:1;" onclick="clearDrawings()">🗑 Очистить</button>
+    </div>
+
+    <div id="paperReportWrapper">
+      <div class="paper-scroll-wrapper">
+        <div class="paper-report-container compact" id="paperReportContainer">
+          <canvas id="draw-canvas-main" class="stylus-canvas"></canvas>
+          <div class="paper-header">
+            <div class="paper-object-name" id="paperObjectName">Объект: —</div>
+            <div class="paper-date-vol-row">
+              <div class="paper-report-title" id="paperDateTitle"></div>
+              <div class="paper-total-info">Общий объем: <b id="paperTotalVolume">0 м³</b></div>
+            </div>
+          </div>
+          <table class="paper-table">
+            <thead id="matrixTableHead"><tr id="matrixTableHeadRow"></tr></thead>
+            <tbody id="matrixTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div id="gaiReportWrapper" style="display:none;">
+      <div class="paper-scroll-wrapper">
+        <div class="paper-report-container compact" id="gaiPaperContainer">
+          <canvas id="draw-canvas-gai" class="stylus-canvas"></canvas>
+          <div class="paper-header">
+            <div class="paper-object-name" id="gaiObjectName">Объект: —</div>
+            <div class="paper-date-vol-row">
+              <div class="paper-report-title" id="gaiDateTitle"></div>
+              <div class="paper-total-info">Всего рейсов ГАИ: <b id="gaiTotalTrips">0</b></div>
+            </div>
+          </div>
+          <table class="paper-table">
+            <thead id="gaiTableHead"><tr id="gaiTableHeadRow"></tr></thead>
+            <tbody id="gaiTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div id="gaiReportToggleContainer" style="display:flex; justify-content:flex-end; margin:-8px 0 0;">
+      <button type="button" style="display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px; padding:0; border:0; border-radius:0; background:none; box-shadow:none; color:inherit; font-size:20px; cursor:pointer; -webkit-tap-highlight-color:transparent;" id="toggleReportBtn" aria-label="Дополнительный отчёт">📄</button>
+    </div>
+    
+    <div class="action-row" style="margin-bottom: 12px; grid-template-columns: 1fr 1fr;">
+      <button class="btn btn-secondary btn-small" onclick="sendActiveReportToMax()">✈️ Отчет в Max (PDF)</button>
+      <button class="btn btn-quick btn-small" onclick="exportCSV()">📥 Скачать Excel</button>
+    </div>
+    <div class="action-row" style="margin-bottom: 12px; grid-template-columns: 1fr 1fr;">
+      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPDF('regular')">📄 PDF (обычные)</button>
+      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPDF('gai')">📄 PDF (ГАИ)</button>
+    </div>
+    <div id="pluginPdfButtonsContainer" class="action-row" style="margin-bottom: 12px; flex-wrap: wrap;"></div>
+
+    <div class="section-title">Хронология (Журнал рейсов)</div>
+    <div id="logsContainer"></div>
+    <button class="btn btn-danger" id="closeShiftBtn" style="width:100%; margin-top: 24px; margin-bottom: 20px;" onclick="closeShift()">🔄 Закрыть смену</button>
+  </div>
+
+  <div id="tab-archive" class="tab-content">
+    <div class="section-title">Архив закрытых смен</div>
+    <div style="margin-bottom:14px">
+      <button type="button" id="archiveSearchToggle" class="btn btn-secondary btn-small" aria-controls="archiveSearchInput" aria-expanded="false" onclick="toggleArchiveSearch()">🔍 Поиск по архиву</button>
+      <input type="search" id="archiveSearchInput" class="form-control" style="display:none;margin-top:8px" placeholder="Поиск по дате или объекту..." aria-label="Поиск по архиву" oninput="renderArchive()">
+    </div>
+    <div id="archiveContainer"></div>
+    <div id="trashContainer"></div>
+  </div>
+
+  <div id="tab-trucks" class="tab-content">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+      <button class="btn btn-secondary btn-small" id="subBtnTrucks" onclick="switchBaseSubTab('trucks')" style="background: var(--primary); color: #fff;">🚛 Самосвалы</button>
+      <button class="btn btn-secondary btn-small" id="subBtnObjects" onclick="switchBaseSubTab('objects')">🏢 Объекты</button>
+    </div>
+
+    <div id="subtab-trucks" class="base-subtab" style="display: block;">
+      <div class="form-card" id="truckFormCard">
+        <div class="section-title" id="formCardTitle" style="margin-top:0;">Добавить самосвал</div>
+        <input type="hidden" id="editTruckId" value="">
+        <div class="form-group">
+          <select id="newTruckType" class="form-control"><option value="regular">🚛 Обычный</option><option value="gai">🛣 ГАИ</option></select>
+        </div>
+        <div class="form-group"><input type="text" id="newTruckBrand" class="form-control" placeholder="Марка"></div>
+        <div class="form-group"><input type="text" id="newTruckNumber" class="form-control" placeholder="Госномер"></div>
+        <div class="form-group" id="volumeGroup"><input type="number" step="0.5" id="newTruckVol" class="form-control" placeholder="Объем м³"></div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-quick" style="flex:1;" id="saveTruckBtn" onclick="saveTruckToGlobalBase()">➕ Добавить</button>
+          <button class="btn btn-secondary" id="cancelEditBtn" style="display:none;" onclick="cancelEditTruck()">Отмена</button>
+        </div>
+      </div>
+      <div id="globalTrucksManageList"></div>
+    </div>
+
+    <div id="subtab-objects" class="base-subtab" style="display: none;">
+      <div class="form-card" id="objectFormCard">
+        <div class="section-title" id="formObjectCardTitle" style="margin-top:0;">Добавить объект</div>
+        <input type="hidden" id="editObjectId" value="">
+        <div class="form-group"><input type="text" id="newObjectNameBase" class="form-control" placeholder="Название"></div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-quick" style="flex:1;" id="saveObjectBtn" onclick="saveObjectToBase()">➕ Добавить</button>
+          <button class="btn btn-secondary" id="cancelEditObjectBtn" style="display:none;" onclick="cancelEditObject()">Отмена</button>
+        </div>
+      </div>
+      <div id="globalObjectsManageList"></div>
+    </div>
+  </div>
+
+  <div id="tab-analytics" class="tab-content">
+    <div class="section-title">📊 Аналитика</div>
+    <div class="form-card" id="analyticsCurrentShiftCard">
+      <div class="analytics-current-heading">По текущей смене</div>
+      <div class="analytics-current-grid">
+        <div class="analytics-current-stat"><span>Объект</span><b id="statCurObject">—</b></div>
+        <div class="analytics-current-stat"><span>Рейсы</span><b id="statCurTrips">0</b></div>
+        <div class="analytics-current-stat"><span>Объём</span><b id="statCurVol">0 м³</b></div>
+      </div>
+    </div>
+    <div class="section-title">👥 Активность пользователей</div>
+    <div id="userActivityRanking" class="form-card"></div>
+    <div class="form-card" id="testGameModeControls" style="display:none"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="testGameModeEnabled" onchange="toggleTestGameMode(this.checked)"> Показывать игровые очки на этом устройстве</label><small style="color:var(--muted)">Экспериментальная настройка администратора. Сохраняется только в этом браузере, без изменения Firebase.</small></div>
+    <details class="form-card" id="testActivityCoinsDetails" hidden><summary style="cursor:pointer;font-weight:700">🪙 Игровые очки (предварительный расчёт)</summary><div id="testActivityCoins" style="margin-top:10px"></div></details>
+    <details class="form-card"><summary style="cursor:pointer;font-weight:700">Как считаются показатели</summary><p style="margin-top:10px;font-size:12px;color:var(--muted)">Текущая смена: число рейсов считается по сохранённым записям погрузок, объём — сумма их объёмов. Рейтинг ниже строится по последним загруженным событиям аудита (до 200), а не по всей истории. Повторно полученное событие с тем же ID учитывается один раз. Категории действий определяются по типу сохранённого события; записи без известного типа не включаются. Если исторические события недоступны, рейтинг может быть неполным. Источник — доступный журнал аудита, без дополнительных запросов и изменения прав.</p></details>
+    <div class="section-title">📝 Журнал действий (Аудит)</div>
+    <div id="auditLogContainer"></div>
+  </div>
+
+  <div id="tab-admin" class="tab-content">
+    <div class="section-title">👑 Админ-панель</div>
+    <div class="admin-tabs">
+      <button class="admin-tab-btn active" onclick="switchAdminTab('requests', this)">Заявки</button>
+      <button class="admin-tab-btn" onclick="switchAdminTab('users', this)">Юзеры</button>
+      <button class="admin-tab-btn" onclick="switchAdminTab('permissions', this)">Права</button>
+      <button class="admin-tab-btn" onclick="switchAdminTab('plugins', this)">🧩 Расширения</button>
+      <button class="admin-tab-btn" onclick="switchAdminTab('patches', this)">🔧 Патчи</button>
+      <button class="admin-tab-btn" onclick="switchAdminTab('console', this)">🖥 Консоль</button>
+      <button class="admin-tab-btn" onclick="switchAdminTab('appsettings', this)">⚙️ Настройки</button>
+      <button type="button" class="admin-tab-btn" id="admin-camera-button" aria-haspopup="dialog" aria-controls="geo-photo-dialog">📷 Камера</button>
+    </div>
+    
+    <div id="admin-sub-requests" class="admin-section active"><div id="requestsListContainer"></div></div>
+    
+    <div id="admin-sub-users" class="admin-section">
+      <div class="form-card">
+        <div class="section-title" style="margin-top:0;">➕ Добавить</div>
+        <div class="form-group"><input type="email" id="newUserEmail" class="form-control" placeholder="Email"></div>
+        <div class="form-group"><input type="password" id="newUserPassword" class="form-control" placeholder="Пароль"></div>
+        <div class="form-group"><select id="newUserRole" class="form-control"><option value="foreman">🔧 Прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option><option value="admin">👑 Админ</option></select></div>
+        <button class="btn btn-quick" style="width:100%;" id="addUserBtn" onclick="addNewUser()">➕ Создать</button>
+      </div>
+      <div id="usersListContainer"></div>
+    </div>
+    
+    <div id="admin-sub-permissions" class="admin-section">
+      <div class="form-group"><select id="permRoleSelect" class="form-control" onchange="renderPermissionsMatrix()"><option value="foreman">🔧 Прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option></select></div>
+      <div id="permissionsMatrixContainer" style="margin-top: 16px;"></div>
+      <button class="btn btn-quick" style="width: 100%; margin-top: 16px;" onclick="savePermissions()">💾 Сохранить</button>
+    </div>
+
+    <div id="admin-sub-plugins" class="admin-section">
+      <div class="section-title" style="margin-top:0;">🧩 Менеджер расширений</div>
+      <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">Добавляйте сюда код новых функций. Они появятся в меню автоматически.</div>
+      <button class="btn btn-quick" style="width:100%; margin-bottom:16px;" onclick="openPluginModal()">➕ Добавить новое расширение</button>
+      <div id="pluginsListContainer"></div>
+    </div>
+
+    <div id="admin-sub-patches" class="admin-section">
+      <div class="section-title" style="margin-top:0;">🔧 Патчи ядра программы</div>
+      <div style="font-size:12px; color:var(--muted); margin-bottom:12px; line-height:1.5;">
+        Патчи применяются автоматически при загрузке. Если патч сломан — программа продолжит работать, а ошибка будет видна в консоли. Если хотите откатить изменения — выключите галочку или удалите патч, затем обновите страницу.
+      </div>
+      <button class="btn btn-quick" style="width:100%; margin-bottom:16px;" onclick="openPatchModal()">➕ Добавить патч</button>
+      <div id="patchesListContainer"></div>
+      <div class="form-card" id="conflictAuthorPatchCard">
+        <div class="settings-row"><div>Кто уже отметил действие</div><label class="toggle-switch"><input type="checkbox" id="conflictAuthorPatch" checked aria-label="Показывать автора уже выполненного действия" onchange="setConflictAuthorPatch(this.checked)"><span class="toggle-slider"></span></label></div>
+        <details><summary>Подробно</summary><div style="font-size:13px;line-height:1.6;margin-top:10px;">
+          <p><b>Было:</b> общее сообщение о том, что действие уже выполнено другим пользователем.</p>
+          <p><b>Стало:</b> номер машины, название отметки, сохранённое имя автора и время. Дополнительного запроса к серверу для имени нет.</p>
+          <p><b>Если выключить:</b> вернутся общие сообщения. Защита от повторных рейсов и сохранённые данные продолжают работать.</p>
+          <p><b>Как проверить:</b> на двух устройствах откройте одну машину и почти одновременно отметьте её погрузку. Сохраниться должен один рейс; второе устройство покажет имя автора сохранённой отметки. Повторите с «Приехал».</p>
+          <p><b>Ограничение:</b> если автор старого изменения не сохранён, приложение прямо об этом сообщит. Проверка на двух реальных устройствах ещё нужна.</p>
+          <p><b>Как сообщить о проблеме:</b> «Кто уже отметил действие; объект …; машина …; дата и время …; нажал …; ожидал имя …; увидел …; интернет был/не был; патч включён/выключен».</p>
+        </div></details>
+      </div>
+    </div>
+
+    <div id="admin-sub-console" class="admin-section">
+      <div class="section-title" style="margin-top:0;">🖥 Консоль отладки</div>
+      <div style="font-size:11px; color:var(--muted); margin-bottom:10px; line-height:1.4;">
+        Показывает ошибки JavaScript, предупреждения, логи и ошибки из патчей. Скопируйте всё и пришлите для анализа.
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <button class="btn btn-secondary btn-small" style="flex:1;" onclick="consoleClear()">🗑 Очистить</button>
+        <button class="btn btn-quick btn-small" style="flex:1;" onclick="consoleCopy()">📋 Копировать всё</button>
+      </div>
+      <div style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
+        <button class="btn btn-quick btn-small" data-console-filter="all" onclick="consoleFilter('all')" style="flex:1; min-width:60px;">Все</button>
+        <button class="btn btn-secondary btn-small" data-console-filter="error" onclick="consoleFilter('error')" style="flex:1; min-width:60px;">❌ Ошиб.</button>
+        <button class="btn btn-secondary btn-small" data-console-filter="warn" onclick="consoleFilter('warn')" style="flex:1; min-width:60px;">⚠️ Варн.</button>
+        <button class="btn btn-secondary btn-small" data-console-filter="log" onclick="consoleFilter('log')" style="flex:1; min-width:60px;">ℹ️ Логи</button>
+      </div>
+      <div id="consoleView" style="background:#000; border-radius:8px; padding:10px; font-family:'Courier New',monospace; font-size:11px; line-height:1.4; max-height:55vh; overflow-y:auto; color:#94a3b8;"></div>
+    </div>
+
+    <div id="admin-sub-appsettings" class="admin-section">
+      <p class="admin-settings-note">Общие настройки применяются ко всем пользователям. Изменения сохраняются автоматически.</p>
+      <div id="admin-game-settings-slot"></div>
+      <details class="admin-settings-group" id="admin-max-settings">
+        <summary>📱 MAX <span>Отправка, события и подключение</span></summary>
+      <div class="form-card">
+        <div class="section-title" style="margin-top:0;">📱 Уведомления в Max</div>
+        <div class="settings-row"><div><div class="settings-label">Включить отправку</div></div><label class="toggle-switch"><input type="checkbox" id="appConfigMaxEnabled" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
+        
+        <div class="form-group" style="margin-top:12px;"><label>URL (Прокси)</label><input type="text" id="appConfigMaxUrl" class="form-control" placeholder="https://..." onchange="saveAppConfig()"></div>
+        <div class="form-group"><label>Токен</label><input type="text" id="appConfigMaxToken" class="form-control" placeholder="Вставьте токен" onchange="saveAppConfig()"></div>
+        <div class="form-group"><label>ID чата</label><input type="text" id="appConfigMaxChatId" class="form-control" placeholder="123456789" onchange="saveAppConfig()"></div>
+        
+        <div class="section-title" style="margin-top:16px;">Триггеры уведомлений:</div>
+        <div class="settings-row"><div>🚀 Начало смены</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyStart" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
+        <div class="settings-row"><div>🚛 Приехал на объект</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyArrive" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
+        <div class="settings-row"><div>⚡ Погрузка (Рейс)</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLoad" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
+        <div class="settings-row"><div>📄 Забрал ТТН</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyTtn" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
+        <div class="settings-row"><div>🟢 Добавлен на линию</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLineStart" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
+        <div class="settings-row"><div>🔴 Убран с линии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLineEnd" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
+        <div class="settings-row"><div>📄 PDF (Основные) при закрытии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyPdfMain" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
+        <div class="settings-row"><div>📄 PDF (ГАИ) при закрытии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyPdfGai" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
+        
+        <button class="btn btn-secondary" style="width:100%; margin-top:16px; margin-bottom:8px;" onclick="testMaxMessage()">🧪 Тест</button>
+        <button class="btn btn-secondary btn-small" style="width:100%;" onclick="showMaxQueueStatus()">📋 Очередь</button>
+      </div>
+      </details>
+      <details class="admin-settings-group" id="admin-line-settings">
+        <summary>🚛 Работа на линии <span>Общее время ходки</span></summary>
+        <div class="form-card">
+          <p class="admin-settings-note">Минимальное время между рейсами для всех устройств. Изменяется при наличии связи.</p>
+          <div class="form-group"><label for="adminCycleMinutes">⏱ Ходка (мин)</label><input type="number" min="15" step="1" id="adminCycleMinutes" class="form-control" onchange="saveAdminCycleMinutes(this)"></div>
+        </div>
+      </details>
+      <details class="admin-settings-group" id="admin-device-settings">
+        <summary>📱 Это устройство <span>Удержание, вибрация и скорость анимаций</span></summary>
+        <div class="form-card">
+          <p class="admin-settings-note">Личные настройки этого браузера: длительность удержания кнопок, вибрация, скорости движения карточек и порядок нижних вкладок.</p>
+          <button type="button" class="btn btn-secondary btn-small" onclick="openSettingsModal()">Открыть настройки устройства</button>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div id="tab-backup" class="tab-content">
+    <div class="section-title">☁️ Бэкап</div>
+    <div class="form-card">
+      <button class="btn btn-quick" style="width:100%; margin-bottom:10px;" onclick="exportBackupFile()">📤 Скачать бэкап</button>
+      <input type="file" id="backupFileInput" accept=".json" class="form-control" onchange="importBackupFile(event)">
+    </div>
+  </div>
+
+  <div id="plugin-tabs-container"></div>
+</div>
+
+<div id="settingsModal" class="modal" onclick="if(event.target===this)closeSettingsModal()">
+  <div class="modal-content">
+    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>⚙️ Настройки</h3><button class="btn-del" onclick="closeSettingsModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>⚡ Погрузка (сек)</label><input type="number" step="0.1" id="settingHoldLoad" class="form-control" onchange="updateHoldSetting('load', this.value)"></div>
+      <div class="form-group"><label>🚛 Приехал (сек)</label><input type="number" step="0.1" id="settingHoldArrive" class="form-control" onchange="updateHoldSetting('arrive', this.value)"></div>
+      <div class="form-group"><label>📄 ТТН (сек)</label><input type="number" step="0.1" id="settingHoldTtn" class="form-control" onchange="updateHoldSetting('ttn', this.value)"></div>
+      <div class="form-group"><label>⏱ Ходка (мин)</label><input type="number" min="15" id="settingCycleMinutes" class="form-control" onchange="updateCycleMinutes(this.value)"></div>
+      <div class="settings-row"><div>🚛 Вибрация при прибытии</div><label class="toggle-switch"><input type="checkbox" id="hapticArrive" onchange="toggleSetting('hapticArrive', this.checked)"><span class="toggle-slider"></span></label></div>
+      <div class="settings-row"><div>⚡ Вибрация при погрузке</div><label class="toggle-switch"><input type="checkbox" id="hapticLoad" onchange="toggleSetting('hapticLoad', this.checked)"><span class="toggle-slider"></span></label></div>
+      <div class="settings-row"><div>📄 Вибрация при ТТН</div><label class="toggle-switch"><input type="checkbox" id="hapticTtn" onchange="toggleSetting('hapticTtn', this.checked)"><span class="toggle-slider"></span></label></div>
+    </div>
+    <button class="btn btn-quick" onclick="closeSettingsModal()">Готово</button>
+  </div>
+</div>
+
+<div id="pluginEditModal" class="modal" onclick="if(event.target===this)closePluginModal()">
+  <div class="modal-content" style="max-width: 900px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 id="pluginModalTitle">Новое расширение</h3>
+      <button class="btn-del" onclick="closePluginModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editPluginId">
+      <div class="form-group" style="display:flex; gap:8px;">
+        <div style="flex:2;"><label>Название (например, Табель)</label><input type="text" id="pluginName" class="form-control"></div>
+        <div style="flex:1;"><label>Иконка (эмодзи)</label><input type="text" id="pluginIcon" class="form-control" placeholder="⏱"></div>
+      </div>
+      
+      <div class="section-title" style="margin-top: 12px; font-size: 14px;">Доступ к плагину (Роли):</div>
+      <div id="pluginRolesContainer" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+        <label class="perm-item"><input type="checkbox" data-role="admin" checked> 👑 Админ</label>
+        <label class="perm-item"><input type="checkbox" data-role="foreman"> 🔧 Прораб</label>
+        <label class="perm-item"><input type="checkbox" data-role="master"> 🛠 Мастер</label>
+        <label class="perm-item"><input type="checkbox" data-role="lopater"> 🪏 Лопатер</label>
+        <label class="perm-item"><input type="checkbox" data-role="viewer"> 👁 Наблюдатель</label>
+      </div>
+
+      <div class="form-group">
+        <label>Код (JavaScript)</label>
+        <textarea id="pluginCode" class="form-control" spellcheck="false"></textarea>
+        <div style="display:flex; gap:8px; margin-top: 8px;">
+          <button class="btn btn-secondary btn-small" style="flex:1;" onclick="clearPluginCode()">🗑 Очистить всё</button>
+          <button class="btn btn-secondary btn-small" style="flex:1;" onclick="pastePluginCode()">📋 Вставить</button>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <button class="btn btn-quick" style="flex:1;" onclick="savePlugin()">💾 Сохранить и применить</button>
+      <button class="btn btn-secondary" onclick="closePluginModal()">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div id="patchEditModal" class="modal" onclick="if(event.target===this)closePatchModal()">
+  <div class="modal-content" style="max-width: 900px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 id="patchModalTitle">Новый патч</h3>
+      <button class="btn-del" onclick="closePatchModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editPatchId">
+      
+      <div class="form-group">
+        <label>Название патча</label>
+        <input type="text" id="patchName" class="form-control" placeholder="Например: Точечка при ТТН">
+      </div>
+      
+      <div class="form-group">
+        <label>Тип патча</label>
+        <select id="patchType" class="form-control" onchange="togglePatchType()">
+          <option value="function">🔁 Заменить функцию (вставить полную версию функции)</option>
+          <option value="replace">🔍 Найти и заменить (точечная правка)</option>
+        </select>
+      </div>
+
+      <div id="patchFunctionMode">
+        <div class="form-group">
+          <label>Код функции</label>
+          <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">
+            Пример: <code>window.renderReport = function() { ... };</code>
+          </div>
+          <textarea id="patchCodeFunction" class="form-control" spellcheck="false" style="min-height:300px;"></textarea>
+          <div style="display:flex; gap:8px; margin-top: 8px;">
+            <button class="btn btn-secondary btn-small" style="flex:1;" onclick="clearPatchField('patchCodeFunction')">🗑 Очистить</button>
+            <button class="btn btn-secondary btn-small" style="flex:1;" onclick="pastePatchField('patchCodeFunction')">📋 Вставить</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="patchReplaceMode" style="display:none;">
+        <div class="form-group">
+          <label>Имя функции (без скобок, например: renderReport)</label>
+          <input type="text" id="patchFnName" class="form-control" placeholder="renderReport">
+          <div style="font-size:11px; color:var(--muted); margin-top:4px;">
+            Функция должна быть объявлена как <code>function renderReport()</code> или <code>async function renderReport()</code>. Функции внутри стрелочных выражений и констант (<code>const</code>) не поддерживаются.
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Найти (точный текст из исходного кода)</label>
+          <textarea id="patchFind" class="form-control" spellcheck="false" style="min-height:100px; font-family:monospace;"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Заменить на</label>
+          <textarea id="patchReplace" class="form-control" spellcheck="false" style="min-height:100px; font-family:monospace;"></textarea>
+        </div>
+      </div>
+
+    </div>
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <button class="btn btn-quick" style="flex:1;" onclick="savePatch()">💾 Сохранить</button>
+      <button class="btn btn-secondary" onclick="closePatchModal()">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div id="startShiftModal" class="modal" onclick="if(event.target===this)closeStartShiftModal()">
+  <div class="modal-content">
+    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>Выбор объекта</h3><button class="btn-del" onclick="closeStartShiftModal()">✕</button></div>
+    <div class="modal-body">
+      <div id="existingObjectsList" style="margin-bottom: 14px; max-height: 200px; overflow-y: auto;"></div>
+      <div class="form-group"><input type="text" id="newObjectNameInput" class="form-control" placeholder="Или создать новый..."></div>
+    </div>
+    <button class="btn btn-quick" onclick="confirmStartShift()">🚀 Начать смену</button>
+  </div>
+</div>
+
+<div id="changeObjectModal" class="modal" onclick="if(event.target===this)closeChangeObjectModal()">
+  <div class="modal-content">
+    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>Изменить объект</h3><button class="btn-del" onclick="closeChangeObjectModal()">✕</button></div>
+    <div class="modal-body">
+      <div id="changeObjList"></div>
+      <div class="form-group" style="margin-top: 14px;"><input type="text" id="changeObjCustomInput" class="form-control" placeholder="Новое имя"></div>
+    </div>
+    <div style="display:flex; gap:10px;"><button class="btn btn-quick" style="flex:1;" onclick="confirmChangeObject()">💾 Применить</button><button class="btn btn-secondary" onclick="closeChangeObjectModal()">Отмена</button></div>
+  </div>
+</div>
+
+<div id="archiveModal" class="modal" onclick="if(event.target===this)closeArchiveModal()">
+  <div class="modal-content archive-test-fullscreen">
+    <div style="display:flex; justify-content:space-between; align-items:center;"><h3 id="modalArchiveTitle">Отчет</h3></div>
+    
+    <div style="display:none; gap:8px; margin-top:8px;" aria-hidden="true">
+        <button class="btn btn-secondary btn-small" id="btnDrawToggleArchive" style="flex:1;" onclick="toggleDrawModeArchive()">✏️ Рисовать</button>
+        <button class="btn btn-danger btn-small" style="flex:1;" onclick="clearDrawingsArchive()">🗑 Очистить</button>
+    </div>
+
+    <div class="modal-body" id="modalArchiveBody"></div>
+    <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+      <button class="btn btn-restore btn-small" id="archiveRestoreBtn" style="flex:1;" onclick="restoreArchiveToShift()">♻️ Восстановить</button>
+      <button class="btn btn-secondary btn-small" style="flex:1;" id="archiveSavePngBtn" onclick="saveArchivePNG()">🖼 Сохранить отчёт</button>
+      <button class="btn btn-secondary btn-small" style="flex:1;" onclick="closeArchiveModal()">Закрыть</button>
+      <button class="btn btn-danger btn-small" id="archiveDeleteBtn" style="flex:1;" onclick="deleteArchiveShift()">🗑 Удалить</button>
+    </div>
+  </div>
+</div>
+
+<div id="selectorModal" class="modal" onclick="if(event.target===this)closeSelectorModal()">
+  <div class="modal-content">
+    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>Выбор самосвалов</h3><button class="btn-del" onclick="closeSelectorModal()">✕</button></div>
+    <div style="margin-top: 10px;"><input type="text" id="truckSearchInput" class="form-control" placeholder="Поиск..." oninput="renderSelectorList()"></div>
+    <div class="modal-body" id="selectorListContainer"></div>
+    <button class="btn btn-quick" onclick="closeSelectorModal()">Готово</button>
+  </div>
+</div>
+
+<div id="editLogModal" class="modal" onclick="if(event.target===this)closeEditLogModal()">
+  <div class="modal-content">
+    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>Редактировать рейс</h3><button class="btn-del" onclick="closeEditLogModal()">✕</button></div>
+    <div class="modal-body">
+      <div id="editLogTruckInfo" style="margin-bottom: 12px; font-size: 14px;"></div>
+      <div class="form-group"><label>Кубатура (м³)</label><input type="number" step="0.5" id="editLogVolume" class="form-control"></div>
+      <div class="form-group"><label>Время</label><input type="time" id="editLogTime" class="form-control"></div>
+      <div class="form-group"><label>Комментарий (для ГАИ или примечания)</label><input type="text" id="editLogComment" class="form-control" placeholder="Например: перегруз / штраф"></div>
+    </div>
+    <div style="display:flex; gap:10px;"><button class="btn btn-quick" style="flex:1;" onclick="saveLogEdit()">💾 Сохранить</button><button class="btn btn-secondary" onclick="closeEditLogModal()">Отмена</button></div>
+  </div>
+</div>
+
+<div id="toast" class="toast">Сохранено</div>
+
+<nav id="bottomNav">
+  <button class="nav-btn active" id="nav-line" onclick="switchTab('line', this)"><span class="nav-icon">🚛</span><span class="nav-text">Линия</span></button>
+  <button class="nav-btn" id="nav-timesheet" onclick="switchTab('timesheet', this)"><span class="nav-icon">📋</span><span class="nav-text">Табель</span></button>
+  <button class="nav-btn" id="nav-report" onclick="switchTab('report', this)"><span class="nav-icon">📊</span><span class="nav-text">Сводка</span></button>
+  <button class="nav-btn" id="nav-archive" onclick="switchTab('archive', this)"><span class="nav-icon">🗄</span><span class="nav-text">Архив</span></button>
+  <button class="nav-btn" id="nav-trucks" onclick="switchTab('trucks', this)"><span class="nav-icon">⚙️</span><span class="nav-text">База</span></button>
+  <button class="nav-btn" id="nav-analytics" onclick="switchTab('analytics', this)"><span class="nav-icon">📈</span><span class="nav-text">Аналитика</span></button>
+  <button class="nav-btn" id="nav-admin" onclick="switchTab('admin', this)" style="display:none;"><span class="nav-icon">👑</span><span class="nav-text">Админ</span><span id="navAdminBadge" class="nav-badge-dot" style="display:none;"></span></button>
+  <button class="nav-btn" id="nav-backup" onclick="switchTab('backup', this)"><span class="nav-icon">☁️</span><span class="nav-text">Резерв</span></button>
+</nav>
+
+<!-- TEST-MODULE:core -->
+
+<!-- TEST-MODULE:history-recorder -->
+<!-- === BAKED PATCHES START === -->
+<!-- TEST-MODULE:built-in-features -->
+<!-- === BAKED PATCHES END === -->
+
+<!-- Test-only reversible line card stacking fix -->
+<!-- TEST-MODULE:line-card-layers -->
+
+
+
+<!-- TEST-MODULE:closed-shift-duplicates -->
+<!-- TEST-MODULE:summary-viewer -->
+<!-- TEST-MODULE:summary-hold -->
+<!-- TEST-MODULE:trip-analytics -->
+
+
+  <!-- TEST-MODULE:offline-load-solo-style -->
+<!-- TEST-MODULE:offline-feedback -->
+
+<!-- TEST-MODULE:release-history -->
+<!-- TEST-MODULE:confirmation-adapter -->
+<!-- TEST-MODULE:archive-test-layout-20261025 -->
+<!-- TEST-MODULE:test-analytics-compact-20261025 -->
+<!-- WORK REVIEW START -->
+<!-- TEST-MODULE:review-config -->
+<!-- TEST-MODULE:test-review-core -->
+<!-- TEST-MODULE:work-report -->
+<!-- WORK REVIEW END -->
+<!-- TIMESHEET MODULE START -->
+<!-- TEST-MODULE:timesheet-core -->
+<!-- TEST-MODULE:timesheet-app -->
+<!-- TIMESHEET MODULE END -->
+<!-- MAX PLATES PARITY: production module, no new notification triggers -->
+<!-- TEST-MODULE:max-plate-notifications -->
+<!-- MAX PLATES PARITY END -->
+<!-- TEST-MODULE:game-coins-style -->
+<!-- TEST-MODULE:game-coins-v2 -->
+
+<!-- TEST-MODULE:photo-files -->
+<!-- TEST-MODULE:object-photos-service -->
+<!-- GEO PHOTO START -->
+<!-- TEST-MODULE:geo-photo-style -->
+<dialog id="geo-photo-dialog" aria-labelledby="geo-photo-title">
+  <header class="geo-photo-header"><button type="button" id="geo-photo-close" class="geo-icon" aria-label="Закрыть камеру">✕</button><div class="geo-photo-heading"><h2 id="geo-photo-title">Фото объекта</h2><p id="geo-photo-object"></p></div><button type="button" id="geo-photo-settings-toggle" class="geo-icon" aria-label="Настройки камеры" aria-expanded="false" aria-controls="geo-photo-settings">⚙</button></header>
+  <div class="geo-photo-body">
+    <main class="geo-photo-main">
+      <div class="geo-photo-frame"><div id="geo-photo-stage" class="geo-photo-stage"><div id="geo-photo-video-wrap"><video id="geo-photo-video" autoplay muted playsinline aria-label="Камера. Коснитесь кадра для фокусировки."></video></div><span id="geo-photo-focus-ring" hidden aria-hidden="true"></span></div><img id="geo-photo-result" hidden alt="Фото с подписью объекта"><p id="geo-photo-native-wait" hidden>Сделайте снимок<br>в камере телефона</p></div>
+      <div class="geo-photo-quick-tools"><button type="button" id="geo-photo-format-quick" class="geo-pill" aria-label="Изменить формат кадра">Авто</button><div id="geo-photo-zoom-quick" class="geo-zoom-pills" hidden><button type="button" id="geo-photo-lens-06" class="geo-pill" aria-label="Объектив 0,6×">0,6×</button><button type="button" id="geo-photo-lens-1" class="geo-pill" aria-label="Объектив 1×">1×</button><button type="button" id="geo-photo-zoom-1" class="geo-pill">1×</button><button type="button" id="geo-photo-zoom-2" class="geo-pill">2×</button><output id="geo-photo-zoom-value" aria-label="Текущий масштаб"></output></div><div id="geo-photo-rotate-actions"><button type="button" id="geo-photo-rotate-left" class="geo-pill geo-turn" aria-label="Повернуть кадр влево на 90 градусов">↶</button><button type="button" id="geo-photo-rotate-right" class="geo-pill geo-turn" aria-label="Повернуть кадр вправо на 90 градусов">↷</button></div></div>
+      <p id="geo-photo-status" role="status" aria-live="polite"></p>
+    </main>
+    <aside class="geo-photo-side" aria-label="Съёмка и сохранение">
+      <span class="geo-photo-mode">ФОТО</span><button type="button" id="geo-photo-local-album" class="geo-pill">▧ На устройстве</button>
+      <div class="geo-photo-primary"><div id="geo-photo-shoot-actions"><button type="button" id="geo-photo-shutter" disabled aria-label="Снять фото, одна монета после сохранения на сервере"><span class="geo-shutter-core" aria-hidden="true"></span><span id="geo-photo-coin-badge" aria-hidden="true">🪙 +1</span></button><span class="geo-shutter-caption">Снять</span><button type="button" id="geo-photo-restart" class="geo-action" hidden>Включить камеру</button></div><div id="geo-photo-save-actions" hidden><a id="geo-photo-download" class="geo-action geo-action-main">Скачать JPEG</a><button type="button" id="geo-photo-share" class="geo-action" hidden>Поделиться</button><button type="button" id="geo-photo-retake" class="geo-action">Ещё фото</button></div></div>
+      <label class="geo-no-gps"><input type="checkbox" id="geo-photo-no-gps"><span>Снимать без GPS</span></label>
+      <div class="geo-photo-gps-row" id="geo-photo-gps-row"><p id="geo-photo-location"></p><button type="button" id="geo-photo-refresh-gps" class="geo-pill" aria-label="Обновить геопозицию">↻ GPS</button></div>
+      <button type="button" id="geo-photo-native" class="geo-action geo-native">Камера телефона ↗</button><input id="geo-photo-native-input" type="file" accept="image/*" capture="environment" hidden>
+      <p id="geo-photo-upload-status" class="geo-upload-status" role="status" aria-live="polite"></p><button type="button" id="geo-photo-upload-retry" class="geo-action" hidden>Повторить загрузку</button>
+      <p id="geo-photo-file-row" hidden><a id="geo-photo-open-file" target="_blank" rel="noopener">Открыть фото</a></p>
+    </aside>
+  </div>
+  <section id="geo-photo-settings" class="geo-photo-settings" hidden aria-labelledby="geo-photo-settings-title"><div class="geo-settings-heading"><h3 id="geo-photo-settings-title">Настройки камеры</h3><button type="button" id="geo-photo-settings-close" class="geo-icon" aria-label="Закрыть настройки">✕</button></div>
+    <label for="geo-photo-format">Формат кадра</label><select id="geo-photo-format"><option value="auto">По положению телефона</option><option value="landscape">Горизонтальный 4:3</option><option value="portrait">Вертикальный 3:4</option></select>
+    <label for="geo-photo-device">Камера / объектив</label><select id="geo-photo-device"><option value="">Задняя камера — автоматически</option></select>
+    <label for="geo-photo-lens-main">Камера для кнопки 1×</label><select id="geo-photo-lens-main"><option value="">Автоматически</option></select><label for="geo-photo-lens-ultra">Камера для кнопки 0,6×</label><select id="geo-photo-lens-ultra"><option value="">Автоматически</option></select><p class="geo-photo-hint">Выберите объектив из списка камер телефона. Если сверхширокоугольного объектива здесь нет, откройте «Камера телефона».</p><div id="geo-photo-zoom-row" hidden><label for="geo-photo-zoom">Масштаб</label><input id="geo-photo-zoom" type="range" aria-label="Масштаб камеры"></div><p id="geo-photo-zoom-unavailable" class="geo-photo-hint">Для этой камеры масштаб недоступен.</p>
+    <div id="geo-photo-focus-row" hidden><label for="geo-photo-focus">Фокусировка</label><select id="geo-photo-focus"></select><button type="button" id="geo-photo-refocus" class="geo-action">Автофокус</button></div><div id="geo-photo-focus-distance-row" hidden><label for="geo-photo-focus-distance">Ручной фокус <output id="geo-photo-focus-value"></output></label><input id="geo-photo-focus-distance" type="range" aria-label="Ручная настройка фокуса"></div><p id="geo-photo-focus-unavailable" class="geo-photo-hint">Управление фокусом этой камеры недоступно.</p>
+    <label id="geo-photo-torch-row" hidden><input type="checkbox" id="geo-photo-torch"> Подсветка</label>
+    <label for="geo-photo-method">Качество снимка</label><select id="geo-photo-method"><option value="video">Кадр видео — совместимость</option></select>
+    <p id="geo-photo-camera-info" class="geo-photo-hint"></p><p id="geo-photo-control-note" class="geo-photo-hint" role="status"></p><p class="geo-photo-hint">У штатной камеры телефона координаты добавляются после возврата. Без GPS снимок сохраняется без координат.</p>
+  </section>
+</dialog>
+<!-- TEST-MODULE:geo-photo-script -->
+<!-- GEO PHOTO END -->
+<!-- TEST-MODULE:object-photos-style -->
+<dialog id="object-photos-dialog" aria-labelledby="object-photos-title"><div class="op-heading"><h2 id="object-photos-title">Фотографии объектов</h2><button type="button" id="object-photos-close" class="btn btn-secondary btn-small" aria-label="Закрыть фотографии">✕</button></div><div id="object-photos-usage" class="op-usage" hidden></div><div class="op-toolbar"><button type="button" id="object-photos-all" class="btn btn-secondary btn-small">Весь объект</button><button type="button" id="object-photos-shift" class="btn btn-secondary btn-small">Эта смена</button><button type="button" id="object-photos-refresh" class="btn btn-secondary btn-small">Обновить</button><label id="object-photos-select-label"><input type="checkbox" id="object-photos-select"> Выбрать показанные</label><button type="button" id="object-photos-delete" class="btn btn-secondary btn-small">Удалить выбранные</button></div><p id="object-photos-message" role="status" aria-live="polite"></p><div id="object-photos-grid" class="op-grid"></div><button type="button" id="object-photos-more" class="btn btn-secondary btn-small" hidden style="margin-top:12px">Показать ещё</button><p class="op-note">Фото сгруппированы по объектам и сменам. Очистка фотографий не отменяет уже полученные монеты.</p></dialog>
+<!-- TEST-MODULE:object-photos-ui -->
+<!-- TEST-MODULE:local-photos-style -->
+<dialog id="local-photos-dialog" aria-labelledby="local-photos-title"><div class="op-heading"><h2 id="local-photos-title">Фотографии на устройстве</h2><button type="button" id="local-photos-close" class="btn btn-secondary btn-small" aria-label="Закрыть локальный альбом">✕</button></div><p class="op-note">Здесь хранятся ваши JPEG на этом телефоне в этом браузере, в том числе после отправки в облако. «Скачать JPEG» сохраняет файл через браузер в загрузки. Очистка данных сайта удалит этот локальный альбом.</p><div class="op-toolbar"><button type="button" id="local-photos-refresh" class="btn btn-secondary btn-small">Обновить</button><button type="button" id="local-photos-sync" class="btn btn-secondary btn-small">Синхронизировать</button></div><p id="local-photos-status" role="status"></p><div id="local-photos-grid" class="op-grid"></div><button type="button" id="local-photos-more" class="btn btn-secondary btn-small" hidden>Показать ещё</button></dialog>
+<!-- TEST-MODULE:local-photos-ui -->
+
+
+
+<!-- TEST-MODULE:road-shop-style -->
+<!-- TEST-MODULE:road-shop-v1 -->
+
+<!-- TEST-MODULE:road-jokes-style -->
+<!-- TEST-MODULE:road-jokes-v1 -->
+
+<!-- TEST-MODULE:road-season-effects-style -->
+<!-- TEST-MODULE:road-season-effects-v1 -->
+
+<!-- TEST-MODULE:road-arcade-style -->
+<!-- TEST-MODULE:road-arcade-core -->
+<!-- TEST-MODULE:road-arcade-runtime -->
+<!-- TEST-MODULE:road-arcade-ui -->
+<!-- TEST-PWA -->
+</body>
+</html>
+
+
+
+
+
+
+
+
+

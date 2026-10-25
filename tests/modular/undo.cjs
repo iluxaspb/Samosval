@@ -1,0 +1,22 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const source=fs.readFileSync('test-app/src/features/undo-redo.js','utf8');
+const block=source.slice(source.indexOf('  function allowedHistory'),source.indexOf('  function updateLocalState'));
+const copy=x=>x===undefined?undefined:JSON.parse(JSON.stringify(x)),rows=new Map(),ref=p=>({path:p}),get=p=>copy(rows.get(p));let penaltyCalls=0,failWrite=false;
+const ctx={currentUserRole:'lopater',currentEmail:'u@x',hasPermission:k=>['history_undo_own','history_redo_own','action_ttn'].includes(k),refs:{audit:{doc:id=>ref('audit/'+id)},truckStatus:{doc:id=>ref('truckStatus/'+id)}},window:{__gameHistoryPenaltyKey:()=> 'stable-ttn-id',__gameCoinsCore:{scopeFor:()=>({})},__gameStagePenalty:async tx=>{await tx.get(ref('penalty'));return ()=>{penaltyCalls++;tx.set(ref('penalty'),{charged:true});};}},db:{collection:n=>({doc:id=>ref(n+'/'+id)})}};
+ctx.window.__historyRawTransaction=async cb=>{const staged=[];let written=false;const outcome=await cb({get:async r=>{assert(!written,'Reads must precede writes');const d=get(r.path);return{exists:!!d,data:()=>d};},set:(r,d)=>{written=true;staged.push([r.path,copy(d)]);},delete:r=>{written=true;staged.push([r.path,null]);}});
+ if(failWrite)throw Object.assign(Error('denied'),{code:'permission-denied'});
+ for(const [p,d]of staged){if(p.startsWith('truckStatus/')){const prev=rows.get(p),keys=new Set([...Object.keys(prev||{}),...Object.keys(d||{})]);const changed=[...keys].filter(k=>JSON.stringify(prev?.[k])!==JSON.stringify(d?.[k]));assert(changed.every(k=>['ttnStatus','ttnBy','ttnLogId','ttnRevision'].includes(k)),'TTN rules disallow unrelated field: '+changed);assert.equal(d.ttnRevision,(prev.ttnRevision||0)+1);}if(p.startsWith('audit/')){const prev=rows.get(p),changed=Object.keys(d.history).filter(k=>JSON.stringify(prev.history[k])!==JSON.stringify(d.history[k]));assert.deepEqual(changed,['undone'],'History rules permit only undone');}}
+ for(const [p,d]of staged)if(d===null)rows.delete(p);else rows.set(p,d);return outcome;
+};vm.createContext(ctx);vm.runInContext(block,ctx);
+const before={id:'truck',shiftId:'s',onLine:true,ttnStatus:null,ttnBy:null,ttnLogId:null,cycleRevision:7,ttnRevision:3,arriveStatus:'10:20',arriveTimestamp:10};const after={...before,ttnStatus:true,ttnBy:'Operator',ttnLogId:'log',ttnRevision:4};const op={collection:'truckStatus',id:'truck',before,after};const action={id:'h',userEmail:'u@x',user:'Operator',description:'Отметка ТТН',operations:[op],undone:false};
+const reset=()=>{rows.clear();rows.set('audit/h',{history:copy(action)});rows.set('truckStatus/truck',copy(after));};
+(async()=>{
+ reset();const result=await ctx.applyHistoryOperations([op],'before',action);assert.equal(get('truckStatus/truck').ttnStatus,null);assert.equal(get('truckStatus/truck').cycleRevision,7);assert.equal(get('truckStatus/truck').ttnRevision,5);assert.equal(result[0].before.ttnStatus,null);assert(get('audit/h').history.undone);
+ await ctx.applyHistoryOperations([op],'after',{...action,undone:true});assert.equal(get('truckStatus/truck').ttnStatus,true);assert.equal(get('truckStatus/truck').ttnRevision,6);assert.equal(get('truckStatus/truck').cycleRevision,7);
+ reset();rows.set('truckStatus/truck',{...after,arriveStatus:'10:30',arriveTimestamp:20,cycleRevision:8});await ctx.applyHistoryOperations([op],'before',action);assert.equal(get('truckStatus/truck').arriveTimestamp,20);assert.equal(get('truckStatus/truck').cycleRevision,8);
+ reset();rows.set('truckStatus/truck',{...after,ttnLogId:'new-log'});await assert.rejects(()=>ctx.applyHistoryOperations([op],'before',action),/изменились/);assert.equal(get('truckStatus/truck').ttnLogId,'new-log');assert(!get('audit/h').history.undone);
+ reset();rows.set('truckStatus/truck',{...after,shiftId:'other'});await assert.rejects(()=>ctx.applyHistoryOperations([op],'before',action),/изменились/);
+ reset();await ctx.applyHistoryOperations([op],'before',action);await assert.rejects(()=>ctx.applyHistoryOperations([op],'before',action),/уже изменено/);
+ reset();failWrite=true;await assert.rejects(()=>ctx.applyHistoryOperations([op],'before',action),/denied/);assert.equal(get('truckStatus/truck').ttnStatus,true);assert(!get('audit/h').history.undone);
+ console.log('TTN undo/redo passes field-level rules; independent arrival preserved; conflicting TTN/shift and duplicate undo blocked; denied transaction leaves data unchanged');
+})().catch(e=>{console.error(e);process.exitCode=1;});
