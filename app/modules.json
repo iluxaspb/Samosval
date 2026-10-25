@@ -1,0 +1,415 @@
+{
+  "baseline_commit": "a135b2c6f6316c446c1252f9fb65644099790490",
+  "modules": [
+    {
+      "block": 5,
+      "kind": "style",
+      "name": "base",
+      "attributes": "",
+      "sources": [
+        "styles/base.css"
+      ],
+      "original_sha256": "748b81f6d23555f6c8d23b2744427bc67cafab1fa1c756d289c191e11fab527d"
+    },
+    {
+      "block": 7,
+      "kind": "core",
+      "name": "core",
+      "attributes": "",
+      "sources": [
+        "core/00-config.js",
+        "core/01-console.js",
+        "core/02-session-state.js",
+        "core/03-patches.js",
+        "core/04-permissions.js",
+        "core/05-formatting.js",
+        "core/06-sync.js",
+        "core/07-registration-sync.js",
+        "core/08-plugins.js",
+        "core/09-auth.js",
+        "core/10-app-settings.js",
+        "core/11-max-queue.js",
+        "core/12-export-drawing.js",
+        "core/13-reports.js",
+        "core/14-archive.js",
+        "core/15-directory-views.js",
+        "core/16-analytics.js",
+        "core/17-backup.js",
+        "core/18-shifts.js",
+        "core/19-line-state.js",
+        "core/20-offline-journal.js",
+        "core/21-line-ui.js",
+        "core/22-directory-edit.js",
+        "core/23-user-admin.js",
+        "core/24-notifications.js",
+        "core/25-undo-audit.js",
+        "core/26-settings-render.js",
+        "core/27-navigation.js",
+        "core/28-bootstrap.js"
+      ],
+      "original_sha256": "373e008924c5afd3a8cbff2e099f8c9ae960586751895421866ae00eacb66044"
+    },
+    {
+      "block": 8,
+      "kind": "script",
+      "name": "history-recorder",
+      "attributes": "",
+      "sources": [
+        "features/history-recorder.js"
+      ],
+      "original_sha256": "962245b295e1a166d9a565192274e5faa4d42df85e86c3ab2ff0324a69b057e6"
+    },
+    {
+      "block": 9,
+      "kind": "patches",
+      "name": "built-in-features",
+      "attributes": "",
+      "sources": [
+        "features/undo-redo.js",
+        "features/analytics.js",
+        "features/reset-timer.js",
+        "features/html-export.js",
+        "features/patches-ui.js",
+        "features/confirmation.js",
+        "features/status-ticker.js",
+        "features/navigation-order.js",
+        "features/delete-trip.js",
+        "features/auto-backup.js",
+        "features/animation-speeds.js",
+        "features/max-retry.js",
+        "features/compact-admin.js"
+      ],
+      "original_sha256": "0925977ba313901c7c6e01edb29a3e5b2a945277214acb7fc28bd0a72473bba2"
+    },
+    {
+      "block": 10,
+      "kind": "script",
+      "name": "line-card-layers",
+      "attributes": "",
+      "sources": [
+        "features/line-card-layers.js"
+      ],
+      "original_sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
+    },
+    {
+      "block": 11,
+      "kind": "script",
+      "name": "closed-shift-duplicates",
+      "attributes": "",
+      "sources": [
+        "features/closed-shift-duplicates.js"
+      ],
+      "original_sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
+    },
+    {
+      "block": 12,
+      "kind": "script",
+      "name": "summary-viewer",
+      "attributes": "",
+      "sources": [
+        "features/summary-viewer.js"
+      ],
+      "original_sha256": "9f82ca990a8ecac5c003fc3d3488114e886598643583438070df1d9657f2ccff"
+    },
+    {
+      "block": 13,
+      "kind": "script",
+      "name": "summary-hold",
+      "attributes": "",
+      "sources": [
+        "features/summary-hold.js"
+      ],
+      "original_sha256": "51c7baa1026486b2c817b9b505c77ac3d977a74cfe48a6788d11e1186fa1cba7"
+    },
+    {
+      "block": 14,
+      "kind": "script",
+      "name": "trip-analytics",
+      "attributes": "",
+      "sources": [
+        "features/trip-analytics.js"
+      ],
+      "original_sha256": "98d90f9a4ce3323a80882b38cbd94c3af4361cd06633354326a5b77889b08e19"
+    },
+    {
+      "block": 15,
+      "kind": "style",
+      "name": "offline-load-solo-style",
+      "attributes": " id=\"offline-load-solo-style\"",
+      "sources": [
+        "styles/offline-load-solo-style.css"
+      ],
+      "original_sha256": "5bb961c257c4b2ee387cc37fe8b6ffbfdaa16f85a61755a9e06637da159a5b72"
+    },
+    {
+      "block": 16,
+      "kind": "script",
+      "name": "offline-feedback",
+      "attributes": "",
+      "sources": [
+        "features/offline-feedback.js"
+      ],
+      "original_sha256": "94b6082bc2d2939da2214787ad258b870c426ef0475220b7dd364d3959498db7"
+    },
+    {
+      "block": 17,
+      "kind": "script",
+      "name": "release-history",
+      "attributes": "",
+      "sources": [
+        "features/release-history.js"
+      ],
+      "original_sha256": "90f993573b00a6788a757c8ea5975ed6b3b36c57ad3c09d24f6ad9013723cb62"
+    },
+    {
+      "block": 18,
+      "kind": "script",
+      "name": "confirmation-adapter",
+      "attributes": "",
+      "sources": [
+        "features/confirmation-adapter.js"
+      ],
+      "original_sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
+    },
+    {
+      "block": 19,
+      "kind": "style",
+      "name": "archive-test-layout-20261025",
+      "attributes": " id=\"archive-test-layout-20261025\"",
+      "sources": [
+        "styles/archive-test-layout-20261025.css"
+      ],
+      "original_sha256": "16239d85763a6babfcea71e9d2e1185010882a0b5280484cb2c218cd92cdfaa6"
+    },
+    {
+      "block": 20,
+      "kind": "style",
+      "name": "test-analytics-compact-20261025",
+      "attributes": " id=\"test-analytics-compact-20261025\"",
+      "sources": [
+        "styles/test-analytics-compact-20261025.css"
+      ],
+      "original_sha256": "7007e9498438bbd81eb63a96471eb34b502dfd11cf649eef40f0552713fdef76"
+    },
+    {
+      "block": 26,
+      "kind": "script",
+      "name": "max-plate-notifications",
+      "attributes": " id=\"max-plate-notifications\"",
+      "sources": [
+        "features/max-plate-notifications.js"
+      ],
+      "original_sha256": "dfd4a74ba3510cbe193b3ca19a2fb0f1fbcd06459bb1e698d82024f5e48eaa81"
+    },
+    {
+      "block": 27,
+      "kind": "style",
+      "name": "game-coins-style",
+      "attributes": " id=\"game-coins-style\"",
+      "sources": [
+        "styles/game-coins-style.css"
+      ],
+      "original_sha256": "e7cb2b4093d28a8f7cee3acc1bc8197b7e320b5a023f2c285e9b3e8d0166bbd0"
+    },
+    {
+      "block": 28,
+      "kind": "script",
+      "name": "game-coins-v2",
+      "attributes": " id=\"game-coins-v2\"",
+      "sources": [
+        "features/game-coins-v2.js"
+      ],
+      "original_sha256": "a3112c91eff7fbbe3f5690655881778e25b1082461778d50c95d3ae4d3091f15"
+    },
+    {
+      "block": 29,
+      "kind": "script",
+      "name": "photo-files",
+      "attributes": " id=\"photo-files\"",
+      "sources": [
+        "features/photo-files.js"
+      ],
+      "original_sha256": "6cb6df21319dd711f1523be6dbc2112b5185adc0aa4f47fa3ef72f563940b94c"
+    },
+    {
+      "block": 30,
+      "kind": "script",
+      "name": "object-photos-service",
+      "attributes": " id=\"object-photos-service\"",
+      "sources": [
+        "features/object-photos-service.js"
+      ],
+      "original_sha256": "ee4a21e3b58fdcd624b15f0043b4de68a7070c1397f3cb9e7aba8bf83f639c03"
+    },
+    {
+      "block": 31,
+      "kind": "style",
+      "name": "geo-photo-style",
+      "attributes": " id=\"geo-photo-style\"",
+      "sources": [
+        "styles/geo-photo-style.css"
+      ],
+      "original_sha256": "ba7f911c82400a593433bf3c3da268ee5856a02dc5c7baff9c799701f0ec8f7b"
+    },
+    {
+      "block": 32,
+      "kind": "script",
+      "name": "geo-photo-script",
+      "attributes": " id=\"geo-photo-script\"",
+      "sources": [
+        "features/geo-photo-script.js"
+      ],
+      "original_sha256": "57657b2f6f721937079cf22e03c07dc43f3f87ebfe45a02126d8f0873042d4e9"
+    },
+    {
+      "block": 33,
+      "kind": "style",
+      "name": "object-photos-style",
+      "attributes": " id=\"object-photos-style\"",
+      "sources": [
+        "styles/object-photos-style.css"
+      ],
+      "original_sha256": "2bca9280cb342c58b6a15b8bad80aba1cba7f19fb62bfe1d130e645a034dd274"
+    },
+    {
+      "block": 34,
+      "kind": "script",
+      "name": "object-photos-ui",
+      "attributes": " id=\"object-photos-ui\"",
+      "sources": [
+        "features/object-photos-ui.js"
+      ],
+      "original_sha256": "92baaa04cec4b33606d268b6f21d2e36e1f8619c852706272835f209ee8315c7"
+    },
+    {
+      "block": 35,
+      "kind": "style",
+      "name": "local-photos-style",
+      "attributes": " id=\"local-photos-style\"",
+      "sources": [
+        "styles/local-photos-style.css"
+      ],
+      "original_sha256": "f851a5967d3f436f284a0cd69c7219424a4274397964257cb08f2783d93f7c70"
+    },
+    {
+      "block": 36,
+      "kind": "script",
+      "name": "local-photos-ui",
+      "attributes": " id=\"local-photos-ui\"",
+      "sources": [
+        "features/local-photos-ui.js"
+      ],
+      "original_sha256": "7156ede41fd12306c4fa96af675ed6a5ea608a3f0944d1fd4996a4fb9a56bfdc"
+    },
+    {
+      "block": 37,
+      "kind": "style",
+      "name": "road-shop-style",
+      "attributes": " id=\"road-shop-style\"",
+      "sources": [
+        "styles/road-shop-style.css"
+      ],
+      "original_sha256": "03556c119e329120dab1ee04b4dfcc394b8dfe079bade748131a1d554f5ef88a"
+    },
+    {
+      "block": 38,
+      "kind": "script",
+      "name": "road-shop-v1",
+      "attributes": " id=\"road-shop-v1\"",
+      "sources": [
+        "features/road-shop-v1.js"
+      ],
+      "original_sha256": "cd0620342fa047eea4cd2bde4e7b1fcd0967fc373f5d76cc3db93810b427bb68"
+    },
+    {
+      "block": 39,
+      "kind": "style",
+      "name": "road-jokes-style",
+      "attributes": " id=\"road-jokes-style\"",
+      "sources": [
+        "styles/road-jokes-style.css"
+      ],
+      "original_sha256": "8d5f0225bbadcb005ed8b35c42da8522d10c6c2325cdd083cdaa7355bd89dd55"
+    },
+    {
+      "block": 40,
+      "kind": "script",
+      "name": "road-jokes-v1",
+      "attributes": " id=\"road-jokes-v1\"",
+      "sources": [
+        "features/road-jokes-v1.js"
+      ],
+      "original_sha256": "a76c09f983b0c98a75cbddfac41aa32f2b96c06cf9bcc17a628042078bb20f2d"
+    },
+    {
+      "block": 41,
+      "kind": "style",
+      "name": "road-season-effects-style",
+      "attributes": " id=\"road-season-effects-style\"",
+      "sources": [
+        "styles/road-season-effects-style.css"
+      ],
+      "original_sha256": "1316108b882c07cc196303c3411877ecc6adad7152cf9187033d0e333f86e34e"
+    },
+    {
+      "block": 42,
+      "kind": "script",
+      "name": "road-season-effects-v1",
+      "attributes": " id=\"road-season-effects-v1\"",
+      "sources": [
+        "features/road-season-effects-v1.js"
+      ],
+      "original_sha256": "84b2611e7e5555ea586558632f04e813633317041237b906fd439ee8274034ee"
+    },
+    {
+      "block": 43,
+      "kind": "style",
+      "name": "road-arcade-style",
+      "attributes": " id=\"road-arcade-style\"",
+      "sources": [
+        "styles/road-arcade-style.css"
+      ],
+      "original_sha256": "07d479db20ededc54ecd6a8bc2769b528ebeda20bad4037f7b47ff63d0261ee2"
+    },
+    {
+      "block": 44,
+      "kind": "script",
+      "name": "road-arcade-core",
+      "attributes": " id=\"road-arcade-core\"",
+      "sources": [
+        "features/road-arcade-core.js"
+      ],
+      "original_sha256": "10da96381e9f6662cf571a05a08839a9cc369440a289de656ba4ce1e1bfaee3f"
+    },
+    {
+      "block": 45,
+      "kind": "script",
+      "name": "road-arcade-runtime",
+      "attributes": " id=\"road-arcade-runtime\"",
+      "sources": [
+        "features/road-arcade-runtime.js"
+      ],
+      "original_sha256": "cac8c82ca0c215c2cf4ed8094cc89149458be7c27d0d52e037b64317b3f76e80"
+    },
+    {
+      "block": 46,
+      "kind": "script",
+      "name": "road-arcade-ui",
+      "attributes": " id=\"road-arcade-ui\"",
+      "sources": [
+        "features/road-arcade-ui.js"
+      ],
+      "original_sha256": "e017a9adb44f2b84ea0e3ab864c97580497b47ebf47ccfd1d3c3538261c4fde5"
+    }
+  ],
+  "source_commit": "6620de8ae45284d4f5b0140114c13ce7f8239365",
+  "release": "4.0",
+  "excluded_modules": [
+    "review-config",
+    "test-review-core",
+    "timesheet-app",
+    "timesheet-core",
+    "timesheet-css",
+    "work-report"
+  ]
+}

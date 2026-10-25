@@ -1,0 +1,18 @@
+{
+  "version": "4.0",
+  "build": "b614d9b82dd354eb",
+  "source_commit": "6620de8ae45284d4f5b0140114c13ce7f8239365",
+  "production_project": "samosval-test",
+  "timesheet_included": false,
+  "version_colors": {
+    "production": "#22c55e",
+    "test": "#e11d48"
+  },
+  "sha256": {
+    "index.html": "bbb1af7e75e2f5c2990ee70c96b5ae90f9ba3011277c8c9552b046612f3a1a83",
+    "manifest.json": "557423f43a40b10e8df78664c834881f7140e0ec457a43c65642ab2923f044d1",
+    "sw.js": "5c4950169962a2f013b67c0b4f9b36642402c1f1f8bb88bb1b90661299fab26b",
+    "releases/4.0/index-before-release.html.txt": "1b9c0db56a3febf339a136b647ca70fa9c9451b66fbd579a82efa629917e5d76",
+    "releases/4.0/manifest-before-release.json": "b7ef3c44fa136ad5b68ef2d5473052861a334303e48afced0470595f81357aed"
+  }
+}
