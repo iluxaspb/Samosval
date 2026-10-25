@@ -417,7 +417,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.4</span>
+        <span class="version-text">Версия 3.4.1</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -504,12 +504,11 @@
     </div>
     
     <div class="action-row" style="margin-bottom: 12px; grid-template-columns: 1fr 1fr;">
-      <button class="btn btn-secondary btn-small" onclick="sendActiveReportToMax()">✈️ Отчет в Max (PDF)</button>
       <button class="btn btn-quick btn-small" onclick="exportCSV()">📥 Скачать Excel</button>
     </div>
     <div class="action-row" style="margin-bottom: 12px; grid-template-columns: 1fr 1fr;">
-      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPDF('regular')">📄 PDF (обычные)</button>
-      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPDF('gai')">📄 PDF (ГАИ)</button>
+      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPNG('regular')">🖼 PNG (обычные)</button>
+      <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPNG('gai')">🖼 PNG (ГАИ)</button>
     </div>
     <div id="pluginPdfButtonsContainer" class="action-row" style="margin-bottom: 12px; flex-wrap: wrap;"></div>
 
@@ -664,8 +663,6 @@
         <div class="settings-row"><div>📄 Забрал ТТН</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyTtn" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         <div class="settings-row"><div>🟢 Добавлен на линию</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLineStart" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         <div class="settings-row"><div>🔴 Убран с линии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLineEnd" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
-        <div class="settings-row"><div>📄 PDF (Основные) при закрытии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyPdfMain" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
-        <div class="settings-row"><div>📄 PDF (ГАИ) при закрытии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyPdfGai" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         
         <button class="btn btn-secondary" style="width:100%; margin-top:16px; margin-bottom:8px;" onclick="testMaxMessage()">🧪 Тест</button>
         <button class="btn btn-secondary btn-small" style="width:100%;" onclick="showMaxQueueStatus()">📋 Очередь</button>
@@ -849,7 +846,7 @@
     <div class="modal-body" id="modalArchiveBody"></div>
     <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
       <button class="btn btn-restore btn-small" id="archiveRestoreBtn" style="flex:1;" onclick="restoreArchiveToShift()">♻️ Восстановить</button>
-      <button class="btn btn-secondary btn-small" style="flex:1;" onclick="exportArchivePDF()">📄 PDF</button>
+      <button class="btn btn-secondary btn-small" style="flex:1;" onclick="exportArchivePNG()">🖼 PNG</button>
       <button class="btn btn-danger btn-small" id="archiveDeleteBtn" style="flex:1;" onclick="deleteArchiveShift()">🗑 Удалить</button>
     </div>
   </div>
@@ -1046,7 +1043,7 @@
 
   let state = { trucks: [], objects: [], logs: [], truckStatus: {}, shift: null, archive: [], trash: [], audit: [], notifications: [], users: [], requests: [], plugins: [], patches: [] };
   let permissionsConfig = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS));
-  let appConfig = { maxEnabled: false, maxUrl: '', maxToken: '', maxChatId: '', notifyStart: true, notifyArrive: true, notifyLoad: true, notifyTtn: true, notifyLineStart: true, notifyLineEnd: true, notifyPdfMain: true, notifyPdfGai: true };
+  let appConfig = { maxEnabled: false, maxUrl: '', maxToken: '', maxChatId: '', notifyStart: true, notifyArrive: true, notifyLoad: true, notifyTtn: true, notifyLineStart: true, notifyLineEnd: true };
 
   let unsubscribers = [];
   let currentEmail = '';
@@ -1403,7 +1400,7 @@
       }, e=>reportSyncError('audit', e)));
     }
     if (!canAdmin()) usersUnsubscriber = usersRef.onSnapshot(s => { state.users = s.docs.map(d => Object.assign({id:d.id}, d.data())); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('analytics', 'renderAnalytics'); scheduleRenderForTab('line', 'renderLine'); }, e=>console.warn(e));
-    unsubscribers.push(appConfigRef.onSnapshot(doc => { if (doc.exists) { let d = doc.data(); if(Number.isFinite(d.cycleMinutes)){settings.cycleMinutes=Math.max(15,d.cycleMinutes);localStorage.setItem('dt_settings',JSON.stringify(settings));} appConfig = { maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '', notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true, notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true, notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true, notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true, notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true, notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true, notifyPdfMain: d.notifyPdfMain !== undefined ? !!d.notifyPdfMain : true, notifyPdfGai: d.notifyPdfGai !== undefined ? !!d.notifyPdfGai : true, testReviewFlags: d.testReviewFlags || {} }; renderAppSettingsIfActive(); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } window.__gameConfigChanged?.(); }, e => console.warn(e)));
+    unsubscribers.push(appConfigRef.onSnapshot(doc => { if (doc.exists) { let d = doc.data(); if(Number.isFinite(d.cycleMinutes)){settings.cycleMinutes=Math.max(15,d.cycleMinutes);localStorage.setItem('dt_settings',JSON.stringify(settings));} appConfig = { maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '', notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true, notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true, notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true, notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true, notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true, notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true, testReviewFlags: d.testReviewFlags || {} }; renderAppSettingsIfActive(); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } window.__gameConfigChanged?.(); }, e => console.warn(e)));
 
     // === SECURITY: права и флаг готовности ===
     unsubscribers.push(permsRef.onSnapshot({ includeMetadataChanges: true }, doc => {
@@ -1538,10 +1535,10 @@
     c.innerHTML = '';
     pluginPdfButtons.forEach((p, idx) => {
       const btn = document.createElement('button'); btn.className = 'btn btn-secondary btn-small'; btn.style.flex = '1';
-      btn.innerHTML = `📄 ${p.label}`;
+      btn.textContent = `🖼 ${String(p.label).replace(/\bPDF\b/gi, 'PNG')}`;
       btn.onclick = async () => {
-        try { showToastEl('⏳ Генерация PDF...', false); const html = p.generateHtmlFn(); const blob = await generatePDFFromHTML(html, `plugin_${idx}.pdf`); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `plugin_${idx}_${Date.now()}.pdf`; a.click(); URL.revokeObjectURL(url); showToastEl('✅ PDF готов', false); }
-        catch(e) { showError('Ошибка PDF: ' + e.message); }
+        try { showToastEl('⏳ Подготовка PNG...', false); const html = p.generateHtmlFn(); const blob = await generatePNGFromHTML(html); downloadReportPNG(blob, `plugin_${idx}_${Date.now()}.png`); showToastEl('✅ PNG готов', false); }
+        catch(e) { showError('Ошибка PNG: ' + e.message); }
       };
       c.appendChild(btn);
     });
@@ -1746,7 +1743,7 @@
     if (!document.getElementById('tab-admin')?.classList.contains('active')) return;
     if (!document.getElementById('admin-sub-appsettings')?.classList.contains('active')) return;
     const cycle=document.getElementById('adminCycleMinutes');if(cycle&&!cycle.disabled&&document.activeElement!==cycle)cycle.value=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES);
-    ['MaxEnabled','NotifyStart','NotifyArrive','NotifyLoad','NotifyTtn','NotifyLineStart','NotifyLineEnd','NotifyPdfMain','NotifyPdfGai'].forEach(k => { let el = document.getElementById('appConfig' + k); if (el) { let configKey = k.charAt(0).toLowerCase() + k.slice(1); el.checked = !!appConfig[configKey]; } });
+    ['MaxEnabled','NotifyStart','NotifyArrive','NotifyLoad','NotifyTtn','NotifyLineStart','NotifyLineEnd'].forEach(k => { let el = document.getElementById('appConfig' + k); if (el) { let configKey = k.charAt(0).toLowerCase() + k.slice(1); el.checked = !!appConfig[configKey]; } });
     if (document.getElementById('appConfigMaxUrl')) document.getElementById('appConfigMaxUrl').value = appConfig.maxUrl;
     if (document.getElementById('appConfigMaxToken')) document.getElementById('appConfigMaxToken').value = appConfig.maxToken;
     if (document.getElementById('appConfigMaxChatId')) document.getElementById('appConfigMaxChatId').value = appConfig.maxChatId;
@@ -1768,9 +1765,7 @@
       notifyLoad: !!document.getElementById('appConfigNotifyLoad')?.checked,
       notifyTtn: !!document.getElementById('appConfigNotifyTtn')?.checked,
       notifyLineStart: !!document.getElementById('appConfigNotifyLineStart')?.checked,
-      notifyLineEnd: !!document.getElementById('appConfigNotifyLineEnd')?.checked,
-      notifyPdfMain: !!document.getElementById('appConfigNotifyPdfMain')?.checked,
-      notifyPdfGai: !!document.getElementById('appConfigNotifyPdfGai')?.checked
+      notifyLineEnd: !!document.getElementById('appConfigNotifyLineEnd')?.checked
     };
     try { await tfAwait(appConfigRef.set(data, { merge: true })); appConfig = Object.assign({}, appConfig, data); showToastEl('Настройки сохранены', false); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } catch(e) { showError(e.message); }
   }
@@ -1779,15 +1774,19 @@
   const MAX_QUEUE_KEY = 'dt_max_queue'; const MAX_QUEUE_MAX = 100; const MAX_TRIES = 5;
   let maxQueue = []; let maxSenderRunning = false; let maxSeq = 0; let maxLastError = '';
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-  function loadMaxQueue() { try { maxQueue = JSON.parse(localStorage.getItem(MAX_QUEUE_KEY) || '[]'); } catch(e) { maxQueue = []; } if (!Array.isArray(maxQueue)) maxQueue = []; }
+  function loadMaxQueue() {
+    try { maxQueue=JSON.parse(localStorage.getItem(MAX_QUEUE_KEY)||'[]'); } catch(e) { maxQueue=[]; }
+    maxQueue=(Array.isArray(maxQueue)?maxQueue:[]).filter(item=>item&&item.type==='text'&&typeof item.text==='string');
+    saveMaxQueue();
+  }
   function saveMaxQueue() { try { localStorage.setItem(MAX_QUEUE_KEY, JSON.stringify(maxQueue)); } catch(e) { if (e.name === 'QuotaExceededError' || e.code === 22) { while (maxQueue.length > 0) { const idx = maxQueue.findIndex(q => q.type === 'document'); if (idx === -1) maxQueue.shift(); else maxQueue.splice(idx, 1); try { localStorage.setItem(MAX_QUEUE_KEY, JSON.stringify(maxQueue)); return; } catch(e2) {} } } } }
   function enqueueMax(text, meta, notBefore) { if (!appConfig.maxEnabled || !appConfig.maxUrl) return; maxQueue.push({ id: 'q_' + Date.now() + '_' + (++maxSeq), type: 'text', text, tries: 0, createdAt: Date.now(), notBefore: notBefore || 0, meta: meta || null }); while (maxQueue.length > MAX_QUEUE_MAX) maxQueue.shift(); saveMaxQueue(); runMaxQueue(); }
-  function enqueueMaxDocument(filename, base64Content, caption, meta, notBefore) { if (!appConfig.maxEnabled || !appConfig.maxUrl) return; maxQueue.push({ id: 'q_' + Date.now() + '_' + (++maxSeq), type: 'document', filename, base64: base64Content, caption: caption || '', tries: 0, createdAt: Date.now(), notBefore: notBefore || 0, meta: meta || null }); while (maxQueue.length > MAX_QUEUE_MAX) maxQueue.shift(); saveMaxQueue(); runMaxQueue(); }
   async function sendMaxOnce(item) {
+    if (!item || item.type !== 'text') return 'drop';
     if (!appConfig.maxEnabled || !appConfig.maxUrl) return 'drop';
     let headers = { 'Content-Type': 'application/json' };
     if (appConfig.maxToken) { let tk = String(appConfig.maxToken).trim(); headers['Authorization'] = tk.startsWith('Bearer ') ? tk : 'Bearer ' + tk; }
-    let body = item.type === 'document' ? { chat_id: appConfig.maxChatId || '', text: item.caption || '', document: { filename: item.filename, content_base64: item.base64 } } : { chat_id: appConfig.maxChatId || '', text: item.text };
+    let body = { chat_id: appConfig.maxChatId || '', text: item.text };
     let ctrl = new AbortController(); let timer = setTimeout(() => ctrl.abort(), 30000);
     try { let resp = await fetch(appConfig.maxUrl, { method: 'POST', headers, body: JSON.stringify(body), signal: ctrl.signal, keepalive: true }); clearTimeout(timer); if (resp.ok) return 'ok'; if (resp.status === 413) return 'too_large'; if (resp.status === 429) return 'retry'; if (resp.status >= 500) return 'retry'; if (resp.status === 401 || resp.status === 403) return 'auth'; return 'http_' + resp.status; }
     catch (e) { clearTimeout(timer); return 'network'; }
@@ -1799,7 +1798,9 @@
       while (maxQueue.length&&currentUserStatus==='active') {
         const idx = maxQueue.findIndex(q => !q.notBefore || q.notBefore <= Date.now());
         if (idx === -1) break;
-        const item = maxQueue[idx]; const res = await sendMaxOnce(item);
+        const item = maxQueue[idx];
+        if(!item||item.type!=='text'){maxQueue.splice(idx,1);saveMaxQueue();continue;}
+        const res = await sendMaxOnce(item);
         if (res === 'ok') { maxQueue.splice(idx, 1); saveMaxQueue(); await sleep(1200 + Math.floor(Math.random() * 600)); continue; }
         if (res === 'retry' && item.tries < MAX_TRIES) { item.tries++; saveMaxQueue(); await sleep(Math.min(30000, 2000 * Math.pow(2, item.tries))); continue; }
         maxQueue.splice(idx, 1); saveMaxQueue();
@@ -1817,15 +1818,39 @@
     if (res === 'ok') showToastEl('✅ Сообщение отправлено', false); else showError('Ошибка: ' + res);
   }
 
-  // === PDF ===
+  // === ОТЧЁТЫ PNG ===
   function blobToBase64(blob) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(blob); }); }
-  async function generatePDFFromHTML(innerHtml, filename) {
-    try { if (document.fonts && document.fonts.load) { await document.fonts.load('700 18px Caveat'); await document.fonts.load('400 18px Caveat'); await document.fonts.ready; } } catch(e) {}
+  async function generatePNGFromHTML(innerHtml) {
+    const deadline = (task, ms, message) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), ms);
+      Promise.resolve(task).then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+    });
+    try { if (document.fonts && document.fonts.load) await deadline(Promise.all([document.fonts.load('700 18px Caveat'), document.fonts.load('400 18px Caveat'), document.fonts.ready]), 2000, 'Шрифт недоступен'); } catch(e) {}
     const wrapper = document.createElement('div'); wrapper.style.cssText = 'position:fixed;left:-99999px;top:0;width:1400px;background:#fdfdfd;padding:10px;z-index:-1;';
-    const inner = document.createElement('div'); inner.className = 'paper-report-container'; inner.style.cssText = 'zoom:1;background:#fdfdfd;'; inner.innerHTML = innerHtml;
+    const inner = document.createElement('div'); inner.className = 'paper-report-container'; inner.style.cssText = 'zoom:1;background:#fdfdfd;width:1400px;'; inner.innerHTML = innerHtml;
     wrapper.appendChild(inner); document.body.appendChild(wrapper);
-    try { const opt = { margin: 5, filename, image: { type: 'jpeg', quality: 0.96 }, html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#fdfdfd' }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }; return await html2pdf().set(opt).from(inner).outputPdf('blob'); }
-    finally { document.body.removeChild(wrapper); }
+    let worker;
+    try {
+      const width = Math.max(1400, inner.scrollWidth), height = Math.max(1, inner.scrollHeight);
+      const scale = Math.min(2, Math.sqrt(16000000 / (width * height)), 16384 / Math.max(width, height));
+      // Reuse the bundled rasterizer only: no PDF pages, A4 clipping or JPEG conversion.
+      worker = html2pdf().set({ margin: 0, pagebreak: { mode: [], before: [], after: [], avoid: [] }, html2canvas: { scale, useCORS: true, logging: false, backgroundColor: '#fdfdfd', imageTimeout: 10000 } }).from(inner).toContainer().then(function () {
+        this.prop.container.style.width = width + 'px';
+        this.prop.container.style.height = 'auto';
+        this.prop.container.style.margin = '0';
+      });
+      const canvas = await deadline(worker.toCanvas().get('canvas'), 45000, 'Не удалось подготовить PNG. Повторите выгрузку отчёта.');
+      if (!canvas || !canvas.width || !canvas.height) throw new Error('Получено пустое изображение отчёта');
+      return await deadline(new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Не удалось сохранить изображение отчёта')), 'image/png')), 15000, 'Сохранение PNG заняло слишком много времени');
+    } finally {
+      if (worker?.prop?.overlay?.parentNode) worker.prop.overlay.parentNode.removeChild(worker.prop.overlay);
+      if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
+    }
+  }
+  function downloadReportPNG(blob, filename) {
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   // === STYLUS ===
@@ -1897,70 +1922,30 @@
     return html;
   }
 
-  async function sendShiftReportToMax(shift, logs) {
-    const activeLineIds = getActiveLineIds(); const stdLogs = logs.filter(l => !l.isGAI); const gaiLogs = logs.filter(l => l.isGAI);
-    const safeDate = String(shift.startDate || '').replace(/[^\w]/g, '_');
-    if (stdLogs.length > 0 && appConfig.notifyPdfMain) {
-      try {
-        const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, isClosed: true, logs: stdLogs, activeLineIds, type: 'regular', checkTTN: (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId });
-        const canvas = document.getElementById('draw-canvas-main'); let finalHtml = html;
-        if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-        const blob = await generatePDFFromHTML(finalHtml, 'report_regular.pdf'); const b64 = await blobToBase64(blob);
-        enqueueMaxDocument(`report_regular_${safeDate}.pdf`, b64, `📊 Отчет (ОСНОВНЫЕ): ${shift.objectName} / ${shift.startDate}`, null, 0);
-      } catch(e) { console.warn('PDF regular fail:', e); }
-    }
-    if (gaiLogs.length > 0 && appConfig.notifyPdfGai) {
-      try {
-        const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, isClosed: true, logs: gaiLogs, activeLineIds, type: 'gai', checkTTN: null });
-        const canvas = document.getElementById('draw-canvas-gai'); let finalHtml = html;
-        if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-        const blob = await generatePDFFromHTML(finalHtml, 'report_gai.pdf'); const b64 = await blobToBase64(blob);
-        enqueueMaxDocument(`report_gai_${safeDate}.pdf`, b64, `📊 Отчет (ГАИ): ${shift.objectName} / ${shift.startDate}`, null, Date.now() + GAI_PDF_DELAY_MS);
-      } catch(e) { console.warn('PDF gai fail:', e); }
-    }
-  }
-
-  async function exportCurrentReportPDF(type) {
+  async function exportCurrentReportPNG(type) {
     if (!state.shift) { showError('Смена не начата'); return; }
     if (type === 'gai' && !hasPermission('view_gai_report')) { showError('Нет прав'); return; }
     const logs = getLogs().filter(l => type === 'gai' ? l.isGAI : !l.isGAI);
     if (!logs.length) { showError('Нет данных'); return; }
     try {
-      showToastEl('⏳ Генерация PDF...', false);
+      showToastEl('⏳ Подготовка PNG...', false);
       const html = buildReportHTML({ objectName: state.shift.objectName, date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
       const canvas = document.getElementById(type === 'gai' ? 'draw-canvas-gai' : 'draw-canvas-main'); let finalHtml = html;
       if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-      const blob = await generatePDFFromHTML(finalHtml, `report_${type}.pdf`); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `report_${type}_${Date.now()}.pdf`; a.click(); URL.revokeObjectURL(url); showToastEl('✅ PDF готов', false);
-    } catch(e) { showError('Ошибка PDF: ' + e.message); }
+      const blob = await generatePNGFromHTML(finalHtml); downloadReportPNG(blob, `report_${type}_${Date.now()}.png`); showToastEl('✅ PNG готов', false);
+    } catch(e) { showError('Ошибка PNG: ' + e.message); }
   }
-  async function sendActiveReportToMax() {
-    if (!state.shift) { showError('Смена не начата'); return; }
-    if (!appConfig.maxEnabled || !appConfig.maxUrl) { showError('Max не настроен'); return; }
-    const type = showGAITable ? 'gai' : 'regular';
-    const logs = getLogs().filter(l => type === 'gai' ? l.isGAI : !l.isGAI);
-    if (!logs.length) { showError('Нет данных для отчета'); return; }
-    showToastEl('⏳ Генерация PDF для Max...', false);
-    try {
-      const html = buildReportHTML({ objectName: state.shift.objectName, date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
-      const canvas = document.getElementById(type === 'gai' ? 'draw-canvas-gai' : 'draw-canvas-main'); let finalHtml = html;
-      if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-      const blob = await generatePDFFromHTML(finalHtml, `report_${type}.pdf`); const b64 = await blobToBase64(blob);
-      const safeDate = String(state.shift.startDate || '').replace(/[^\w]/g, '_');
-      enqueueMaxDocument(`report_${type}_${safeDate}.pdf`, b64, `📊 Отчет (${type === 'gai' ? 'ГАИ' : 'ОСНОВНЫЕ'}): ${state.shift.objectName} / ${state.shift.startDate}`, null, 0);
-      showToastEl('✅ PDF в очереди Max', false);
-    } catch(e) { showError('Ошибка: ' + e.message); }
-  }
-  async function exportArchivePDF() {
+  async function exportArchivePNG() {
     const s = state.archive.find(x => x.id === viewingArchiveId); if (!s) return;
     const type = viewingArchiveGAITable ? 'gai' : 'regular';
     const logs = (s.logs || []).filter(l => type === 'gai' ? l.isGAI : !l.isGAI); if (!logs.length) { showError('Нет данных'); return; }
     try {
-      showToastEl('⏳ Генерация PDF...', false);
+      showToastEl('⏳ Подготовка PNG...', false);
       const html = buildReportHTML({ objectName: s.objectName, date: s.date, logs, activeLineIds: s.activeLineIds || [], type, isClosed: true, reportTtnStatus: s.ttnStatus || {}, checkTTN: type === 'regular' ? (id, logId, isLast) => s.ttnStatus && s.ttnStatus[id] && isLast : null });
       const canvas = document.getElementById('draw-canvas-archive'); let finalHtml = html;
       if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-      const blob = await generatePDFFromHTML(finalHtml, `archive_${type}.pdf`); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `archive_${type}.pdf`; a.click(); URL.revokeObjectURL(url); showToastEl('✅ PDF готов', false);
-    } catch(e) { showError('Ошибка PDF: ' + e.message); }
+      const blob = await generatePNGFromHTML(finalHtml); downloadReportPNG(blob, `archive_${type}.png`); showToastEl('✅ PNG готов', false);
+    } catch(e) { showError('Ошибка PNG: ' + e.message); }
   }
 
   // === ОТЧЕТЫ РЕНДЕР ===
@@ -2130,6 +2115,7 @@
   }
   function closeArchiveModal() { document.getElementById('archiveModal').classList.remove('open'); viewingArchiveId=null; }
   async function restoreArchiveToShift() {
+    if(state.shift?.closing){showError('Сначала завершите закрытие текущей смены');return;}
     if (!requireEdit('archive_edit') || !viewingArchiveId) return;
     const s = state.archive.find(x => x.id === viewingArchiveId); if (!s) return;
     const hasActive = state.shift && state.shift.isActive;
@@ -2245,6 +2231,7 @@
   // === СМЕНЫ ===
   async function startShiftWithObject(objName, objId) {
     if (!requireEdit('start_shift')) return;
+    if(state.shift?.closing){showError('Сначала завершите закрытие предыдущей смены');return;}
     if(offlinePendingCount()){showError('Сначала синхронизируйте действия предыдущей смены');return;}
     try {
       await cleanupOldShiftData(); await clearAllNotifications();
@@ -2255,10 +2242,15 @@
       closeStartShiftModal(); showToastEl('Смена начата', false);
     } catch(e){ showError(e.message); }
   }
-  async function cleanupOldShiftData(){
+  async function cleanupOldShiftData(shiftId){
+    const chunkSize=currentUserRole==='admin'?20:4;
     for(const collection of [refs.logs,refs.truckStatus]){
       const snap=await collection.get({source:'server'});
-      if(snap.size){const batch=db.batch();snap.forEach(d=>batch.delete(d.ref));await tfAwait(batch.commit());}
+      const docs=snap.docs.filter(d=>!shiftId||d.data().shiftId===shiftId);
+      for(let i=0;i<docs.length;i+=chunkSize){
+        const batch=db.batch();docs.slice(i,i+chunkSize).forEach(d=>batch.delete(d.ref));
+        await tfAwait(batch.commit());
+      }
     }
   }
   function recordedTripReturn(log, logs, status, shiftId) {
@@ -2268,22 +2260,66 @@
     const end = Number(log.returnedAt) || (next ? Number(next.arrivalTimestamp) : st && (!st.shiftId || st.shiftId === shiftId) ? Number(st.arriveTimestamp) : 0);
     return start > 0 && end > start && end <= Date.now() && (!next || end <= Number(next.timestamp)) ? end : null;
   }
+  let closeShiftInFlight=false;
   async function closeShift() {
-    if (!requireEdit('close_shift')) return;
-    if (!state.shift || !state.shift.isActive) { appNotice('Смена не начата'); return; }
+    if (closeShiftInFlight || !requireEdit('close_shift')) return;
+    if (!state.shift || (!state.shift.isActive && !state.shift.closing)) { appNotice('Смена не начата'); return; }
     if(offlinePendingCount()){showError('Сначала синхронизируйте действия перед закрытием смены');return;}
-    let logs = getLogs(); if (!(await appConfirm('Закрыть смену?'))) return;
+    const shiftId=state.shift.id;
+    closeShiftInFlight=true;
+    const button=document.getElementById('closeShiftBtn'),oldLabel=button?.textContent;
+    let phase='подтверждение';
     try {
-      if (logs.length > 0) {
-        let ttn={}, line=[];
-        Object.keys(state.truckStatus).forEach(id=>{ let st=state.truckStatus[id]; if(st.onLine) line.push(id); if(st.ttnStatus!==undefined && st.ttnStatus!==null) ttn[id]=st.ttnStatus; });
-        let totVol = logs.filter(l=>!l.isGAI).reduce((s,l)=>s+l.volume,0);
-        await tfAwait(refs.archive.doc().set({ objectName: state.shift.objectName, objectId: state.shift.objectId || '', date: state.shift.startDate, closedAt: Date.now(), closedBy: getUserName(), logs: logs.map(l=>({truckId:l.truckId, truckName:l.truckName, volume:l.volume, timeStr:l.timeStr, timestamp:l.timestamp, arrivalTimestamp:Number(l.arrivalTimestamp)||null, returnedAt:recordedTripReturn(l, logs, state.truckStatus, state.shift.id), createdBy:l.createdBy, createdByEmail:l.createdByEmail||'', isGAI:l.isGAI, comment:l.comment||''})), activeLineIds: line, ttnStatus: ttn, totalVolume: totVol, totalTrips: logs.filter(l=>!l.isGAI).length }));
-        addAudit(`🔄 Закрыта смена. Рейсов: ${logs.filter(l=>!l.isGAI).length}`).catch(()=>{});
+      if (!(await appConfirm(state.shift.closing?'Завершить закрытие смены?':'Закрыть смену?'))) return;
+      if(button){button.disabled=true;button.textContent='⏳ Сохраняем и закрываем смену…';}
+      phase='остановка новых отметок';
+      const shift=await tfAwait(db.runTransaction(async tx=>{
+        const snap=await tx.get(refs.shift);
+        if(!snap.exists)return null;
+        const data=snap.data();
+        if(data.id!==shiftId)throw Error('Уже открыта другая смена. Обновите страницу.');
+        if(data.isActive===false&&!data.closing)throw Error('Смена уже завершена. Обновите страницу.');
+        const closing={isActive:false,closing:true,closeArchiveId:data.closeArchiveId||('closed_'+shiftId),closingStartedAt:data.closingStartedAt||Date.now(),closingBy:data.closingBy||getUserName()};
+        if(!data.closing||data.isActive!==false)tx.update(refs.shift,closing);
+        return {...data,...closing};
+      }));
+      if(!shift){showToastEl('Смена уже закрыта',false);return;}
+      phase='сохранение архива';
+      const archiveRef=refs.archive.doc(shift.closeArchiveId);
+      const [existing,logSnapshot,statusSnapshot]=await Promise.all([archiveRef.get({source:'server'}),refs.logs.get({source:'server'}),refs.truckStatus.get({source:'server'})]);
+      const logs=logSnapshot.docs.map(d=>({id:d.id,...d.data()})).filter(l=>l.shiftId===shiftId);
+      const statuses={};statusSnapshot.docs.forEach(d=>{const data=d.data();if(data.shiftId===shiftId)statuses[d.id]=data;});
+      let archived=existing.exists?existing.data():null;
+      if(!archived&&logs.length){
+        const ttn={},line=[];
+        Object.entries(statuses).forEach(([id,st])=>{if(st.onLine)line.push(id);if(st.ttnStatus!==undefined&&st.ttnStatus!==null)ttn[id]=st.ttnStatus;});
+        const candidate={sourceShiftId:shiftId,objectName:shift.objectName||'',objectId:shift.objectId||'',date:shift.startDate||'',closedAt:shift.closingStartedAt,closedBy:shift.closingBy,
+          logs:logs.map(l=>({id:l.id,truckId:l.truckId,truckName:l.truckName||'',volume:l.volume??0,timeStr:l.timeStr||'',timestamp:l.timestamp,arrivalTimestamp:Number(l.arrivalTimestamp)||null,returnedAt:recordedTripReturn(l,logs,statuses,shiftId),createdBy:l.createdBy||'',createdByEmail:l.createdByEmail||'',isGAI:!!l.isGAI,comment:l.comment||''})),
+          activeLineIds:line,ttnStatus:ttn,totalVolume:logs.filter(l=>!l.isGAI).reduce((total,l)=>total+Number(l.volume||0),0),totalTrips:logs.filter(l=>!l.isGAI).length};
+        archived=await tfAwait(db.runTransaction(async tx=>{
+          const saved=await tx.get(archiveRef);
+          if(saved.exists)return saved.data();
+          tx.set(archiveRef,candidate);
+          return candidate;
+        }));
       }
-      if (appConfig.maxEnabled && appConfig.maxUrl && logs.length > 0) await sendShiftReportToMax(state.shift, logs);
-      await cleanupOldShiftData(); await clearAllNotifications(); await tfAwait(refs.shift.delete()); showToastEl('Смена закрыта', false);
-    } catch(e){ showError(e.message); }
+      if(archived&&archived.sourceShiftId!==shiftId)throw Error('Архив относится к другой смене. Очистка отменена.');
+      if(archived&&logs.some(log=>!(archived.logs||[]).some(saved=>saved.id===log.id)))throw Error('Есть рейсы, отсутствующие в сохранённом архиве. Очистка отменена.');
+      phase='очистка сохранённых рейсов';
+      await cleanupOldShiftData(shiftId);
+      phase='завершение смены';
+      await tfAwait(db.runTransaction(async tx=>{
+        const snap=await tx.get(refs.shift);
+        if(!snap.exists)return;
+        if(snap.data().id!==shiftId||!snap.data().closing)throw Error('Смена изменилась. Новая смена не затронута.');
+        tx.delete(refs.shift);
+      }));
+      if(state.shift?.id===shiftId){state.shift=null;offlineProjectState();renderAll();}
+      showToastEl('Смена закрыта',false);
+      addAudit('🔄 Закрыта смена. Рейсов: '+(archived?.totalTrips||0)).catch(()=>{});
+      clearAllNotifications().catch(()=>{});
+    } catch(e){ console.error('[closeShift:'+phase+']',e);showError('Не удалось завершить закрытие ('+phase+'): '+(e.message||e.code||e)+'. Сохранённый архив не удалён; можно повторить закрытие.'); }
+    finally {closeShiftInFlight=false;if(button){button.disabled=false;button.textContent=oldLabel||'🔄 Закрыть смену';}}
   }
   function openStartShiftModal() {
     if (!requireEdit('start_shift')) return;
@@ -3261,7 +3297,7 @@ try { (0, eval)("(function(){\n  if (window.__animSpeedsV7) return;\n  window.__
 catch (e) { console.error('[baked patch: Настройка скорости анимации]', e); }
 
 /* ===== PATCH: Макс отправка ===== */
-try { (0, eval)("(function(){\n  if (window.__maxRetryV1) return;\n  window.__maxRetryV1 = true;\n\n  const REQUEST_TIMEOUT_MS = 60000;\n  const WARMUP_TIMEOUT_MS = 90000;\n  const IDLE_THRESHOLD_MS = 5 * 60 * 1000;\n  const LAST_SUCCESS_KEY = 'dt_max_last_success';\n  const LAST_WARMUP_KEY = 'dt_max_last_warmup';\n  const CONFIG_CACHE_MS = 30000;\n\n  let cachedConfig = null;\n  let cachedConfigAt = 0;\n  let warmupInFlight = null;\n\n  function getTs(key) {\n    try { return parseInt(localStorage.getItem(key) || '0') || 0; } catch(e) { return 0; }\n  }\n  function setTs(key, v) {\n    try { localStorage.setItem(key, String(v || Date.now())); } catch(e) {}\n  }\n\n  async function getConfig() {\n    const now = Date.now();\n    if (cachedConfig && (now - cachedConfigAt) < CONFIG_CACHE_MS) {\n      return cachedConfig;\n    }\n    try {\n      const doc = await firebase.firestore().collection('settings').doc('appConfig').get();\n      if (doc.exists) {\n        cachedConfig = doc.data();\n        cachedConfigAt = now;\n        return cachedConfig;\n      }\n    } catch(e) {\n      console.warn('[MAX] Config read failed:', e.message);\n    }\n    return cachedConfig || {};\n  }\n\n  async function warmUpServer(url) {\n    if (warmupInFlight) return warmupInFlight;\n    if (!url) return false;\n\n    warmupInFlight = (async () => {\n      console.log('[MAX] 🔥 Warm-up: бужу сервер...');\n      try {\n        const ctrl = new AbortController();\n        const timer = setTimeout(() => ctrl.abort(), WARMUP_TIMEOUT_MS);\n        await fetch(url, {\n          method: 'GET',\n          signal: ctrl.signal,\n          cache: 'no-store',\n          keepalive: true\n        });\n        clearTimeout(timer);\n        console.log('[MAX] ✅ Warm-up: сервер проснулся');\n        setTs(LAST_WARMUP_KEY, Date.now());\n        return true;\n      } catch(e) {\n        console.warn('[MAX] ❌ Warm-up failed:', e.name || e.message);\n        return false;\n      } finally {\n        warmupInFlight = null;\n      }\n    })();\n\n    return warmupInFlight;\n  }\n\n  window.sendMaxOnce = async function(item) {\n    const cfg = await getConfig();\n    if (!cfg.maxEnabled || !cfg.maxUrl) return 'drop';\n\n    const url = cfg.maxUrl;\n    const token = cfg.maxToken || '';\n    const chatId = cfg.maxChatId || '';\n\n    const lastSuccess = getTs(LAST_SUCCESS_KEY);\n    const lastWarmup = getTs(LAST_WARMUP_KEY);\n    const idle = Date.now() - lastSuccess;\n    const sinceWarmup = Date.now() - lastWarmup;\n\n    if (idle > IDLE_THRESHOLD_MS && sinceWarmup > 60000) {\n      console.log(`[MAX] ⏰ Idle ${Math.round(idle/1000)}s — warm-up перед отправкой`);\n      const ok = await warmUpServer(url);\n      if (!ok) {\n        console.warn('[MAX] Warm-up неудачен — retry');\n        return 'retry';\n      }\n      await new Promise(r => setTimeout(r, 1000));\n    }\n\n    const headers = { 'Content-Type': 'application/json' };\n    if (token) {\n      const tk = String(token).trim();\n      headers['Authorization'] = tk.startsWith('Bearer ') ? tk : 'Bearer ' + tk;\n    }\n\n    const body = item.type === 'document'\n      ? { chat_id: chatId, text: item.caption || '', document: { filename: item.filename, content_base64: item.base64 } }\n      : { chat_id: chatId, text: item.text };\n\n    const ctrl = new AbortController();\n    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);\n\n    try {\n      console.log(`[MAX] 📤 Отправка (попытка ${(item.tries || 0) + 1})...`);\n      const resp = await fetch(url, {\n        method: 'POST',\n        headers,\n        body: JSON.stringify(body),\n        signal: ctrl.signal,\n        keepalive: true\n      });\n      clearTimeout(timer);\n\n      if (resp.ok) {\n        setTs(LAST_SUCCESS_KEY, Date.now());\n        console.log('[MAX] ✅ Отправлено');\n        return 'ok';\n      }\n      if (resp.status === 413) return 'too_large';\n      if (resp.status === 429) return 'retry';\n      if (resp.status >= 500) {\n        console.warn(`[MAX] ⚠️ Server ${resp.status} — retry`);\n        return 'retry';\n      }\n      if (resp.status === 401 || resp.status === 403) return 'auth';\n      return 'http_' + resp.status;\n    } catch(e) {\n      clearTimeout(timer);\n      console.warn(`[MAX] ⚠️ ${e.name || e.message} — retry`);\n      return 'retry';\n    }\n  };\n\n  console.log('[MAX] 🔄 Патч ретраев активен. POST: ' + (REQUEST_TIMEOUT_MS/1000) + 's, warm-up: ' + (WARMUP_TIMEOUT_MS/1000) + 's, idle порог: ' + (IDLE_THRESHOLD_MS/60000) + ' мин');\n})();"); }
+try { (0, eval)("(function(){\n  if (window.__maxRetryV1) return;\n  window.__maxRetryV1 = true;\n\n  const REQUEST_TIMEOUT_MS = 60000;\n  const WARMUP_TIMEOUT_MS = 90000;\n  const IDLE_THRESHOLD_MS = 5 * 60 * 1000;\n  const LAST_SUCCESS_KEY = 'dt_max_last_success';\n  const LAST_WARMUP_KEY = 'dt_max_last_warmup';\n  const CONFIG_CACHE_MS = 30000;\n\n  let cachedConfig = null;\n  let cachedConfigAt = 0;\n  let warmupInFlight = null;\n\n  function getTs(key) {\n    try { return parseInt(localStorage.getItem(key) || '0') || 0; } catch(e) { return 0; }\n  }\n  function setTs(key, v) {\n    try { localStorage.setItem(key, String(v || Date.now())); } catch(e) {}\n  }\n\n  async function getConfig() {\n    const now = Date.now();\n    if (cachedConfig && (now - cachedConfigAt) < CONFIG_CACHE_MS) {\n      return cachedConfig;\n    }\n    try {\n      const doc = await firebase.firestore().collection('settings').doc('appConfig').get();\n      if (doc.exists) {\n        cachedConfig = doc.data();\n        cachedConfigAt = now;\n        return cachedConfig;\n      }\n    } catch(e) {\n      console.warn('[MAX] Config read failed:', e.message);\n    }\n    return cachedConfig || {};\n  }\n\n  async function warmUpServer(url) {\n    if (warmupInFlight) return warmupInFlight;\n    if (!url) return false;\n\n    warmupInFlight = (async () => {\n      console.log('[MAX] 🔥 Warm-up: бужу сервер...');\n      try {\n        const ctrl = new AbortController();\n        const timer = setTimeout(() => ctrl.abort(), WARMUP_TIMEOUT_MS);\n        await fetch(url, {\n          method: 'GET',\n          signal: ctrl.signal,\n          cache: 'no-store',\n          keepalive: true\n        });\n        clearTimeout(timer);\n        console.log('[MAX] ✅ Warm-up: сервер проснулся');\n        setTs(LAST_WARMUP_KEY, Date.now());\n        return true;\n      } catch(e) {\n        console.warn('[MAX] ❌ Warm-up failed:', e.name || e.message);\n        return false;\n      } finally {\n        warmupInFlight = null;\n      }\n    })();\n\n    return warmupInFlight;\n  }\n\n  window.sendMaxOnce = async function(item) {\n    if (!item || item.type !== 'text') return 'drop';\n    const cfg = await getConfig();\n    if (!cfg.maxEnabled || !cfg.maxUrl) return 'drop';\n\n    const url = cfg.maxUrl;\n    const token = cfg.maxToken || '';\n    const chatId = cfg.maxChatId || '';\n\n    const lastSuccess = getTs(LAST_SUCCESS_KEY);\n    const lastWarmup = getTs(LAST_WARMUP_KEY);\n    const idle = Date.now() - lastSuccess;\n    const sinceWarmup = Date.now() - lastWarmup;\n\n    if (idle > IDLE_THRESHOLD_MS && sinceWarmup > 60000) {\n      console.log(`[MAX] ⏰ Idle ${Math.round(idle/1000)}s — warm-up перед отправкой`);\n      const ok = await warmUpServer(url);\n      if (!ok) {\n        console.warn('[MAX] Warm-up неудачен — retry');\n        return 'retry';\n      }\n      await new Promise(r => setTimeout(r, 1000));\n    }\n\n    const headers = { 'Content-Type': 'application/json' };\n    if (token) {\n      const tk = String(token).trim();\n      headers['Authorization'] = tk.startsWith('Bearer ') ? tk : 'Bearer ' + tk;\n    }\n\n    const body = { chat_id: chatId, text: item.text };\n\n    const ctrl = new AbortController();\n    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);\n\n    try {\n      console.log(`[MAX] 📤 Отправка (попытка ${(item.tries || 0) + 1})...`);\n      const resp = await fetch(url, {\n        method: 'POST',\n        headers,\n        body: JSON.stringify(body),\n        signal: ctrl.signal,\n        keepalive: true\n      });\n      clearTimeout(timer);\n\n      if (resp.ok) {\n        setTs(LAST_SUCCESS_KEY, Date.now());\n        console.log('[MAX] ✅ Отправлено');\n        return 'ok';\n      }\n      if (resp.status === 413) return 'too_large';\n      if (resp.status === 429) return 'retry';\n      if (resp.status >= 500) {\n        console.warn(`[MAX] ⚠️ Server ${resp.status} — retry`);\n        return 'retry';\n      }\n      if (resp.status === 401 || resp.status === 403) return 'auth';\n      return 'http_' + resp.status;\n    } catch(e) {\n      clearTimeout(timer);\n      console.warn(`[MAX] ⚠️ ${e.name || e.message} — retry`);\n      return 'retry';\n    }\n  };\n\n  console.log('[MAX] 🔄 Патч ретраев активен. POST: ' + (REQUEST_TIMEOUT_MS/1000) + 's, warm-up: ' + (WARMUP_TIMEOUT_MS/1000) + 's, idle порог: ' + (IDLE_THRESHOLD_MS/60000) + ' мин');\n})();"); }
 catch (e) { console.error('[baked patch: Макс отправка]', e); }
 
 /* ===== PATCH: Компактная админка ===== */
@@ -3595,6 +3631,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.4.1',title:'Закрытие смены и отчёты PNG',items:['Закрытие смены больше не ждёт отчёт для MAX. Рейсы сохраняются в архив, очистка выполняется небольшими порциями; после сбоя можно продолжить закрытие.','Отчёты текущей смены, ГАИ, архива и расширений скачиваются в PNG.','В MAX остаются только текстовые уведомления. Отправка отчётов и её настройки убраны.']},
     {version:'3.4',title:'Мини-игры и рейтинг выигрышей',items:['Марио: 20 уровней, пять редких монет на уровень и максимум 100 монет в день по московскому времени. Собранные монеты и открытые уровни сохраняются в аккаунте.','Однорукий бандит: общий банк со стартовыми 1 000 монетами, ставка 10 монет, звуки, редкий джекпот и открытая таблица вероятностей. Только виртуальная валюта.','Мини-игры доступны всем активным пользователям, включая наблюдателей. В админке можно выключить их все, каждую игру отдельно и приглашения.','Добавлены общий рейтинг выплат, отдельный рейтинг Марио и последние 20 выигрышей. Рабочие ранги и очки не меняются от игры.','Возвращение самосвала сопровождают две монеты; при уменьшении кошелька монеты улетают от счёта.','Общий игровой журнал согласует ставки и покупки между устройствами; повторная проверка одного действия не списывает ставку дважды.']},
     {version:'3.3',title:'Магазин дорожника и анекдоты',items:['Лавка дорожника: 24 темы интерфейса, включая четыре времени года. Примерка бесплатная; купленные темы сохраняются у аккаунта.','Магазин доступен администратору, прорабу, мастеру и лопатёру. Наблюдатель не может покупать.','Кошелёк для покупок отделён от рейтинга и ранга. У администратора есть фиксированные 10 000 тестовых монет и просмотр всех тем.','Снег и снежные шапки зимой, листья осенью, солнышко летом, лепестки и капель весной. Личный выключатель — в настройках и примерке.','Дорожные анекдоты после пяти нажатий: 89 шуток, не более одного окошка, без повторов в течение 14 дней. При исчерпании подборки показы приостанавливаются.','При первом анекдоте можно разрешить или запретить показы. Личный выбор и история показов сохраняются для аккаунта в этом браузере; переключение доступно в шестерёнке.']},
     {version:'3.2',title:'Ранги бригады и новые настройки',items:['Шесть рангов для дорожной бригады: от новичка на линии до легенды фрезеровки. Все уровни и пороги монет доступны в рейтинге.','При открытии показывается рейтинг текущей смены. Общий рейтинг и рейтинг объекта также доступны; исправлены псевдонимы и оформление личной карточки.','Поздравление с новым рангом появляется сверху, салют — по центру экрана, звучат аплодисменты. Эффект исчезает через 3 секунды.','В админке появилась вкладка «Настройки»: игровой режим, игровые звуки и эффекты, MAX, время ходки и настройки устройства.','Администратор может посмотреть поздравление для любого ранга без изменения баланса.','В списке пользователей добавлены переключатели временного доступа; ограниченный пользователь видит сообщение с обращением к администратору.']},
@@ -3616,7 +3653,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
     .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.4';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.4.1';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
   button.addEventListener('click',()=>{
     if(document.getElementById('releaseHistoryDialog'))return;
     const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
@@ -3757,17 +3794,12 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
       wrapped.__maxPlate = true; window.enqueueMax = wrapped;
     }
     if (typeof window.sendMaxOnce === 'function' && !window.sendMaxOnce.__maxPlate) {
-      const previous = window.sendMaxOnce;
-      const wrapped = async function(item) {
-        const plate = resolvePlate(item), config = { ...cfg() }, uid = account();
-        if (!config.maxEnabled || config.maxPlateEnabled === false || !config.maxUrl) return previous.call(this, item);
-        if (config.maxPlateMode !== 'png' || !plate) return previous.call(this, textItem(item));
-        const supported = await capabilities(config);
-        // Settings/account may change while a server is waking up.
-        const latest = cfg(); if (account() !== uid || latest.maxUrl !== config.maxUrl || latest.maxChatId !== config.maxChatId || latest.maxToken !== config.maxToken || latest.maxPlateMode !== config.maxPlateMode || !latest.maxEnabled || latest.maxPlateEnabled === false) return 'retry';
-        if (!supported) return previous.call(this, textItem(item));
-        const result = await sendImage(item, plate, config); return result?.beforeSend ? previous.call(this, textItem(item)) : result;
-      }; wrapped.__maxPlate = true; window.sendMaxOnce = wrapped;
+      const previous=window.sendMaxOnce;
+      const wrapped=async function(item){
+        if(!item||item.type!=='text')return 'drop';
+        return previous.call(this,textItem(item));
+      };
+      wrapped.__maxPlate=true;window.sendMaxOnce=wrapped;
     }
     if (typeof window.applyAllPatches === 'function' && !window.applyAllPatches.__maxPlate) {
       const previous = window.applyAllPatches, wrapped = function() { try { return previous.apply(this, arguments); } finally { install(); } }; wrapped.__maxPlate = true; window.applyAllPatches = wrapped;
