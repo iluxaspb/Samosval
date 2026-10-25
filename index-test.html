@@ -3165,6 +3165,7 @@
   function showError(msg) { console.error(msg); if (!navigator.onLine) { showToastEl(`📴 Нет сети`, true); return; } showToastEl(`⚠️ ${escapeHtml(msg)}`, true); }
   function resetToast(t) { t.className = 'toast'; t.innerHTML = ''; }
   function showToastEl(html, isError, isUndo) {
+    if(window.__gameDeferToast?.(html,isError,isUndo))return;
     let t = document.getElementById('toast'); if (!t) return;
     clearTimeout(toastTimer1); clearTimeout(toastTimer2);
     t.className = 'toast' + (isError ? ' error' : '') + (isUndo ? ' slide-right-to-left' : '');
@@ -4827,6 +4828,15 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
 .game-profile{padding:20px;border-radius:18px;background:linear-gradient(120deg,#78350f,#422006);color:#fef3c7;margin-bottom:20px}.game-profile strong{display:block;font-size:32px;margin:8px 0}.game-profile progress{width:100%;accent-color:#fbbf24;margin:10px 0}
 .game-row{display:flex;gap:12px;align-items:center;padding:13px 10px;border-bottom:1px solid var(--border)}.game-row.me{background:#fbbf2414;border-radius:12px}.game-place{font-size:21px;min-width:32px}.game-person{flex:1;min-width:0;overflow-wrap:anywhere}.game-person small{display:block;color:var(--muted);margin-top:4px}.game-score{color:#fbbf24;white-space:nowrap}.game-note{font-size:12px;line-height:1.6;color:var(--muted);margin:12px 0}
 .game-flying-coin{position:fixed;z-index:11000;pointer-events:none;font-size:30px;filter:drop-shadow(0 3px 7px #f59e0b80)}
+body.game-coin-feedback #toast{visibility:hidden}
+#game-wallet{position:relative}
+#game-wallet.game-wallet-hit{animation:gameWalletHit 520ms ease-out}
+#game-wallet.game-wallet-hit::after{content:'';position:absolute;inset:-8px;background:linear-gradient(110deg,transparent 30%,#fff9c4e6 48%,transparent 66%);pointer-events:none;animation:gameWalletShine 480ms ease-out both}
+.game-wallet-burst{position:fixed;z-index:11001;width:48px;height:48px;pointer-events:none;animation:gameWalletBurst 520ms ease-out both;background:radial-gradient(circle at 50% 4%,#fff7bf 0 2px,transparent 3px),radial-gradient(circle at 94% 50%,#fcd34d 0 2px,transparent 3px),radial-gradient(circle at 50% 96%,#fff7bf 0 2px,transparent 3px),radial-gradient(circle at 6% 50%,#fcd34d 0 2px,transparent 3px);filter:drop-shadow(0 0 3px #fbbf24)}
+@keyframes gameWalletHit{0%{transform:scale(1);box-shadow:0 0 0 0 #fbbf2400}30%{transform:scale(1.09);background:#a16207;box-shadow:0 0 12px 3px #fbbf2480}100%{transform:scale(1);box-shadow:0 0 0 0 #fbbf2400}}
+@keyframes gameWalletShine{from{transform:translateX(-100%);opacity:0}25%{opacity:1}to{transform:translateX(100%);opacity:0}}
+@keyframes gameWalletBurst{0%{transform:scale(.35);opacity:0}25%{opacity:1}100%{transform:scale(1.2);opacity:0}}
+@media(prefers-reduced-motion:reduce){#game-wallet.game-wallet-hit{animation:none;background:#854d0e;box-shadow:0 0 8px #fbbf2466}#game-wallet.game-wallet-hit::after,.game-wallet-burst{display:none}}
 </style>
 <script id="game-coins-v2">
 (function(){
@@ -4896,7 +4906,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
   checkbox.onchange=async()=>{if(!canAdmin())return;checkbox.disabled=true;try{await appConfigRef.set({testReviewFlags:{game_mode:checkbox.checked}},{merge:true});}catch(e){checkbox.checked=enabled();showError('Не удалось сохранить игровой режим: '+e.message);}finally{checkbox.disabled=false;}};
   function paint(){
     decorateButtons();wallet.hidden=!enabled();admin.hidden=!canAdmin();if(!checkbox.disabled)checkbox.checked=enabled();
-    if(!enabled()){if(modal.open)modal.close();document.querySelectorAll('.game-flying-coin').forEach(e=>e.remove());return;}
+    if(!enabled()){if(modal.open)modal.close();cancelCoinFeedback();return;}
     const overall=calculate(records);const me=overall.find(r=>r.user===key(currentEmail)),coins=me?.coins||0;
     const objects=objectOptions(records);if(!rankingObject)rankingObject=state.shift?.objectId?'id:'+state.shift.objectId:objects[0]?.key||'';
     const filter=rankingScope==='shift'?{shiftId:state.shift?.id||'__none__'}:rankingScope==='object'?{objectKey:rankingObject||'__none__'}:{};board=calculate(records,filter);
@@ -4947,6 +4957,53 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
       });
     }catch(e){/* Sound must never interrupt the action. */}
   }
+  // Coordinate the toast with all in-flight coins and the last wallet impact.
+  const coinFlights=new Set();
+  let feedbackUntil=0,feedbackTimer=null,walletHitTimer=null,deferredToast=null;
+  function resumeCoinToast(){
+    clearTimeout(feedbackTimer);feedbackTimer=null;
+    if(coinFlights.size)return;
+    const remaining=feedbackUntil-Date.now();
+    if(remaining>0){feedbackTimer=setTimeout(resumeCoinToast,remaining);return;}
+    document.body.classList.remove('game-coin-feedback');
+    const message=deferredToast;deferredToast=null;
+    if(message)showToastEl(...message);
+  }
+  function holdCoinToast(){
+    const toast=document.getElementById('toast');
+    if(toast?.classList.contains('show')&&!toast.classList.contains('error')&&!deferredToast)
+      deferredToast=[toast.innerHTML,false,toast.classList.contains('slide-right-to-left')];
+    clearTimeout(toastTimer1);clearTimeout(toastTimer2);
+    if(toast)resetToast(toast);
+    document.body.classList.add('game-coin-feedback');
+    clearTimeout(feedbackTimer);feedbackTimer=null;
+  }
+  function walletImpact(){
+    if(!enabled()||wallet.hidden)return;
+    const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    feedbackUntil=Date.now()+(reduced?300:550);
+    clearTimeout(walletHitTimer);wallet.classList.remove('game-wallet-hit');void wallet.offsetWidth;wallet.classList.add('game-wallet-hit');
+    walletHitTimer=setTimeout(()=>wallet.classList.remove('game-wallet-hit'),reduced?300:520);
+    if(!reduced){
+      const target=wallet.getBoundingClientRect(),burst=document.createElement('span');burst.className='game-wallet-burst';burst.setAttribute('aria-hidden','true');
+      burst.style.left=(target.left+target.width/2-24)+'px';burst.style.top=(target.top+target.height/2-24)+'px';document.body.append(burst);
+      setTimeout(()=>burst.remove(),550);
+    }
+    coinDing();
+  }
+  function cancelCoinFeedback(){
+    deferredToast=null;feedbackUntil=0;
+    for(const finish of [...coinFlights])finish(false);
+    clearTimeout(feedbackTimer);clearTimeout(walletHitTimer);feedbackTimer=null;walletHitTimer=null;
+    wallet.classList.remove('game-wallet-hit');document.body.classList.remove('game-coin-feedback');
+    document.querySelectorAll('.game-wallet-burst').forEach(e=>e.remove());
+  }
+  window.__gameDeferToast=(html,isError,isUndo)=>{
+    // Errors take precedence and must never be hidden behind a celebration.
+    if(isError){cancelCoinFeedback();return false;}
+    if(!coinFlights.size&&Date.now()>=feedbackUntil)return false;
+    deferredToast=[html,isError,isUndo];resumeCoinToast();return true;
+  };
   const line=document.getElementById('trucksLineList');
   if(line)new MutationObserver(decorateButtons).observe(line,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled']});
   window.__gameCoinQueued=function(op){
@@ -4954,20 +5011,25 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     const card=[...document.querySelectorAll('.truck-card[data-truck-id]')].find(c=>c.dataset.truckId===op.truckId),button=card?.querySelector(op.type==='load'?'.btn-quick':'.btn-arrive');
     const icon=button?.querySelector('.game-button-coin'),r=(icon||button)?.getBoundingClientRect();
     // Immediate visual feedback; balance remains server-confirmed.
-    if(!r||matchMedia('(prefers-reduced-motion: reduce)').matches){coinDing();return;}
     const target=wallet.getBoundingClientRect();if(!target.width||!target.height){coinDing();return;}
+    holdCoinToast();
+    if(!r||matchMedia('(prefers-reduced-motion: reduce)').matches){walletImpact();resumeCoinToast();return;}
     const coin=document.createElement('span');coin.className='game-flying-coin';coin.textContent='🪙';coin.setAttribute('aria-hidden','true');coin.style.left=(r.left+r.width/2-15)+'px';coin.style.top=(r.top+r.height/2-15)+'px';document.body.append(coin);
     if(icon)icon.style.visibility='hidden';
     const dx=target.left+target.width/2-(r.left+r.width/2),dy=target.top+target.height/2-(r.top+r.height/2);
-    let finished=false;
-    function finish(sound){if(finished)return;finished=true;coin.remove();if(icon)icon.style.visibility='';if(sound)coinDing();}
+    let finished=false,animation=null,failsafe=null;
+    function finish(sound){if(finished)return;finished=true;clearTimeout(failsafe);animation?.cancel();coin.remove();if(icon)icon.style.visibility='';coinFlights.delete(finish);if(sound)walletImpact();resumeCoinToast();}
+    coinFlights.add(finish);
     if(typeof coin.animate!=='function'){finish(true);return;}
-    const a=coin.animate([{transform:'translate(0,0)',opacity:1},{transform:'translate('+dx+'px,'+dy+'px)',opacity:1}],{duration:1600,easing:'linear'});
-    a.onfinish=()=>finish(coin.isConnected);a.oncancel=()=>finish(false);setTimeout(()=>finish(false),2000);
+    try{
+      animation=coin.animate([{transform:'translate(0,0)',opacity:1},{transform:'translate('+dx+'px,'+dy+'px)',opacity:1}],{duration:1600,easing:'linear'});
+      animation.onfinish=()=>finish(coin.isConnected);animation.oncancel=()=>finish(false);failsafe=setTimeout(()=>finish(false),2000);
+    }catch(e){finish(false);}
   };
   function sync(){
     const identity=permissionsLoaded?String(currentUid||''):'';
     if(identity!==owner){
+      cancelCoinFeedback();
       unsubscribe?.();unsubscribe=null;owner=identity;records=[];board=[];ready=false;error='';rankingObject='';closePenaltyNotice();
     }
     if(identity&&!unsubscribe){
