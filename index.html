@@ -403,8 +403,8 @@
 <div id="disabledScreen" class="pending-screen">
   <div class="pending-card" style="border-color: var(--danger);">
     <div class="pending-icon" style="animation: none;">⛔</div>
-    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--danger);"><span id="disabledStatusTitle">Доступ приостановлен</span></div>
-    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;"><span id="disabledStatusText">Ваш аккаунт временно отключен.</span></div>
+    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--danger);"><span id="disabledStatusTitle">Доступ временно ограничен</span></div>
+    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;"><span id="disabledStatusText">Доступ ограничен администратором. Обратитесь к администратору, чтобы восстановить доступ, или попробуйте войти позже.</span></div>
     <button class="btn btn-secondary" style="width: 100%;" onclick="handleLogout()">Выйти</button>
   </div>
 </div>
@@ -417,7 +417,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.1</span>
+        <span class="version-text">Версия 3.2</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -588,7 +588,7 @@
       <button class="admin-tab-btn" onclick="switchAdminTab('plugins', this)">🧩 Расширения</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('patches', this)">🔧 Патчи</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('console', this)">🖥 Консоль</button>
-      <button class="admin-tab-btn" onclick="switchAdminTab('appsettings', this)">⚙️ Max</button>
+      <button class="admin-tab-btn" onclick="switchAdminTab('appsettings', this)">⚙️ Настройки</button>
     </div>
     
     <div id="admin-sub-requests" class="admin-section active"><div id="requestsListContainer"></div></div>
@@ -645,6 +645,10 @@
     </div>
 
     <div id="admin-sub-appsettings" class="admin-section">
+      <p class="admin-settings-note">Общие настройки применяются ко всем пользователям. Изменения сохраняются автоматически.</p>
+      <div id="admin-game-settings-slot"></div>
+      <details class="admin-settings-group" id="admin-max-settings">
+        <summary>📱 MAX <span>Отправка, события и подключение</span></summary>
       <div class="form-card">
         <div class="section-title" style="margin-top:0;">📱 Уведомления в Max</div>
         <div class="settings-row"><div><div class="settings-label">Включить отправку</div></div><label class="toggle-switch"><input type="checkbox" id="appConfigMaxEnabled" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
@@ -666,6 +670,21 @@
         <button class="btn btn-secondary" style="width:100%; margin-top:16px; margin-bottom:8px;" onclick="testMaxMessage()">🧪 Тест</button>
         <button class="btn btn-secondary btn-small" style="width:100%;" onclick="showMaxQueueStatus()">📋 Очередь</button>
       </div>
+      </details>
+      <details class="admin-settings-group" id="admin-line-settings">
+        <summary>🚛 Работа на линии <span>Общее время ходки</span></summary>
+        <div class="form-card">
+          <p class="admin-settings-note">Минимальное время между рейсами для всех устройств. Изменяется при наличии связи.</p>
+          <div class="form-group"><label for="adminCycleMinutes">⏱ Ходка (мин)</label><input type="number" min="15" step="1" id="adminCycleMinutes" class="form-control" onchange="saveAdminCycleMinutes(this)"></div>
+        </div>
+      </details>
+      <details class="admin-settings-group" id="admin-device-settings">
+        <summary>📱 Это устройство <span>Удержание, вибрация и скорость анимаций</span></summary>
+        <div class="form-card">
+          <p class="admin-settings-note">Личные настройки этого браузера: длительность удержания кнопок, вибрация, скорости движения карточек и порядок нижних вкладок.</p>
+          <button type="button" class="btn btn-secondary btn-small" onclick="openSettingsModal()">Открыть настройки устройства</button>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -688,7 +707,9 @@
       <div class="form-group"><label>🚛 Приехал (сек)</label><input type="number" step="0.1" id="settingHoldArrive" class="form-control" onchange="updateHoldSetting('arrive', this.value)"></div>
       <div class="form-group"><label>📄 ТТН (сек)</label><input type="number" step="0.1" id="settingHoldTtn" class="form-control" onchange="updateHoldSetting('ttn', this.value)"></div>
       <div class="form-group"><label>⏱ Ходка (мин)</label><input type="number" min="15" id="settingCycleMinutes" class="form-control" onchange="updateCycleMinutes(this.value)"></div>
-      <div class="settings-row"><div>🚛 Вибрация</div><label class="toggle-switch"><input type="checkbox" id="hapticArrive" onchange="toggleSetting('hapticArrive', this.checked)"><span class="toggle-slider"></span></label></div>
+      <div class="settings-row"><div>🚛 Вибрация при прибытии</div><label class="toggle-switch"><input type="checkbox" id="hapticArrive" onchange="toggleSetting('hapticArrive', this.checked)"><span class="toggle-slider"></span></label></div>
+      <div class="settings-row"><div>⚡ Вибрация при погрузке</div><label class="toggle-switch"><input type="checkbox" id="hapticLoad" onchange="toggleSetting('hapticLoad', this.checked)"><span class="toggle-slider"></span></label></div>
+      <div class="settings-row"><div>📄 Вибрация при ТТН</div><label class="toggle-switch"><input type="checkbox" id="hapticTtn" onchange="toggleSetting('hapticTtn', this.checked)"><span class="toggle-slider"></span></label></div>
     </div>
     <button class="btn btn-quick" onclick="closeSettingsModal()">Готово</button>
   </div>
@@ -1191,17 +1212,18 @@
 
   // === ПРАВА ===
   function isForcedAdminEmail(email) { return String(email || '').toLowerCase() === FORCED_ADMIN_EMAIL; }
-  function canAdmin() { return currentUserRole === 'admin'; }
+  function canAdmin() { return currentUserStatus === 'active' && currentUserRole === 'admin'; }
 
   // === SECURITY: пока permissionsLoaded === false, разрешаем только 'line' (и админа) ===
   function hasTabAccess(tabName) {
+    if(currentUserStatus!=='active')return false;
     if (currentUserRole === 'admin') return true;
     if (!permissionsLoaded) return tabName === 'line';
     if (!permissionsConfig[currentUserRole]) return false;
     return Array.isArray(permissionsConfig[currentUserRole].tabs) && permissionsConfig[currentUserRole].tabs.includes(tabName);
   }
 
-  function hasPermission(action) { if (currentUserRole === 'admin') return true; if (!permissionsLoaded) return false; const actions = permissionsConfig[currentUserRole]?.actions; return Array.isArray(actions) && actions.includes(action); }
+  function hasPermission(action) { if(currentUserStatus!=='active')return false; if (currentUserRole === 'admin') return true; if (!permissionsLoaded) return false; const actions = permissionsConfig[currentUserRole]?.actions; return Array.isArray(actions) && actions.includes(action); }
   function requireEdit(action, actionName) { if (hasPermission(action)) return true; showError('👁 Нет прав на ' + (actionName || 'это действие')); return false; }
 
   // === SECURITY: обновляем классы perm-blocked для кнопок ===
@@ -1221,8 +1243,14 @@
   function sanitizeName(name) { if (!name) return ''; let s = String(name).trim(); let at = s.indexOf('@'); if (at > 0) s = s.substring(0, at); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
   function getUserName() { return currentUserNickname || sanitizeName(currentEmail) || '—'; }
   function resolveUserDisplayName(email, fallbackNick) {
-    if (email) { const u = state.users.find(x => x.email && x.email.toLowerCase() === String(email).toLowerCase()); if (u && u.nickname) return u.nickname; if (u && u.email) return sanitizeName(u.email); return sanitizeName(email); }
-    return sanitizeName(fallbackNick) || fallbackNick || '—';
+    const clean=value=>String(value||'').trim(),normal=value=>clean(value).toLowerCase();
+    const identity=normal(email);
+    if(identity&&identity===normal(currentEmail)&&clean(currentUserNickname))return clean(currentUserNickname);
+    const user=identity?(state.users||[]).find(u=>normal(u.email)===identity):null;
+    if(clean(user?.nickname))return clean(user.nickname);
+    const fallback=clean(fallbackNick);
+    if(fallback&&fallback!=='—'&&(!identity||normal(fallback)!==identity))return fallback;
+    return sanitizeName(email||fallback)||'—';
   }
   function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
   function pad2(n) { return n < 10 ? '0' + n : '' + n; }
@@ -1596,7 +1624,14 @@
           try { await ensurePendingAccount(user); document.getElementById('registrationStatusText').textContent='Ваша заявка отправлена. Ожидайте решения администратора.'; }
           catch(e) { document.getElementById('registrationStatusText').textContent='Заявка не отправлена: ' + (e.message || e.code) + '. Обратитесь к администратору.'; }
           activeProfileKey = ''; stopSync(); document.getElementById('pendingScreen').style.display = 'flex'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = 'none'; document.querySelector('.container').style.display = 'none'; document.querySelector('nav').style.display = 'none'; return; }
-        if (currentUserStatus === 'disabled') { document.getElementById('disabledStatusTitle').textContent=data.rejectionReason ? 'Заявка отклонена' : 'Доступ приостановлен'; document.getElementById('disabledStatusText').textContent=data.rejectionReason || 'Ваш аккаунт временно отключен.'; activeProfileKey = ''; stopSync(); document.getElementById('pendingScreen').style.display = 'none'; document.getElementById('disabledScreen').style.display = 'flex'; document.getElementById('mainHeader').style.display = 'none'; document.querySelector('.container').style.display = 'none'; document.querySelector('nav').style.display = 'none'; return; }
+        if (currentUserStatus === 'disabled') {
+          permissionsLoaded=false;document.body.removeAttribute('data-perms-ready');
+          cancelHold();document.querySelectorAll('dialog[open]').forEach(d=>d.close());document.querySelectorAll('.modal.open').forEach(d=>d.classList.remove('open'));
+          window.__gameAccessChanged?.();
+          document.getElementById('disabledStatusTitle').textContent=data.rejectionReason?'Заявка отклонена':'Доступ временно ограничен';
+          document.getElementById('disabledStatusText').textContent=data.rejectionReason||'Доступ ограничен администратором. Обратитесь к администратору, чтобы восстановить доступ, или попробуйте войти позже.';
+          activeProfileKey='';stopSync();document.getElementById('pendingScreen').style.display='none';document.getElementById('disabledScreen').style.display='flex';document.getElementById('mainHeader').style.display='none';document.querySelector('.container').style.display='none';document.querySelector('nav').style.display='none';return;
+        }
         document.getElementById('pendingScreen').style.display = 'none'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = ''; document.querySelector('.container').style.display = ''; document.querySelector('nav').style.display = 'flex';
         updateUserBadge(); updateNavUI(); applyRoleUI(); updateSyncUI();
         const profileKey = currentUid + ':' + currentUserRole + ':' + currentUserStatus;
@@ -1710,10 +1745,16 @@
   function renderAppSettingsIfActive() {
     if (!document.getElementById('tab-admin')?.classList.contains('active')) return;
     if (!document.getElementById('admin-sub-appsettings')?.classList.contains('active')) return;
+    const cycle=document.getElementById('adminCycleMinutes');if(cycle&&!cycle.disabled&&document.activeElement!==cycle)cycle.value=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES);
     ['MaxEnabled','NotifyStart','NotifyArrive','NotifyLoad','NotifyTtn','NotifyLineStart','NotifyLineEnd','NotifyPdfMain','NotifyPdfGai'].forEach(k => { let el = document.getElementById('appConfig' + k); if (el) { let configKey = k.charAt(0).toLowerCase() + k.slice(1); el.checked = !!appConfig[configKey]; } });
     if (document.getElementById('appConfigMaxUrl')) document.getElementById('appConfigMaxUrl').value = appConfig.maxUrl;
     if (document.getElementById('appConfigMaxToken')) document.getElementById('appConfigMaxToken').value = appConfig.maxToken;
     if (document.getElementById('appConfigMaxChatId')) document.getElementById('appConfigMaxChatId').value = appConfig.maxChatId;
+  }
+  async function saveAdminCycleMinutes(input) {
+    if(!canAdmin())return;
+    input.disabled=true;
+    try{await updateCycleMinutes(input.value);}finally{input.disabled=false;input.value=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES);}
   }
   async function saveAppConfig() {
     if (!canAdmin()) return;
@@ -1752,10 +1793,10 @@
     catch (e) { clearTimeout(timer); return 'network'; }
   }
   async function runMaxQueue() {
-    if (maxSenderRunning || !appConfig.maxEnabled || !appConfig.maxUrl) return;
+    if (currentUserStatus!=='active'||maxSenderRunning || !appConfig.maxEnabled || !appConfig.maxUrl) return;
     maxSenderRunning = true;
     try {
-      while (maxQueue.length) {
+      while (maxQueue.length&&currentUserStatus==='active') {
         const idx = maxQueue.findIndex(q => !q.notBefore || q.notBefore <= Date.now());
         if (idx === -1) break;
         const item = maxQueue[idx]; const res = await sendMaxOnce(item);
@@ -2576,12 +2617,12 @@
     return {prevTtn:b.ttnStatus??null,prevTtnBy:b.ttnBy||null,prevTtnLogId:b.ttnLogId||null};
   }
   async function offlineReplayJournal(){
-    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||Date.now()<offlineServerRetryAt||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
+    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||Date.now()<offlineServerRetryAt||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
     offlineReplayRunning=true;
     try{
       for(const op of offlineJournalRead().filter(x=>x.status==='confirmed'&&!x.effectsDelivered))await offlineNotifyAccepted(op,op.savedResult||{});
       for(const op of offlinePendingOps()){
-        if(!navigator.onLine)break;
+        if(!navigator.onLine||currentUserStatus!=='active')break;
         if(!offlineJournalRead().some(x=>x.id===op.id&&x.status==='pending'))continue;
         if(op.dependencyId){
           const previous=offlineJournalRead().find(x=>x.id===op.dependencyId);
@@ -2828,11 +2869,36 @@
   }
 
   // === АДМИН ПАНЕЛЬ ===
+  const userAccessWrites=new Set();
   function renderAdminPanel() {
     if (!canAdmin()) return;
     renderRegistrationRequests();
     const active = state.users.filter(u => u.status !== 'pending');
-    document.getElementById('usersListContainer').innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isForcedAdminEmail(u.email); return `<div class="user-row"><div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" value="${escapeHtml(u.nickname||'')}" onchange="updateUserNickname('${u.id}', this.value)"></div><div class="user-row-bottom"><select class="form-control" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div></div>`; }).join('');
+    document.getElementById('usersListContainer').innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" value="${escapeHtml(u.nickname||'')}" onchange="updateUserNickname('${u.id}', this.value)"></div><div class="user-row-bottom"><select class="form-control" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
+    document.querySelectorAll('[data-user-access]').forEach(input=>input.onchange=()=>setUserAccess(input.dataset.userAccess,input.checked));
+  }
+  async function setUserAccess(uid, enabled) {
+    if(!canAdmin()||userAccessWrites.has(uid))return;
+    if(uid===currentUid){showError('Нельзя ограничить собственный доступ');renderAdminPanel();return;}
+    if(!navigator.onLine){showError('Для изменения доступа требуется подключение к сети');renderAdminPanel();return;}
+    userAccessWrites.add(uid);renderAdminPanel();
+    try{
+      const targetStatus=enabled?'active':'disabled';let targetName='';
+      await db.runTransaction(async tx=>{
+        if(!canAdmin())throw new Error('Нет прав администратора');
+        const ref=usersRef.doc(uid),snap=await tx.get(ref);
+        if(!snap.exists)throw new Error('Пользователь не найден. Обновите список');
+        const data=snap.data();
+        if(isForcedAdminEmail(data.email))throw new Error('Доступ владельца приложения защищён');
+        if(data.status==='pending')throw new Error('Сначала рассмотрите заявку пользователя');
+        targetName=data.nickname||data.email||uid;
+        if(data.status!==targetStatus)tx.update(ref,{status:targetStatus,accessChangedAt:Date.now(),accessChangedBy:currentEmail});
+      });
+      const user=state.users.find(u=>u.id===uid);if(user)user.status=targetStatus;
+      showToastEl(enabled?'Доступ пользователя восстановлен':'Доступ пользователя временно ограничен',false);
+      await addAudit((enabled?'🔓 Восстановлен доступ: ':'🔒 Ограничен доступ: ')+targetName,{eventType:'user_access',targetUid:uid,status:targetStatus});
+    }catch(e){showError('Не удалось изменить доступ: '+e.message);}
+    finally{userAccessWrites.delete(uid);renderAdminPanel();}
   }
   async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ nickname: nickname.trim() || null })); await addAudit('✏️ Изменено имя пользователя: ' + uid + ' → ' + nickname.trim(), {eventType:'user_nickname',targetUid:uid}); } catch(e) { showError(e.message); } }
   async function changeUserRole(uid, newRole) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ role: newRole })); await addAudit('🔐 Изменена роль пользователя: ' + uid + ' → ' + newRole, {eventType:'user_role',targetUid:uid}); } catch(e) { showError(e.message); } }
@@ -3032,7 +3098,7 @@
     document.getElementById('settingHoldTtn').value = settings.holdTtn;
     document.getElementById('settingCycleMinutes').disabled=!canAdmin();
     document.getElementById('settingCycleMinutes').value = Math.max(MIN_CYCLE_MINUTES, settings.cycleMinutes || MIN_CYCLE_MINUTES);
-    document.getElementById('hapticArrive').checked = !!settings.hapticArrive;
+    for(const name of ['hapticArrive','hapticLoad','hapticTtn'])document.getElementById(name).checked=!!settings[name];
     document.getElementById('settingsModal').classList.add('open');
   }
   function closeSettingsModal() { document.getElementById('settingsModal').classList.remove('open'); }
@@ -3529,6 +3595,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.2',title:'Ранги бригады и новые настройки',items:['Шесть рангов для дорожной бригады: от новичка на линии до легенды фрезеровки. Все уровни и пороги монет доступны в рейтинге.','При открытии показывается рейтинг текущей смены. Общий рейтинг и рейтинг объекта также доступны; исправлены псевдонимы и оформление личной карточки.','Поздравление с новым рангом появляется сверху, салют — по центру экрана, звучат аплодисменты. Эффект исчезает через 3 секунды.','В админке появилась вкладка «Настройки»: игровой режим, игровые звуки и эффекты, MAX, время ходки и настройки устройства.','Администратор может посмотреть поздравление для любого ранга без изменения баланса.','В списке пользователей добавлены переключатели временного доступа; ограниченный пользователь видит сообщение с обращением к администратору.']},
     {version:'3.1',title:'Монетки и рейтинги',items:['Компактная копилка в шапке, увеличенные монетки на кнопках, полёт монетки со звуком и золотым блеском при попадании.','Верхнее уведомление появляется после попадания монетки; сообщения об ошибках показываются сразу.','Общий рейтинг, рейтинг текущей смены и выбранного объекта с погрузками, возвращениями и штрафами.','За отменённое ошибочное действие с автора списывается 3 монеты. Уведомление о штрафе остаётся до подтверждения; награда отменённого действия аннулируется.','Повторная обработка не удваивает штраф; отмены без связи сохраняются до синхронизации.','Игровой режим включается администратором для всех пользователей.']},
     {version:'3.0',title:'Встроенные функции и история версий',items:['Четыре модуля стали постоянной частью приложения: слои карточек, отметка «Дубликат» после закрытия смены, просмотр листа, аналитика ходок.','Убраны переключатели этих модулей из списка патчей.','История версий открывается нажатием на номер версии.','Все подтверждения и сообщения оформлены как модалки без затемнения страницы.','Изменения базы записываются в журнал отмены одновременно с сохранением. Отмена и восстановление выбранной записи проверяют конфликты.','Матрица прав сгруппирована по разделам; добавлены отдельные права на просмотр журнала, отмену и восстановление своих или любых действий.']},
     {version:'2.94',title:'Исправления офлайн-режима',items:['Сброс таймера ходки сохраняется локально и синхронизируется после подключения.','Журнал отмены открывается без ожидания ответа сервера и показывает локальные действия.','Сохраняется предыдущее состояние для отмены погрузки.','Добавлены повторная отправка аудита и общая настройка времени ходки.']},
@@ -3547,7 +3614,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
     .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.2';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
   button.addEventListener('click',()=>{
     if(document.getElementById('releaseHistoryDialog'))return;
     const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
@@ -3720,7 +3787,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     input.addEventListener('input', update); card.append(caption, sample); dialog.append(title, input, card, error, hint, close); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); update(); dialog.showModal(); close.focus();
   }
   function addPanel() {
-    const parent = document.querySelector('#admin-sub-appsettings .form-card'); if (!parent || document.getElementById('maxPlatePanel')) return;
+    const parent = document.querySelector('#admin-max-settings .form-card'); if (!parent || document.getElementById('maxPlatePanel')) return;
     const panel = document.createElement('div'); panel.id = 'maxPlatePanel'; panel.style.cssText = 'margin-top:16px;padding-top:12px;border-top:1px solid #334155';
     const title = document.createElement('b'); title.textContent = 'Госномер в уведомлениях MAX'; const message = document.createElement('p'); message.id = 'maxPlateStatus'; message.textContent = status; message.style.cssText = 'color:#94a3b8;font-size:12px;line-height:1.4;margin:7px 0';
     const actions = document.createElement('div'); actions.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
@@ -3733,6 +3800,16 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
 </script>
 <!-- MAX PLATE PNG PATCH END -->
 <style id="game-coins-style">
+.game-preview-settings{border-top:1px solid var(--border);padding-top:12px;margin-top:12px}.game-preview-settings>label{display:block;font-size:13px;font-weight:700;margin-bottom:8px}.game-preview-settings select{margin-bottom:8px;font-size:13px}.game-preview-settings>button{width:100%}
+#game-ranks-toggle{width:100%;margin:0 0 14px;padding:9px 12px;border:1px solid #b8893266;border-radius:10px;background:#fbbf2410;color:#fcd34d;cursor:pointer;font-size:13px;font-weight:700}#game-ranks-toggle:focus-visible{outline:2px solid #fbbf24;outline-offset:3px}.game-ranks-guide{margin:0 0 16px;padding:12px;border:1px solid var(--border);border-radius:12px;font-size:12px;line-height:1.5}.game-ranks-guide[hidden]{display:none}.game-ranks-guide p{margin-bottom:8px}.game-ranks-guide table{width:100%;border-collapse:collapse;text-align:left}.game-ranks-guide th,.game-ranks-guide td{padding:8px 5px;border-bottom:1px solid var(--border)}.game-ranks-guide td,.game-ranks-guide th:last-child{text-align:right;white-space:nowrap}.game-ranks-guide th:first-child{font-weight:600}.game-ranks-guide .current{background:#fbbf2417;color:#fcd34d}.game-ranks-guide small{display:block;font-weight:400;color:var(--muted)}
+#game-rank-celebration{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:11002;width:min(440px,calc(100vw - 24px));padding:16px 38px 16px 18px;border:1px solid #eecb7899;border-radius:16px;background:linear-gradient(125deg,#283047f5,#34270ff5);color:#fff8dc;box-shadow:0 8px 28px #0005,0 0 18px #fbbf2414;pointer-events:none;line-height:1.4;overflow:hidden}#game-rank-celebration strong{display:block;font-size:12px;letter-spacing:.05em;color:#fcd976}#game-rank-celebration p{margin:6px 0;font-size:17px;font-weight:700}#game-rank-celebration small{font-size:11px;color:#dac9a1}#game-rank-celebration button{position:absolute;top:4px;right:4px;width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#fff8dc;font-size:22px;cursor:pointer;pointer-events:auto}#game-rank-celebration.festive{animation:rankNoticeIn .28s ease-out}
+#game-rank-fireworks{position:fixed;inset:0;width:100%;height:100%;z-index:11001;pointer-events:none}
+@keyframes rankNoticeIn{from{opacity:0;transform:translate(-50%,-12px)}to{opacity:1;transform:translate(-50%,0)}}
+@media(prefers-reduced-motion:reduce){#game-rank-celebration.festive{animation:none}#game-rank-fireworks{display:none}}
+#disabledScreen{z-index:2147483646}.user-access-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--border);padding-top:9px;margin-top:9px;font-size:12px}.user-access-row small{display:block;color:var(--muted);margin-top:3px}.user-access-row .toggle-switch{flex-shrink:0}.user-access-limited{border-color:#f59e0b77}.user-access-limited .user-access-row{color:#fbbf24}
+
+.admin-settings-group{border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--card)}.admin-settings-group>summary{cursor:pointer;padding:11px 12px;font-size:13px;font-weight:700;line-height:1.4}.admin-settings-group>summary>span{display:block;padding-left:16px;color:var(--muted);font-size:11px;font-weight:400}.admin-settings-group>.form-card{border:0;border-top:1px solid var(--border);border-radius:0 0 10px 10px;margin:0;padding:12px}.admin-settings-note{color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:12px}.admin-settings-group .settings-row{gap:12px}.admin-settings-group .toggle-switch{flex-shrink:0}
+
 .game-scopes{display:flex;gap:6px;margin:14px 0;flex-wrap:wrap}.game-scopes button,#game-object{border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg);color:var(--text)}.game-scopes button[aria-pressed="true"]{border-color:#fbbf24;color:#fbbf24}#game-object{max-width:100%;margin:6px 0}
 #game-penalty-notice{position:fixed;bottom:calc(82px + env(safe-area-inset-bottom,0px));right:12px;width:min(360px,calc(100vw - 24px));max-height:45dvh;overflow:auto;z-index:12000;background:var(--card);color:var(--text);border:1px solid #f59e0b;border-radius:12px;padding:14px;box-shadow:0 6px 24px #0006;font-size:13px}#game-penalty-notice button{margin-top:10px;padding:8px 14px;border:0;border-radius:6px;cursor:pointer}#game-penalty-notice p{margin-top:8px}
 
@@ -3747,7 +3824,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
 #game-ranking{width:min(540px,calc(100% - 24px));max-height:85dvh;margin:auto;padding:24px;border:1px solid #b88932;border-radius:24px;background:var(--card);color:var(--text);box-shadow:0 24px 90px #0008}
 #game-ranking::backdrop{background:#020617b8;backdrop-filter:blur(5px)}
 .game-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.game-head button{background:var(--border);color:var(--text);border:0;border-radius:50%;width:40px;height:40px;font-size:22px;cursor:pointer}
-.game-profile{padding:20px;border-radius:18px;background:linear-gradient(120deg,#78350f,#422006);color:#fef3c7;margin-bottom:20px}.game-profile strong{display:block;font-size:32px;margin:8px 0}.game-profile progress{width:100%;accent-color:#fbbf24;margin:10px 0}
+.game-profile{padding:16px;border:1px solid #fbbf2438;border-radius:16px;background:linear-gradient(135deg,#493018,#2e2418);color:#fef3c7;margin-bottom:16px}.game-profile-name{display:block;font-size:18px;font-weight:800;line-height:1.3;overflow-wrap:anywhere}.game-profile-rank{display:block;width:fit-content;max-width:100%;margin-top:6px;padding:4px 8px;border-radius:7px;background:#fbbf2414;color:#fde68a;font-size:11px;line-height:1.4;overflow-wrap:anywhere}.game-profile-balance{margin-top:12px}.game-profile-label{display:block;color:#d6c6a8;font-size:11px;line-height:1.4}.game-profile-value{display:flex;align-items:center;gap:8px;margin-top:3px;font-size:30px;font-weight:800;line-height:1.2;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.game-profile-value>span{font-size:24px;flex-shrink:0}.game-profile-progress{border-top:1px solid #fbbf2424;margin-top:12px;padding-top:12px;color:#e8d8b6;font-size:12px;line-height:1.45;overflow-wrap:anywhere}.game-profile progress{display:block;width:100%;height:6px;border:0;border-radius:999px;overflow:hidden;accent-color:#fbbf24;margin:0 0 8px;background:#ffffff18}.game-profile progress::-webkit-progress-bar{background:#ffffff18;border-radius:999px}.game-profile progress::-webkit-progress-value{background:#fbbf24;border-radius:999px}.game-profile progress::-moz-progress-bar{background:#fbbf24;border-radius:999px}
 .game-row{display:flex;gap:12px;align-items:center;padding:13px 10px;border-bottom:1px solid var(--border)}.game-row.me{background:#fbbf2414;border-radius:12px}.game-place{font-size:21px;min-width:32px}.game-person{flex:1;min-width:0;overflow-wrap:anywhere}.game-person small{display:block;color:var(--muted);margin-top:4px}.game-score{color:#fbbf24;white-space:nowrap}.game-note{font-size:12px;line-height:1.6;color:var(--muted);margin:12px 0}
 .game-flying-coin{position:fixed;z-index:11000;pointer-events:none;font-size:30px;filter:drop-shadow(0 3px 7px #f59e0b80)}
 body.game-coin-feedback #toast{visibility:hidden}
@@ -3763,7 +3840,7 @@ body.game-coin-feedback #toast{visibility:hidden}
 <script id="game-coins-v2">
 (function(){
   'use strict';
-  const levels=[{at:0,name:'🌱 Новичок'},{at:25,name:'🚛 На колёсах'},{at:100,name:'🥉 Мастер рейса'},{at:500,name:'🥈 Профи карьера'},{at:1000,name:'🥇 Легенда линии'},{at:5000,name:'👑 Золотая лопата'}];
+  const levels=[{at:0,name:'🦺 Новичок на линии'},{at:25,name:'👀 Зоркий учётчик'},{at:100,name:'📋 Мастер отметок'},{at:500,name:'⚙️ Знаток фрезы'},{at:1000,name:'🏗️ Опора бригады'},{at:5000,name:'👑 Легенда фрезеровки'}];
   const rank=n=>levels.filter(x=>n>=x.at).at(-1)||levels[0];
   const key=s=>String(s||'').trim().toLowerCase();
   const objectKey=s=>s?.objectId?'id:'+s.objectId:s?.objectName?'name:'+s.objectName:'';
@@ -3817,38 +3894,58 @@ body.game-coin-feedback #toast{visibility:hidden}
   }
   window.__gameCoinsCore={calculate,rank,scopeFor,scopedRecords};
 
-  let records=[],unsubscribe=null,owner='',ready=false,error='',board=[],configReady=false,lastView='',rankingScope='all',rankingObject='';
-  const enabled=()=>configReady&&permissionsLoaded&&!!currentUid&&appConfig?.testReviewFlags?.game_mode!==false;
+  let records=[],unsubscribe=null,owner='',ready=false,error='',board=[],configReady=false,lastView='',rankingScope='shift',rankingObject='',rankGuideOpen=false;
+  const enabled=()=>configReady&&permissionsLoaded&&currentUserStatus==='active'&&!!currentUid&&appConfig?.testReviewFlags?.game_mode!==false;
   const wallet=document.createElement('button');wallet.id='game-wallet';wallet.hidden=true;wallet.type='button';wallet.setAttribute('aria-label','Монеты и рейтинг пользователей');document.querySelector('#mainHeader .top-row')?.insertBefore(wallet,document.querySelector('#mainHeader .gear-btn'));
   const modal=document.createElement('dialog');modal.id='game-ranking';modal.setAttribute('aria-labelledby','game-title');document.body.append(modal);
-  const admin=document.createElement('div');admin.id='game-admin';admin.className='form-card';admin.hidden=true;
-  admin.innerHTML='<label style="display:flex;align-items:center;gap:12px;font-weight:700"><input type="checkbox" id="game-enabled"> 🪙 Игровой режим для всех</label><p class="game-note">Монеты за погрузки и возвращения, личный ранг и рейтинг команды. Выключение скрывает весь игровой интерфейс у всех пользователей. Накопления сохраняются в истории.</p>';
-  document.getElementById('tab-admin')?.prepend(admin);
-  const checkbox=admin.querySelector('input');
-  checkbox.onchange=async()=>{if(!canAdmin())return;checkbox.disabled=true;try{await appConfigRef.set({testReviewFlags:{game_mode:checkbox.checked}},{merge:true});}catch(e){checkbox.checked=enabled();showError('Не удалось сохранить игровой режим: '+e.message);}finally{checkbox.disabled=false;}};
+  const admin=document.createElement('details');admin.id='game-admin';admin.className='admin-settings-group';admin.hidden=true;
+  const gameOptions=[['game_mode','Игровой режим для всех'],['game_sound','Игровые звуки: монеты и аплодисменты'],['game_effects','Анимации монет и праздничный салют']];
+  admin.innerHTML='<summary>🪙 Игровой режим <span id="game-mode-state"></span></summary><div class="form-card">'
+    +gameOptions.map(([id,label])=>'<div class="settings-row"><label for="'+id+'">'+label+'</label><label class="toggle-switch"><input type="checkbox" id="'+id+'" data-game-setting="'+id+'"><span class="toggle-slider"></span></label></div>').join('')
+    +'<p class="game-note">Общие настройки для всех пользователей. Монеты и штрафы продолжают учитываться при выключенном игровом режиме. Уведомления о штрафах остаются доступны.</p>'
+    +'<div class="game-preview-settings"><label for="game-preview-rank">Проверить поздравление</label><select id="game-preview-rank" class="form-control">'+levels.map(l=>'<option value="'+l.at+'"'+(l.at===25?' selected':'')+'>'+escapeHtml(l.name)+' · '+l.at.toLocaleString('ru-RU')+' 🪙</option>').join('')+'</select><button type="button" id="game-preview-rank-button" class="btn btn-secondary btn-small">🎉 Показать поздравление</button><p class="game-note">Только на вашем экране. Баланс, ранг и история достижений не меняются. Звук и анимация учитывают настройки выше.</p></div></div>';
+  document.getElementById('admin-game-settings-slot')?.append(admin);
+  const gameControls=[...admin.querySelectorAll('[data-game-setting]')],savingFlags=new Set();
+  async function saveGameSetting(input){
+    const flag=input.dataset.gameSetting;
+    if(!canAdmin()||!gameOptions.some(([id])=>id===flag)){paint();return;}
+    const value=input.checked;savingFlags.add(flag);input.disabled=true;
+    try{await appConfigRef.set({testReviewFlags:{[flag]:value}},{merge:true});appConfig.testReviewFlags={...appConfig.testReviewFlags,[flag]:value};window.dispatchEvent(new Event('review-flags-changed'));}
+    catch(e){showError('Не удалось сохранить настройку: '+e.message);}
+    finally{savingFlags.delete(flag);paint();}
+  }
+  gameControls.forEach(input=>input.onchange=()=>saveGameSetting(input));
+  admin.querySelector('#game-preview-rank-button').onclick=previewRankCelebration;
   function paint(){
-    decorateButtons();wallet.hidden=!enabled();admin.hidden=!canAdmin();if(!checkbox.disabled)checkbox.checked=enabled();
-    if(!enabled()){if(modal.open)modal.close();cancelCoinFeedback();return;}
+    decorateButtons();wallet.hidden=!enabled();admin.hidden=!canAdmin();
+    gameControls.forEach(input=>{const id=input.dataset.gameSetting;if(!savingFlags.has(id))input.checked=appConfig?.testReviewFlags?.[id]!==false;input.disabled=!canAdmin()||savingFlags.has(id)||(id!=='game_mode'&&!enabled());});
+    admin.querySelector('#game-mode-state').textContent=enabled()?'Включён':'Выключен';
+    if(!enabled()){if(modal.open)modal.close();cancelCoinFeedback();cancelRankCelebration({keepPreview:canAdmin()});return;}
+    if(appConfig?.testReviewFlags?.game_effects===false)cancelCoinFeedback();
     const overall=calculate(records);const me=overall.find(r=>r.user===key(currentEmail)),coins=me?.coins||0;
     const objects=objectOptions(records);if(!rankingObject)rankingObject=state.shift?.objectId?'id:'+state.shift.objectId:objects[0]?.key||'';
     const filter=rankingScope==='shift'?{shiftId:state.shift?.id||'__none__'}:rankingScope==='object'?{objectKey:rankingObject||'__none__'}:{};board=calculate(records,filter);
     wallet.textContent='🪙 '+(ready?coins.toLocaleString('ru-RU'):'…');wallet.title=rank(coins).name+' · Открыть рейтинг';
     if(!modal.open)return;
-    const view=JSON.stringify([board,coins,currentEmail,ready,error,rankingScope,rankingObject,state.shift?.id,objects]);if(view===lastView&&modal.innerHTML)return;lastView=view;
+    const displayNames=board.map(r=>resolveUserDisplayName(r.user,r.name)),myName=resolveUserDisplayName(currentEmail,getUserName());
+    const view=JSON.stringify([board,coins,currentEmail,myName,displayNames,ready,error,rankingScope,rankingObject,state.shift?.id,objects,rankGuideOpen]);if(view===lastView&&modal.innerHTML)return;lastView=view;
     const level=rank(coins),next=levels.find(x=>x.at>coins),esc=escapeHtml;
-    modal.innerHTML='<div class="game-head"><h2 id="game-title">Лига самосвалов</h2><button aria-label="Закрыть рейтинг">×</button></div>'
-      +'<div class="game-profile"><span>'+esc(getUserName())+' · '+esc(level.name)+'</span><small>Общий баланс</small><strong>🪙 '+coins.toLocaleString('ru-RU')+'</strong>'
-      +(next?'<progress value="'+Math.max(0,coins-level.at)+'" max="'+(next.at-level.at)+'" aria-label="Прогресс до следующего ранга"></progress><div>Ещё '+(next.at-coins)+' до ранга «'+esc(next.name)+'»</div>':'<div>Высший ранг — вы легенда команды!</div>')+'</div>'
+    modal.innerHTML='<div class="game-head"><h2 id="game-title">Лига дорожной бригады</h2><button aria-label="Закрыть рейтинг">×</button></div>'
+      +'<div class="game-profile"><div class="game-profile-name">'+esc(myName)+'</div><div class="game-profile-rank">'+esc(level.name)+'</div>'
+      +'<div class="game-profile-balance"><span class="game-profile-label">Общий баланс</span><strong class="game-profile-value"><span aria-hidden="true">🪙</span>'+coins.toLocaleString('ru-RU')+'</strong></div>'
+      +'<div class="game-profile-progress">'+(next?'<progress value="'+Math.max(0,coins-level.at)+'" max="'+(next.at-level.at)+'" aria-label="Прогресс до следующего ранга"></progress><div>Ещё '+(next.at-coins)+' 🪙 до ранга «'+esc(next.name)+'»</div>':'<div>👑 Высший ранг — вы легенда команды!</div>')+'</div></div>'
+      +'<button type="button" id="game-ranks-toggle" aria-expanded="'+rankGuideOpen+'" aria-controls="game-ranks-guide">🏅 Все ранги · '+levels.length+'</button>'+renderRankGuide(coins)
       +'<div class="game-scopes" role="group" aria-label="Период рейтинга">'+[['all','Общий'],['shift','Текущая смена'],['object','Объект']].map(([id,label])=>'<button type="button" data-game-scope="'+id+'" aria-pressed="'+(rankingScope===id)+'">'+label+'</button>').join('')+'</div>'
       +(rankingScope==='object'?'<label class="game-note">Объект <select id="game-object">'+objects.map(o=>'<option value="'+esc(o.key)+'" '+(o.key===rankingObject?'selected':'')+'>'+esc(o.name)+'</option>').join('')+'</select></label>':'')
-      +'<h3>Рейтинг команды'+(rankingScope==='shift'?' · текущая смена':rankingScope==='object'?' · объект':' · за всё время')+'</h3><p class="game-note">Погрузка +1 · Возвращение после погрузки +2. Первый приезд — без монет. Ошибочное действие: штраф −3 автору при отмене. Награда отменённого действия также аннулируется. Штраф остаётся при восстановлении; повторно за то же действие не списывается.</p>'
+      +'<h3>Рейтинг команды'+(rankingScope==='shift'?' · текущая смена':rankingScope==='object'?' · объект':' · за всё время')+'</h3><p class="game-note">За отметку погрузки +1 · За отметку возвращения после погрузки +2. Первый приезд — без монет. Ошибочное действие: штраф −3 автору при отмене. Награда отменённого действия также аннулируется. Штраф остаётся при восстановлении; повторно за то же действие не списывается.</p>'
       +(rankingScope==='shift'&&!state.shift?.id?'<p class="game-note">Смена не начата.</p>':'')
-      +(error?'<p role="status">'+esc(error)+'</p>':!ready?'<p role="status">Загружаем накопления…</p>':board.length?board.map((r,i)=>'<div class="game-row '+(r.user===key(currentEmail)?'me':'')+'"><span class="game-place">'+(['🥇','🥈','🥉'][i]||i+1)+'</span><div class="game-person"><b>'+esc(resolveUserDisplayName(r.user,r.name))+(r.user===key(currentEmail)?' · вы':'')+'</b><small>Погрузки: '+r.loads+' · Возвращения: '+r.arrivals+' · Штрафы: '+r.penalties+' (−'+(r.penalties*3)+')</small></div><b class="game-score">'+r.coins+' 🪙</b></div>').join(''):'<p class="game-note">Первый рейс — первый шаг к вершине. Здесь появятся участники с монетами.</p>');
+      +(error?'<p role="status">'+esc(error)+'</p>':!ready?'<p role="status">Загружаем накопления…</p>':board.length?board.map((r,i)=>'<div class="game-row '+(r.user===key(currentEmail)?'me':'')+'"><span class="game-place">'+(['🥇','🥈','🥉'][i]||i+1)+'</span><div class="game-person"><b>'+esc(displayNames[i])+(r.user===key(currentEmail)?' · вы':'')+'</b><small>Отметки погрузки: '+r.loads+' · Возвращения: '+r.arrivals+' · Штрафы: '+r.penalties+' (−'+(r.penalties*3)+')</small></div><b class="game-score">'+r.coins+' 🪙</b></div>').join(''):'<p class="game-note">Здесь появятся участники, которые отмечают машины на линии фрезерования.</p>');
     modal.querySelector('.game-head button').onclick=()=>modal.close();
+    modal.querySelector('#game-ranks-toggle').onclick=()=>{rankGuideOpen=!rankGuideOpen;paint();modal.querySelector('#game-ranks-toggle')?.focus();};
     modal.querySelectorAll('[data-game-scope]').forEach(b=>b.onclick=()=>{rankingScope=b.dataset.gameScope;paint();});
     const objectSelect=modal.querySelector('#game-object');if(objectSelect)objectSelect.onchange=()=>{rankingObject=objectSelect.value;paint();};
   }
-  wallet.onclick=()=>{modal.showModal();paint();};
+  wallet.onclick=()=>{rankingScope='shift';rankGuideOpen=false;modal.showModal();paint();};
   modal.addEventListener('click',e=>{if(e.target===modal){const r=modal.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)modal.close();}});
   function decorateButtons(){
     document.querySelectorAll('.truck-card[data-truck-id]').forEach(card=>{
@@ -3862,16 +3959,16 @@ body.game-coin-feedback #toast{visibility:hidden}
     });
   }
   let audioContext;
-  function unlockCoinAudio(){
-    if(!enabled())return;
+  function unlockCoinAudio(preview=false){
+    if(!(preview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_sound===false)return;
     try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;
       audioContext=audioContext||new Audio();if(audioContext.state==='suspended')audioContext.resume().catch(()=>{});
     }catch(e){/* Audio is optional; action and animation must still work. */}
   }
-  document.addEventListener('pointerdown',e=>{if(e.target.closest('.btn-quick,.btn-arrive'))unlockCoinAudio();},true);
-  document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.closest('.btn-quick,.btn-arrive'))unlockCoinAudio();},true);
+  document.addEventListener('pointerdown',e=>{if(e.target.closest('.btn-quick,.btn-arrive,#game-wallet,#game-ranks-toggle'))unlockCoinAudio();},true);
+  document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.closest('.btn-quick,.btn-arrive,#game-wallet,#game-ranks-toggle'))unlockCoinAudio();},true);
   function coinDing(){
-    if(!enabled()||!audioContext||audioContext.state!=='running')return;
+    if(!enabled()||appConfig?.testReviewFlags?.game_sound===false||!audioContext||audioContext.state!=='running')return;
     try{const t=audioContext.currentTime;
       [1318.51,2637.02].forEach((frequency,i)=>{const osc=audioContext.createOscillator(),gain=audioContext.createGain();
         osc.type='sine';osc.frequency.value=frequency;gain.gain.setValueAtTime(0,t);gain.gain.linearRampToValueAtTime(i?.025:.07,t+.008);gain.gain.exponentialRampToValueAtTime(.0001,t+.65);
@@ -3879,6 +3976,160 @@ body.game-coin-feedback #toast{visibility:hidden}
       });
     }catch(e){/* Sound must never interrupt the action. */}
   }
+  // Only server-confirmed balance changes can unlock a celebration.
+  function advanceRankMarker(previous,coins,celebrate){
+    const at=rank(coins).at;
+    if(!previous)return {peak:at,pending:null};
+    const pending=at<Number(previous.pending)?null:previous.pending;
+    return {peak:Math.max(previous.peak,at),pending:!celebrate?null:at>previous.peak?at:pending};
+  }
+  const rankMarkers=new Map();
+  let rankNoticePreview=false;
+  let rankSnapshotConfirmed=false,pendingRankAt=null,rankNotice=null,rankNoticeTimer=null,rankQueueTimer=null;
+  const applauseSources=new Set();
+  const rankMarkerKey=()=> 'samosval:rank-celebration:v1:'+firebaseConfig.projectId+':'+WORKSPACE_ID+':'+currentUid;
+  function readRankMarker(){
+    const id=rankMarkerKey();if(rankMarkers.has(id))return rankMarkers.get(id);
+    try{const saved=JSON.parse(localStorage.getItem(id)||'null');
+      if(saved&&levels.some(l=>l.at===saved.peak)&&(saved.pending===null||levels.some(l=>l.at===saved.pending&&l.at<=saved.peak))){rankMarkers.set(id,saved);return saved;}
+    }catch(e){}return null;
+  }
+  function saveRankMarker(marker){
+    rankMarkers.set(rankMarkerKey(),marker);
+    try{localStorage.setItem(rankMarkerKey(),JSON.stringify(marker));}catch(e){/* Session memory still prevents duplicate celebrations. */}
+  }
+  function dismissRankNotice(){
+    stopRankFireworks();
+    clearTimeout(rankNoticeTimer);rankNoticeTimer=null;rankNotice?.remove();rankNotice=null;rankNoticePreview=false;
+    for(const source of [...applauseSources])try{source.stop();}catch(e){}
+    applauseSources.clear();
+  }
+  function cancelRankCelebration({keepPreview=false}={}){
+    if(!keepPreview||!rankNoticePreview)dismissRankNotice();clearTimeout(rankQueueTimer);rankQueueTimer=null;pendingRankAt=null;
+  }
+  let rankFireworkCanvas=null,rankFireworkFrame=null;
+  function stopRankFireworks(){
+    if(rankFireworkFrame!==null)cancelAnimationFrame(rankFireworkFrame);
+    rankFireworkFrame=null;rankFireworkCanvas?.remove();rankFireworkCanvas=null;
+  }
+  function startRankFireworks(){
+    stopRankFireworks();
+    if(appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+    const canvas=document.createElement('canvas');canvas.id='game-rank-fireworks';canvas.setAttribute('aria-hidden','true');
+    const ctx=canvas.getContext?.('2d');if(!ctx)return;
+    document.body.append(canvas);rankFireworkCanvas=canvas;
+    // Five overlapping bursts around the screen centre; bounded particle count.
+    const bursts=[
+      {at:0,x:0,y:0,hue:43,count:64,size:1},
+      {at:.32,x:-.55,y:-.3,hue:185,count:48,size:.78},
+      {at:.65,x:.58,y:-.16,hue:320,count:48,size:.82},
+      {at:1.02,x:-.2,y:.18,hue:48,count:56,size:.92},
+      {at:1.36,x:.22,y:-.35,hue:38,count:64,size:1.05}
+    ];
+    for(const b of bursts)b.sparks=Array.from({length:b.count},(_,i)=>({angle:Math.PI*2*i/b.count+(Math.random()-.5)*.06,speed:(.68+Math.random()*.4)*b.size,life:1.12+Math.random()*.3,width:1+Math.random()*.8,phase:Math.random()*6.28}));
+    const started=performance.now();let width=0,height=0;
+    function frame(now){
+      if(!canvas.isConnected||document.hidden||!rankNotice||!(rankNoticePreview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches){stopRankFireworks();return;}
+      const elapsed=(now-started)/1000;if(elapsed>2.85){stopRankFireworks();return;}
+      const w=window.innerWidth,h=window.innerHeight,dpr=Math.min(window.devicePixelRatio||1,2);
+      if(w!==width||h!==height){width=w;height=h;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
+      ctx.clearRect(0,0,width,height);ctx.globalCompositeOperation='lighter';
+      const radius=Math.min(width,height)*.28;
+      for(const b of bursts){
+        const age=elapsed-b.at;if(age<0||age>1.45)continue;
+        const x=width/2+b.x*radius,y=height/2+b.y*radius;
+        // Local glow only: no full-screen flash or dark overlay.
+        if(age<.24){const glow=ctx.createRadialGradient(x,y,0,x,y,radius*.34);glow.addColorStop(0,'hsla('+b.hue+',100%,90%,'+(.5*(1-age/.24))+')');glow.addColorStop(1,'transparent');ctx.fillStyle=glow;ctx.fillRect(x-radius*.34,y-radius*.34,radius*.68,radius*.68);}
+        for(const p of b.sparks){
+          if(age>p.life)continue;
+          const distance=t=>radius*p.speed*(1-Math.exp(-2.8*t)),fall=t=>radius*.3*t*t;
+          const px=x+Math.cos(p.angle)*distance(age),py=y+Math.sin(p.angle)*distance(age)+fall(age);
+          const tail=Math.max(0,age-.07),tx=x+Math.cos(p.angle)*distance(tail),ty=y+Math.sin(p.angle)*distance(tail)+fall(tail);
+          const alpha=Math.pow(1-age/p.life,.75)*(.78+.22*Math.sin(age*16+p.phase));
+          ctx.strokeStyle='hsla('+b.hue+',95%,72%,'+alpha+')';ctx.lineWidth=p.width;ctx.lineCap='round';ctx.shadowColor='hsl('+b.hue+',100%,65%)';ctx.shadowBlur=5;
+          ctx.beginPath();ctx.moveTo(tx,ty);ctx.lineTo(px,py);ctx.stroke();
+          ctx.fillStyle='rgba(255,251,222,'+alpha+')';ctx.fillRect(px-.65,py-.65,1.3,1.3);
+        }
+      }
+      ctx.shadowBlur=0;ctx.globalCompositeOperation='source-over';rankFireworkFrame=requestAnimationFrame(frame);
+    }
+    rankFireworkFrame=requestAnimationFrame(frame);
+  }
+
+  function rankApplause(preview=false){
+    if(!(preview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_sound===false||!audioContext||audioContext.state!=='running')return;
+    try{
+      const start=audioContext.currentTime,rate=audioContext.sampleRate;
+      // Layered, spatial handclaps with a small room tail, fading after 1.8 seconds.
+      const room=audioContext.createConvolver(),wet=audioContext.createGain(),impulse=audioContext.createBuffer(2,Math.ceil(rate*.24),rate);
+      for(let channel=0;channel<2;channel++){const data=impulse.getChannelData(channel);for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*Math.pow(1-i/data.length,3);}
+      room.buffer=impulse;wet.gain.value=.17;room.connect(wet);wet.connect(audioContext.destination);
+      const buffer=audioContext.createBuffer(1,Math.ceil(rate*.12),rate),samples=buffer.getChannelData(0);
+      for(let i=0;i<samples.length;i++){const t=i/rate,envelope=Math.exp(-t*80)+(t>.009?.65*Math.exp(-(t-.009)*100):0)+(t>.019?.4*Math.exp(-(t-.019)*110):0);samples[i]=(Math.random()*2-1)*envelope*.65;}
+      let remaining=32;
+      for(let i=0;i<32;i++){
+        const source=audioContext.createBufferSource(),filter=audioContext.createBiquadFilter(),gain=audioContext.createGain(),pan=audioContext.createStereoPanner();
+        const t=start+i*.048+(i%3)*.007,fade=Math.min(1,(32-i)/8);
+        source.buffer=buffer;source.playbackRate.value=.82+(i%6)*.08;
+        filter.type='highpass';filter.frequency.value=500+(i%4)*100;
+        gain.gain.value=(.24+(i%3)*.025)*fade;pan.pan.value=((i%7)-3)/4;
+        source.connect(filter);filter.connect(gain);gain.connect(pan);pan.connect(audioContext.destination);pan.connect(room);applauseSources.add(source);
+        source.onended=()=>{applauseSources.delete(source);source.disconnect();filter.disconnect();gain.disconnect();pan.disconnect();if(--remaining===0){room.disconnect();wet.disconnect();}};
+        source.start(t);source.stop(t+.17);
+      }
+    }catch(e){/* A browser audio restriction must not interrupt work. */}
+  }
+  function showPendingRank(){
+    clearTimeout(rankQueueTimer);rankQueueTimer=null;
+    if(pendingRankAt===null||!enabled()||!rankSnapshotConfirmed)return;
+    const toast=document.getElementById('toast');
+    if(document.hidden||rankNotice||coinFlights.size||Date.now()<feedbackUntil||penaltyNotice||toast?.classList.contains('show')||document.querySelector('.modal.open,dialog[open]')){
+      rankQueueTimer=setTimeout(showPendingRank,400);return;
+    }
+    const milestone=levels.find(l=>l.at===pendingRankAt);if(!milestone)return;
+    showRankNotice(milestone);
+    const marker=readRankMarker();if(marker)saveRankMarker({...marker,pending:null});pendingRankAt=null;
+  }
+  function showRankNotice(milestone,preview=false){
+    dismissRankNotice();
+    const el=document.createElement('aside');el.id='game-rank-celebration';el.setAttribute('role','status');el.setAttribute('aria-live','polite');el.setAttribute('aria-atomic','true');
+    const effects=appConfig?.testReviewFlags?.game_effects!==false&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.classList.toggle('festive',effects);
+    const title=document.createElement('strong');title.textContent=milestone.at?'🎉 Ура, новый ранг!':'🎉 Добро пожаловать в бригаду!';
+    const text=document.createElement('p');text.textContent='Поздравляем! Ваш ранг — '+milestone.name+'.';
+    const note=document.createElement('small');note.textContent=(preview?'Предпросмотр · ':'')+milestone.at.toLocaleString('ru-RU')+' монет'+(preview?' · баланс не меняется':' — заслуженно!');
+    const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Закрыть поздравление');close.onclick=dismissRankNotice;
+    el.append(title,text,note,close);document.body.append(el);rankNotice=el;rankNoticePreview=preview;
+    if(effects)startRankFireworks();
+    rankApplause(preview);rankNoticeTimer=setTimeout(dismissRankNotice,3000);
+  }
+  async function previewRankCelebration(){
+    if(!canAdmin())return;
+    const at=Number(admin.querySelector('#game-preview-rank').value),milestone=levels.find(l=>l.at===at);if(!milestone)return;
+    unlockCoinAudio(true);
+    if(audioContext?.state==='suspended')try{await audioContext.resume();}catch(e){}
+    if(!canAdmin())return;
+    showRankNotice(milestone,true);
+  }
+  function observeRankProgress(){
+    if(!rankSnapshotConfirmed||!configReady||!currentUid||currentUid!==owner)return;
+    const coins=calculate(records).find(r=>r.user===key(currentEmail))?.coins||0;
+    const previous=readRankMarker(),marker=advanceRankMarker(previous,coins,enabled());
+    if(JSON.stringify(previous)!==JSON.stringify(marker))saveRankMarker(marker);
+    pendingRankAt=marker.pending;
+    if(!enabled()){cancelRankCelebration({keepPreview:canAdmin()});return;}
+    if(pendingRankAt!==null)showPendingRank();
+  }
+  function renderRankGuide(coins){
+    const current=rank(coins),next=levels.find(l=>l.at>coins),esc=escapeHtml;
+    return '<section id="game-ranks-guide" class="game-ranks-guide"'+(rankGuideOpen?'':' hidden')+' aria-label="Все ранги и пороги монет">'
+      +'<p>Всего рангов: <b>'+levels.length+'</b>. Ранги за работу с отметками на линии фрезерования; зависят от общего баланса монет.</p>'
+      +(ready?'<p>'+(next?'До ранга «'+esc(next.name)+'» осталось <b>'+(next.at-coins).toLocaleString('ru-RU')+' 🪙</b>.':'Вы достигли высшего ранга!')+'</p>':'<p>Загружаем ваш баланс…</p>')
+      +'<table><thead><tr><th scope="col">Ранг</th><th scope="col">Нужно монет</th></tr></thead><tbody>'
+      +levels.map((l,i)=>'<tr'+(ready&&l.at===current.at?' class="current" aria-current="true"':'')+'><th scope="row">'+esc(l.name)+(ready&&l.at===current.at?'<small>Ваш ранг</small>':i===levels.length-1?'<small>Высший ранг</small>':'')+'</th><td>'+l.at.toLocaleString('ru-RU')+' 🪙</td></tr>').join('')
+      +'</tbody></table></section>';
+  }
+
   // Coordinate the toast with all in-flight coins and the last wallet impact.
   const coinFlights=new Set();
   let feedbackUntil=0,feedbackTimer=null,walletHitTimer=null,deferredToast=null;
@@ -3902,6 +4153,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   }
   function walletImpact(){
     if(!enabled()||wallet.hidden)return;
+    if(appConfig?.testReviewFlags?.game_effects===false){coinDing();return;}
     const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
     feedbackUntil=Date.now()+(reduced?300:550);
     clearTimeout(walletHitTimer);wallet.classList.remove('game-wallet-hit');void wallet.offsetWidth;wallet.classList.add('game-wallet-hit');
@@ -3922,7 +4174,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   }
   window.__gameDeferToast=(html,isError,isUndo)=>{
     // Errors take precedence and must never be hidden behind a celebration.
-    if(isError){cancelCoinFeedback();return false;}
+    if(isError){dismissRankNotice();cancelCoinFeedback();return false;}
     if(!coinFlights.size&&Date.now()>=feedbackUntil)return false;
     deferredToast=[html,isError,isUndo];resumeCoinToast();return true;
   };
@@ -3930,6 +4182,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   if(line)new MutationObserver(decorateButtons).observe(line,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled']});
   window.__gameCoinQueued=function(op){
     if(!enabled()||!(op.type==='load'||op.type==='arrive'&&op.wantArrived&&op.lastLoadTimestamp))return;
+    if(appConfig?.testReviewFlags?.game_effects===false){coinDing();return;}
     const card=[...document.querySelectorAll('.truck-card[data-truck-id]')].find(c=>c.dataset.truckId===op.truckId),button=card?.querySelector(op.type==='load'?'.btn-quick':'.btn-arrive');
     const icon=button?.querySelector('.game-button-coin'),r=(icon||button)?.getBoundingClientRect();
     // Immediate visual feedback; balance remains server-confirmed.
@@ -3949,18 +4202,19 @@ body.game-coin-feedback #toast{visibility:hidden}
     }catch(e){finish(false);}
   };
   function sync(){
-    const identity=permissionsLoaded?String(currentUid||''):'';
+    const identity=permissionsLoaded&&currentUserStatus==='active'?String(currentUid||''):'';
     if(identity!==owner){
-      cancelCoinFeedback();
-      unsubscribe?.();unsubscribe=null;owner=identity;records=[];board=[];ready=false;error='';rankingObject='';closePenaltyNotice();
+      cancelCoinFeedback();cancelRankCelebration();rankSnapshotConfirmed=false;rankGuideOpen=false;
+      unsubscribe?.();unsubscribe=null;owner=identity;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
     }
     if(identity&&!unsubscribe){
       const session=owner;
-      unsubscribe=refs.audit.where('eventType','in',['history','game_penalty']).onSnapshot(s=>{if(owner!==session)return;records=s.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()}));ready=true;error='';notifyPenalties(records);paint();},e=>{if(owner!==session)return;error='Не удалось загрузить рейтинг. Проверьте подключение и доступ к истории.';ready=false;paint();console.warn('[game coins]',e);});
+      unsubscribe=refs.audit.where('eventType','in',['history','game_penalty']).onSnapshot({includeMetadataChanges:true},s=>{if(owner!==session)return;records=s.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()}));ready=true;error='';rankSnapshotConfirmed=!s.metadata.fromCache&&!s.metadata.hasPendingWrites;notifyPenalties(records);paint();observeRankProgress();},e=>{if(owner!==session)return;rankSnapshotConfirmed=false;cancelRankCelebration();error='Не удалось загрузить рейтинг. Проверьте подключение и доступ к истории.';ready=false;paint();console.warn('[game coins]',e);});
     }
     paint();
   }
-  window.__gameConfigChanged=()=>{configReady=true;sync();};
+  window.__gameConfigChanged=()=>{configReady=true;sync();observeRankProgress();};
+  window.__gameAccessChanged=sync;
   // One durable penalty per original action, shared by both undo routes.
   window.__gamePenaltyKey=(type,truck,s,logId,fallback)=>type==='load'&&logId?'load:'+logId:type==='arrive'?'arrive:'+truck+':'+s.shiftId+':'+s.cycleRevision:type==='ttn'?'ttn:'+truck+':'+s.shiftId+':'+s.ttnRevision:'history:'+fallback;
   window.__gameHistoryPenaltyKey=h=>{
@@ -3992,13 +4246,13 @@ body.game-coin-feedback #toast{visibility:hidden}
     if(!currentUid)return;
     const read=acknowledged(),pending=rows.filter(e=>e.eventType==='game_penalty'&&key(e.targetEmail)===key(currentEmail)&&!read.has(e.id)).sort((a,b)=>a.timestamp-b.timestamp);
     const signature=JSON.stringify(pending.map(e=>e.id));if(signature===penaltyNoticeKey)return;closePenaltyNotice();if(!pending.length)return;
-    penaltyNoticeKey=signature;const el=document.createElement('aside');el.id='game-penalty-notice';el.setAttribute('role','alert');el.setAttribute('aria-label','Списание монет за ошибочное действие');
+    dismissRankNotice();penaltyNoticeKey=signature;const el=document.createElement('aside');el.id='game-penalty-notice';el.setAttribute('role','alert');el.setAttribute('aria-label','Списание монет за ошибочное действие');
     const heading=document.createElement('strong');heading.textContent='Списано '+(pending.length*3)+' 🪙 за ошибочные действия';el.append(heading);
     for(const e of pending){const p=document.createElement('p');p.textContent='−3 🪙 · '+e.description+'. '+(key(e.userEmail)===key(currentEmail)?'Вы отменили своё действие.':'Действие отменил '+(e.userName||'администратор')+'.');el.append(p);}
     const button=document.createElement('button');button.type='button';button.textContent='Понятно';button.onclick=()=>{for(const e of pending)read.add(e.id);try{localStorage.setItem(ackKey(),JSON.stringify([...read]));closePenaltyNotice();}catch(e){showError('Не удалось сохранить прочтение уведомления');}};el.append(button);document.body.append(el);penaltyNotice=el;
   }
   window.__gameFlushPenalties=async()=>{
-    if(flushBusy||!navigator.onLine||!currentUid||!permissionsLoaded)return;
+    if(flushBusy||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active')return;
     const session=currentUid;flushBusy=true;
     try{for(const op of offlineJournalRead().filter(o=>o.status==='cancelled'&&!o.penaltyDelivered)){
       if(session!==currentUid)break;
@@ -4015,5 +4269,6 @@ body.game-coin-feedback #toast{visibility:hidden}
 
 </body>
 </html>
+
 
 
