@@ -447,7 +447,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.1.4 · тест</span>
+        <span class="version-text">Версия 3.1.5 · тест</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -3641,6 +3641,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.1.5 · тест',title:'Сводка по всем датам объекта',items:['В табеле добавлена кнопка «Весь объект».', 'Выборка включает месяцы и годы без пустых календарных дат.', 'Отдельный кэш и подписка не вмешиваются в действующую офлайн-очередь.', 'В «Патчах» появился включаемый пункт «Сводка за весь объект».']},
     {version:'3.1.4 · тест',title:'Возвращены функции и показана проверка доступа',items:['В тестовую вернули оформление госномеров MAX, которое есть в основной версии.','Если Firebase не загрузил права, интерфейс теперь показывает причину скрытых разделов.','Неполный офлайн-кэш больше не создаёт документ прав. Логику погрузок и синхронизации не меняли.']},
     {version:'3.1.3 · тест',title:'Отчёт о работе и авторы отметок',items:['В админке появился полный отчёт: выполненное, незавершённое, ограничения и дальнейший план.','Для каждого согласованного пункта есть описание, проверка и шаблон сообщения о проблеме.','Повторный приезд, погрузка и ТТН показывают автора сохранённого действия, если имя есть в записи.','Новые роли и табель 3.2 сохранены отдельно и не включены до проверки правил базы.','Основная страница и механизм синхронизации не изменялись.']},
     {version:'3.1.2 · тест',title:'Смена по образцу таблицы',items:['Техника и её экипаж расположены рядом, в порядке исходной таблицы.','Цвета поливомойки, щётки, фрезы, погрузчиков и автобуса перенесены в смену.','Одно поле часов экипажа назначает часы каждому машинисту или водителю.','Справочники рабочих, ИТР, машинистов/водителей и техники разделены.','Экипаж назначается в смене объекта, а не в справочнике техники.','Общая установка часов доступна только рабочим.']},
@@ -3663,7 +3664,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
     .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1.4 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1.5 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
   button.addEventListener('click',()=>{
     if(document.getElementById('releaseHistoryDialog'))return;
     const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
@@ -3679,7 +3680,7 @@ window.appConfirm=function(message){return window.showConfirmModal('Подтве
 window.appNotice=function(message){return window.showConfirmModal('Сообщение',escapeHtml(String(message)).replace(/\n/g,'<br>'),{confirmLabel:'Понятно',hideCancel:true});};
 </script>
 <!-- WORK REVIEW START -->
-<script>window.TEST_REVIEW_RELEASE={"label":"Тест 3.1.4 · восстановление функций","features":["conflict_author","admin_report"],"note":"В этой публикации включены подробные уведомления о повторных действиях и отчёт с планом. Табель 3.2, новые роли и сброс старшим прорабом подготовлены в отдельной ветке test-v3-3 и ждут правил тестовой базы. Они здесь не включены."};</script>
+<script>window.TEST_REVIEW_RELEASE={"label":"Тест 3.1.5 · сводка за весь объект","features":["conflict_author","admin_report","object_summary"],"note":"В этой публикации добавлена сводка всех дат объекта в табеле; она доступна через отдельную кнопку «Весь объект». Уведомления о повторных действиях и отчёт с планом сохранены. Табель 3.2, новые роли и сброс старшим прорабом подготовлены в отдельной ветке test-v3-3 и ждут правил тестовой базы. Они здесь не включены."};</script>
 <script id="test-review-core">
 /* Test build review switches. Never injected into production index.html. */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.TestReviewCore=api;})(globalThis,function(){
@@ -3732,8 +3733,8 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     ['sync_review','Оптимизация синхронизации — анализ','События долго ожидают подтверждения; ожидание подписано как офлайн.','Подготовлена оценка очереди, уведомлений, аудита и повторных попыток. Ускорение не внедрено.','Не применяется: это анализ, а не переключаемое изменение алгоритма.','Измерить время локального сохранения, отправки, подтверждения и появления у коллеги.'],
     ['weekly_1c','Недельный отчёт для 1С — на потом','Отдельного согласованного недельного отчёта нет.','Понедельник–воскресенье; работы, своя техника, поступления, материалы, табель. Сверить по будущей фотографии.','Не применяется: задача отложена владельцем.','После получения образца сверить строки, даты, часы и оформление.']
   );
-  const statuses={conflict_author:'tested',senior_foreman_role:'tested',senior_foreman_reset:'tested',senior_foreman_crown:'prepared',admin_tired_icon:'prepared',admin_report:'prepared',standard_crew:'partial',hired_single:'partial',shift_material:'partial',truck_participation:'partial',offline_integrity:'tested',sync_review:'analysis',weekly_1c:'deferred'};
-  const patches=definitions.map(([id,title,before,after,off,check])=>({id,title,before,after,off,check,status:statuses[id]||'planned',switchable:['conflict_author','senior_foreman_role','senior_foreman_reset','senior_foreman_crown','admin_tired_icon','admin_report'].includes(id),dependencies:id==='equipment_frequency'?['equipment_tiles']:id==='game_penalties'?['user_ranking']:id.startsWith('tables_')&&id!=='tables_editor'?['tables_editor']:[]}));
+  const statuses={object_summary:'prepared',conflict_author:'tested',senior_foreman_role:'tested',senior_foreman_reset:'tested',senior_foreman_crown:'prepared',admin_tired_icon:'prepared',admin_report:'prepared',standard_crew:'partial',hired_single:'partial',shift_material:'partial',truck_participation:'partial',offline_integrity:'tested',sync_review:'analysis',weekly_1c:'deferred'};
+  const patches=definitions.map(([id,title,before,after,off,check])=>({id,title,before,after,off,check,status:statuses[id]||'planned',switchable:['object_summary','conflict_author','senior_foreman_role','senior_foreman_reset','senior_foreman_crown','admin_tired_icon','admin_report'].includes(id),dependencies:id==='equipment_frequency'?['equipment_tiles']:id==='game_penalties'?['user_ranking']:id.startsWith('tables_')&&id!=='tables_editor'?['tables_editor']:[]}));
   function enabled(config,id){return config?.testReviewFlags?.[id]!==false;}
   function reward(event){return event.cancelled?0:event.kind==='load'?1:event.kind==='arrive'&&event.previousLoadAt>0?2:0;}
   function level(coins){return coins>=5000?'👑 Золотая лопата':coins>=1000?'Серебряная лопата':coins>=100?'Деревянная лопата':'Новичок';}
@@ -3947,7 +3948,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
   const statuses={unfilled:'Не заполнено',work:'Работал',off:'Выходной',absent:'Отсутствовал'};
   const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow'}).format(new Date());
   const uid=()=>{if(crypto.randomUUID)return crypto.randomUUID();const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');};
-  const S={user:'',generation:0,local:null,jobs:[],remote:{},unsubs:[],periodUnsubs:[],objectId:'',date:today(),shift:'day',view:'day',catalogGroup:'worker',scope:'',ready:{},errors:{},busy:false,dialog:null,lastHtml:'',bulkWorkers:false,bulkRows:[],bulkValue:'12',bulkSaving:false};
+  const S={user:'',generation:0,local:null,jobs:[],remote:{},unsubs:[],periodUnsubs:[],objectId:'',date:today(),shift:'day',view:'day',catalogGroup:'worker',scope:'',ready:{},objectRows:{timesheetEntries:[],timesheetMaterials:[]},objectReady:{},objectCached:{},objectViewId:'',objectUnsubs:[],objectRequest:0,errors:{},busy:false,dialog:null,lastHtml:'',bulkWorkers:false,bulkRows:[],bulkValue:'12',bulkSaving:false};
   for(const k of C.collections) S.remote[k]=[];
   const host=document.getElementById('tab-timesheet');
   const byId=id=>document.getElementById(id);
@@ -3964,6 +3965,8 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
   function living(col){return rows(col).filter(x=>!x.deleted);}
   function entries(){return living('timesheetEntries').filter(x=>x.scope===C.scope(S.objectId,S.date));}
   function dayEntries(){return entries().filter(x=>x.date===S.date&&x.shift===S.shift);}
+  const objectSummaryEnabled=()=>appConfig?.testReviewFlags?.object_summary!==false;
+  const objectRows=col=>C.project(S.objectRows[col]||[],S.jobs,col).filter(x=>!x.deleted&&x.objectId===S.objectId);
   function object(){return state.objects.find(x=>x.id===S.objectId);}
   function ownData(row){const d={...row};for(const k of ['id','revision','lastOpId','updatedBy','updatedName','updatedAt','pending'])delete d[k];return d;}
   function change(col,id,data){const old=rows(col).find(x=>x.id===id);return {collection:col,id,baseRevision:old?.revision||0,before:old?ownData(old):null,data};}
@@ -3975,7 +3978,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
   function localOpen(name){return new Promise((resolve,reject)=>{const req=indexedDB.open(name,1);req.onupgradeneeded=()=>{req.result.createObjectStore('jobs',{keyPath:'id'});req.result.createObjectStore('cache',{keyPath:'key'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);req.onblocked=()=>reject(Error('Закройте другие вкладки, чтобы открыть локальное хранилище'));});}
   function local(store,method,value){const database=S.local;if(!database)return Promise.reject(Error('Локальное хранилище ещё не готово'));return new Promise((resolve,reject)=>{const tx=database.transaction(store,method==='get'||method==='getAll'?'readonly':'readwrite');const req=tx.objectStore(store)[method](value);let result;req.onsuccess=()=>{result=req.result;};tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error||req.error);tx.onabort=()=>reject(tx.error||Error('Не удалось сохранить на устройстве'));});}
   async function loadJobs(){const generation=S.generation;const jobs=await local('jobs','getAll');if(generation===S.generation)S.jobs=jobs.sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));}
-  function reset(){S.generation++;inlineDrafts.clear();inlineChains.clear();S.bulkWorkers=false;S.bulkRows=[];S.bulkSaving=false;for(const u of [...S.unsubs,...S.periodUnsubs])u();S.unsubs=[];S.periodUnsubs=[];S.local?.close();S.local=null;S.user='';S.scope='';S.jobs=[];S.ready={};S.errors={};S.busy=false;for(const k of C.collections)S.remote[k]=[];S.dialog?.close();S.lastHtml='';host.innerHTML='';}
+  function reset(){S.generation++;stopObjectView();inlineDrafts.clear();inlineChains.clear();S.bulkWorkers=false;S.bulkRows=[];S.bulkSaving=false;for(const u of [...S.unsubs,...S.periodUnsubs])u();S.unsubs=[];S.periodUnsubs=[];S.local?.close();S.local=null;S.user='';S.scope='';S.jobs=[];S.ready={};S.errors={};S.busy=false;for(const k of C.collections)S.remote[k]=[];S.dialog?.close();S.lastHtml='';host.innerHTML='';}
   async function session(){
     if(!allowed()){if(S.user)reset();return;}
     if(S.user===currentUid)return;
@@ -4004,6 +4007,35 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     for(const col of ['timesheetEntries','timesheetMaterials']){
       const key=col+':'+scope,cached=await local('cache','get',key);if(generation!==S.generation||S.scope!==scope)return;if(cached)S.remote[col]=cached.rows;
       S.periodUnsubs.push(wsRef.collection(col).where('scope','==',scope).onSnapshot({includeMetadataChanges:true},snap=>{if(S.scope===scope)receive(col,key,snap,generation);},e=>{if(S.scope===scope)syncError(col,e,generation);}));
+    }
+    render();
+  }
+  // Отдельная подписка на весь объект. Помесячный кэш и очередь событий не изменяются.
+  function stopObjectView(){
+    S.objectRequest++;S.objectUnsubs.forEach(u=>u());S.objectUnsubs=[];
+    S.objectViewId='';S.objectRows={timesheetEntries:[],timesheetMaterials:[]};
+    S.objectReady={};S.objectCached={};
+    delete S.errors.objectEntries;delete S.errors.objectMaterials;
+  }
+  async function objectPeriod(){
+    if(!S.local||!S.objectId||S.view!=='object'||!objectSummaryEnabled())return;
+    if(S.objectViewId===S.objectId)return;
+    stopObjectView();const objectId=S.objectId,request=S.objectRequest,generation=S.generation;
+    S.objectViewId=objectId;
+    for(const [col,errorKey] of [['timesheetEntries','objectEntries'],['timesheetMaterials','objectMaterials']]){
+      const key=col+':object:'+objectId,cached=await local('cache','get',key);
+      if(generation!==S.generation||request!==S.objectRequest||S.objectViewId!==objectId)return;
+      if(cached?.complete&&Array.isArray(cached.rows)){S.objectRows[col]=cached.rows;S.objectCached[col]=true;}
+      S.objectReady[col]=false;
+      S.objectUnsubs.push(wsRef.collection(col).where('objectId','==',objectId).onSnapshot({includeMetadataChanges:true},snap=>{
+        if(generation!==S.generation||request!==S.objectRequest||S.objectViewId!==objectId)return;
+        if(!snap.metadata.fromCache){
+          S.objectRows[col]=snap.docs.map(d=>({...d.data(),id:d.id}));
+          S.objectReady[col]=true;S.objectCached[col]=true;delete S.errors[errorKey];
+          local('cache','put',{key,rows:S.objectRows[col],complete:true}).catch(e=>{S.errors.local='Кэш сводки не сохранён: '+e.message;render();});
+        } else S.objectReady[col]=false;
+        render();
+      },e=>{if(generation!==S.generation||request!==S.objectRequest||S.objectViewId!==objectId)return;S.objectReady[col]=false;S.errors[errorKey]=e.code==='permission-denied'?'Нет доступа к данным всего объекта: проверьте правила тестовой базы.':e.message;render();}));
     }
     render();
   }
@@ -4146,6 +4178,46 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     const map=new Map(a.map(r=>[r.id,r]));let headers='',sub='';for(let i=1;i<=days;i++){headers+=`<th colspan="2">${i}</th>`;sub+='<th>Д</th><th>Н</th>';}
     return `<div class="ts-toolbar">${hasPermission('timesheet_export')?btn('↓ Табель CSV','export')+btn('↓ Материалы CSV','export-materials'):''}${btn('История изменений','history')}</div>`+note('Д — дневная смена, Н — ночная. Нажмите ячейку для открытия. «—» — часы ещё не заполнены; пусто — записи нет.')+`<div class="ts-table-wrap"><table class="ts-table"><thead><tr><th rowspan="2">Сотрудник / техника</th>${headers}<th rowspan="2">Итого, ч</th></tr><tr>${sub}</tr></thead><tbody>${grid.map(g=>{let total=0;let cells='';for(let i=1;i<=days;i++)for(const shift of ['day','night']){const date=month+'-'+String(i).padStart(2,'0'),id=C.entryId(g.kind,S.objectId,date,shift,g.entityId),r=map.get(id);if(r)total+=r.minutes||0;cells+=`<td class="${r?.pending?'ts-pending':''}">${r?`<button type="button" data-action="entry" data-id="${E(id)}">${r.status==='unfilled'?'—':r.status==='work'?C.fmt(r.minutes):r.status==='off'?'В':'НЯ'}</button>`:''}</td>`;}return `<tr><th>${E(g.name)}<small>${g.kind==='person'?'Сотрудник':'Техника'}</small></th>${cells}<td><b>${C.fmt(total)}</b></td></tr>`;}).join('')}</tbody></table></div>${!grid.length?note('За этот месяц пока нет записей.') : ''}`+materialsView(true);
   }
+  function objectView(){
+    const entryReady=S.objectReady.timesheetEntries||S.objectCached.timesheetEntries;
+    const materialReady=S.objectReady.timesheetMaterials||S.objectCached.timesheetMaterials;
+    if(!entryReady||!materialReady){
+      return note('Собираем сводку по всем датам объекта. Для первого открытия нужен интернет; затем сохранённая сводка доступна без сети.')+
+        (!navigator.onLine?'<div class="ts-warning">Полная сводка ещё не сохранена на этом устройстве. После подключения откройте этот раздел снова.</div>':'');
+    }
+    const list=objectRows('timesheetEntries'),materials=objectRows('timesheetMaterials');
+    const dated=new Map();
+    for(const r of [...list,...materials]){
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(r.date||''))continue;
+      const key=r.date+'|'+(r.shift==='night'?'night':'day');
+      dated.set(key,{date:r.date,shift:r.shift==='night'?'night':'day'});
+    }
+    const dates=[...dated.values()].sort((a,b)=>a.date.localeCompare(b.date)||(['day','night'].indexOf(a.shift)-['day','night'].indexOf(b.shift)));
+    const entityMap=new Map();
+    for(const r of list){const key=r.kind+'|'+r.entityId;if(!entityMap.has(key))entityMap.set(key,{kind:r.kind,entityId:r.entityId,name:r.name,group:r.group});}
+    const grid=[...entityMap.values()].sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name,'ru'));
+    const byEntityDate=new Map(list.map(r=>[r.kind+'|'+r.entityId+'|'+r.date+'|'+r.shift,r]));
+    const totalMinutes=list.filter(r=>r.status==='work').reduce((n,r)=>n+(r.minutes||0),0);
+    const range=dates.length?fmtDate(dates[0].date)+' — '+fmtDate(dates[dates.length-1].date):'нет записей';
+    const waiting=(!S.objectReady.timesheetEntries||!S.objectReady.timesheetMaterials)?'<div class="ts-warning">Данные взяты из кэша устройства. Новые записи коллег появятся после синхронизации.</div>':'';
+    const headers=dates.map(d=>`<th><button type="button" data-action="object-day" data-date="${E(d.date)}" data-shift="${d.shift}" title="Открыть смену">${fmtDate(d.date)}<small>${d.shift==='night'?'Н':'Д'}</small></button></th>`).join('');
+    const body=grid.map(g=>{let total=0;
+      const cells=dates.map(d=>{const r=byEntityDate.get(g.kind+'|'+g.entityId+'|'+d.date+'|'+d.shift);
+        if(!r)return '<td></td>';
+        if(r.status==='work')total+=r.minutes||0;
+        const content=r.status==='unfilled'?'—':r.status==='work'?C.fmt(r.minutes):r.status==='off'?'В':'НЯ';
+        return `<td class="${r.pending?'ts-pending':''}" title="${E(r.name)} · ${fmtDate(d.date)} · ${shiftName(d.shift)}">${E(content)}</td>`;
+      }).join('');
+      return `<tr><th>${E(g.name)}<small>${g.kind==='equipment'?'Техника':'Сотрудник'}</small></th>${cells}<td><b>${C.fmt(total)}</b></td></tr>`;
+    }).join('');
+    const mt=new Map();
+    for(const r of materials){const k=r.material+'|'+r.unit;const a=mt.get(k)||{name:r.material,unit:r.unit,total:0};a.total+=r.quantity;mt.set(k,a);}
+    return `<section class="ts-section"><div class="ts-section-title"><h3>Сводка за весь объект</h3></div><p class="ts-muted">${E(object()?.name||'Объект')} · ${range}</p><div class="ts-stats"><div><strong>${dates.length}</strong><span>Смен с записями</span></div><div><strong>${grid.length}</strong><span>Людей и техники</span></div><div><strong>${C.fmt(totalMinutes)}</strong><span>Всего часов</span></div></div></section>`+
+      waiting+note('Только даты с записями. Д — день, Н — ночь. Нажмите дату, чтобы открыть смену. В итогах суммируются только отработанные часы.')+
+      `<div class="ts-table-wrap"><table class="ts-table ts-object-table"><thead><tr><th>Сотрудник / техника</th>${headers}<th>Итого, ч</th></tr></thead><tbody>${body}</tbody></table></div>`+
+      (!grid.length?note('За весь период объекта в табеле пока нет записей.'):'')+
+      `<section class="ts-section"><div class="ts-section-title"><h3>Материалы за объект</h3></div>${[...mt.values()].map(x=>`<span class="ts-chip">${E(x.name)} · ${Number(x.total.toFixed(3)).toLocaleString('ru-RU')} ${E(x.unit)}</span>`).join('')||note('Поступлений материалов пока нет.')}</section>`;
+  }
   function catalogView(){
     const category=S.catalogGroup||'worker',isEquipment=category==='equipment',col=isEquipment?'timesheetEquipment':'timesheetPeople';
     const list=living(col).filter(r=>isEquipment||r.group===category);
@@ -4160,7 +4232,7 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     if(!allowed()){host.innerHTML=note('Нет доступа к табелю.');return;}
     const pending=S.jobs.filter(x=>x.status==='queued').length,failed=S.jobs.filter(x=>x.status!=='queued');
     const syncText=pending?`На устройстве: ${pending} · ожидают отправки`:!navigator.onLine?'Нет связи · показываем сохранённые данные':S.objectId&&C.collections.every(c=>S.ready[c])?'Данные подтверждены сервером':'Проверяем данные с сервером…';
-    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div><span class="ts-version">Тест 3.1.4</span></div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
+    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div><span class="ts-version">Тест 3.1.5</span></div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${S.view==='object'?'':field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],...(objectSummaryEnabled()?[['object','Весь объект']]:[]),['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():S.view==='object'?objectView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
     if(html!==S.lastHtml){host.innerHTML=html;S.lastHtml=html;}
   }
   function dialog(title,body,onSubmit){
@@ -4302,15 +4374,16 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
     try{const snap=await wsRef.collection('timesheetChanges').where('scope','==',scope).get({source:'server'});const list=snap.docs.map(d=>d.data()).sort((a,b)=>b.createdAt-a.createdAt).slice(0,100);el.querySelector('.ts-dialog-body').innerHTML=list.map(x=>`<section class="ts-history"><b>${E(x.label)}</b><small>${E(x.name)} · ${new Date(x.createdAt).toLocaleString('ru-RU')}</small>${x.changes.map(c=>`<p>${E(describe(c.before))} → ${E(describe(c.after))}</p>`).join('')}</section>`).join('')||note('Изменений пока нет.');}catch(e){el.querySelector('.ts-dialog-body').textContent='Не удалось загрузить историю: '+e.message;}
   }
   host.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const {action,id,col,view,group}=b.dataset;
-    const actions={view:()=>{S.view=view;render();},'add-person':()=>addForm('person',group),'add-equipment':()=>addForm('equipment'),entry:()=>entryForm(id),crew:()=>crewForm(id),'add-crew':()=>addCrew(id),'hours-preset':()=>inlineButton(id,b.dataset.value),'hours-step':()=>inlineButton(id,undefined,b.dataset.delta),'workers-value':()=>workersValue(b),'workers-apply':applyWorkers,copy:copyForm,'catalog-group':()=>{S.catalogGroup=group;render();},catalog:()=>catalogForm(col,id,group),material:()=>materialForm(id),retry:replay,conflict:()=>conflictForm(id),export:()=>exportCsv(false),'export-materials':()=>exportCsv(true),history};
+    const actions={view:()=>{if(view==='object'&&!objectSummaryEnabled())return;const previous=S.view;S.view=view;if(previous==='object'&&view!=='object')stopObjectView();if(view==='object')objectPeriod().catch(error);render();},'object-day':()=>{S.date=b.dataset.date;S.shift=b.dataset.shift;S.view='day';stopObjectView();period().catch(error);render();},'add-person':()=>addForm('person',group),'add-equipment':()=>addForm('equipment'),entry:()=>entryForm(id),crew:()=>crewForm(id),'add-crew':()=>addCrew(id),'hours-preset':()=>inlineButton(id,b.dataset.value),'hours-step':()=>inlineButton(id,undefined,b.dataset.delta),'workers-value':()=>workersValue(b),'workers-apply':applyWorkers,copy:copyForm,'catalog-group':()=>{S.catalogGroup=group;render();},catalog:()=>catalogForm(col,id,group),material:()=>materialForm(id),retry:replay,conflict:()=>conflictForm(id),export:()=>exportCsv(false),'export-materials':()=>exportCsv(true),history};
     try{Promise.resolve(actions[action]?.()).catch(error);}catch(e){error(e);}
   });
-  host.addEventListener('change',e=>{const t=e.target;if(t.matches('.ts-inline-hours')){saveInlineInput(t);return;}if(t.id==='ts-workers-hours'){S.bulkValue=t.value;return;}if(t.id==='ts-object')S.objectId=t.value;else if(t.id==='ts-date'){if(!t.value)return;S.date=t.type==='month'?t.value+'-01':t.value;}else if(t.id==='ts-shift')S.shift=t.value;else return;S.bulkWorkers=false;S.bulkRows=[];S.bulkValue='12';t.blur();period().catch(error);render();});
+  host.addEventListener('change',e=>{const t=e.target;if(t.matches('.ts-inline-hours')){saveInlineInput(t);return;}if(t.id==='ts-workers-hours'){S.bulkValue=t.value;return;}if(t.id==='ts-object')S.objectId=t.value;else if(t.id==='ts-date'){if(!t.value)return;S.date=t.type==='month'?t.value+'-01':t.value;}else if(t.id==='ts-shift')S.shift=t.value;else return;S.bulkWorkers=false;S.bulkRows=[];S.bulkValue='12';t.blur();period().catch(error);if(S.view==='object')objectPeriod().catch(error);render();});
   host.addEventListener('focusin',e=>{if(e.target.matches('.ts-inline-hours')){const id=e.target.dataset.id;if(!inlineDrafts.get(id)?.dirty&&!inlineChains.has(id))inlineDrafts.delete(id);captureInline(e.target);e.target.select();}else if(e.target.id==='ts-workers-hours'){captureWorkers();e.target.select();}});
   host.addEventListener('input',e=>{if(e.target.matches('.ts-inline-hours')){const draft=captureInline(e.target);if(draft){draft.raw=e.target.value;draft.dirty=true;}e.target.removeAttribute('aria-invalid');}else if(e.target.id==='ts-workers-hours'){captureWorkers();S.bulkValue=e.target.value;}});
   host.addEventListener('focusout',e=>{if(!e.target.matches('.ts-inline-hours'))return;saveInlineInput(e.target);const id=e.target.dataset.id;setTimeout(()=>{if(document.activeElement!==e.target&&!inlineDrafts.get(id)?.dirty){inlineDrafts.delete(id);render();}},0);});
   host.addEventListener('keydown',e=>{if(!e.target.matches('.ts-inline-hours'))return;if(e.key==='Enter'){e.preventDefault();saveInlineInput(e.target);e.target.blur();}else if(e.key==='Escape'){e.preventDefault();const draft=inlineDrafts.get(e.target.dataset.id);if(draft){const value=commonHours(draft.records);e.target.value=value.mixed?'':C.fmt(value.minutes);draft.dirty=false;}e.target.blur();}});
   host.addEventListener('pointerdown',e=>{if(e.target.closest('[data-action^="hours-"]')&&document.activeElement?.matches('.ts-inline-hours'))e.preventDefault();});
+  window.addEventListener('review-flags-changed',()=>{if(!objectSummaryEnabled()&&S.view==='object'){S.view='month';stopObjectView();}render();});
   window.Timesheet={session,render,reset};
   const previousRender=window.renderAll;window.renderAll=function(){previousRender.apply(this,arguments);session();render();};
   const previousStop=window.stopSync;window.stopSync=function(){reset();return previousStop.apply(this,arguments);};
