@@ -462,7 +462,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.1.10 · тест</span>
+        <span class="version-text">Версия 3.1.11 · тест</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -3863,6 +3863,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.1.11 · тест',title:'Праздничный салют',items:['Поздравление с новым рангом расположено сверху по центру.','В центре экрана появляется короткий салют из пяти вспышек с искрами и светящимися следами.','Аплодисменты стали объёмнее; эффект не блокирует управление и автоматически исчезает.']},
     {version:'3.1.10 · тест',title:'Поздравления с новым рангом',items:['Короткое поздравление и аплодисменты при достижении нового ранга после подтверждения монет сервером.','Шесть рангов для учётчиков, дорожных рабочих, мастеров и прорабов на линии фрезерования. Кнопка «Все ранги» показывает пороги и путь к следующему.','При открытии отображается рейтинг текущей смены.','Администратор может проверить поздравление для каждого ранга без изменения монет и достижений.','Поздравление не перекрывает полёт монетки и учитывает настройки игровых звуков и эффектов.']},
     {version:'3.1.9 · тест',title:'Компактные настройки и псевдонимы',items:['MAX и игровой режим собраны во вкладке «Настройки» админки.','Отдельные переключатели звука монет и игровых эффектов; общее время ходки и доступ к настройкам устройства.','В рейтинге используются актуальные псевдонимы, в том числе после их изменения.','В списке пользователей добавлен тумблер временного ограничения доступа с отдельным экраном и восстановлением прежней роли.']},
     {version:'3.1.7 · тест',title:'Штатные места экипажа',items:['У собственной фрезы показаны два места экипажа, у остальных собственных машин — одно.', 'Неназначенные места не создают фиктивных записей или часов.', 'У наёмной техники блок экипажа скрыт, старые данные не удаляются.', 'Выбранные фамилии появляются в предпросмотре перед сохранением.']},
@@ -3890,7 +3891,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
     .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1.10 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.1.11 · тест';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
   button.addEventListener('click',()=>{
     if(document.getElementById('releaseHistoryDialog'))return;
     const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
@@ -4881,10 +4882,10 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
 <style id="game-coins-style">
 .game-preview-settings{border-top:1px solid var(--border);padding-top:12px;margin-top:12px}.game-preview-settings>label{display:block;font-size:13px;font-weight:700;margin-bottom:8px}.game-preview-settings select{margin-bottom:8px;font-size:13px}.game-preview-settings>button{width:100%}
 #game-ranks-toggle{width:100%;margin:0 0 14px;padding:9px 12px;border:1px solid #b8893266;border-radius:10px;background:#fbbf2410;color:#fcd34d;cursor:pointer;font-size:13px;font-weight:700}#game-ranks-toggle:focus-visible{outline:2px solid #fbbf24;outline-offset:3px}.game-ranks-guide{margin:0 0 16px;padding:12px;border:1px solid var(--border);border-radius:12px;font-size:12px;line-height:1.5}.game-ranks-guide[hidden]{display:none}.game-ranks-guide p{margin-bottom:8px}.game-ranks-guide table{width:100%;border-collapse:collapse;text-align:left}.game-ranks-guide th,.game-ranks-guide td{padding:8px 5px;border-bottom:1px solid var(--border)}.game-ranks-guide td,.game-ranks-guide th:last-child{text-align:right;white-space:nowrap}.game-ranks-guide th:first-child{font-weight:600}.game-ranks-guide .current{background:#fbbf2417;color:#fcd34d}.game-ranks-guide small{display:block;font-weight:400;color:var(--muted)}
-#game-rank-celebration{position:fixed;right:12px;bottom:calc(82px + env(safe-area-inset-bottom,0px));z-index:11002;width:min(320px,calc(100vw - 24px));padding:14px 36px 14px 16px;border:1px solid #fbbf2499;border-radius:14px;background:linear-gradient(125deg,#26304a,#34270d);color:#fff8dc;box-shadow:0 8px 28px #0005;pointer-events:none;line-height:1.45;overflow:hidden}#game-rank-celebration strong{display:block;font-size:15px}#game-rank-celebration p{margin:4px 0;font-size:13px}#game-rank-celebration small{font-size:11px;color:#fde68a}#game-rank-celebration button{position:absolute;top:4px;right:4px;width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#fff8dc;font-size:22px;cursor:pointer;pointer-events:auto}#game-rank-celebration.festive{animation:rankNoticeIn .22s ease-out}#game-rank-celebration.festive::after{content:'✦ · ✧ · ✦';position:absolute;right:32px;top:0;color:#fcd34d;font-size:18px;pointer-events:none;animation:rankNoticeSpark .9s ease-out both}
-@keyframes rankNoticeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes rankNoticeSpark{from{opacity:0;transform:translateY(20px) rotate(-10deg)}40%{opacity:1}to{opacity:0;transform:translateY(-16px) rotate(12deg)}}
-@media(prefers-reduced-motion:reduce){#game-rank-celebration.festive{animation:none}#game-rank-celebration.festive::after{display:none}}
-
+#game-rank-celebration{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:11002;width:min(440px,calc(100vw - 24px));padding:16px 38px 16px 18px;border:1px solid #eecb7899;border-radius:16px;background:linear-gradient(125deg,#283047f5,#34270ff5);color:#fff8dc;box-shadow:0 8px 28px #0005,0 0 18px #fbbf2414;pointer-events:none;line-height:1.4;overflow:hidden}#game-rank-celebration strong{display:block;font-size:12px;letter-spacing:.05em;color:#fcd976}#game-rank-celebration p{margin:6px 0;font-size:17px;font-weight:700}#game-rank-celebration small{font-size:11px;color:#dac9a1}#game-rank-celebration button{position:absolute;top:4px;right:4px;width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#fff8dc;font-size:22px;cursor:pointer;pointer-events:auto}#game-rank-celebration.festive{animation:rankNoticeIn .28s ease-out}
+#game-rank-fireworks{position:fixed;inset:0;width:100%;height:100%;z-index:11001;pointer-events:none}
+@keyframes rankNoticeIn{from{opacity:0;transform:translate(-50%,-12px)}to{opacity:1;transform:translate(-50%,0)}}
+@media(prefers-reduced-motion:reduce){#game-rank-celebration.festive{animation:none}#game-rank-fireworks{display:none}}
 #disabledScreen{z-index:2147483646}.user-access-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--border);padding-top:9px;margin-top:9px;font-size:12px}.user-access-row small{display:block;color:var(--muted);margin-top:3px}.user-access-row .toggle-switch{flex-shrink:0}.user-access-limited{border-color:#f59e0b77}.user-access-limited .user-access-row{color:#fbbf24}
 
 .admin-settings-group{border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--card)}.admin-settings-group>summary{cursor:pointer;padding:11px 12px;font-size:13px;font-weight:700;line-height:1.4}.admin-settings-group>summary>span{display:block;padding-left:16px;color:var(--muted);font-size:11px;font-weight:400}.admin-settings-group>.form-card{border:0;border-top:1px solid var(--border);border-radius:0 0 10px 10px;margin:0;padding:12px}.admin-settings-note{color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:12px}.admin-settings-group .settings-row{gap:12px}.admin-settings-group .toggle-switch{flex-shrink:0}
@@ -4978,7 +4979,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   const wallet=document.createElement('button');wallet.id='game-wallet';wallet.hidden=true;wallet.type='button';wallet.setAttribute('aria-label','Монеты и рейтинг пользователей');document.querySelector('#mainHeader .top-row')?.insertBefore(wallet,document.querySelector('#mainHeader .gear-btn'));
   const modal=document.createElement('dialog');modal.id='game-ranking';modal.setAttribute('aria-labelledby','game-title');document.body.append(modal);
   const admin=document.createElement('details');admin.id='game-admin';admin.className='admin-settings-group';admin.hidden=true;
-  const gameOptions=[['game_mode','Игровой режим для всех'],['game_sound','Игровые звуки: монеты и аплодисменты'],['game_effects','Анимации монет и праздничные эффекты']];
+  const gameOptions=[['game_mode','Игровой режим для всех'],['game_sound','Игровые звуки: монеты и аплодисменты'],['game_effects','Анимации монет и праздничный салют']];
   admin.innerHTML='<summary>🪙 Игровой режим <span id="game-mode-state"></span></summary><div class="form-card">'
     +gameOptions.map(([id,label])=>'<div class="settings-row"><label for="'+id+'">'+label+'</label><label class="toggle-switch"><input type="checkbox" id="'+id+'" data-game-setting="'+id+'"><span class="toggle-slider"></span></label></div>').join('')
     +'<p class="game-note">Общие настройки для всех пользователей. Монеты и штрафы продолжают учитываться при выключенном игровом режиме. Уведомления о штрафах остаются доступны.</p>'
@@ -5078,6 +5079,7 @@ body.game-coin-feedback #toast{visibility:hidden}
     try{localStorage.setItem(rankMarkerKey(),JSON.stringify(marker));}catch(e){/* Session memory still prevents duplicate celebrations. */}
   }
   function dismissRankNotice(){
+    stopRankFireworks();
     clearTimeout(rankNoticeTimer);rankNoticeTimer=null;rankNotice?.remove();rankNotice=null;rankNoticePreview=false;
     for(const source of [...applauseSources])try{source.stop();}catch(e){}
     applauseSources.clear();
@@ -5085,22 +5087,75 @@ body.game-coin-feedback #toast{visibility:hidden}
   function cancelRankCelebration({keepPreview=false}={}){
     if(!keepPreview||!rankNoticePreview)dismissRankNotice();clearTimeout(rankQueueTimer);rankQueueTimer=null;pendingRankAt=null;
   }
+  let rankFireworkCanvas=null,rankFireworkFrame=null;
+  function stopRankFireworks(){
+    if(rankFireworkFrame!==null)cancelAnimationFrame(rankFireworkFrame);
+    rankFireworkFrame=null;rankFireworkCanvas?.remove();rankFireworkCanvas=null;
+  }
+  function startRankFireworks(){
+    stopRankFireworks();
+    if(appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+    const canvas=document.createElement('canvas');canvas.id='game-rank-fireworks';canvas.setAttribute('aria-hidden','true');
+    const ctx=canvas.getContext?.('2d');if(!ctx)return;
+    document.body.append(canvas);rankFireworkCanvas=canvas;
+    // Five overlapping bursts around the screen centre; bounded particle count.
+    const bursts=[
+      {at:0,x:0,y:0,hue:43,count:64,size:1},
+      {at:.32,x:-.55,y:-.3,hue:185,count:48,size:.78},
+      {at:.65,x:.58,y:-.16,hue:320,count:48,size:.82},
+      {at:1.02,x:-.2,y:.18,hue:48,count:56,size:.92},
+      {at:1.36,x:.22,y:-.35,hue:38,count:64,size:1.05}
+    ];
+    for(const b of bursts)b.sparks=Array.from({length:b.count},(_,i)=>({angle:Math.PI*2*i/b.count+(Math.random()-.5)*.06,speed:(.68+Math.random()*.4)*b.size,life:1.12+Math.random()*.3,width:1+Math.random()*.8,phase:Math.random()*6.28}));
+    const started=performance.now();let width=0,height=0;
+    function frame(now){
+      if(!canvas.isConnected||document.hidden||!rankNotice||!(rankNoticePreview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches){stopRankFireworks();return;}
+      const elapsed=(now-started)/1000;if(elapsed>2.85){stopRankFireworks();return;}
+      const w=window.innerWidth,h=window.innerHeight,dpr=Math.min(window.devicePixelRatio||1,2);
+      if(w!==width||h!==height){width=w;height=h;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
+      ctx.clearRect(0,0,width,height);ctx.globalCompositeOperation='lighter';
+      const radius=Math.min(width,height)*.28;
+      for(const b of bursts){
+        const age=elapsed-b.at;if(age<0||age>1.45)continue;
+        const x=width/2+b.x*radius,y=height/2+b.y*radius;
+        // Local glow only: no full-screen flash or dark overlay.
+        if(age<.24){const glow=ctx.createRadialGradient(x,y,0,x,y,radius*.34);glow.addColorStop(0,'hsla('+b.hue+',100%,90%,'+(.5*(1-age/.24))+')');glow.addColorStop(1,'transparent');ctx.fillStyle=glow;ctx.fillRect(x-radius*.34,y-radius*.34,radius*.68,radius*.68);}
+        for(const p of b.sparks){
+          if(age>p.life)continue;
+          const distance=t=>radius*p.speed*(1-Math.exp(-2.8*t)),fall=t=>radius*.3*t*t;
+          const px=x+Math.cos(p.angle)*distance(age),py=y+Math.sin(p.angle)*distance(age)+fall(age);
+          const tail=Math.max(0,age-.07),tx=x+Math.cos(p.angle)*distance(tail),ty=y+Math.sin(p.angle)*distance(tail)+fall(tail);
+          const alpha=Math.pow(1-age/p.life,.75)*(.78+.22*Math.sin(age*16+p.phase));
+          ctx.strokeStyle='hsla('+b.hue+',95%,72%,'+alpha+')';ctx.lineWidth=p.width;ctx.lineCap='round';ctx.shadowColor='hsl('+b.hue+',100%,65%)';ctx.shadowBlur=5;
+          ctx.beginPath();ctx.moveTo(tx,ty);ctx.lineTo(px,py);ctx.stroke();
+          ctx.fillStyle='rgba(255,251,222,'+alpha+')';ctx.fillRect(px-.65,py-.65,1.3,1.3);
+        }
+      }
+      ctx.shadowBlur=0;ctx.globalCompositeOperation='source-over';rankFireworkFrame=requestAnimationFrame(frame);
+    }
+    rankFireworkFrame=requestAnimationFrame(frame);
+  }
+
   function rankApplause(preview=false){
     if(!(preview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_sound===false||!audioContext||audioContext.state!=='running')return;
     try{
       const start=audioContext.currentTime,rate=audioContext.sampleRate;
-      // A short, quiet crowd of overlapping handclaps; no downloaded audio.
-      const buffer=audioContext.createBuffer(1,Math.ceil(rate*.09),rate),samples=buffer.getChannelData(0);
-      for(let i=0;i<samples.length;i++)samples[i]=Math.random()*2-1;
-      for(let i=0;i<15;i++){
-        const source=audioContext.createBufferSource(),filter=audioContext.createBiquadFilter(),gain=audioContext.createGain();
-        const t=start+i*.067+(i%3)*.009;
-        source.buffer=buffer;source.playbackRate.value=.88+(i%5)*.08;
-        filter.type='bandpass';filter.frequency.value=1100+(i%4)*320;filter.Q.value=.7;
-        gain.gain.setValueAtTime(.0001,t);gain.gain.linearRampToValueAtTime(.065,t+.004);gain.gain.exponentialRampToValueAtTime(.0001,t+.085);
-        source.connect(filter);filter.connect(gain);gain.connect(audioContext.destination);applauseSources.add(source);
-        source.onended=()=>{applauseSources.delete(source);source.disconnect();filter.disconnect();gain.disconnect();};
-        source.start(t);source.stop(t+.11);
+      // Layered, spatial handclaps with a small room tail, fading after 1.8 seconds.
+      const room=audioContext.createConvolver(),wet=audioContext.createGain(),impulse=audioContext.createBuffer(2,Math.ceil(rate*.24),rate);
+      for(let channel=0;channel<2;channel++){const data=impulse.getChannelData(channel);for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*Math.pow(1-i/data.length,3);}
+      room.buffer=impulse;wet.gain.value=.17;room.connect(wet);wet.connect(audioContext.destination);
+      const buffer=audioContext.createBuffer(1,Math.ceil(rate*.12),rate),samples=buffer.getChannelData(0);
+      for(let i=0;i<samples.length;i++){const t=i/rate,envelope=Math.exp(-t*80)+(t>.009?.65*Math.exp(-(t-.009)*100):0)+(t>.019?.4*Math.exp(-(t-.019)*110):0);samples[i]=(Math.random()*2-1)*envelope*.65;}
+      let remaining=32;
+      for(let i=0;i<32;i++){
+        const source=audioContext.createBufferSource(),filter=audioContext.createBiquadFilter(),gain=audioContext.createGain(),pan=audioContext.createStereoPanner();
+        const t=start+i*.048+(i%3)*.007,fade=Math.min(1,(32-i)/8);
+        source.buffer=buffer;source.playbackRate.value=.82+(i%6)*.08;
+        filter.type='highpass';filter.frequency.value=500+(i%4)*100;
+        gain.gain.value=(.24+(i%3)*.025)*fade;pan.pan.value=((i%7)-3)/4;
+        source.connect(filter);filter.connect(gain);gain.connect(pan);pan.connect(audioContext.destination);pan.connect(room);applauseSources.add(source);
+        source.onended=()=>{applauseSources.delete(source);source.disconnect();filter.disconnect();gain.disconnect();pan.disconnect();if(--remaining===0){room.disconnect();wet.disconnect();}};
+        source.start(t);source.stop(t+.17);
       }
     }catch(e){/* A browser audio restriction must not interrupt work. */}
   }
@@ -5125,6 +5180,7 @@ body.game-coin-feedback #toast{visibility:hidden}
     const note=document.createElement('small');note.textContent=(preview?'Предпросмотр · ':'')+milestone.at.toLocaleString('ru-RU')+' монет'+(preview?' · баланс не меняется':' — заслуженно!');
     const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Закрыть поздравление');close.onclick=dismissRankNotice;
     el.append(title,text,note,close);document.body.append(el);rankNotice=el;rankNoticePreview=preview;
+    if(effects)startRankFireworks();
     rankApplause(preview);rankNoticeTimer=setTimeout(dismissRankNotice,3000);
   }
   async function previewRankCelebration(){
@@ -5293,6 +5349,7 @@ body.game-coin-feedback #toast{visibility:hidden}
 
 </body>
 </html>
+
 
 
 
