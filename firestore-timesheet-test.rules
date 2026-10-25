@@ -382,6 +382,7 @@ service cloud.firestore {
               && (can('history_redo_any') || (can('history_redo_own') && ownRecord()))));
 
         allow create: if active() && ownNewRecord()
+          && request.resource.data.get('eventType', '') != 'game_photo'
           && request.resource.data.get('userEmail', '')
             == request.auth.token.get('email', '')
           && request.resource.data.text is string
@@ -402,4 +403,5 @@ service cloud.firestore {
     }
   }
 }
+
 
