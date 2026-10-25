@@ -5012,7 +5012,7 @@ body.game-coin-feedback #toast{visibility:hidden}
     if(!enabled()){if(modal.open)modal.close();cancelCoinFeedback();cancelRankCelebration({keepPreview:canAdmin()});return;}
     if(appConfig?.testReviewFlags?.game_effects===false)cancelCoinFeedback();
     const overall=calculate(records);const me=overall.find(r=>r.user===key(currentEmail)),coins=me?.coins||0;
-    const spent=window.RoadShop?.spent(records,currentUid)||0,balance=Math.max(0,coins-spent);
+    const spent=window.RoadShop?.spent(records,currentUid)||0,balance=window.RoadShop?window.RoadShop.available(coins,spent,currentUserRole,currentUserStatus):Math.max(0,coins-spent);
     const objects=objectOptions(records);if(!rankingObject)rankingObject=state.shift?.objectId?'id:'+state.shift.objectId:objects[0]?.key||'';
     const filter=rankingScope==='shift'?{shiftId:state.shift?.id||'__none__'}:rankingScope==='object'?{objectKey:rankingObject||'__none__'}:{};board=calculate(records,filter);
     wallet.textContent='🪙 '+(ready?balance.toLocaleString('ru-RU'):'…');wallet.title=rank(coins).name+' · Открыть рейтинг';
@@ -5959,6 +5959,9 @@ body.game-coin-feedback #toast{visibility:hidden}
   const purchaseId=(uid,id)=>'game_purchase_'+encodeURIComponent(uid)+'_'+id;
   function purchases(rows,uid){const out=new Map();for(const r of rows){if(r.eventType!=='game_purchase'||r.userUid!==uid)continue;const t=THEMES.find(t=>t.id===r.itemId);if(t&&r.eventType==='game_purchase'&&r.userUid===uid&&r.id===purchaseId(uid,t.id)&&r.price===t.price)out.set(t.id,r);}return out;}
   const spent=(rows,uid)=>[...purchases(rows,uid).values()].reduce((sum,r)=>sum+r.price,0);
+  // Fixed testing allowance, not a recurring credit: durable purchases consume it.
+  const bonus=(role,status)=>role==='admin'&&status==='active'?10000:0;
+  const available=(earned,paid,role,status)=>Math.max(0,earned+bonus(role,status)-paid);
   const canOpen=()=>canUse(currentUserRole,currentUserStatus,permissionsLoaded)&&window.__gameEconomy?.snapshot().enabled===true;
   let owner='',preview=null,selected='',filter='all',busy=false,message='',renderKey='',applied='';
   const style=document.createElement('style');style.id='road-theme-active';document.head.append(style);
@@ -5969,9 +5972,9 @@ body.game-coin-feedback #toast{visibility:hidden}
   function apply(){const s=snapshot(),owned=purchases(s.records,currentUid);const id=canOpen()?(preview||(owned.has(selected)?selected:'')):'';if(applied!==id){style.textContent=themeCSS(THEMES.find(t=>t.id===id));applied=id;}}
   function setSelected(id){if(!canOpen()||(id&&!purchases(snapshot().records,currentUid).has(id)))return;selected=id;preview=null;try{localStorage.setItem(localKey(),id);}catch(e){message='Тема применена до закрытия страницы: браузер не разрешил сохранить выбор.';}apply();renderKey='';render();}
   function sample(t){return '<div class="shop-theme-sample" style="--sample-bg:'+t.bg+';--sample-card:'+t.card+';--sample-text:'+t.text+';--sample-border:'+t.border+';--sample-primary:'+t.primary+';--sample-radius:'+t.radius+'px;--sample-edge:'+t.width+'px;--sample-shadow:'+t.shadow+'"><small>🚧 Объект · Дорожная бригада</small><div class="sample-card">🚛 Самосвал · 12 м³</div><span class="sample-btn">Погрузка 🪙</span> <span class="sample-btn">Приехал</span></div>';}
-  function render(){if(!dialog.open)return;if(!canOpen()){dialog.close();return;}const s=snapshot(),owned=purchases(s.records,currentUid),cost=spent(s.records,currentUid),balance=Math.max(0,s.earned-cost);
+  function render(){if(!dialog.open)return;if(!canOpen()){dialog.close();return;}const s=snapshot(),owned=purchases(s.records,currentUid),cost=spent(s.records,currentUid),balance=available(s.earned,cost,currentUserRole,currentUserStatus);
     const k=JSON.stringify([s.ready,s.earned,[...owned.keys()],preview,selected,filter,busy,message,currentUserRole]);if(k===renderKey)return;renderKey=k;
-    dialog.innerHTML='<div class="shop-head"><h2 id="road-shop-title">🚧 Лавка дорожника</h2><button class="shop-close" aria-label="Закрыть магазин">×</button></div><div class="shop-balance">Кошелёк: <b>'+balance+' 🪙</b> · Рейтинг: <b>'+s.earned+'</b> · Потрачено: '+cost+'</div><p class="shop-hint">Покупки не снижают рейтинг и ранг. Купленная тема остаётся у аккаунта, а оформление выбирается отдельно на каждом устройстве. Предпросмотр бесплатный.</p>'
+    dialog.innerHTML='<div class="shop-head"><h2 id="road-shop-title">🚧 Лавка дорожника</h2><button class="shop-close" aria-label="Закрыть магазин">×</button></div><div class="shop-balance">Кошелёк: <b>'+balance+' 🪙</b> · Рейтинг: <b>'+s.earned+'</b> · Потрачено: '+cost+'</div>'+(bonus(currentUserRole,currentUserStatus)?'<p class="shop-hint">🧪 Администратору выделено 10 000 тестовых монет. Покупки расходуют этот запас; обновление страницы его не пополняет. Бонус не влияет на рейтинг и ранг.</p>':'')+'<p class="shop-hint">Покупки не снижают рейтинг и ранг. Купленная тема остаётся у аккаунта, а оформление выбирается отдельно на каждом устройстве. Предпросмотр бесплатный.</p>'
       +'<div class="shop-toolbar"><button class="btn btn-secondary btn-small" data-filter="all" aria-pressed="'+(filter==='all')+'">Все темы · 20</button><button class="btn btn-secondary btn-small" data-filter="owned" aria-pressed="'+(filter==='owned')+'">Мои покупки · '+owned.size+'</button><button class="btn btn-secondary btn-small" data-default>Стандартная тема</button></div>'
       +'<div class="shop-preview-tools"><b>'+(canAdmin()?'🧪 Администратор · тест всех интерфейсов':'👀 Примерить тему бесплатно')+'</b><select class="form-control" aria-label="Тема для предпросмотра" id="road-shop-preview"><option value="">Без предпросмотра</option>'+THEMES.map(t=>'<option value="'+t.id+'" '+(preview===t.id?'selected':'')+'>'+escapeHtml(t.name)+'</option>').join('')+'</select><div class="shop-actions"><button class="btn btn-secondary btn-small" data-step="-1">← Предыдущая</button><button class="btn btn-secondary btn-small" data-step="1">Следующая →</button><button class="btn btn-secondary btn-small" data-stop>Вернуть мою тему</button></div><p class="shop-hint">'+(preview?'Сейчас примеряется «'+escapeHtml(THEMES.find(t=>t.id===preview).name)+'». Закройте магазин — вернётся ваше оформление.':'Выберите тему: изменится весь интерфейс, монеты не спишутся.')+'</p></div>'
       +'<div id="road-shop-status" role="status">'+escapeHtml(message||(!s.ready?'Загружаем кошелёк…':''))+'</div><div class="shop-grid">'
@@ -5998,7 +6001,7 @@ body.game-coin-feedback #toast{visibility:hidden}
         const rows=rewardSnaps.filter(d=>d.exists).map(d=>({id:d.id,...d.data()}));
         const points=window.__gameCoinsCore.calculate(rows).find(r=>r.user===String(email).trim().toLowerCase())?.coins||0;
         const paid=spent(ownedSnaps.filter(d=>d.exists).map(d=>({id:d.id,...d.data()})),uid);
-        if(points-paid<item.price)throw Error('Монет пока недостаточно. Рейтинг не расходуется.');
+        if(available(points,paid,account.data().role,account.data().status)<item.price)throw Error('Монет пока недостаточно. Рейтинг не расходуется.');
         if(!canOpen()||currentUid!==uid)throw Error('Учётная запись или доступ изменились.');
         const timestamp=Date.now();tx.set(purchaseRefs[THEMES.indexOf(item)],{eventType:'game_purchase',userUid:uid,userEmail:email,createdByEmail:email,userName:name,itemId:item.id,price:item.price,text:'🛍 Куплена тема: '+item.name,timestamp,timeStr:new Date(timestamp).toLocaleString('ru-RU')});
       });
@@ -6014,7 +6017,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   }
   const admin=document.createElement('details');admin.className='admin-settings-group';admin.id='road-shop-admin';admin.innerHTML='<summary>🧪 Магазин · тест 20 интерфейсов</summary><div class="form-card"><p class="shop-hint">Бесплатная примерка всех тем без покупок. В магазине доступны выбор темы, предыдущая/следующая и возврат оформления.</p><button type="button" class="btn btn-secondary">Посмотреть все интерфейсы</button></div>';document.getElementById('admin-game-settings-slot')?.append(admin);admin.querySelector('button').onclick=()=>{if(canAdmin())open(THEMES[0].id);};
   const settingsButton=document.createElement('button');settingsButton.type='button';settingsButton.className='btn btn-secondary';settingsButton.textContent='🛍 Лавка дорожника';settingsButton.onclick=()=>{closeSettingsModal();open();};document.querySelector('#settingsModal .modal-body')?.append(settingsButton);
-  window.RoadShop={open,spent,canUse,purchases,themes:THEMES,purchaseId};
+  window.RoadShop={open,spent,bonus,available,canUse,purchases,themes:THEMES,purchaseId};
   window.addEventListener('storage',e=>{if(e.key===localKey()){selected=e.newValue||'';apply();renderKey='';render();}});
   window.addEventListener('review-flags-changed',sync);setInterval(sync,500);sync();
 })();
