@@ -1,6 +1,0 @@
-- name: Run OpenCode
-  uses: anomalyco/opencode/github@latest
-  env:
-    OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }} # Используем ключ Zen
-  with:
-    model: opencode/big-pickle # Пример бесплатной модели Zen
