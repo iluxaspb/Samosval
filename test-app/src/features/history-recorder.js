@@ -43,6 +43,11 @@
         if(currentUserRole!=='admin'&&operations.length>4)throw new Error('Одна операция этой роли может изменять не более четырёх записей. Выполните изменения по частям.');
         if(actor.uid!==currentUid)throw new Error('Учётная запись изменилась. Повторите действие.');
         const description=title(operations);entry={text:description,timestamp:time,timeStr:new Date(time).toLocaleString('ru-RU'),userName:actor.name,userEmail:actor.email,createdByEmail:actor.email,shiftId:state.shift?.id||'',objectId:state.shift?.objectId||'',objectName:state.shift?.objectName||'',eventType:'history',history:{id:historyId,version:3,description,user:actor.name,userEmail:actor.email,userUid:actor.uid,timestamp:time,operations,undone:false}};
+        // Freeze the reward policy with the confirmed history entry; legacy entries are never repriced.
+        if(window.__gameRewardSnapshot&&operations.some(o=>o.collection==='logs'||o.collection==='truckStatus')){
+          const rewardPolicy=await tx.get(appConfigRef);
+          entry.history.gameRewards=window.__gameRewardSnapshot(rewardPolicy.exists?rewardPolicy.data():{},result?.gameRewardAction,time);
+        }
         if(new Blob([JSON.stringify(entry)]).size>900000)throw new Error('Изменение слишком большое для одной записи истории. Разделите его на части.');
       }
       for(const [method,args] of writes)tx[method](...args);

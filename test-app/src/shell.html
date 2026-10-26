@@ -12,7 +12,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
   <!-- TEST-MODULE:base -->
@@ -61,7 +60,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.1.17 · тест</span>
+        <span class="version-text">Версия 3.1.18 · тест</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -240,7 +239,6 @@
       <button class="admin-tab-btn" onclick="switchAdminTab('patches', this)">🔧 Патчи</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('console', this)">🖥 Консоль</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('appsettings', this)">⚙️ Настройки</button>
-      <button type="button" class="admin-tab-btn" id="admin-camera-button" aria-haspopup="dialog" aria-controls="geo-photo-dialog">📷 Камера</button>
     </div>
     
     <div id="admin-sub-requests" class="admin-section active"><div id="requestsListContainer"></div></div>
@@ -594,46 +592,6 @@
 <!-- TEST-MODULE:game-coins-style -->
 <!-- TEST-MODULE:game-coins-v2 -->
 
-<!-- TEST-MODULE:photo-files -->
-<!-- TEST-MODULE:object-photos-service -->
-<!-- GEO PHOTO START -->
-<!-- TEST-MODULE:geo-photo-style -->
-<dialog id="geo-photo-dialog" aria-labelledby="geo-photo-title">
-  <header class="geo-photo-header"><button type="button" id="geo-photo-close" class="geo-icon" aria-label="Закрыть камеру">✕</button><div class="geo-photo-heading"><h2 id="geo-photo-title">Фото объекта</h2><p id="geo-photo-object"></p></div><button type="button" id="geo-photo-settings-toggle" class="geo-icon" aria-label="Настройки камеры" aria-expanded="false" aria-controls="geo-photo-settings">⚙</button></header>
-  <div class="geo-photo-body">
-    <main class="geo-photo-main">
-      <div class="geo-photo-frame"><div id="geo-photo-stage" class="geo-photo-stage"><div id="geo-photo-video-wrap"><video id="geo-photo-video" autoplay muted playsinline aria-label="Камера. Коснитесь кадра для фокусировки."></video></div><span id="geo-photo-focus-ring" hidden aria-hidden="true"></span></div><img id="geo-photo-result" hidden alt="Фото с подписью объекта"><p id="geo-photo-native-wait" hidden>Сделайте снимок<br>в камере телефона</p></div>
-      <div class="geo-photo-quick-tools"><button type="button" id="geo-photo-format-quick" class="geo-pill" aria-label="Изменить формат кадра">Авто</button><div id="geo-photo-zoom-quick" class="geo-zoom-pills" hidden><button type="button" id="geo-photo-lens-06" class="geo-pill" aria-label="Объектив 0,6×">0,6×</button><button type="button" id="geo-photo-lens-1" class="geo-pill" aria-label="Объектив 1×">1×</button><button type="button" id="geo-photo-zoom-1" class="geo-pill">1×</button><button type="button" id="geo-photo-zoom-2" class="geo-pill">2×</button><output id="geo-photo-zoom-value" aria-label="Текущий масштаб"></output></div><div id="geo-photo-rotate-actions"><button type="button" id="geo-photo-rotate-left" class="geo-pill geo-turn" aria-label="Повернуть кадр влево на 90 градусов">↶</button><button type="button" id="geo-photo-rotate-right" class="geo-pill geo-turn" aria-label="Повернуть кадр вправо на 90 градусов">↷</button></div></div>
-      <p id="geo-photo-status" role="status" aria-live="polite"></p>
-    </main>
-    <aside class="geo-photo-side" aria-label="Съёмка и сохранение">
-      <span class="geo-photo-mode">ФОТО</span><button type="button" id="geo-photo-local-album" class="geo-pill">▧ На устройстве</button>
-      <div class="geo-photo-primary"><div id="geo-photo-shoot-actions"><button type="button" id="geo-photo-shutter" disabled aria-label="Снять фото, одна монета после сохранения на сервере"><span class="geo-shutter-core" aria-hidden="true"></span><span id="geo-photo-coin-badge" aria-hidden="true">🪙 +1</span></button><span class="geo-shutter-caption">Снять</span><button type="button" id="geo-photo-restart" class="geo-action" hidden>Включить камеру</button></div><div id="geo-photo-save-actions" hidden><a id="geo-photo-download" class="geo-action geo-action-main">Скачать JPEG</a><button type="button" id="geo-photo-share" class="geo-action" hidden>Поделиться</button><button type="button" id="geo-photo-retake" class="geo-action">Ещё фото</button></div></div>
-      <label class="geo-no-gps"><input type="checkbox" id="geo-photo-no-gps"><span>Снимать без GPS</span></label>
-      <div class="geo-photo-gps-row" id="geo-photo-gps-row"><p id="geo-photo-location"></p><button type="button" id="geo-photo-refresh-gps" class="geo-pill" aria-label="Обновить геопозицию">↻ GPS</button></div>
-      <button type="button" id="geo-photo-native" class="geo-action geo-native">Камера телефона ↗</button><input id="geo-photo-native-input" type="file" accept="image/*" capture="environment" hidden>
-      <p id="geo-photo-upload-status" class="geo-upload-status" role="status" aria-live="polite"></p><button type="button" id="geo-photo-upload-retry" class="geo-action" hidden>Повторить загрузку</button>
-      <p id="geo-photo-file-row" hidden><a id="geo-photo-open-file" target="_blank" rel="noopener">Открыть фото</a></p>
-    </aside>
-  </div>
-  <section id="geo-photo-settings" class="geo-photo-settings" hidden aria-labelledby="geo-photo-settings-title"><div class="geo-settings-heading"><h3 id="geo-photo-settings-title">Настройки камеры</h3><button type="button" id="geo-photo-settings-close" class="geo-icon" aria-label="Закрыть настройки">✕</button></div>
-    <label for="geo-photo-format">Формат кадра</label><select id="geo-photo-format"><option value="auto">По положению телефона</option><option value="landscape">Горизонтальный 4:3</option><option value="portrait">Вертикальный 3:4</option></select>
-    <label for="geo-photo-device">Камера / объектив</label><select id="geo-photo-device"><option value="">Задняя камера — автоматически</option></select>
-    <label for="geo-photo-lens-main">Камера для кнопки 1×</label><select id="geo-photo-lens-main"><option value="">Автоматически</option></select><label for="geo-photo-lens-ultra">Камера для кнопки 0,6×</label><select id="geo-photo-lens-ultra"><option value="">Автоматически</option></select><p class="geo-photo-hint">Выберите объектив из списка камер телефона. Если сверхширокоугольного объектива здесь нет, откройте «Камера телефона».</p><div id="geo-photo-zoom-row" hidden><label for="geo-photo-zoom">Масштаб</label><input id="geo-photo-zoom" type="range" aria-label="Масштаб камеры"></div><p id="geo-photo-zoom-unavailable" class="geo-photo-hint">Для этой камеры масштаб недоступен.</p>
-    <div id="geo-photo-focus-row" hidden><label for="geo-photo-focus">Фокусировка</label><select id="geo-photo-focus"></select><button type="button" id="geo-photo-refocus" class="geo-action">Автофокус</button></div><div id="geo-photo-focus-distance-row" hidden><label for="geo-photo-focus-distance">Ручной фокус <output id="geo-photo-focus-value"></output></label><input id="geo-photo-focus-distance" type="range" aria-label="Ручная настройка фокуса"></div><p id="geo-photo-focus-unavailable" class="geo-photo-hint">Управление фокусом этой камеры недоступно.</p>
-    <label id="geo-photo-torch-row" hidden><input type="checkbox" id="geo-photo-torch"> Подсветка</label>
-    <label for="geo-photo-method">Качество снимка</label><select id="geo-photo-method"><option value="video">Кадр видео — совместимость</option></select>
-    <p id="geo-photo-camera-info" class="geo-photo-hint"></p><p id="geo-photo-control-note" class="geo-photo-hint" role="status"></p><p class="geo-photo-hint">У штатной камеры телефона координаты добавляются после возврата. Без GPS снимок сохраняется без координат.</p>
-  </section>
-</dialog>
-<!-- TEST-MODULE:geo-photo-script -->
-<!-- GEO PHOTO END -->
-<!-- TEST-MODULE:object-photos-style -->
-<dialog id="object-photos-dialog" aria-labelledby="object-photos-title"><div class="op-heading"><h2 id="object-photos-title">Фотографии объектов</h2><button type="button" id="object-photos-close" class="btn btn-secondary btn-small" aria-label="Закрыть фотографии">✕</button></div><div id="object-photos-usage" class="op-usage" hidden></div><div class="op-toolbar"><button type="button" id="object-photos-all" class="btn btn-secondary btn-small">Весь объект</button><button type="button" id="object-photos-shift" class="btn btn-secondary btn-small">Эта смена</button><button type="button" id="object-photos-refresh" class="btn btn-secondary btn-small">Обновить</button><label id="object-photos-select-label"><input type="checkbox" id="object-photos-select"> Выбрать показанные</label><button type="button" id="object-photos-delete" class="btn btn-secondary btn-small">Удалить выбранные</button></div><p id="object-photos-message" role="status" aria-live="polite"></p><div id="object-photos-grid" class="op-grid"></div><button type="button" id="object-photos-more" class="btn btn-secondary btn-small" hidden style="margin-top:12px">Показать ещё</button><p class="op-note">Фото сгруппированы по объектам и сменам. Очистка фотографий не отменяет уже полученные монеты.</p></dialog>
-<!-- TEST-MODULE:object-photos-ui -->
-<!-- TEST-MODULE:local-photos-style -->
-<dialog id="local-photos-dialog" aria-labelledby="local-photos-title"><div class="op-heading"><h2 id="local-photos-title">Фотографии на устройстве</h2><button type="button" id="local-photos-close" class="btn btn-secondary btn-small" aria-label="Закрыть локальный альбом">✕</button></div><p class="op-note">Здесь хранятся ваши JPEG на этом телефоне в этом браузере, в том числе после отправки в облако. «Скачать JPEG» сохраняет файл через браузер в загрузки. Очистка данных сайта удалит этот локальный альбом.</p><div class="op-toolbar"><button type="button" id="local-photos-refresh" class="btn btn-secondary btn-small">Обновить</button><button type="button" id="local-photos-sync" class="btn btn-secondary btn-small">Синхронизировать</button></div><p id="local-photos-status" role="status"></p><div id="local-photos-grid" class="op-grid"></div><button type="button" id="local-photos-more" class="btn btn-secondary btn-small" hidden>Показать ещё</button></dialog>
-<!-- TEST-MODULE:local-photos-ui -->
 
 
 

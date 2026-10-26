@@ -231,7 +231,7 @@
               if(revision!==op.expectedRevision||Number(before.lastLoadTimestamp||0)!==Number(op.lastLoadTimestamp||0))return {outcome:'rejected',reason:'arrival-changed',status:before};
               const update={lastLoadTimestamp:null,lastLoadBy:null,arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:revision+1,lastResetOperationId:op.id};
               tx.update(refs.truckStatus.doc(op.truckId),update);
-              return {outcome:'confirmed',status:{...before,...update},beforeStatus:before,didCommit:true};
+              return {outcome:'confirmed',status:{...before,...update},beforeStatus:before,didCommit:true,gameRewardAction:{id:op.id,type:op.type,at:Number(op.createdAt)}};
             }
             if(op.type==='arrive'){
               const want=op.wantArrived!==false;
@@ -246,7 +246,7 @@
               const update=want?{arriveStatus:new Date(ts).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),arriveTimestamp:ts,arriveBy:op.actor,loadedAfterArrive:false,cycleRevision:revision+1}:
                 {arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:revision+1};
               tx.update(refs.truckStatus.doc(op.truckId),update);
-              return {outcome:'confirmed',status:{...before,...update},beforeStatus:before,didCommit:true};
+              return {outcome:'confirmed',status:{...before,...update},beforeStatus:before,didCommit:true,gameRewardAction:{id:op.id,type:op.type,at:Number(op.createdAt)}};
             }
             if(op.type==='load'){
               const logId=op.logId||('load_'+op.truckId+'_'+op.shiftId+'_cycle_'+op.expectedRevision+'_'+op.arrivalTimestamp);
@@ -272,7 +272,7 @@
                 arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:true};
               if(before.ttnStatus==='pending'){update.ttnStatus=true;update.ttnLogId=logId;}
               tx.set(ref,log);tx.update(refs.truckStatus.doc(op.truckId),update);
-              return {outcome:'confirmed',status:{...before,...update},log:{id:logId,...log},beforeStatus:before,didCommit:true};
+              return {outcome:'confirmed',status:{...before,...update},log:{id:logId,...log},beforeStatus:before,didCommit:true,gameRewardAction:{id:op.id,type:op.type,at:Number(op.createdAt)}};
             }
             if(op.type==='ttn'){
               if(Number(before.ttnRevision||0)===Number(op.expectedTtnRevision||0)+1&&before.ttnBy=== (op.collect?op.actor:null)&&
@@ -284,7 +284,7 @@
                 ttnLogId:before.loadedAfterArrive?logId:null,ttnRevision:Number(before.ttnRevision||0)+1}:
                 {ttnStatus:null,ttnBy:null,ttnLogId:null,ttnRevision:Number(before.ttnRevision||0)+1};
               tx.update(refs.truckStatus.doc(op.truckId),update);
-              return {outcome:'confirmed',status:{...before,...update},beforeStatus:before,didCommit:true};
+              return {outcome:'confirmed',status:{...before,...update},beforeStatus:before,didCommit:true,gameRewardAction:{id:op.id,type:op.type,at:Number(op.createdAt)}};
             }
             return {outcome:'rejected',reason:'unsupported'};
           });

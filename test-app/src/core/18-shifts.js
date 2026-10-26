@@ -29,9 +29,8 @@
     if (!state.shift || !state.shift.isActive) { appNotice('Смена не начата'); return; }
     if(offlinePendingCount()){showError('Сначала синхронизируйте действия перед закрытием смены');return;}
     let logs = getLogs(); if (!(await appConfirm('Закрыть смену?'))) return;
-    let hasObjectPhotos=false;if(!logs.length&&window.ObjectPhotos)try{hasObjectPhotos=await window.ObjectPhotos.hasShift(state.shift.id);}catch(e){hasObjectPhotos=true;}
     try {
-      if (logs.length > 0 || hasObjectPhotos) {
+      if (logs.length > 0) {
         let ttn={}, line=[];
         Object.keys(state.truckStatus).forEach(id=>{ let st=state.truckStatus[id]; if(st.onLine) line.push(id); if(st.ttnStatus!==undefined && st.ttnStatus!==null) ttn[id]=st.ttnStatus; });
         let totVol = logs.filter(l=>!l.isGAI).reduce((s,l)=>s+l.volume,0);

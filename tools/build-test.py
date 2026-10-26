@@ -36,7 +36,10 @@ def build():
     shell = shell.replace('<!-- TEST-PWA -->','<script id="test-pwa" src="./test-app/build/'+version+'/pwa.js"></script>')
     (ROOT/'index-test.html').write_text(shell, encoding='utf-8')
     assets = [ROOT/'index-test.html',ROOT/'manifest-test.webmanifest'] + sorted(out.glob('*'))
-    assets += [p for p in (APP/'vendor').glob('*') if p.suffix in ('.js','.css','.ttf','.woff2')]
+    # Keep legacy vendor files available to open clients, but only cache scripts used by this release.
+    assets += [p for p in (APP/'vendor').glob('*')
+               if p.suffix in ('.css','.ttf','.woff2')
+               or (p.suffix == '.js' and './test-app/vendor/' + p.name in shell)]
     assets += list((APP/'icons').glob('*.png'))
     records = [{'url':'./'+str(p.relative_to(ROOT)), 'sha256':digest(p.read_bytes())} for p in assets]
     sw = text(APP/'src/service-worker.js').replace('__BUILD_VERSION__',version).replace('__PRECACHE_RECORDS__',json.dumps(records,ensure_ascii=False))

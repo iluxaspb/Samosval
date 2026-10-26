@@ -25,36 +25,69 @@
     for(const o of state.objects||[])options.set('id:'+o.id,{key:'id:'+o.id,name:o.name});
     return [...options.values()].sort((a,b)=>a.name.localeCompare(b.name,'ru'));
   }
-  // Rebuild rewards globally before filtering: later undo/delete must affect its original scope.
+  const rewardDefaults=Object.freeze({load:1,arrive:2,ttn:0}),rewardLimit=10000;
+  const rewardValue=(n,fallback)=>Number.isInteger(n)&&n>=0&&n<=rewardLimit?n:fallback;
+  function rewardSchedule(policy={}){
+    return (Array.isArray(policy.gameRewardSchedule)?policy.gameRewardSchedule:[])
+      .filter(r=>r&&Number.isFinite(r.effectiveAt)&&r.effectiveAt>0&&['load','arrive','ttn'].every(k=>rewardValue(r[k],null)!==null))
+      .slice().sort((a,b)=>a.effectiveAt-b.effectiveAt);
+  }
+  function rewardsAt(policy={},at=Date.now()){
+    let rates=rewardDefaults;
+    for(const r of rewardSchedule(policy)){if(r.effectiveAt>at)break;rates=r;}
+    return {load:rates.load,arrive:rates.arrive,ttn:rates.ttn};
+  }
+  function rewardSnapshot(policy,action,recordedAt){
+    const at=Number.isFinite(action?.at)&&action.at>0?action.at:recordedAt;
+    return {version:1,actionAt:at,actionId:String(action?.id||''),kind:String(action?.type||''),...rewardsAt(policy,at)};
+  }
+  function recordedRewards(e){
+    const r=e.history?.gameRewards;
+    // No snapshot means an older release: keep its original 1 / 2 / 0 economics.
+    return r?.version===1?{load:rewardValue(r.load,1),arrive:rewardValue(r.arrive,2),ttn:rewardValue(r.ttn,0)}:rewardDefaults;
+  }
+  window.__gameRewardSnapshot=rewardSnapshot;
+  // Rebuild rewards globally before filtering: later undo/delete affects the original scope.
   function calculate(records,filter={}){
-    const rewards=new Map(),penalties=[];
-    for(const e of scopedRecords(records)){
-      if(e.eventType==='game_penalty'){if(e.amount===-3&&e.targetEmail)penalties.push(e);continue;}
-      if(e.eventType==='game_photo'){if(e.amount===1&&e.photoId&&e.id==='photo_'+e.photoId&&e.userEmail)rewards.set('photo:'+e.photoId,{user:key(e.userEmail),name:e.userName||e.userEmail,coins:1,kind:'photo',scope:e.scope});continue;}
-      if(!e.history||e.history.undone)continue;
-      const ops=e.history.operations||[],user=key(e.userEmail||e.history.userEmail),name=e.userName||e.history.user||user;
-      const loading=ops.some(o=>o.collection==='logs'&&!o.before&&o.after),archiving=ops.some(o=>o.collection==='archive'&&o.after);
-      for(const o of ops){
-        const b=o.before||{},a=o.after||{};
-        if(o.collection==='logs'){
-          const id='load:'+o.id;
-          if(!o.after){if(!archiving)rewards.delete(id);}
-          else if(!o.before&&a.clientOperationId)rewards.set(id,{user:key(a.createdByEmail)||user,name:a.createdBy||name,coins:1,kind:'load',scope:e.scope});
-        }
+    const entries=scopedRecords(records),origins=new Map(),rewards=new Map(),penalties=[],activeTtn=new Map();
+    const slot=(o,e)=>(o.id+':'+(o.after?.shiftId||o.before?.shiftId||e.scope.shiftId||''));
+    const ttnId=(o,e)=>'ttn:'+slot(o,e)+':'+(Number.isFinite(o.after?.ttnRevision)?'rev:'+o.after.ttnRevision:'event:'+(e.history?.gameRewards?.actionId||e.id));
+    function candidates(e){
+      const ops=e.history?.operations||[],rates=recordedRewards(e),user=key(e.userEmail||e.history?.userEmail),name=e.userName||e.history?.user||user;
+      const loading=ops.some(o=>o.collection==='logs'&&!o.before&&o.after),archiving=ops.some(o=>o.collection==='archive'&&o.after),out=[];
+      for(const o of ops){const b=o.before||{},a=o.after||{};
+        if(o.collection==='logs'&&!o.before&&o.after&&a.clientOperationId)out.push(['load:'+o.id,{user:key(a.createdByEmail)||user,name:a.createdBy||name,coins:rates.load,kind:'load',scope:e.scope}]);
         if(o.collection==='truckStatus'){
-          const id=t=>'arrive:'+o.id+':'+(t.shiftId||'')+':'+t.arriveTimestamp;
-          if(b.arriveTimestamp&&o.after&&!a.arriveTimestamp&&!loading&&!archiving&&a.shiftId===b.shiftId&&a.lastResetOperationId===b.lastResetOperationId&&a.lastLoadTimestamp===b.lastLoadTimestamp)rewards.delete(id(b));
-          if(a.arriveTimestamp&&a.arriveTimestamp!==b.arriveTimestamp&&b.lastLoadTimestamp&&a.arriveTimestamp>b.lastLoadTimestamp)rewards.set(id(a),{user,name,coins:2,kind:'arrive',scope:e.scope});
+          if(a.arriveTimestamp&&a.arriveTimestamp!==b.arriveTimestamp&&b.lastLoadTimestamp&&a.arriveTimestamp>b.lastLoadTimestamp)out.push(['arrive:'+o.id+':'+(a.shiftId||'')+':'+a.arriveTimestamp,{user,name,coins:rates.arrive,kind:'arrive',scope:e.scope}]);
+          if(o.before&&o.after&&!b.ttnStatus&&a.ttnStatus&&!loading&&!archiving)out.push([ttnId(o,e),{user,name,coins:rates.ttn,kind:'ttn',scope:e.scope,slot:slot(o,e)}]);
         }
       }
+      return out;
+    }
+    // Keep the original author/rate even when an undo later restores the same logical action.
+    for(const e of entries)if(e.history)for(const [id,r] of candidates(e))if(!origins.has(id))origins.set(id,r);
+    for(const e of entries){
+      if(e.eventType==='game_penalty'){if(e.amount===-3&&e.targetEmail)penalties.push(e);continue;}
+      // Preserve previously earned photo rewards; no photo capture or upload code runs in TEST.
+      if(e.eventType==='game_photo'){if(e.amount===1&&e.photoId&&e.id==='photo_'+e.photoId&&e.userEmail)rewards.set('photo:'+e.photoId,{user:key(e.userEmail),name:e.userName||e.userEmail,coins:1,kind:'photo',scope:e.scope});continue;}
+      if(!e.history||e.history.undone)continue;
+      const ops=e.history.operations||[],loading=ops.some(o=>o.collection==='logs'&&!o.before&&o.after),archiving=ops.some(o=>o.collection==='archive'&&o.after);
+      for(const o of ops){const b=o.before||{},a=o.after||{};
+        if(o.collection==='logs'&&!o.after&&!archiving)rewards.delete('load:'+o.id);
+        if(o.collection==='truckStatus'){
+          if(b.arriveTimestamp&&o.after&&!a.arriveTimestamp&&!loading&&!archiving&&a.shiftId===b.shiftId&&a.lastResetOperationId===b.lastResetOperationId&&a.lastLoadTimestamp===b.lastLoadTimestamp)rewards.delete('arrive:'+o.id+':'+(b.shiftId||'')+':'+b.arriveTimestamp);
+          if(o.after&&b.ttnStatus&&!a.ttnStatus&&!loading&&!archiving){const k=slot(o,e),id=activeTtn.get(k);if(id)rewards.delete(id);activeTtn.delete(k);}
+        }
+      }
+      for(const [id] of candidates(e)){const r=origins.get(id);if(r.kind==='ttn')activeTtn.set(r.slot,id);rewards.set(id,r);}
     }
     const users=new Map(),matches=s=>(!filter.shiftId||s.shiftId===filter.shiftId)&&(!filter.objectKey||objectKey(s)===filter.objectKey);
-    function row(user,name){if(!users.has(user))users.set(user,{user,name,coins:0,loads:0,arrivals:0,penalties:0});return users.get(user);}
-    for(const r of rewards.values()){if(!r.user||!matches(r.scope))continue;const u=row(r.user,r.name);u.coins+=r.coins;const field=r.kind==='load'?'loads':r.kind==='photo'?'photos':'arrivals';u[field]=(u[field]||0)+1;}
+    function row(user,name){if(!users.has(user))users.set(user,{user,name,coins:0,loads:0,arrivals:0,ttns:0,penalties:0});return users.get(user);}
+    for(const r of rewards.values()){if(!r.user||!matches(r.scope))continue;const u=row(r.user,r.name);u.coins+=r.coins;const field=r.kind==='load'?'loads':r.kind==='ttn'?'ttns':r.kind==='photo'?'photos':'arrivals';u[field]=(u[field]||0)+1;}
     for(const e of penalties){if(!matches(e.scope))continue;const u=row(key(e.targetEmail),e.targetName||e.targetEmail);u.coins-=3;u.penalties++;}
     return [...users.values()].sort((a,b)=>b.coins-a.coins||a.name.localeCompare(b.name,'ru'));
   }
-  window.__gameCoinsCore={calculate,rank,scopeFor,scopedRecords};
+  window.__gameCoinsCore={calculate,rank,scopeFor,scopedRecords,rewardsAt,rewardSnapshot,recordedRewards,rewardSchedule,rewardDefaults,rewardLimit};
 
   let records=[],unsubscribe=null,owner='',ready=false,error='',board=[],configReady=false,lastView='',rankingScope='shift',rankingObject='',rankGuideOpen=false,visualBalance=null,visualOwner='';
   const enabled=()=>configReady&&permissionsLoaded&&currentUserStatus==='active'&&!!currentUid&&appConfig?.testReviewFlags?.game_mode!==false;
@@ -65,9 +98,42 @@
   admin.innerHTML='<summary>🪙 Игровой режим <span id="game-mode-state"></span></summary><div class="form-card">'
     +gameOptions.map(([id,label])=>'<div class="settings-row"><label for="'+id+'">'+label+'</label><label class="toggle-switch"><input type="checkbox" id="'+id+'" data-game-setting="'+id+'"><span class="toggle-slider"></span></label></div>').join('')
     +'<p class="game-note">Общие настройки для всех пользователей. Монеты и штрафы продолжают учитываться при выключенном игровом режиме. Уведомления о штрафах остаются доступны.</p>'
+    +'<div class="game-preview-settings" id="game-reward-settings"><label>Монеты за действия</label><p class="game-note">Для новых подтверждённых действий. Ранее заработанные монеты сохраняются. 0 — не начислять.</p>'
+    +[['load','⚡ Погрузка'],['arrive','🚛 Приехал после погрузки'],['ttn','📄 Забрал ТТН']].map(([id,label])=>'<label for="game-reward-'+id+'">'+label+'</label><input class="form-control" id="game-reward-'+id+'" data-game-reward="'+id+'" type="number" inputmode="numeric" min="0" max="'+rewardLimit+'" step="1" value="'+rewardDefaults[id]+'">').join('')
+    +'<button type="button" id="game-rewards-save" class="btn btn-primary">Сохранить начисления</button><p id="game-rewards-status" class="game-note" role="status"></p></div>'
     +'<div class="game-preview-settings"><label for="game-preview-rank">Проверить поздравление</label><select id="game-preview-rank" class="form-control">'+levels.map(l=>'<option value="'+l.at+'"'+(l.at===25?' selected':'')+'>'+escapeHtml(l.name)+' · '+l.at.toLocaleString('ru-RU')+' 🪙</option>').join('')+'</select><button type="button" id="game-preview-rank-button" class="btn btn-secondary btn-small">🎉 Показать поздравление</button><p class="game-note">Только на вашем экране. Баланс, ранг и история достижений не меняются. Звук и анимация учитывают настройки выше.</p></div></div>';
   document.getElementById('admin-game-settings-slot')?.append(admin);
   const gameControls=[...admin.querySelectorAll('[data-game-setting]')],savingFlags=new Set();
+  const rewardInputs=[...admin.querySelectorAll('[data-game-reward]')],rewardSave=admin.querySelector('#game-rewards-save'),rewardStatus=admin.querySelector('#game-rewards-status');
+  let rewardSaving=false,rewardDirty=false,rewardMessage='';
+  rewardInputs.forEach(input=>input.addEventListener('input',()=>{rewardDirty=true;rewardMessage='';rewardStatus.textContent='';}));
+  async function saveRewardSettings(){
+    if(!canAdmin()||rewardSaving)return;
+    const values={};for(const input of rewardInputs){const raw=input.value.trim(),n=Number(raw);if(!raw||rewardValue(n,null)===null){rewardMessage='Введите целые числа от 0 до '+rewardLimit+'.';rewardStatus.textContent=rewardMessage;input.focus();return;}values[input.dataset.gameReward]=n;}
+    if(!navigator.onLine){rewardMessage='Для сохранения настроек подключитесь к интернету.';rewardStatus.textContent=rewardMessage;return;}
+    rewardSaving=true;rewardMessage='Сохраняем…';paint();const user=currentUid;
+    try{
+      const next=await db.runTransaction(async tx=>{
+        const doc=await tx.get(appConfigRef);
+        if(!canAdmin()||currentUid!==user)throw Error('Доступ администратора изменился.');
+        const policy=doc.exists?doc.data():{},schedule=rewardSchedule(policy),current=rewardsAt(policy);
+        if(['load','arrive','ttn'].every(k=>current[k]===values[k]))return schedule;
+        // Existing versions stay append-only; history snapshots keep old balances immutable.
+        const effectiveAt=Math.max(Date.now(),(schedule.at(-1)?.effectiveAt||0)+1);
+        const updated=[...schedule,{effectiveAt,...values}];
+        if(updated.length>1000)throw Error('История настроек заполнена. Обратитесь к разработчику; старые ставки не удалены.');
+        tx.set(appConfigRef,{gameRewardSchedule:updated},{merge:true});return updated;
+      });
+      if(currentUid===user){appConfig.gameRewardSchedule=next;rewardDirty=false;rewardMessage='Сохранено. Новые ставки действуют для следующих действий.';lastView='';window.dispatchEvent(new Event('review-flags-changed'));}
+    }catch(e){rewardMessage='Не удалось сохранить: '+(e.message||'проверьте соединение');}
+    finally{rewardSaving=false;paint();}
+  }
+  rewardSave.onclick=saveRewardSettings;
+  function paintRewardSettings(){
+    const rates=rewardsAt(appConfig);rewardInputs.forEach(input=>{if(!rewardDirty&&!rewardSaving)input.value=String(rates[input.dataset.gameReward]);input.disabled=!canAdmin()||rewardSaving;});
+    rewardSave.disabled=!canAdmin()||rewardSaving;rewardStatus.textContent=rewardMessage;
+  }
+
   async function saveGameSetting(input){
     const flag=input.dataset.gameSetting;
     if(!canAdmin()||!gameOptions.some(([id])=>id===flag)){paint();return;}
@@ -79,7 +145,7 @@
   gameControls.forEach(input=>input.onchange=()=>saveGameSetting(input));
   admin.querySelector('#game-preview-rank-button').onclick=previewRankCelebration;
   function paint(){
-    decorateButtons();wallet.hidden=!enabled();admin.hidden=!canAdmin();
+    decorateButtons();wallet.hidden=!enabled();admin.hidden=!canAdmin();paintRewardSettings();
     gameControls.forEach(input=>{const id=input.dataset.gameSetting;if(!savingFlags.has(id))input.checked=appConfig?.testReviewFlags?.[id]!==false;input.disabled=!canAdmin()||savingFlags.has(id)||(id!=='game_mode'&&!enabled());});
     admin.querySelector('#game-mode-state').textContent=enabled()?'Включён':'Выключен';
     if(!enabled()){if(modal.open)modal.close();cancelCoinFeedback();cancelRankCelebration({keepPreview:canAdmin()});return;}
@@ -93,7 +159,7 @@
     wallet.textContent='🪙 '+(ready?balance.toLocaleString('ru-RU'):'…');wallet.title=rank(coins).name+' · Открыть рейтинг';
     if(!modal.open)return;
     const displayNames=board.map(r=>resolveUserDisplayName(r.user,r.name)),myName=resolveUserDisplayName(currentEmail,getUserName());
-    const view=JSON.stringify([board,coins,balance,currentEmail,myName,displayNames,ready,error,rankingScope,rankingObject,state.shift?.id,objects,rankGuideOpen]);if(view===lastView&&modal.innerHTML)return;lastView=view;
+    const view=JSON.stringify([board,coins,balance,currentEmail,myName,displayNames,ready,error,rankingScope,rankingObject,state.shift?.id,objects,rankGuideOpen,rewardsAt(appConfig)]);if(view===lastView&&modal.innerHTML)return;lastView=view;
     const level=rank(coins),next=levels.find(x=>x.at>coins),esc=escapeHtml;
     modal.innerHTML='<div class="game-head"><h2 id="game-title">Лига дорожной бригады</h2><button aria-label="Закрыть рейтинг">×</button></div>'
       +'<div class="game-profile"><div class="game-profile-name">'+esc(myName)+'</div><div class="game-profile-rank">'+esc(level.name)+'</div>'
@@ -102,9 +168,9 @@
       +'<button type="button" id="game-ranks-toggle" aria-expanded="'+rankGuideOpen+'" aria-controls="game-ranks-guide">🏅 Все ранги · '+levels.length+'</button>'+renderRankGuide(coins)
       +'<div class="game-scopes" role="group" aria-label="Период рейтинга">'+[['all','Общий'],['shift','Текущая смена'],['object','Объект']].map(([id,label])=>'<button type="button" data-game-scope="'+id+'" aria-pressed="'+(rankingScope===id)+'">'+label+'</button>').join('')+'</div>'
       +(rankingScope==='object'?'<label class="game-note">Объект <select id="game-object">'+objects.map(o=>'<option value="'+esc(o.key)+'" '+(o.key===rankingObject?'selected':'')+'>'+esc(o.name)+'</option>').join('')+'</select></label>':'')
-      +'<h3>Рейтинг команды'+(rankingScope==='shift'?' · текущая смена':rankingScope==='object'?' · объект':' · за всё время')+'</h3><p class="game-note">За фото, сохранённое в объекте, +1 · За отметку погрузки +1 · За отметку возвращения после погрузки +2. Первый приезд — без монет. Ошибочное действие: штраф −3 автору при отмене. Награда отменённого действия также аннулируется. Штраф остаётся при восстановлении; повторно за то же действие не списывается.</p>'
+      +'<h3>Рейтинг команды'+(rankingScope==='shift'?' · текущая смена':rankingScope==='object'?' · объект':' · за всё время')+'</h3><p class="game-note">Текущие начисления: погрузка +'+rewardsAt(appConfig).load+' · возвращение после погрузки +'+rewardsAt(appConfig).arrive+' · «Забрал ТТН» +'+rewardsAt(appConfig).ttn+'. Первый приезд — без монет. Новые ставки не пересчитывают прошлые действия. Ошибочное действие: штраф −3 автору при отмене. Награда отменённого действия также аннулируется. Штраф остаётся при восстановлении; повторно за то же действие не списывается.</p>'
       +(rankingScope==='shift'&&!state.shift?.id?'<p class="game-note">Смена не начата.</p>':'')
-      +(error?'<p role="status">'+esc(error)+'</p>':!ready?'<p role="status">Загружаем накопления…</p>':board.length?board.map((r,i)=>'<div class="game-row '+(r.user===key(currentEmail)?'me':'')+'"><span class="game-place">'+(['🥇','🥈','🥉'][i]||i+1)+'</span><div class="game-person"><b>'+esc(displayNames[i])+(r.user===key(currentEmail)?' · вы':'')+'</b><small>Отметки погрузки: '+r.loads+' · Возвращения: '+r.arrivals+' · Фото: '+(r.photos||0)+' · Штрафы: '+r.penalties+' (−'+(r.penalties*3)+')</small></div><b class="game-score">'+r.coins+' 🪙</b></div>').join(''):'<p class="game-note">Здесь появятся участники, которые отмечают машины на линии фрезерования.</p>');
+      +(error?'<p role="status">'+esc(error)+'</p>':!ready?'<p role="status">Загружаем накопления…</p>':board.length?board.map((r,i)=>'<div class="game-row '+(r.user===key(currentEmail)?'me':'')+'"><span class="game-place">'+(['🥇','🥈','🥉'][i]||i+1)+'</span><div class="game-person"><b>'+esc(displayNames[i])+(r.user===key(currentEmail)?' · вы':'')+'</b><small>Отметки погрузки: '+r.loads+' · Возвращения: '+r.arrivals+' · ТТН: '+r.ttns+' · Штрафы: '+r.penalties+' (−'+(r.penalties*3)+')</small></div><b class="game-score">'+r.coins+' 🪙</b></div>').join(''):'<p class="game-note">Здесь появятся участники, которые отмечают машины на линии фрезерования.</p>');
     modal.querySelector('.game-head button').onclick=()=>modal.close();
     modal.querySelector('#game-ranks-toggle').onclick=()=>{rankGuideOpen=!rankGuideOpen;paint();modal.querySelector('#game-ranks-toggle')?.focus();};
     modal.querySelectorAll('[data-game-scope]').forEach(b=>b.onclick=()=>{rankingScope=b.dataset.gameScope;paint();});
@@ -115,8 +181,9 @@
   function decorateButtons(){
     document.querySelectorAll('.truck-card[data-truck-id]').forEach(card=>{
       const st=state.truckStatus[card.dataset.truckId]||{};
-      card.querySelectorAll('.btn-quick,.btn-arrive').forEach(button=>{
-        const earns=enabled()&&!button.disabled&&(button.classList.contains('btn-quick')||(!st.arriveStatus&&!!st.lastLoadTimestamp));
+      card.querySelectorAll('.btn-quick,.btn-arrive,.btn-ttn').forEach(button=>{
+        const kind=button.classList.contains('btn-quick')?'load':button.classList.contains('btn-ttn')?'ttn':'arrive',amount=rewardsAt(appConfig)[kind];
+        const earns=enabled()&&!button.disabled&&amount>0&&(kind==='load'||kind==='ttn'&&!st.ttnStatus||kind==='arrive'&&!st.arriveStatus&&!!st.lastLoadTimestamp);
         const icon=button.querySelector('.game-button-coin');
         if(earns&&!icon){const span=document.createElement('span');span.className='game-button-coin';span.textContent='🪙';span.setAttribute('aria-hidden','true');button.append(span);}
         else if(!earns&&icon)icon.remove();
@@ -130,8 +197,8 @@
       audioContext=audioContext||new Audio();if(audioContext.state==='suspended')audioContext.resume().catch(()=>{});
     }catch(e){/* Audio is optional; action and animation must still work. */}
   }
-  document.addEventListener('pointerdown',e=>{if(e.target.closest('.btn-quick,.btn-arrive,#game-wallet,#game-ranks-toggle,#geo-photo-shutter,#geo-photo-native'))unlockCoinAudio();},true);
-  document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.closest('.btn-quick,.btn-arrive,#game-wallet,#game-ranks-toggle,#geo-photo-shutter,#geo-photo-native'))unlockCoinAudio();},true);
+  document.addEventListener('pointerdown',e=>{if(e.target.closest('.btn-quick,.btn-arrive,.btn-ttn,#game-wallet,#game-ranks-toggle'))unlockCoinAudio();},true);
+  document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.closest('.btn-quick,.btn-arrive,.btn-ttn,#game-wallet,#game-ranks-toggle'))unlockCoinAudio();},true);
   function coinDing(){
     if(!enabled()||appConfig?.testReviewFlags?.game_sound===false||!audioContext||audioContext.state!=='running')return;
     try{const t=audioContext.currentTime;
@@ -330,7 +397,6 @@
     }
     coinDing();
   }
-  window.__gamePhotoSaved=()=>{if(enabled()){walletImpact();resumeCoinToast();}};
   function cancelCoinFeedback(){
     deferredToast=null;feedbackUntil=0;
     for(const finish of [...coinFlights])finish(false);
@@ -347,17 +413,18 @@
   const line=document.getElementById('trucksLineList');
   if(line)new MutationObserver(decorateButtons).observe(line,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled']});
   window.__gameCoinQueued=function(op){
-    if(!enabled()||!(op.type==='load'||op.type==='arrive'&&op.wantArrived&&op.lastLoadTimestamp))return;
-    const amount=op.type==='arrive'?2:1;
+    if(!enabled()||!(op.type==='load'||op.type==='arrive'&&op.wantArrived&&op.lastLoadTimestamp||op.type==='ttn'&&op.collect))return;
+    const amount=rewardsAt(appConfig,Number(op.createdAt)||Date.now())[op.type];if(!amount)return;
+    const count=Math.min(5,amount);
     if(appConfig?.testReviewFlags?.game_effects===false){coinDing();return;}
-    const card=[...document.querySelectorAll('.truck-card[data-truck-id]')].find(c=>c.dataset.truckId===op.truckId),button=card?.querySelector(op.type==='load'?'.btn-quick':'.btn-arrive');
+    const card=[...document.querySelectorAll('.truck-card[data-truck-id]')].find(c=>c.dataset.truckId===op.truckId),button=card?.querySelector(op.type==='load'?'.btn-quick':op.type==='ttn'?'.btn-ttn':'.btn-arrive');
     const icon=button?.querySelector('.game-button-coin'),r=(icon||button)?.getBoundingClientRect(),target=wallet.getBoundingClientRect();
     if(!target.width||!target.height){coinDing();return;}holdCoinToast();
     if(!r||matchMedia('(prefers-reduced-motion: reduce)').matches){walletImpact();resumeCoinToast();return;}
-    let remaining=amount;if(icon)icon.style.visibility='hidden';
-    for(let i=0;i<amount;i++){
+    let remaining=count;if(icon)icon.style.visibility='hidden';
+    for(let i=0;i<count;i++){
       const coin=document.createElement('span');coin.className='game-flying-coin';coin.textContent='🪙';coin.setAttribute('aria-hidden','true');
-      const sx=r.left+r.width/2+(i-(amount-1)/2)*12,sy=r.top+r.height/2;coin.style.left=(sx-15)+'px';coin.style.top=(sy-15)+'px';document.body.append(coin);
+      const sx=r.left+r.width/2+(i-(count-1)/2)*12,sy=r.top+r.height/2;coin.style.left=(sx-15)+'px';coin.style.top=(sy-15)+'px';document.body.append(coin);
       const dx=target.left+target.width/2-sx,dy=target.top+target.height/2-sy;let finished=false,animation=null,failsafe=null;
       function finish(sound){if(finished)return;finished=true;clearTimeout(failsafe);animation?.cancel();coin.remove();remaining--;if(!remaining&&icon)icon.style.visibility='';coinFlights.delete(finish);if(sound)walletImpact();resumeCoinToast();}
       coinFlights.add(finish);if(typeof coin.animate!=='function'){finish(true);continue;}
@@ -379,7 +446,7 @@
     const identity=permissionsLoaded&&currentUserStatus==='active'?String(currentUid||''):'';
     if(identity!==owner){
       cancelCoinFeedback();cancelRankCelebration();rankSnapshotConfirmed=false;rankGuideOpen=false;
-      unsubscribe?.();unsubscribe=null;owner=identity;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
+      rewardDirty=false;rewardMessage='';unsubscribe?.();unsubscribe=null;owner=identity;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
     }
     if(identity&&!unsubscribe){
       const session=owner;
