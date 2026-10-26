@@ -9,7 +9,7 @@ let browser;
 function record(name){report.checks.push(name);console.log('PASS',name);}
 (async()=>{
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;
- browser=await chromium.launch({headless:true,chromiumSandbox:true});
+ browser=await chromium.launch({headless:true,chromiumSandbox:true,executablePath:process.env.SUMMARY_BROWSER||undefined});
  for(const mobile of [false,true]){
   const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1280,height:900},isMobile:mobile,hasTouch:mobile,locale:'ru-RU'});
   await context.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort());

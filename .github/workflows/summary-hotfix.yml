@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: summary-hotfix-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   check:
     runs-on: ubuntu-22.04
@@ -23,7 +26,13 @@ jobs:
       - name: Install browser
         run: |
           npm install --prefix /tmp/summary-qa --no-audit --no-fund playwright@1.56.1
-          /tmp/summary-qa/node_modules/.bin/playwright install --with-deps chromium
+          if command -v google-chrome >/dev/null; then
+            echo "SUMMARY_BROWSER=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          elif command -v chromium >/dev/null; then
+            echo "SUMMARY_BROWSER=$(command -v chromium)" >> "$GITHUB_ENV"
+          else
+            /tmp/summary-qa/node_modules/.bin/playwright install --with-deps chromium
+          fi
       - name: Real desktop and mobile button checks
         run: |
           python3 tests/full-audit/create-summary-visual.py
