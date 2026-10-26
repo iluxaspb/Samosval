@@ -137,15 +137,27 @@ async function ready() {
   await wait(() => permissionsLoaded && currentUserStatus === 'active' && state.trucks.length === 2 && state.objects.length === 1
     && (!navigator.onLine || syncState.everConnected.shift && syncState.everConnected.logs && syncState.everConnected.status));
 }
-async function confirm(accept = true, expectedMessage) {
+async function confirm(accept = true, expectedMessage, repeated = false) {
   const overlay=page.locator('.pcm-overlay.pcm-open');
   await overlay.waitFor({state:'visible'});
   if (expectedMessage) assert.match(await overlay.locator('.pcm-message').innerText(),expectedMessage);
   const current=await overlay.elementHandle(); assert(current);
-  await overlay.locator(accept ? '.pcm-btn-confirm' : '.pcm-btn-cancel').click();
+  const button=overlay.locator(accept ? '.pcm-btn-confirm' : '.pcm-btn-cancel');
+  if (repeated) await button.dblclick(); else await button.click();
   // A legitimate successor prompt may appear immediately (optional backup →
   // final close). Wait for THIS dismissed instance, never every future modal.
-  await current.waitForElementState('hidden'); await current.dispose();
+  await page.waitForFunction(node=>!node.isConnected,current,{timeout:15000}); await current.dispose();
+}
+async function cancelRepeatedPrompts(expectedMessage) {
+  // A second real pointer click on an opener may land on the newly inserted
+  // confirmation backdrop. Verify the cancellation path; never wait to approve
+  // a modal that the user's second click already dismissed.
+  for (let remaining=3;remaining>0;remaining--) {
+    await wait(()=>!document.querySelector('.pcm-overlay:not(.pcm-open)'));
+    if (!await page.locator('.pcm-overlay.pcm-open').count()) return;
+    await confirm(false,expectedMessage);
+  }
+  assert.equal(await page.locator('.pcm-overlay').count(),0,'Unexpected confirmation loop after repeated opener');
 }
 async function nav(name) { await page.locator('#nav-' + name).click(); await page.locator('#tab-' + name + '.active').waitFor({state:'visible'}); }
 async function toggleCheckbox(id, checked) {
@@ -347,13 +359,14 @@ async function responsiveCase(mobile) {
     assert.equal((await readRows('archive')).length,0,'Cancel final close must not archive the shift');
     await page.locator('.pcm-overlay').waitFor({state:'detached'});
     await page.locator('#closeShiftBtn').dblclick();
-    await page.locator('.pcm-overlay.pcm-open').waitFor({state:'visible'});
-    const closePrompt=await page.locator('.pcm-overlay.pcm-open .pcm-message').innerText();
-    // A real second pointer click can cancel the optional backup backdrop. The
-    // final close confirmation is still mandatory, and never accepted blindly.
-    if (/Перед закрытием смены создать резервную копию/.test(closePrompt)) await confirm(false,/Перед закрытием смены создать резервную копию/);
-    else assert.match(closePrompt,/^Закрыть смену\?$/);
-    await confirm(true,/^Закрыть смену\?$/);
+    await cancelRepeatedPrompts(/^(?:Перед закрытием смены создать резервную копию|Закрыть смену)\?$/);
+    await wait(()=>!closeShiftInFlight);
+    assert.equal(await page.evaluate(()=>state.shift?.isActive),true,'Rapid opener/cancellation must not close');
+    assert.equal((await readRows('archive')).length,0);
+    assert.equal((await readRows('logs')).length,1);
+    await page.locator('#closeShiftBtn').click();
+    await confirm(false,/Перед закрытием смены создать резервную копию/);
+    await confirm(true,/^Закрыть смену\?$/,true);
     await wait(() => !state.shift && state.archive.length === 1 && !closeShiftInFlight);
     assert.equal((await readRows('archive')).length, 1); assert.equal((await readRows('logs')).length, 0);
     await nav('archive'); await page.locator('#archiveSearchToggle').click(); await page.locator('#archiveSearchInput').fill('учебный');
@@ -361,9 +374,14 @@ async function responsiveCase(mobile) {
     assert.match(await page.locator('#modalArchiveBody').innerText(), /20/);
     await page.locator('#archiveModal button[onclick="closeArchiveModal()"]').click();
     await page.locator('.archive-shift-item').first().click();
-    await page.locator('#archiveRestoreBtn').click(); await confirm(false);
+    await page.locator('#archiveRestoreBtn').click(); await confirm(false,/^Восстановить смену/);
     assert.equal((await readRows('archive')).length, 1);
-    await page.locator('#archiveRestoreBtn').dblclick(); await confirm();
+    await page.locator('#archiveRestoreBtn').dblclick();
+    await cancelRepeatedPrompts(/^Восстановить смену/);
+    await wait(()=>!archiveRestoreInFlight);
+    assert.equal((await readRows('archive')).length,1,'Rapid restore opener/cancellation must preserve archive');
+    assert.equal((await readRows('shift')).length,0); assert.equal((await readRows('logs')).length,0);
+    await page.locator('#archiveRestoreBtn').click(); await confirm(true,/^Восстановить смену/,true);
     await wait(() => state.shift?.isActive && !state.shift.restoring && state.archive.length === 0 && getLogs().length === 1 && !archiveRestoreInFlight);
     assert.equal((await readRows('archive')).length, 0); assert.equal((await readRows('logs')).length, 1);
     assert.equal((await readRows('truckStatus')).length, 1);
