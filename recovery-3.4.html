@@ -419,7 +419,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.4.3</span>
+        <span class="version-text">Версия 3.4.4</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -1667,7 +1667,7 @@
   function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
   function applyRoleUI() {
     const versionAllowed = permissionsLoaded && canAdmin();
-    document.body.toggleAttribute('data-release-admin', versionAllowed);
+    if (versionAllowed) document.body.setAttribute('data-release-admin', '1'); else document.body.removeAttribute('data-release-admin');
     if (!versionAllowed) document.getElementById('releaseHistoryDialog')?.close();
     const viewBanner = document.getElementById('viewOnlyBanner'); const canDoAnything = hasPermission('start_shift') || hasPermission('edit_line') || hasPermission('action_load');
     if (viewBanner) viewBanner.style.display = (!canDoAnything && state.shift) ? 'block' : 'none';
@@ -3741,6 +3741,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.4.4',title:'Видимость версии у администратора',items:['Исправлено отображение зелёного номера версии в верхней части страницы для активного администратора.','Просмотр истории изменений по нажатию на номер версии по-прежнему доступен только администратору.','Сохранены прежние права, данные, отчёты и поведение архивного PNG.']},
     {version:'3.4.3',title:'Архивные PNG и доступ к истории версий',items:['PNG архивного отчёта сохраняет все строки и столбцы без обрезки, включая длинные списки рейсов.','Порядок машин и рейсов повторяет открытый лист: данные не пересортировываются и не берутся из другого архива.','При сохранении сохраняются рукописные пометки и выбранный вид листа, включая ГАИ.','Номер версии и история обновлений в интерфейсе доступны только активному администратору после проверки прав.']},
     {version:'3.4.2',title:'Настройка монет за действия',items:['Администратор может настроить монеты за погрузку, возвращение после погрузки и «Забрал ТТН». Значения по умолчанию: 1, 2 и 0.','Новые ставки сохраняются для следующих подтверждённых действий; прошлые начисления не пересчитываются.','Повторы синхронизации не начисляют монеты повторно. Отмена действия снимает его награду, восстановление возвращает исходное начисление.']},
     {version:'3.4.1',title:'Закрытие смены и отчёты PNG',items:['Закрытие смены больше не ждёт отчёт для MAX. Рейсы сохраняются в архив, очистка выполняется небольшими порциями; после сбоя можно продолжить закрытие.','Отчёты текущей смены, ГАИ, архива и расширений скачиваются в PNG.','В MAX остаются только текстовые уведомления. Отправка отчётов и её настройки убраны.']},
