@@ -46,8 +46,7 @@
     if (stdLogs.length > 0 && appConfig.notifyPdfMain) {
       try {
         const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, isClosed: true, logs: stdLogs, activeLineIds, type: 'regular', checkTTN: (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId });
-        const canvas = document.getElementById('draw-canvas-main'); let finalHtml = html;
-        if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
+        const finalHtml = html;
         const blob = await generatePDFFromHTML(finalHtml, 'report_regular.pdf'); const b64 = await blobToBase64(blob);
         enqueueMaxDocument(`report_regular_${safeDate}.pdf`, b64, `📊 Отчет (ОСНОВНЫЕ): ${shift.objectName} / ${shift.startDate}`, null, 0);
       } catch(e) { console.warn('PDF regular fail:', e); }
@@ -55,8 +54,7 @@
     if (gaiLogs.length > 0 && appConfig.notifyPdfGai) {
       try {
         const html = buildReportHTML({ objectName: shift.objectName, date: shift.startDate, isClosed: true, logs: gaiLogs, activeLineIds, type: 'gai', checkTTN: null });
-        const canvas = document.getElementById('draw-canvas-gai'); let finalHtml = html;
-        if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
+        const finalHtml = html;
         const blob = await generatePDFFromHTML(finalHtml, 'report_gai.pdf'); const b64 = await blobToBase64(blob);
         enqueueMaxDocument(`report_gai_${safeDate}.pdf`, b64, `📊 Отчет (ГАИ): ${shift.objectName} / ${shift.startDate}`, null, Date.now() + GAI_PDF_DELAY_MS);
       } catch(e) { console.warn('PDF gai fail:', e); }
@@ -71,8 +69,7 @@
     try {
       showToastEl('⏳ Генерация PDF...', false);
       const html = buildReportHTML({ objectName: state.shift.objectName, date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
-      const canvas = document.getElementById(type === 'gai' ? 'draw-canvas-gai' : 'draw-canvas-main'); let finalHtml = html;
-      if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
+      const finalHtml = html;
       const blob = await generatePDFFromHTML(finalHtml, `report_${type}.pdf`); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `report_${type}_${Date.now()}.pdf`; a.click(); URL.revokeObjectURL(url); showToastEl('✅ PDF готов', false);
     } catch(e) { showError('Ошибка PDF: ' + e.message); }
   }
@@ -85,8 +82,7 @@
     showToastEl('⏳ Генерация PDF для Max...', false);
     try {
       const html = buildReportHTML({ objectName: state.shift.objectName, date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
-      const canvas = document.getElementById(type === 'gai' ? 'draw-canvas-gai' : 'draw-canvas-main'); let finalHtml = html;
-      if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
+      const finalHtml = html;
       const blob = await generatePDFFromHTML(finalHtml, `report_${type}.pdf`); const b64 = await blobToBase64(blob);
       const safeDate = String(state.shift.startDate || '').replace(/[^\w]/g, '_');
       enqueueMaxDocument(`report_${type}_${safeDate}.pdf`, b64, `📊 Отчет (${type === 'gai' ? 'ГАИ' : 'ОСНОВНЫЕ'}): ${state.shift.objectName} / ${state.shift.startDate}`, null, 0);
@@ -100,8 +96,7 @@
     try {
       showToastEl('⏳ Генерация PDF...', false);
       const html = buildReportHTML({ objectName: s.objectName, date: s.date, logs, activeLineIds: s.activeLineIds || [], type, isClosed: true, reportTtnStatus: s.ttnStatus || {}, checkTTN: type === 'regular' ? (id, logId, isLast) => s.ttnStatus && s.ttnStatus[id] && isLast : null });
-      const canvas = document.getElementById('draw-canvas-archive'); let finalHtml = html;
-      if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
+      const finalHtml = html;
       const blob = await generatePDFFromHTML(finalHtml, `archive_${type}.pdf`); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `archive_${type}.pdf`; a.click(); URL.revokeObjectURL(url); showToastEl('✅ PDF готов', false);
     } catch(e) { showError('Ошибка PDF: ' + e.message); }
   }
@@ -179,7 +174,6 @@
       let commHtml = l.comment ? `<div class="log-comment">💬 ${escapeHtml(l.comment)}</div>` : '';
       return `<div class="log-item"><div><div class="log-info">${truckLabelHtml(l.truckId, l.truckName)} — ${volHtml}</div><div class="log-meta">${escapeHtml(l.timeStr)}${au}${l.offlinePending?' · ☁️ офлайн':''}</div>${commHtml}</div>${canEditL&&!l.offlinePending?`<div style="display:flex;gap:6px;"><button class="btn-edit" onclick="openEditLog('${l.id}')">✏️</button><button class="btn-del" onclick="deleteLog('${l.id}')">X</button></div>`:''}</div>`;
     }).join('');
-    setTimeout(() => { setupStylus('draw-canvas-main', 'paperReportContainer'); setupStylus('draw-canvas-gai', 'gaiPaperContainer'); }, 50);
   }
   function toggleReportType() { if (!hasPermission('view_gai_report')) { showError('Нет прав'); return; } showGAITable = !showGAITable; renderReport(); }
   function openEditLog(id) { if(!requireEdit('edit_logs')) return; let l=state.logs.find(x=>x.id===id); if(!l) return; editingLogId=id; document.getElementById('editLogTruckInfo').innerHTML=`<b>${escapeHtml(l.truckName)}</b>`; document.getElementById('editLogVolume').value=l.volume; document.getElementById('editLogTime').value=l.timeStr; document.getElementById('editLogComment').value=l.comment || ''; document.getElementById('editLogModal').classList.add('open'); }
