@@ -27,6 +27,8 @@
       pointer-events:none;
     }
     .version-text { opacity: 1; color: #e11d48; font-weight: 800; font-size: 11px; }
+/* Версию и историю видит только активный администратор с загруженными правами. */
+body:not([data-release-admin="1"]) .version-text { display: none !important; }
 
     .sync-dot-wrap {
       position: relative; display: inline-flex; align-items: center; justify-content: center;
