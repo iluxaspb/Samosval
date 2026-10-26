@@ -1,0 +1,36 @@
+name: Summary hotfix browser verification
+on:
+  push:
+    branches: [audit/summary-hotfix-20261026]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and verify isolated hotfix
+        run: |
+          python3 tools/build-test.py
+          node tests/full-audit/reports-summary.cjs
+          node tests/pwa/service-worker.cjs
+          node tests/photo-removal/build.cjs
+      - name: Install browser
+        run: |
+          npm install --prefix /tmp/summary-qa --no-audit --no-fund playwright@1.56.1
+          /tmp/summary-qa/node_modules/.bin/playwright install --with-deps chromium
+      - name: Real desktop and mobile button checks
+        run: |
+          python3 tests/full-audit/create-summary-visual.py
+          NODE_PATH=/tmp/summary-qa/node_modules node tests/full-audit/summary-browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: summary-browser-evidence
+          path: tests/full-audit/results/summary-browser/
+          if-no-files-found: warn

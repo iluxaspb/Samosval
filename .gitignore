@@ -2,3 +2,6 @@
 .openai/
 node_modules/
 firestore-debug.log
+
+tests/full-audit/summary-visual.html
+tests/full-audit/results/

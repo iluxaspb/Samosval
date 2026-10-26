@@ -3,6 +3,9 @@
 (function () {
   const button = document.getElementById('toggleReportBtn');
   if (!button) return;
+  button.title = 'Удерживайте 0,8 с для переключения листа';
+  button.setAttribute('aria-label', button.title);
+  // Deliberately keep the small lower-right sheet icon hold-only (800 ms).
   button.style.touchAction = 'none';
   button.style.userSelect = 'none';
   button.style.webkitUserSelect = 'none';
@@ -13,7 +16,8 @@
     clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      if (document.hidden || !button.isConnected || !button.getClientRects().length) return;
+      if (document.hidden || !button.isConnected || !button.getClientRects().length ||
+          !hasTabAccess('report') || !hasPermission('view_gai_report')) return;
       toggleReportType();
     }, 800);
   }
@@ -30,7 +34,7 @@
     if (Math.hypot(e.clientX - startX, e.clientY - startY) > 12 ||
         e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) cancel();
   });
-  ['pointerup','pointercancel','lostpointercapture'].forEach(type => button.addEventListener(type, cancel));
+  ['pointerup','pointercancel','pointerleave','lostpointercapture'].forEach(type => button.addEventListener(type, cancel));
   button.addEventListener('keydown', e => {
     if (e.key !== ' ' && e.key !== 'Enter') return;
     e.preventDefault();
@@ -41,4 +45,5 @@
   button.addEventListener('blur', cancel);
   window.addEventListener('blur', cancel);
   document.addEventListener('visibilitychange', cancel);
+  document.addEventListener('scroll', cancel, true);
 })();
