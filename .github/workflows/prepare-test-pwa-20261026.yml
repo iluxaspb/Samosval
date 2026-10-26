@@ -24,7 +24,7 @@ jobs:
           python-version: '3.12'
       - name: Build content-addressed test application
         run: python3 tools/build-test.py
-      - name: Verify test PWA and PNG regressions
+      - name: Verify test PWA, snapshot export and PNG regressions
         run: |
           set -eu
           node tests/pwa/modules.cjs
