@@ -30,9 +30,20 @@ self-test needs no browser/emulator/npm dependencies and is not a browser pass.
   `firestore-timesheet-test.rules`; only seed/read verification bypasses rules.
 - Firebase Auth is an explicit UI stub with generated `example.test` users and
   an inert fixture password. This does **not** test real Auth or email delivery.
-- The HTTP server changes only deployment identifiers/configuration in served
-  JavaScript, and regenerates worker hashes for those exact response bytes.
-  Repository code and the worker's integrity checks are not disabled/modified.
+- The HTTP server changes deployment identifiers/configuration in served
+  JavaScript and one pinned Firestore WebChannel connectivity-probe URL fragment,
+  then regenerates worker hashes for those exact response bytes. Repository
+  application/vendor files remain untouched; integrity verification stays enabled.
+- The Firestore 10.8.0 vendor SHA-256 is pinned to
+  `1b122566975332a8b7059e1b435df73122b6e4947b312360b518936be219b6fc`.
+  Exactly one Google `cleardot.gif` URL-construction fragment (including its
+  HTTPS-forcing expression) is substituted with the same-origin
+  `/Samosval/audit-connectivity-probe.gif`. Unknown vendor bytes fail closed.
+  This diagnostic image is a real transparent GIF served with `no-store`, absent
+  from the worker precache. Offline requests fail naturally; native image
+  callbacks, Firestore transport/retries, persistence, and replay are unchanged.
+  This is an explicit isolation fixture, not a test of Google's connectivity.
+  No external probes or CSP errors are exempted from failure checks.
 - All browser non-loopback/non-test-origin requests are blocked. CSP also
   constrains service-worker connections, which can bypass Playwright routing.
   Storage is disabled, MAX has no destination/token, and hardware permissions

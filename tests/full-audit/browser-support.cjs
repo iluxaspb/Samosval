@@ -6,6 +6,14 @@ const {createHash} = require('node:crypto');
 const PROJECT = 'demo-samosval-browser-audit';
 const DEMO_CONFIG = Object.freeze({projectId: PROJECT, apiKey: 'local-demo-not-a-credential',
   appId: 'local-demo-app', authDomain: '127.0.0.1', storageBucket: PROJECT + '.invalid'});
+const FIRESTORE_PROBE_FIXTURE = Object.freeze({
+  asset:'test-app/vendor/firebase-firestore-compat-10.8.0.js',
+  originalSha256:'1b122566975332a8b7059e1b435df73122b6e4947b312360b518936be219b6fc',
+  path:'/Samosval/audit-connectivity-probe.gif'
+});
+// Real, transparent 1×1 GIF. The diagnostic must use the network rather than a
+// data URL/cache hit, so offline image failure remains genuine.
+const PROBE_GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7','base64');
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8',
   '.css':'text/css; charset=utf-8','.webmanifest':'application/manifest+json',
   '.png':'image/png','.ttf':'font/ttf','.json':'application/json'};
@@ -58,10 +66,26 @@ function rewriteDemoSource(source, isCore = false) {
   return result;
 }
 
+function rewriteConnectivityProbe(bytes) {
+  // WebChannel uses a Google image only to classify transport failures. Its
+  // adjacent scheme-forcing expression also needs replacement: changing just
+  // the URL would turn a relative loopback URL into an invalid HTTPS URL.
+  // Pin the complete original SDK; fail closed on upgrades or a changed fragment.
+  // No transport, retry, callback, persistence or transaction code is changed.
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),FIRESTORE_PROBE_FIXTURE.originalSha256,
+    'Unexpected Firestore vendor bytes: review the local connectivity probe fixture');
+  const source=bytes.toString();
+  const original='n=new Ct("//www.google.com/images/cleardot.gif"),x.location&&"http"==x.location.protocol||Nt(n,"https"),Mt(n)';
+  const replacement='n=new Ct(' + JSON.stringify(FIRESTORE_PROBE_FIXTURE.path) + '),Mt(n)';
+  assert.equal(source.split(original).length,2,'Expected exactly one pinned WebChannel connectivity probe');
+  return Buffer.from(source.replace(original,replacement));
+}
+
 function createLocalServer(root, firestorePort, requestLog) {
   root = fs.realpathSync(root);
   const servedBytes = file => {
     const bytes = fs.readFileSync(file), relative = path.relative(root,file).split(path.sep).join('/');
+    if (relative === FIRESTORE_PROBE_FIXTURE.asset) return rewriteConnectivityProbe(bytes);
     if (relative.startsWith('test-app/build/') && relative.endsWith('.js'))
       return Buffer.from(rewriteDemoSource(bytes.toString(),relative.endsWith('/core.js')));
     if (relative === 'sw-test.js') {
@@ -89,6 +113,13 @@ function createLocalServer(root, firestorePort, requestLog) {
       res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
+      if (url.pathname === FIRESTORE_PROBE_FIXTURE.path) {
+        // Intentionally absent from the worker's precache. Offline requests fail
+        // normally; no external request is made and no synthetic onload is fired.
+        res.setHeader('Cache-Control','no-store');
+        res.setHeader('Content-Type','image/gif');
+        res.end(req.method === 'HEAD' ? undefined : PROBE_GIF); return;
+      }
       if (url.pathname === '/Samosval/audit-observer') {
         res.setHeader('Content-Type', types['.html']); res.end('<!doctype html><title>Local audit observer</title>'); return;
       }
@@ -159,4 +190,4 @@ function installBrowserFixture({port, uid, project, config, initiallySignedIn = 
   }, true);
 }
 
-module.exports = {PROJECT, DEMO_CONFIG, allowedUrl, rewriteDemoSource, createLocalServer, installBrowserFixture, pngDetails, readWithRulesDisabled};
+module.exports = {PROJECT, DEMO_CONFIG, FIRESTORE_PROBE_FIXTURE, allowedUrl, rewriteDemoSource, rewriteConnectivityProbe, createLocalServer, installBrowserFixture, pngDetails, readWithRulesDisabled};

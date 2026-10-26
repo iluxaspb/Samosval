@@ -3,7 +3,7 @@
 // Auth, a production deployment, physical mobile hardware, or a camera test.
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const assert = require('node:assert/strict'), {spawn} = require('node:child_process');
-const {PROJECT, DEMO_CONFIG, allowedUrl, createLocalServer, installBrowserFixture, pngDetails, readWithRulesDisabled} = require('./browser-support.cjs');
+const {PROJECT, DEMO_CONFIG, FIRESTORE_PROBE_FIXTURE, allowedUrl, createLocalServer, installBrowserFixture, pngDetails, readWithRulesDisabled} = require('./browser-support.cjs');
 const root = path.resolve(__dirname, '../..');
 const output = path.join(__dirname, 'results', 'browser'); fs.mkdirSync(output, {recursive:true});
 const port = Number(process.env.AUDIT_FIRESTORE_PORT || 8099);
@@ -12,7 +12,8 @@ const report = {startedAt:new Date().toISOString(), status:'running', project:PR
   rules:'firestore-timesheet-test.rules', browser:'Chromium with sandbox enabled',
   modes:['desktop 1280×900', 'mobile viewport 390×844 (Chromium emulation)'],
   fixture:{auth:'Explicit local UI stub; no Firebase Auth service contacted', firestore:'Real Firebase SDK and emulator mock-user tokens',
-    sourceChanges:'HTTP responses only: demo project identifiers, inert Firebase configuration and matching worker integrity hashes; repository sources remain untouched',
+    sourceChanges:'HTTP responses only: demo project identifiers, inert Firebase configuration, pinned WebChannel diagnostic image URL to uncached same-origin endpoint, and matching worker integrity hashes; repository sources remain untouched',
+    connectivityProbe:{...FIRESTORE_PROBE_FIXTURE,behavior:'Only diagnostic URL construction rewritten; native image success/failure and real Firestore transport/retry/persistence remain intact'},
     externalTraffic:'Blocked by exact-origin routing and CSP on documents/service workers; Storage disabled, MAX not configured',
     data:'Generated example.test identities and local demo data only'},
   exclusions:['Real Firebase Auth/password delivery', 'Production/live project rules deployment', 'Physical iOS/Android installation',
