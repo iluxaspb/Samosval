@@ -114,7 +114,6 @@
   let lastTickerTs = 0;
   let pluginTabs = {};
   let pluginPdfButtons = [];
-  let drawMode = false;
 
   function pendingStart() { pendingOps++; updateSyncUI(); }
   function pendingEnd() { pendingOps = Math.max(0, pendingOps - 1); updateSyncUI(); }
