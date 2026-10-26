@@ -59,6 +59,6 @@
     if(document.fonts)document.fonts.ready.then(()=>{if(dialog)paint();});
   }
   tab.addEventListener('click',e=>{if(on&&e.target.closest('.paper-scroll-wrapper')){e.preventDefault();open();}},true);
-  function apply(value){on=value;if(!on)close();document.body.classList.toggle('summary-viewer-on',on);if(on&&typeof drawMode!=='undefined'&&drawMode&&typeof toggleDrawMode==='function')toggleDrawMode();}
+  function apply(value){on=value;if(!on)close();document.body.classList.toggle('summary-viewer-on',on);}
   apply(true);
 })();
