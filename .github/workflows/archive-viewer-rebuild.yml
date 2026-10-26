@@ -27,7 +27,8 @@ jobs:
         run: python3 tools/build-test.py
       - name: Check PWA and report regressions
         run: |
-          node tests/pwa/modules.cjs
+          node --check "test-app/build/$(python3 -c 'import json;print(json.load(open("test-app/build-manifest.json"))["version"])')/core.js"
+          node --check "test-app/build/$(python3 -c 'import json;print(json.load(open("test-app/build-manifest.json"))["version"])')/summary-viewer.js"
           node tests/pwa/service-worker.cjs
           node tests/pwa/run-regressions.cjs
           node tests/png-export/regression.cjs
