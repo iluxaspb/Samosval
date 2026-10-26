@@ -1,5 +1,4 @@
   const FORCED_ADMIN_EMAIL = 'iluxaspb@gmail.com';
-  const GAI_PDF_DELAY_MS = 60000;
 
   const ROLES = {
     admin: { label: 'Администратор', icon: '👑', color: 'admin' },
@@ -76,7 +75,7 @@
 
   let state = { trucks: [], objects: [], logs: [], truckStatus: {}, shift: null, archive: [], trash: [], audit: [], notifications: [], users: [], requests: [], plugins: [], patches: [] };
   let permissionsConfig = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS));
-  let appConfig = { maxEnabled: false, maxUrl: '', maxToken: '', maxChatId: '', notifyStart: true, notifyArrive: true, notifyLoad: true, notifyTtn: true, notifyLineStart: true, notifyLineEnd: true, notifyPdfMain: true, notifyPdfGai: true };
+  let appConfig = { maxEnabled: false, maxUrl: '', maxToken: '', maxChatId: '', notifyStart: true, notifyArrive: true, notifyLoad: true, notifyTtn: true, notifyLineStart: true, notifyLineEnd: true };
 
   let unsubscribers = [];
   let currentEmail = '';

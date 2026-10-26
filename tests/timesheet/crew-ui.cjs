@@ -4,7 +4,7 @@ const w=dom.window;w.indexedDB=require('./memory-idb.cjs')();w.HTMLDialogElement
 const wait=async test=>{for(let i=0;i<1000;i++){if(test())return;await new Promise(r=>setTimeout(r,10));}throw Error('Timed out: '+test+'\n'+w.document.body.textContent.slice(-2200));};
 const q=s=>w.document.querySelector(s),click=s=>{assert(q(s),s);q(s).click();},submit=()=>q('dialog form').dispatchEvent(new w.Event('submit',{cancelable:true}));
 const select=(selector,value)=>{const e=q(selector);e.value=value;e.dispatchEvent(new w.Event('change',{bubbles:true}));};
-w.eval(fs.readFileSync('tests/timesheet/fixture.js','utf8'));w.eval(fs.readFileSync('assets/timesheet-core.js','utf8'));const C=w.TimesheetCore;
+w.eval(fs.readFileSync('tests/timesheet/fixture.js','utf8'));w.eval(fs.readFileSync('test-app/src/features/timesheet-core.js','utf8'));const C=w.TimesheetCore;
 const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow'}).format(new Date()),root='workspaces/main_workspace/';
 w.state.objects.push({id:'obj2',name:'Второй объект'});
 for(const [id,name,group]of [['w1','Рабочий Один','worker'],['w2','Рабочий Два','worker'],['i1','Инженер','itr'],['p4','Водитель Четвёртый','operator']])w.__rows.set(root+'timesheetPeople/'+id,{name,group,deleted:false,revision:1});
@@ -17,7 +17,7 @@ function seed(id,kind='person',equipmentId=''){
 }
 for(const id of ['water','brush','w205','front','bus','xcmg','rental'])seed(id,'equipment');
 for(const id of ['p1','p2','p3'])seed(id,'person','w205');seed('p4','person','water');for(const id of ['w1','w2','i1'])seed(id);
-w.eval(fs.readFileSync('assets/timesheet.js','utf8'));
+w.eval(fs.readFileSync('test-app/src/features/timesheet-app.js','utf8'));
 const crew=()=>q('[data-crew-id=w205]'),crewInput=()=>crew().querySelector('.ts-inline-hours');
 const crewPulse=(value,step=false)=>crew().querySelector(step?`[data-action=hours-step][data-delta="${value}"]`:`[data-action=hours-preset][data-value="${value}"]`).click();
 const typeHours=(input,value)=>{input.focus();input.value=value;input.dispatchEvent(new w.Event('input',{bubbles:true}));input.dispatchEvent(new w.Event('change',{bubbles:true}));input.blur();};
@@ -66,4 +66,4 @@ const idle=()=>w.document.body.textContent.includes('Данные подтвер
  click('[data-crew-id=w205] [data-action=crew]');click('[data-action=crew-assign]');q('dialog input[value=p3]').checked=false;submit();await wait(()=>!q('dialog'));await wait(()=>record('p3').equipmentId==='');assert.equal(record('p3').minutes,720);assert(crew().textContent.includes('Машинисты · 2'));crewPulse('13');await wait(()=>record('p1').minutes===780&&record('p2').minutes===780);assert.equal(record('p3').minutes,720);
  console.log('PASS changing crew affects only the selected shift and preserves detached operator hours');
  console.log('ALL CREW AND CATALOG UI TESTS PASSED');
-}catch(e){console.error(e);console.error(w.__messages.slice(-6));process.exitCode=1;}finally{dom.window.close();}})();
+}catch(e){console.error(e);console.error(w.__messages.slice(-6));process.exitCode=1;}finally{await w.Timesheet.dispose();dom.window.close();}})();

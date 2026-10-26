@@ -25,7 +25,7 @@
     try { let r = refs.trucks.doc(); await tfAwait(r.set({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, createdAt: Date.now(), createdBy: getUserName() })); await addTruckToLine(r.id); document.getElementById('truckSearchInput').value = ''; renderSelectorList(); }
     catch(e) { showError(e.message); }
   }
-  function openSelectorModal() { if(!requireEdit('edit_line') || !state.shift) return; if(appConfig?.testReviewFlags?.selector_reset!==false){const search=document.getElementById('truckSearchInput');if(search)search.value='';} document.getElementById('selectorModal').classList.add('open'); renderSelectorList(); }
+  function openSelectorModal() { if(!requireEdit('edit_line') || !state.shift) return; const search=document.getElementById('truckSearchInput');if(search)search.value=''; document.getElementById('selectorModal').classList.add('open'); renderSelectorList(); }
   function closeSelectorModal() { document.getElementById('selectorModal').classList.remove('open'); }
   async function toggleLineTruck(id) { if(!requireEdit('edit_line')) return; if(getActiveLineIds().includes(id)) await removeTruckFromLine(id); else await addTruckToLine(id); renderSelectorList(); }
 

@@ -43,6 +43,23 @@
         if(currentUserRole!=='admin'&&operations.length>4)throw new Error('Одна операция этой роли может изменять не более четырёх записей. Выполните изменения по частям.');
         if(actor.uid!==currentUid)throw new Error('Учётная запись изменилась. Повторите действие.');
         const description=title(operations);entry={text:description,timestamp:time,timeStr:new Date(time).toLocaleString('ru-RU'),userName:actor.name,userEmail:actor.email,createdByEmail:actor.email,shiftId:state.shift?.id||'',objectId:state.shift?.objectId||'',objectName:state.shift?.objectName||'',eventType:'history',history:{id:historyId,version:3,description,user:actor.name,userEmail:actor.email,userUid:actor.uid,timestamp:time,operations,undone:false}};
+        // Archive cleanup is not a user deletion. Persist its exact causal proof in
+        // the same canonical history transaction, never infer it from a later close.
+        const cleanup=result?.archiveCleanup;
+        if(cleanup){
+          const valid=cleanup.version===1&&typeof cleanup.shiftId==='string'&&typeof cleanup.archiveId==='string'
+            && operations.every(op=>op.collection==='logs'&&op.before?.shiftId===cleanup.shiftId&&!op.after);
+          if(!valid)throw new Error('Некорректная ссылка на архивную очистку');
+          const [shift,saved]=await Promise.all([tx.get(refs.shift),tx.get(refs.archive.doc(cleanup.archiveId))]);
+          const current=shift.exists?shift.data():null,archive=saved.exists?saved.data():null;
+          const logs=new Map((archive?.logs||[]).map(log=>[log.id,log]));
+          if(current?.id!==cleanup.shiftId||!current.closing||current.isActive!==false
+            ||(current.closeArchiveId||('closed_'+cleanup.shiftId))!==cleanup.archiveId
+            ||archive?.sourceShiftId!==cleanup.shiftId
+            ||operations.some(op=>!archivedTripMatches(op.before,logs.get(op.id))))
+            throw new Error('Архивная очистка не подтверждена сохранённым архивом');
+          entry.history.archiveCleanup={version:1,shiftId:cleanup.shiftId,archiveId:cleanup.archiveId,logIds:operations.map(op=>op.id)};
+        }
         // Freeze the reward policy with the confirmed history entry; legacy entries are never repriced.
         if(window.__gameRewardSnapshot&&operations.some(o=>o.collection==='logs'||o.collection==='truckStatus')){
           const rewardPolicy=await tx.get(appConfigRef);

@@ -12,15 +12,23 @@
   const S={user:'',generation:0,local:null,jobs:[],remote:{},unsubs:[],periodUnsubs:[],objectId:'',date:today(),shift:'day',view:'day',catalogGroup:'worker',scope:'',ready:{},objectRows:{timesheetEntries:[],timesheetMaterials:[]},objectReady:{},objectCached:{},objectViewId:'',objectUnsubs:[],objectRequest:0,errors:{},busy:false,dialog:null,lastHtml:'',bulkWorkers:false,bulkRows:[],bulkValue:'12',bulkSaving:false};
   for(const k of C.collections) S.remote[k]=[];
   const host=document.getElementById('tab-timesheet');
+  let disposed=false,suspended=false,refreshTimer=null;
+  const pendingTasks=new Set(),listeners=[],deferredTimers=new Set(),downloadUrls=new Set();
+  // Keep complete async operations alive until teardown has cancelled their generation.
+  // IndexedDB writes/remote transactions already in flight must settle, not be discarded.
+  function track(promise){const task=Promise.resolve(promise).finally(()=>pendingTasks.delete(task));pendingTasks.add(task);return task;}
+  async function whenIdle(){do{await Promise.allSettled([...pendingTasks]);await Promise.resolve();}while(pendingTasks.size);}
+  function listen(target,type,handler){target.addEventListener(type,handler);listeners.push(()=>target.removeEventListener(type,handler));}
+  function defer(callback,delay){if(disposed||suspended)return;const generation=S.generation,timer=setTimeout(()=>{deferredTimers.delete(timer);if(!disposed&&!suspended&&generation===S.generation)callback();},delay);deferredTimers.add(timer);}
   const byId=id=>document.getElementById(id);
-  const allowed=()=>!!currentUid && currentUserStatus==='active' && permissionsLoaded && hasTabAccess('timesheet');
+  const allowed=()=>!disposed&&!suspended&&!!currentUid && currentUserStatus==='active' && permissionsLoaded && hasTabAccess('timesheet');
   const edit=()=>allowed() && hasPermission('timesheet_edit');
   const manage=()=>allowed() && hasPermission('timesheet_manage');
   const fmtDate=d=>d.split('-').reverse().join('.');
   const shiftName=s=>s==='night'?'Ночь':'День';
   const active=()=>host.classList.contains('active');
-  const toast=s=>showToastEl(s,false);
-  const error=e=>showError(e.message||String(e));
+  const toast=s=>{if(!disposed&&!suspended)showToastEl(s,false);};
+  const error=e=>{if(!disposed&&!suspended)showError(e.message||String(e));};
   const sort=a=>a.sort((x,y)=>x.name.localeCompare(y.name,'ru'));
   function rows(col){return C.project(S.remote[col]||[],S.jobs,col);}
   function living(col){return rows(col).filter(x=>!x.deleted);}
@@ -36,11 +44,12 @@
   function input(name,value='',extra=''){return `<input name="${name}" value="${E(value)}" ${extra}>`;}
   function btn(label,action,extra=''){return `<button type="button" class="ts-btn${['entry','crew'].includes(action)?' ts-details':''}" data-action="${action}" ${extra}>${label}</button>`;}
   function note(s){return `<p class="ts-muted">${s}</p>`;}
-  function localOpen(name){return new Promise((resolve,reject)=>{const req=indexedDB.open(name,1);req.onupgradeneeded=()=>{req.result.createObjectStore('jobs',{keyPath:'id'});req.result.createObjectStore('cache',{keyPath:'key'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);req.onblocked=()=>reject(Error('Закройте другие вкладки, чтобы открыть локальное хранилище'));});}
-  function local(store,method,value){const database=S.local;if(!database)return Promise.reject(Error('Локальное хранилище ещё не готово'));return new Promise((resolve,reject)=>{const tx=database.transaction(store,method==='get'||method==='getAll'?'readonly':'readwrite');const req=tx.objectStore(store)[method](value);let result;req.onsuccess=()=>{result=req.result;};tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error||req.error);tx.onabort=()=>reject(tx.error||Error('Не удалось сохранить на устройстве'));});}
+  function localOpen(name){return track(new Promise((resolve,reject)=>{const req=indexedDB.open(name,1);let abandoned=false;req.onupgradeneeded=()=>{req.result.createObjectStore('jobs',{keyPath:'id'});req.result.createObjectStore('cache',{keyPath:'key'});};req.onsuccess=()=>{if(abandoned)req.result.close();else resolve(req.result);};req.onerror=()=>{abandoned=true;reject(req.error);};req.onblocked=()=>{abandoned=true;reject(Error('Закройте другие вкладки, чтобы открыть локальное хранилище'));};}));}
+  function local(store,method,value){const database=S.local;if(!database)return Promise.reject(Error('Локальное хранилище ещё не готово'));return track(new Promise((resolve,reject)=>{const tx=database.transaction(store,method==='get'||method==='getAll'?'readonly':'readwrite');const req=tx.objectStore(store)[method](value);let result;req.onsuccess=()=>{result=req.result;};tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error||req.error);tx.onabort=()=>reject(tx.error||Error('Не удалось сохранить на устройстве'));}));}
   async function loadJobs(){const generation=S.generation;const jobs=await local('jobs','getAll');if(generation===S.generation)S.jobs=jobs.sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));}
-  function reset(){S.generation++;stopObjectView();inlineDrafts.clear();inlineChains.clear();S.bulkWorkers=false;S.bulkRows=[];S.bulkSaving=false;for(const u of [...S.unsubs,...S.periodUnsubs])u();S.unsubs=[];S.periodUnsubs=[];S.local?.close();S.local=null;S.user='';S.scope='';S.jobs=[];S.ready={};S.errors={};S.busy=false;for(const k of C.collections)S.remote[k]=[];S.dialog?.close();S.lastHtml='';host.innerHTML='';}
-  async function session(){
+  function reset(){S.generation++;for(const timer of deferredTimers)clearTimeout(timer);deferredTimers.clear();for(const url of downloadUrls)URL.revokeObjectURL(url);downloadUrls.clear();adding=false;stopObjectView();inlineDrafts.clear();inlineChains.clear();S.bulkWorkers=false;S.bulkRows=[];S.bulkSaving=false;for(const u of [...S.unsubs,...S.periodUnsubs])u();S.unsubs=[];S.periodUnsubs=[];S.local?.close();S.local=null;S.user='';S.scope='';S.jobs=[];S.ready={};S.errors={};S.busy=false;for(const k of C.collections)S.remote[k]=[];S.dialog?.close();S.lastHtml='';host.innerHTML='';}
+  function session(){return track(openSession());}
+  async function openSession(){
     if(!allowed()){if(S.user)reset();return;}
     if(S.user===currentUid)return;
     reset();S.user=currentUid;const generation=S.generation;
@@ -53,12 +62,13 @@
         S.unsubs.push(wsRef.collection(col).onSnapshot({includeMetadataChanges:true},snap=>receive(col,col,snap,generation),e=>syncError(col,e,generation)));
       }
       if(!state.objects.some(o=>o.id===S.objectId))S.objectId=state.shift?.objectId||state.objects[0]?.id||'';
-      await period();if(S.view==='object')await objectPeriod();render();replay();
-    }catch(e){if(generation===S.generation){S.errors.local='Не удалось открыть хранилище: '+e.message;render();}}
+      await period();if(generation!==S.generation)return;if(S.view==='object')await objectPeriod();if(generation!==S.generation)return;render();replay();
+    }catch(e){if(generation===S.generation){reset();S.errors.local='Не удалось открыть хранилище: '+e.message;render();}}
   }
   function syncError(key,e,generation){if(generation!==S.generation)return;S.ready[key]=false;S.errors[key]=(e.code==='permission-denied'?'Нет доступа к базе табеля. Администратору нужно применить правила для тестовой базы.':e.message);render();}
-  function receive(col,key,snap,generation){if(generation!==S.generation)return;if(snap.metadata.fromCache&&snap.docs.length===0&&S.remote[col].length){S.ready[col]=false;render();return;}S.remote[col]=snap.docs.map(d=>({...d.data(),id:d.id}));S.ready[col]=!snap.metadata.fromCache;delete S.errors[col];local('cache','put',{key,rows:S.remote[col]}).catch(e=>{S.errors.local='Кэш не сохранён: '+e.message;render();});render();}
-  async function period(){
+  function receive(col,key,snap,generation){if(generation!==S.generation)return;if(snap.metadata.fromCache&&snap.docs.length===0&&S.remote[col].length){S.ready[col]=false;render();return;}S.remote[col]=snap.docs.map(d=>({...d.data(),id:d.id}));S.ready[col]=!snap.metadata.fromCache;delete S.errors[col];track(local('cache','put',{key,rows:S.remote[col]}).catch(e=>{if(generation!==S.generation)return;S.errors.local='Кэш не сохранён: '+e.message;render();}));render();}
+  function period(){return track(openPeriod());}
+  async function openPeriod(){
     if(!S.local||!S.objectId)return;
     const scope=C.scope(S.objectId,S.date);if(S.scope===scope)return;
     S.scope=scope;const generation=S.generation;
@@ -78,7 +88,8 @@
     S.objectReady={};S.objectCached={};
     delete S.errors.objectEntries;delete S.errors.objectMaterials;
   }
-  async function objectPeriod(){
+  function objectPeriod(){return track(openObjectPeriod());}
+  async function openObjectPeriod(){
     if(!S.local||!S.objectId||S.view!=='object'||!objectSummaryEnabled())return;
     if(S.objectViewId===S.objectId)return;
     stopObjectView();const objectId=S.objectId,request=S.objectRequest,generation=S.generation;
@@ -93,7 +104,7 @@
         if(!snap.metadata.fromCache){
           S.objectRows[col]=snap.docs.map(d=>({...d.data(),id:d.id}));
           S.objectReady[col]=true;S.objectCached[col]=true;delete S.errors[errorKey];
-          local('cache','put',{key,rows:S.objectRows[col],complete:true}).catch(e=>{S.errors.local='Кэш сводки не сохранён: '+e.message;render();});
+          track(local('cache','put',{key,rows:S.objectRows[col],complete:true}).catch(e=>{if(generation!==S.generation||request!==S.objectRequest)return;S.errors.local='Кэш сводки не сохранён: '+e.message;render();}));
         } else S.objectReady[col]=false;
         render();
       },e=>{if(generation!==S.generation||request!==S.objectRequest||S.objectViewId!==objectId)return;S.objectReady[col]=false;S.errors[errorKey]=e.code==='permission-denied'?'Нет доступа к данным всего объекта: проверьте правила тестовой базы.':e.message;render();}));
@@ -101,7 +112,8 @@
     render();
   }
   let adding=false;
-  async function enqueue(changes,label,quiet=false){
+  function enqueue(changes,label,quiet=false){return track(enqueueChanges(changes,label,quiet));}
+  async function enqueueChanges(changes,label,quiet){
     if(!allowed()||!S.local)throw Error('Войдите в приложение и дождитесь открытия табеля');
     if(!changes.length)return;
     if(changes.some(ch=>['timesheetPeople','timesheetEquipment'].includes(ch.collection)?!manage():!edit()))throw Error('Нет права на изменение этого раздела');
@@ -110,13 +122,16 @@
     const generation=S.generation;
     await new Promise((resolve,reject)=>{const tx=S.local.transaction('jobs','readwrite');for(const op of ops)tx.objectStore('jobs').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('Очередь не сохранена'));});
     if(generation!==S.generation)return;
-    await loadJobs();render();if(!quiet)toast(navigator.onLine?'Сохранено на устройстве · отправляем':'Сохранено на устройстве · ожидает связи');replay();
+    await loadJobs();if(generation!==S.generation)return;render();if(!quiet)toast(navigator.onLine?'Сохранено на устройстве · отправляем':'Сохранено на устройстве · ожидает связи');replay();
   }
-  async function replay(){
+  function replay(){return track(replayQueue());}
+  async function replayQueue(){
     if(!allowed()||!S.local||S.busy||!navigator.onLine)return;
     const generation=S.generation,owner=S.user;S.busy=true;
     const work=async()=>{
+      if(generation!==S.generation)return;
       await loadJobs();
+      if(generation!==S.generation)return;
       for(const op of S.jobs.filter(x=>x.status==='queued')){
         if(generation!==S.generation||currentUid!==owner||!allowed()||!navigator.onLine)break;
         try{
@@ -276,7 +291,7 @@
       inlineFeedback(id,'');
     });
     chain.promise=task.catch(e=>{if(chain.generation===S.generation){const draft=inlineDrafts.get(id),records=e.code==='crew-changed'?editorRows(id):chain.records;if(!draft?.dirty){inlineDrafts.set(id,{records:C.clone(records),raw:attempted??inlineInput(id)?.value??'',dirty:attempted!==undefined,generation:S.generation});const input=inlineInput(id);if(input&&attempted!==undefined)input.value=attempted;}else if(e.code==='crew-changed')draft.records=C.clone(records);inlineFeedback(id,e.message,true);error(e);}});
-    return chain.promise.finally(()=>{chain.count--;if(!chain.count&&inlineChains.get(id)===chain)inlineChains.delete(id);S.lastHtml='';render();});
+    return track(chain.promise.finally(()=>{chain.count--;if(chain.generation!==S.generation)return;if(!chain.count&&inlineChains.get(id)===chain)inlineChains.delete(id);S.lastHtml='';render();}));
   }
   function saveInlineInput(input){const draft=inlineDrafts.get(input.dataset.id);if(!draft?.dirty||draft.generation!==S.generation)return;draft.raw=input.value;try{C.hours(draft.raw);}catch(e){inlineFeedback(input.dataset.id,e.message,true);return;}draft.dirty=false;return inlineHours(input.dataset.id,{type:'set',value:draft.raw},draft.records);}
   function inlineButton(id,value,delta){const input=inlineInput(id),draft=inlineDrafts.get(id);const snapshot=draft&&(draft.dirty||document.activeElement===input)?draft.records:undefined;const raw=draft?.dirty?input?.value:undefined;
@@ -285,7 +300,7 @@
   }
   function captureWorkers(){if(!S.bulkWorkers){S.bulkRows=dayEntries().filter(r=>r.kind==='person'&&personGroup(r)==='worker').map(C.clone);S.bulkWorkers=true;}}
   function workersValue(button){const input=byId('ts-workers-hours');if(!input)return;captureWorkers();try{const minutes=button.dataset.value!==undefined?C.hours(button.dataset.value,false):Math.max(0,Math.min(1440,(C.hours(input.value)??720)+Number(button.dataset.delta)*60));input.value=C.fmt(minutes);S.bulkValue=input.value;input.removeAttribute('aria-invalid');}catch(e){input.setAttribute('aria-invalid','true');error(e);}}
-  async function applyWorkers(){if(!edit()||S.bulkSaving)return;const input=byId('ts-workers-hours');if(!input)return;captureWorkers();const minutes=C.hours(input.value,false),list=S.bulkRows;if(!list.length)throw Error('В эту смену ещё не добавлены рабочие');S.bulkSaving=true;host.querySelector('[data-action=workers-apply]').disabled=true;try{await enqueue(list.map(r=>({collection:'timesheetEntries',id:r.id,baseRevision:r.revision||0,before:ownData(r),data:{...ownData(r),minutes,status:'work'}})),'Часы всем рабочим');S.bulkWorkers=false;S.bulkRows=[];}finally{S.bulkSaving=false;S.lastHtml='';render();}}
+  async function applyWorkers(){if(!edit()||S.bulkSaving)return;const input=byId('ts-workers-hours');if(!input)return;captureWorkers();const generation=S.generation,minutes=C.hours(input.value,false),list=S.bulkRows;if(!list.length)throw Error('В эту смену ещё не добавлены рабочие');S.bulkSaving=true;host.querySelector('[data-action=workers-apply]').disabled=true;try{await enqueue(list.map(r=>({collection:'timesheetEntries',id:r.id,baseRevision:r.revision||0,before:ownData(r),data:{...ownData(r),minutes,status:'work'}})),'Часы всем рабочим');if(generation===S.generation){S.bulkWorkers=false;S.bulkRows=[];}}finally{if(generation===S.generation){S.bulkSaving=false;S.lastHtml='';render();}}}
   function materialsView(month){const list=living('timesheetMaterials').filter(x=>x.scope===S.scope&&(month||x.date===S.date&&x.shift===S.shift));const totals=new Map();for(const r of list){const k=r.material+'|'+r.unit;totals.set(k,{name:r.material,unit:r.unit,total:(totals.get(k)?.total||0)+r.quantity});}return `<section class="ts-section${month?'':' ts-ledger-materials'}" data-group="materials"><div class="ts-section-title"><h3>Поступление материалов</h3>${edit()&&!month?btn('＋ Поступление','material'):''}</div>${[...totals.values()].map(t=>`<span class="ts-chip">${E(t.name)} · ${Number(t.total.toFixed(3)).toLocaleString('ru-RU')} ${E(t.unit)}</span>`).join('')}${list.length?list.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<div class="ts-row"><div class="ts-row-name"><strong>${E(r.material)}</strong><small>${E(r.supplier)}${r.document?' · № '+E(r.document):''}${month?' · '+fmtDate(r.date)+' '+shiftName(r.shift):''}</small>${r.pending?'<small>Ожидает отправки</small>':''}</div><b>${r.quantity.toLocaleString('ru-RU')} ${E(r.unit)}</b>${btn(edit()?'Изменить':'Открыть','material',`data-id="${E(r.id)}"`)}</div>`).join(''):note('Материалы считаются отдельно от часов техники подрядчиков.')}</section>`;}
   function monthView(){
     const a=entries(),month=S.date.slice(0,7),days=new Date(Number(month.slice(0,4)),Number(month.slice(5)),0).getDate();const keys=new Map();for(const r of a)keys.set(r.kind+'|'+r.entityId,{kind:r.kind,entityId:r.entityId,name:r.name});
@@ -343,17 +358,20 @@
     return tabs+`<section class="ts-section"><div class="ts-section-title"><h3>${isEquipment?'Техника':groups[category]}</h3>${manage()?btn('＋ Добавить','catalog',`data-col="${col}" data-group="${category}"`):''}</div>${isEquipment?note('Экипаж назначается при добавлении техники в смену конкретного объекта.'):''}${body}</section>`;
   }
   function render(){
-    if(!active())return;
+    if(disposed||suspended||!active())return;
+    if(!allowed()){host.innerHTML=note('Нет доступа к табелю.');S.lastHtml='';S.dialog?.close();return;}
+    const showVersion=typeof canAdmin==='function'&&canAdmin();
+    if(!showVersion)host.querySelector('.ts-version')?.remove();
     if(host.contains(document.activeElement)&&['INPUT','SELECT'].includes(document.activeElement.tagName))return;
-    if(!allowed()){host.innerHTML=note('Нет доступа к табелю.');return;}
     const pending=S.jobs.filter(x=>x.status==='queued').length,failed=S.jobs.filter(x=>x.status!=='queued');
     const syncText=pending?`На устройстве: ${pending} · ожидают отправки`:!navigator.onLine?'Нет связи · показываем сохранённые данные':S.objectId&&C.collections.every(c=>S.ready[c])?'Данные подтверждены сервером':'Проверяем данные с сервером…';
-    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div><span class="ts-version">Тест 3.1.7</span></div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${S.view==='object'?'':field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],...(objectSummaryEnabled()?[['object','Весь объект']]:[]),['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():S.view==='object'?objectView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
+    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div>${showVersion?`<span class="ts-version">${E(window.TEST_APP_RELEASE?.label||'Тест')}</span>`:''}</div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${S.view==='object'?'':field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],...(objectSummaryEnabled()?[['object','Весь объект']]:[]),['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():S.view==='object'?objectView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
     if(html!==S.lastHtml){host.innerHTML=html;S.lastHtml=html;}
   }
   function dialog(title,body,onSubmit){
     S.dialog?.close();const el=document.createElement('dialog');el.className='ts-dialog';el.innerHTML=`<form><div class="ts-dialog-title"><h3>${E(title)}</h3><button type="button" data-close aria-label="Закрыть">×</button></div><div class="ts-dialog-body">${body}</div><p class="ts-form-error" role="alert"></p><div class="ts-dialog-actions">${onSubmit?'<button class="ts-btn ts-primary" type="submit">Сохранить</button>':''}<button type="button" class="ts-btn" data-close>Закрыть</button></div></form>`;document.body.append(el);S.dialog=el;el.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>el.close());el.addEventListener('close',()=>{if(S.dialog===el)S.dialog=null;el.remove();});
-    el.querySelector('form').onsubmit=async e=>{e.preventDefault();if(!onSubmit||adding)return;const button=el.querySelector('[type=submit]');adding=true;button.disabled=true;try{await onSubmit(new FormData(e.target),el);el.close();}catch(err){el.querySelector('.ts-form-error').textContent=err.message;}finally{adding=false;button.disabled=false;}};el.showModal();return el;
+    const generation=S.generation;
+    el.querySelector('form').onsubmit=e=>{e.preventDefault();if(!onSubmit||adding||generation!==S.generation||!allowed())return;const button=el.querySelector('[type=submit]');adding=true;button.disabled=true;return track((async()=>{try{await onSubmit(new FormData(e.target),el);if(generation===S.generation&&el.isConnected)el.close();}catch(err){if(generation===S.generation&&el.isConnected)el.querySelector('.ts-form-error').textContent=err.message;}finally{if(generation===S.generation){adding=false;button.disabled=false;}}})());};el.showModal();return el;
   }
   function catalogForm(col,id,group='worker'){
     if(!manage())return;const r=rows(col).find(x=>x.id===id),isPerson=col==='timesheetPeople';
@@ -462,20 +480,20 @@
     });
   }
   function exportCsv(materials){
-    if(!hasPermission('timesheet_export'))return;
+    if(!allowed()||!hasPermission('timesheet_export'))return;
     if(S.jobs.some(j=>j.scope===S.scope))return error(Error('Сначала отправьте и разберите все изменения этого месяца.'));
     const col=materials?'timesheetMaterials':'timesheetEntries';if(!navigator.onLine||!S.ready[col])return error(Error('Для выгрузки дождитесь подтверждения данных сервером.'));
     const list=living(col).filter(x=>x.scope===S.scope).sort((a,b)=>a.date.localeCompare(b.date)||a.shift.localeCompare(b.shift));
     const data=materials?[['Объект','Дата начала смены','Смена','Материал','Поставщик','Количество','Ед.','Накладная','Комментарий'],...list.map(r=>[r.objectName,fmtDate(r.date),shiftName(r.shift),r.material,r.supplier,String(r.quantity).replace('.',','),r.unit,r.document,r.note])]:[['Объект','Дата начала смены','Смена','Вид','Сотрудник / техника','Отметка','Часы','Простой, ч','Организация','Комментарий'],...list.map(r=>[r.objectName,fmtDate(r.date),shiftName(r.shift),r.kind==='person'?'Сотрудник':'Техника',r.name,statuses[r.status],C.fmt(r.minutes),C.fmt(r.idleMinutes),r.contractor,r.note])];
-    const a=document.createElement('a'),url=URL.createObjectURL(new Blob([C.csv(data)],{type:'text/csv;charset=utf-8;'}));a.href=url;a.download=(materials?'materialy-':'tabel-')+S.date.slice(0,7)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const a=document.createElement('a'),url=URL.createObjectURL(new Blob([C.csv(data)],{type:'text/csv;charset=utf-8;'}));a.href=url;a.download=(materials?'materialy-':'tabel-')+S.date.slice(0,7)+'.csv';a.click();downloadUrls.add(url);defer(()=>{URL.revokeObjectURL(url);downloadUrls.delete(url);},1000);
   }
   function describe(r){if(!r)return 'Записи нет';if('minutes'in r)return `${r.name}: ${statuses[r.status]}${r.minutes===null?'':' · '+C.fmt(r.minutes)+' ч'}${r.deleted?' · удалено':''}${r.note?' · '+r.note:''}`;if('quantity'in r)return `${r.material}: ${r.quantity} ${r.unit} · ${r.supplier}${r.deleted?' · удалено':''}`;return r.name+(r.deleted?' · в архиве':'');}
   async function conflictForm(id){
     const op=S.jobs.find(x=>x.id===id);if(!op)return;const generation=S.generation;
     const canRetry=op.changes.every(ch=>['timesheetPeople','timesheetEquipment'].includes(ch.collection)?manage():edit());
     const el=dialog('Проверка изменений',`<p>${E(op.label)}</p><div class="ts-warning">${E(op.error||'Изменения не отправлены')}</div>${(op.conflicts||[]).map(c=>`<div class="ts-conflict"><p><b>В базе:</b> ${E(describe(c.server))}</p><p><b>Ваша правка:</b> ${E(describe(c.proposed))}</p></div>`).join('')}<div class="ts-toolbar">${canRetry?btn(op.status==='conflict'?'Применить мою правку':'Повторить отправку','resolve-local'):''}${btn('Оставить данные базы','resolve-server')}</div>`);
-    el.querySelector('[data-action=resolve-server]').onclick=async()=>{try{await local('jobs','delete',op.id);await loadJobs();el.close();render();}catch(e){error(e);}};
-    el.querySelector('[data-action=resolve-local]')?.addEventListener('click',async e=>{
+    el.querySelector('[data-action=resolve-server]').onclick=()=>track((async()=>{try{await local('jobs','delete',op.id);if(generation!==S.generation)return;await loadJobs();if(generation!==S.generation)return;el.close();render();}catch(e){if(generation===S.generation)error(e);}})());
+    el.querySelector('[data-action=resolve-local]')?.addEventListener('click',e=>track((async()=>{
       if(!navigator.onLine)return error(Error('Для проверки нужна связь'));e.target.disabled=true;
       try{
         const refs=op.changes.map(ch=>wsRef.collection(ch.collection).doc(ch.id));const snaps=await Promise.all(refs.map(r=>r.get({source:'server'})));
@@ -483,34 +501,42 @@
         if(op.status==='conflict'){
           // Do not overwrite an edit that happened after the comparison was shown.
           const changedAgain=snaps.some((s,i)=>{const shown=(op.conflicts||[]).find(c=>c.id===op.changes[i].id&&c.collection===op.changes[i].collection);return shown&&(s.exists?s.data().revision||0:0)!==(shown.server?.revision||0);});
-          if(changedAgain){op.conflicts=snaps.map((s,i)=>({collection:op.changes[i].collection,id:op.changes[i].id,server:s.exists?s.data():null,proposed:op.changes[i].data}));await local('jobs','put',op);await loadJobs();el.close();await conflictForm(id);throw Error('Данные снова изменились. Сравните обновлённые значения.');}
+          if(changedAgain){op.conflicts=snaps.map((s,i)=>({collection:op.changes[i].collection,id:op.changes[i].id,server:s.exists?s.data():null,proposed:op.changes[i].data}));await local('jobs','put',op);if(generation!==S.generation)return;await loadJobs();if(generation!==S.generation)return;el.close();await conflictForm(id);throw Error('Данные снова изменились. Сравните обновлённые значения.');}
           snaps.forEach((s,i)=>{op.changes[i].baseRevision=s.exists?s.data().revision||0:0;op.changes[i].before=s.exists?s.data():null;});
         }
-        op.status='queued';delete op.error;delete op.conflicts;await local('jobs','put',op);await loadJobs();el.close();render();replay();
-      }catch(e){error(e);}finally{e.target.disabled=false;}
-    });
+        op.status='queued';delete op.error;delete op.conflicts;await local('jobs','put',op);if(generation!==S.generation)return;await loadJobs();if(generation!==S.generation)return;el.close();render();replay();
+      }catch(err){if(generation===S.generation)error(err);}finally{if(generation===S.generation)e.target.disabled=false;}
+    })()));
   }
   async function history(){
-    const el=dialog('История изменений',note('Загружаем…'));const scope=S.scope;
-    try{const snap=await wsRef.collection('timesheetChanges').where('scope','==',scope).get({source:'server'});const list=snap.docs.map(d=>d.data()).sort((a,b)=>b.createdAt-a.createdAt).slice(0,100);el.querySelector('.ts-dialog-body').innerHTML=list.map(x=>`<section class="ts-history"><b>${E(x.label)}</b><small>${E(x.name)} · ${new Date(x.createdAt).toLocaleString('ru-RU')}</small>${x.changes.map(c=>`<p>${E(describe(c.before))} → ${E(describe(c.after))}</p>`).join('')}</section>`).join('')||note('Изменений пока нет.');}catch(e){el.querySelector('.ts-dialog-body').textContent='Не удалось загрузить историю: '+e.message;}
+    if(!allowed())return;
+    const el=dialog('История изменений',note('Загружаем…'));const scope=S.scope,generation=S.generation;
+    try{const snap=await wsRef.collection('timesheetChanges').where('scope','==',scope).get({source:'server'});if(generation!==S.generation||!el.isConnected)return;const list=snap.docs.map(d=>d.data()).sort((a,b)=>b.createdAt-a.createdAt).slice(0,100);el.querySelector('.ts-dialog-body').innerHTML=list.map(x=>`<section class="ts-history"><b>${E(x.label)}</b><small>${E(x.name)} · ${new Date(x.createdAt).toLocaleString('ru-RU')}</small>${x.changes.map(c=>`<p>${E(describe(c.before))} → ${E(describe(c.after))}</p>`).join('')}</section>`).join('')||note('Изменений пока нет.');}catch(e){if(generation!==S.generation||!el.isConnected)return;el.querySelector('.ts-dialog-body').textContent='Не удалось загрузить историю: '+e.message;}
   }
-  host.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const {action,id,col,view,group}=b.dataset;
+  listen(host,'click',e=>{if(!allowed())return;const b=e.target.closest('[data-action]');if(!b)return;const {action,id,col,view,group}=b.dataset;
     const actions={view:()=>{if(view==='object'&&!objectSummaryEnabled())return;const previous=S.view;S.view=view;if(previous==='object'&&view!=='object')stopObjectView();if(view==='object')objectPeriod().catch(error);render();},'object-day':()=>{S.date=b.dataset.date;S.shift=b.dataset.shift;S.view='day';stopObjectView();period().catch(error);render();},'add-person':()=>addForm('person',group),'add-equipment':()=>addForm('equipment'),entry:()=>entryForm(id),crew:()=>crewForm(id),'add-crew':()=>addCrew(id),'hours-preset':()=>inlineButton(id,b.dataset.value),'hours-step':()=>inlineButton(id,undefined,b.dataset.delta),'workers-value':()=>workersValue(b),'workers-apply':applyWorkers,copy:copyForm,'catalog-group':()=>{S.catalogGroup=group;render();},catalog:()=>catalogForm(col,id,group),material:()=>materialForm(id),retry:replay,conflict:()=>conflictForm(id),export:()=>exportCsv(false),'export-materials':()=>exportCsv(true),history};
-    try{Promise.resolve(actions[action]?.()).catch(error);}catch(e){error(e);}
+    const generation=S.generation;try{track(Promise.resolve(actions[action]?.()).catch(e=>{if(generation===S.generation)error(e);}));}catch(e){error(e);}
   });
-  host.addEventListener('change',e=>{const t=e.target;if(t.matches('.ts-inline-hours')){saveInlineInput(t);return;}if(t.id==='ts-workers-hours'){S.bulkValue=t.value;return;}if(t.id==='ts-object')S.objectId=t.value;else if(t.id==='ts-date'){if(!t.value)return;S.date=t.type==='month'?t.value+'-01':t.value;}else if(t.id==='ts-shift')S.shift=t.value;else return;S.bulkWorkers=false;S.bulkRows=[];S.bulkValue='12';t.blur();period().catch(error);if(S.view==='object')objectPeriod().catch(error);render();});
-  host.addEventListener('focusin',e=>{if(e.target.matches('.ts-inline-hours')){const id=e.target.dataset.id;if(!inlineDrafts.get(id)?.dirty&&!inlineChains.has(id))inlineDrafts.delete(id);captureInline(e.target);e.target.select();}else if(e.target.id==='ts-workers-hours'){captureWorkers();e.target.select();}});
-  host.addEventListener('input',e=>{if(e.target.matches('.ts-inline-hours')){const draft=captureInline(e.target);if(draft){draft.raw=e.target.value;draft.dirty=true;}e.target.removeAttribute('aria-invalid');}else if(e.target.id==='ts-workers-hours'){captureWorkers();S.bulkValue=e.target.value;}});
-  host.addEventListener('focusout',e=>{if(!e.target.matches('.ts-inline-hours'))return;saveInlineInput(e.target);const id=e.target.dataset.id;setTimeout(()=>{if(document.activeElement!==e.target&&!inlineDrafts.get(id)?.dirty){inlineDrafts.delete(id);render();}},0);});
-  host.addEventListener('keydown',e=>{if(!e.target.matches('.ts-inline-hours'))return;if(e.key==='Enter'){e.preventDefault();saveInlineInput(e.target);e.target.blur();}else if(e.key==='Escape'){e.preventDefault();const draft=inlineDrafts.get(e.target.dataset.id);if(draft){const value=commonHours(draft.records);e.target.value=value.mixed?'':C.fmt(value.minutes);draft.dirty=false;}e.target.blur();}});
-  host.addEventListener('pointerdown',e=>{if(e.target.closest('[data-action^="hours-"]')&&document.activeElement?.matches('.ts-inline-hours'))e.preventDefault();});
-  window.addEventListener('review-flags-changed',()=>{if(!objectSummaryEnabled()&&S.view==='object'){S.view='month';stopObjectView();}render();});
-  window.Timesheet={session,render,reset};
-  const previousRender=window.renderAll;window.renderAll=function(){previousRender.apply(this,arguments);session();render();};
-  const previousStop=window.stopSync;window.stopSync=function(){reset();return previousStop.apply(this,arguments);};
-  auth.onAuthStateChanged(()=>{reset();session();});
-  window.addEventListener('online',()=>{replay();render();});window.addEventListener('offline',render);
-  setInterval(()=>{session();if(allowed()&&S.local){loadJobs().then(()=>{render();replay();}).catch(error);}},6000);
-  session();
+  listen(host,'change',e=>{const t=e.target;if(t.matches('.ts-inline-hours')){saveInlineInput(t);return;}if(t.id==='ts-workers-hours'){S.bulkValue=t.value;return;}if(t.id==='ts-object')S.objectId=t.value;else if(t.id==='ts-date'){if(!t.value)return;S.date=t.type==='month'?t.value+'-01':t.value;}else if(t.id==='ts-shift')S.shift=t.value;else return;S.bulkWorkers=false;S.bulkRows=[];S.bulkValue='12';t.blur();period().catch(error);if(S.view==='object')objectPeriod().catch(error);render();});
+  listen(host,'focusin',e=>{if(e.target.matches('.ts-inline-hours')){const id=e.target.dataset.id;if(!inlineDrafts.get(id)?.dirty&&!inlineChains.has(id))inlineDrafts.delete(id);captureInline(e.target);e.target.select();}else if(e.target.id==='ts-workers-hours'){captureWorkers();e.target.select();}});
+  listen(host,'input',e=>{if(e.target.matches('.ts-inline-hours')){const draft=captureInline(e.target);if(draft){draft.raw=e.target.value;draft.dirty=true;}e.target.removeAttribute('aria-invalid');}else if(e.target.id==='ts-workers-hours'){captureWorkers();S.bulkValue=e.target.value;}});
+  listen(host,'focusout',e=>{if(!e.target.matches('.ts-inline-hours'))return;saveInlineInput(e.target);const id=e.target.dataset.id;defer(()=>{if(document.activeElement!==e.target&&!inlineDrafts.get(id)?.dirty){inlineDrafts.delete(id);render();}},0);});
+  listen(host,'keydown',e=>{if(!e.target.matches('.ts-inline-hours'))return;if(e.key==='Enter'){e.preventDefault();saveInlineInput(e.target);e.target.blur();}else if(e.key==='Escape'){e.preventDefault();const draft=inlineDrafts.get(e.target.dataset.id);if(draft){const value=commonHours(draft.records);e.target.value=value.mixed?'':C.fmt(value.minutes);draft.dirty=false;}e.target.blur();}});
+  listen(host,'pointerdown',e=>{if(e.target.closest('[data-action^="hours-"]')&&document.activeElement?.matches('.ts-inline-hours'))e.preventDefault();});
+  listen(window,'review-flags-changed',()=>{if(!objectSummaryEnabled()&&S.view==='object'){S.view='month';stopObjectView();}render();});
+  window.Timesheet={session,render,reset,whenIdle,dispose};
+  const previousRender=window.renderAll,renderWrapper=function(){previousRender.apply(this,arguments);session();render();};window.renderAll=renderWrapper;
+  const previousStop=window.stopSync,stopWrapper=function(){reset();return previousStop.apply(this,arguments);};window.stopSync=stopWrapper;
+  const unsubscribeAuth=auth.onAuthStateChanged(()=>{if(disposed)return;reset();session();});
+  listen(window,'online',()=>{replay();render();});listen(window,'offline',render);
+  function startRefresh(){if(refreshTimer!==null||disposed||suspended)return;refreshTimer=setInterval(()=>{session();if(allowed()&&S.local){const generation=S.generation;track(loadJobs().then(()=>{if(generation!==S.generation)return;render();return replay();}).catch(e=>{if(generation===S.generation)error(e);}));}},6000);}
+  function stopRefresh(){if(refreshTimer!==null)clearInterval(refreshTimer);refreshTimer=null;}
+  // A cached page keeps its unsaved drafts. Final navigation disposes resources.
+  listen(window,'pagehide',event=>{if(!event.persisted){dispose();return;}suspended=true;stopRefresh();});
+  listen(window,'pageshow',()=>{if(disposed)return;suspended=false;startRefresh();session();render();replay();});
+  function dispose(){
+    if(!disposed){disposed=true;stopRefresh();unsubscribeAuth?.();listeners.splice(0).forEach(remove=>remove());reset();if(window.renderAll===renderWrapper)window.renderAll=previousRender;if(window.stopSync===stopWrapper)window.stopSync=previousStop;}
+    return whenIdle();
+  }
+  startRefresh();session();
 })();
-

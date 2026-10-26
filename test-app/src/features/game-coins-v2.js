@@ -7,7 +7,7 @@
   const objectKey=s=>s?.objectId?'id:'+s.objectId:s?.objectName?'name:'+s.objectName:'';
   function scopedRecords(rows){
     const shifts=new Map(),seen=new Set();
-    return rows.slice().sort((a,b)=>(a.timestamp||0)-(b.timestamp||0)||String(a.id).localeCompare(String(b.id))).filter(e=>{if(!e.id||seen.has(e.id))return false;seen.add(e.id);return true;}).map(e=>{
+    return rows.slice().sort((a,b)=>(a.timestamp||0)-(b.timestamp||0)||(a.history?.gameRewards?.actionAt||a.timestamp||0)-(b.history?.gameRewards?.actionAt||b.timestamp||0)||String(a.id).localeCompare(String(b.id))).filter(e=>{if(!e.id||seen.has(e.id))return false;seen.add(e.id);return true;}).map(e=>{
       const ops=e.history?.operations||[];
       for(const o of ops)if(o.collection==='shift'&&o.before?.id)shifts.set(o.before.id,o.before);
       const shiftId=e.shiftId||ops.map(o=>o.after?.shiftId||o.before?.shiftId).find(Boolean)||'';
@@ -52,6 +52,13 @@
     const entries=scopedRecords(records),origins=new Map(),rewards=new Map(),penalties=[],activeTtn=new Map();
     const slot=(o,e)=>(o.id+':'+(o.after?.shiftId||o.before?.shiftId||e.scope.shiftId||''));
     const ttnId=(o,e)=>'ttn:'+slot(o,e)+':'+(Number.isFinite(o.after?.ttnRevision)?'rev:'+o.after.ttnRevision:'event:'+(e.history?.gameRewards?.actionId||e.id));
+    const loadRewardId=o=>'load:'+(o.before?.gameRewardLogId||o.after?.gameRewardLogId||o.id);
+    function archivalRemoval(e,o){
+      const proof=e.history?.archiveCleanup;
+      return proof?.version===1&&typeof proof.archiveId==='string'&&proof.archiveId.length>0
+        && proof.shiftId===o.before?.shiftId&&Array.isArray(proof.logIds)&&proof.logIds.includes(o.id)
+        && o.collection==='logs'&&!!o.before&&!o.after;
+    }
     function candidates(e){
       const ops=e.history?.operations||[],rates=recordedRewards(e),user=key(e.userEmail||e.history?.userEmail),name=e.userName||e.history?.user||user;
       const loading=ops.some(o=>o.collection==='logs'&&!o.before&&o.after),archiving=ops.some(o=>o.collection==='archive'&&o.after),out=[];
@@ -73,7 +80,7 @@
       if(!e.history||e.history.undone)continue;
       const ops=e.history.operations||[],loading=ops.some(o=>o.collection==='logs'&&!o.before&&o.after),archiving=ops.some(o=>o.collection==='archive'&&o.after);
       for(const o of ops){const b=o.before||{},a=o.after||{};
-        if(o.collection==='logs'&&!o.after&&!archiving)rewards.delete('load:'+o.id);
+        if(o.collection==='logs'&&!o.after&&!archivalRemoval(e,o))rewards.delete(loadRewardId(o));
         if(o.collection==='truckStatus'){
           if(b.arriveTimestamp&&o.after&&!a.arriveTimestamp&&!loading&&!archiving&&a.shiftId===b.shiftId&&a.lastResetOperationId===b.lastResetOperationId&&a.lastLoadTimestamp===b.lastLoadTimestamp)rewards.delete('arrive:'+o.id+':'+(b.shiftId||'')+':'+b.arriveTimestamp);
           if(o.after&&b.ttnStatus&&!a.ttnStatus&&!loading&&!archiving){const k=slot(o,e),id=activeTtn.get(k);if(id)rewards.delete(id);activeTtn.delete(k);}
@@ -94,7 +101,7 @@
   const wallet=document.createElement('button');wallet.id='game-wallet';wallet.hidden=true;wallet.type='button';wallet.setAttribute('aria-label','Монеты и рейтинг пользователей');document.querySelector('#mainHeader .top-row')?.insertBefore(wallet,document.querySelector('#mainHeader .gear-btn'));
   const modal=document.createElement('dialog');modal.id='game-ranking';modal.setAttribute('aria-labelledby','game-title');document.body.append(modal);
   const admin=document.createElement('details');admin.id='game-admin';admin.className='admin-settings-group';admin.hidden=true;
-  const gameOptions=[['game_mode','Игровой режим для всех'],['game_sound','Игровые звуки: монеты и аплодисменты'],['game_effects','Анимации монет и праздничный салют']];
+  const gameOptions=[['game_mode','Игровой режим для всех'],['game_sound','Игровые звуки: монеты и салют'],['game_effects','Анимации монет и праздничный салют']];
   admin.innerHTML='<summary>🪙 Игровой режим <span id="game-mode-state"></span></summary><div class="form-card">'
     +gameOptions.map(([id,label])=>'<div class="settings-row"><label for="'+id+'">'+label+'</label><label class="toggle-switch"><input type="checkbox" id="'+id+'" data-game-setting="'+id+'"><span class="toggle-slider"></span></label></div>').join('')
     +'<p class="game-note">Общие настройки для всех пользователей. Монеты и штрафы продолжают учитываться при выключенном игровом режиме. Уведомления о штрафах остаются доступны.</p>'
@@ -230,86 +237,144 @@
     rankMarkers.set(rankMarkerKey(),marker);
     try{localStorage.setItem(rankMarkerKey(),JSON.stringify(marker));}catch(e){/* Session memory still prevents duplicate celebrations. */}
   }
-  function dismissRankNotice(){
-    stopRankFireworks();
-    clearTimeout(rankNoticeTimer);rankNoticeTimer=null;rankNotice?.remove();rankNotice=null;rankNoticePreview=false;
-    for(const source of [...applauseSources])try{source.stop();}catch(e){}
+  /* RANK CELEBRATION V2 START — presentation only; no score or reward writes. */
+  let rankFireworkCanvas=null,rankFireworkFrame=null,rankLifecycleTimer=null,rankAudioBus=null;
+  const rankAudioNodes=new Map();
+  function stopRankAudio(){
+    for(const source of [...applauseSources]){try{source.stop();}catch(e){}try{source.disconnect();}catch(e){}}
     applauseSources.clear();
+    for(const nodes of rankAudioNodes.values())for(const node of nodes)try{node.disconnect();}catch(e){}
+    rankAudioNodes.clear();
+    if(rankAudioBus){for(const node of rankAudioBus.nodes)try{node.disconnect();}catch(e){}rankAudioBus=null;}
   }
-  function cancelRankCelebration({keepPreview=false}={}){
-    if(!keepPreview||!rankNoticePreview)dismissRankNotice();clearTimeout(rankQueueTimer);rankQueueTimer=null;pendingRankAt=null;
+  function dismissRankNotice(){
+    stopRankFireworks();stopRankAudio();
+    clearTimeout(rankLifecycleTimer);rankLifecycleTimer=null;
+    clearTimeout(rankNoticeTimer);rankNoticeTimer=null;rankNotice?.remove();rankNotice=null;rankNoticePreview=false;
   }
-  let rankFireworkCanvas=null,rankFireworkFrame=null;
   function stopRankFireworks(){
     if(rankFireworkFrame!==null)cancelAnimationFrame(rankFireworkFrame);
     rankFireworkFrame=null;rankFireworkCanvas?.remove();rankFireworkCanvas=null;
   }
-  function startRankFireworks(){
+  // Gentle, self-contained pyrotechnics: shaped noise + a low transient, not applause.
+  // Sources and all graph nodes are tracked so close/revocation stops even scheduled sound.
+  function rankFireworkSound(preview=false,kind='burst',pan=0,energy=1){
+    if(!(preview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_sound===false||!audioContext||audioContext.state!=='running')return;
+    try{
+      const ac=audioContext,rate=ac.sampleRate,t=ac.currentTime+.008;
+      if(!rankAudioBus){
+        const input=ac.createGain(),compressor=ac.createDynamicsCompressor(),output=ac.createGain();
+        input.gain.value=.42;compressor.threshold.value=-14;compressor.knee.value=12;compressor.ratio.value=5;compressor.attack.value=.004;compressor.release.value=.18;output.gain.value=.6;
+        input.connect(compressor);compressor.connect(output);output.connect(ac.destination);
+        rankAudioBus={input,nodes:[input,compressor,output]};
+      }
+      const duration=kind==='launch'?.42:kind==='cue'?.72:1.12,buffer=ac.createBuffer(1,Math.ceil(rate*duration),rate),data=buffer.getChannelData(0);
+      let brown=0;
+      // A bounded deterministic generator avoids non-repeatable harsh impulses.
+      let seed=kind==='launch'?173:827;
+      const noise=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/2147483648-1;};
+      for(let i=0;i<data.length;i++){
+        const age=i/rate,n=noise();brown=(brown+.035*n)/1.035;
+        if(kind==='cue'){const envelope=Math.min(1,age/.035)*Math.exp(-age*5)*Math.min(1,(duration-age)/.09);data[i]=(Math.sin(2*Math.PI*523.25*age)*.19+Math.sin(2*Math.PI*659.25*age)*.11+Math.sin(2*Math.PI*783.99*age)*.07)*envelope;}
+        else if(kind==='launch')data[i]=n*.11*Math.sin(Math.PI*age/duration)**2;
+        else{
+          const attack=Math.min(1,age/.009),body=(brown*2.1+n*.13)*Math.exp(-age*6.5),thump=Math.sin(2*Math.PI*(67*age-15*age*age))*.24*Math.exp(-age*13);
+          // Uneven late crackles, each with a smooth 2ms onset and soft tail.
+          let crackle=0;for(const at of [.17,.235,.31,.41,.54,.67,.81]){const d=age-at;if(d>=0&&d<.045)crackle+=n*.095*Math.min(1,d/.002)*Math.exp(-d*100)*(1-at*.65);}
+          data[i]=(body+thump)*attack+crackle;
+        }
+      }
+      const source=ac.createBufferSource(),filter=ac.createBiquadFilter(),gain=ac.createGain(),nodes=[source,filter,gain];
+      source.buffer=buffer;filter.type='lowpass';filter.frequency.value=kind==='launch'?1600:2600;filter.Q.value=.45;gain.gain.value=Math.max(.15,Math.min(energy,1));
+      source.connect(filter);filter.connect(gain);
+      if(typeof ac.createStereoPanner==='function'){const stereo=ac.createStereoPanner();stereo.pan.value=Math.max(-.7,Math.min(.7,pan));gain.connect(stereo);stereo.connect(rankAudioBus.input);nodes.push(stereo);}else gain.connect(rankAudioBus.input);
+      applauseSources.add(source);rankAudioNodes.set(source,nodes);
+      source.onended=()=>{applauseSources.delete(source);for(const node of rankAudioNodes.get(source)||[])try{node.disconnect();}catch(e){}rankAudioNodes.delete(source);};
+      source.start(t);source.stop(t+duration+.02);
+    }catch(e){stopRankAudio();/* Audio support is optional and never interrupts work. */}
+  }
+  function startRankFireworks(preview=false){
     stopRankFireworks();
     if(appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
     const canvas=document.createElement('canvas');canvas.id='game-rank-fireworks';canvas.setAttribute('aria-hidden','true');
-    const ctx=canvas.getContext?.('2d');if(!ctx)return;
+    let ctx;try{ctx=canvas.getContext?.('2d');}catch(e){return;}if(!ctx)return;
     document.body.append(canvas);rankFireworkCanvas=canvas;
-    // Five overlapping bursts around the screen centre; bounded particle count.
-    const bursts=[
-      {at:0,x:0,y:0,hue:43,count:64,size:1},
-      {at:.32,x:-.55,y:-.3,hue:185,count:48,size:.78},
-      {at:.65,x:.58,y:-.16,hue:320,count:48,size:.82},
-      {at:1.02,x:-.2,y:.18,hue:48,count:56,size:.92},
-      {at:1.36,x:.22,y:-.35,hue:38,count:64,size:1.05}
-    ];
-    for(const b of bursts)b.sparks=Array.from({length:b.count},(_,i)=>({angle:Math.PI*2*i/b.count+(Math.random()-.5)*.06,speed:(.68+Math.random()*.4)*b.size,life:1.12+Math.random()*.3,width:1+Math.random()*.8,phase:Math.random()*6.28}));
-    const started=performance.now();let width=0,height=0;
+    // Four rockets, 264 sparks total; no particle creation inside the animation loop.
+    const bursts=[{at:.02,x:-.78,y:-.95,hue:42,count:72,size:1},{at:.43,x:.85,y:-.65,hue:171,count:60,size:.85},{at:.85,x:-.8,y:.8,hue:35,count:60,size:.83},{at:1.21,x:.35,y:-1.1,hue:46,count:72,size:1.03}];
+    for(const b of bursts){b.flight=.49+b.size*.07;b.launched=false;b.exploded=false;b.sparks=Array.from({length:b.count},(_,i)=>({angle:Math.PI*2*i/b.count+(Math.random()-.5)*.1,speed:(.48+Math.random()*.55)*b.size,life:.82+Math.random()*.52,width:.7+Math.random()*.85,phase:Math.random()*6.28,depth:.68+Math.random()*.32}));}
+    const started=performance.now();let width=0,height=0,dpr=0;
     function frame(now){
-      if(!canvas.isConnected||document.hidden||!rankNotice||!(rankNoticePreview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches){stopRankFireworks();return;}
-      const elapsed=(now-started)/1000;if(elapsed>2.85){stopRankFireworks();return;}
-      const w=window.innerWidth,h=window.innerHeight,dpr=Math.min(window.devicePixelRatio||1,2);
-      if(w!==width||h!==height){width=w;height=h;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
-      ctx.clearRect(0,0,width,height);ctx.globalCompositeOperation='lighter';
-      const radius=Math.min(width,height)*.28;
+      if(!canvas.isConnected||document.hidden||!rankNotice||!(preview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches){stopRankFireworks();stopRankAudio();return;}
+      const elapsed=(now-started)/1000;if(elapsed>3.35){stopRankFireworks();return;}
+      const w=window.innerWidth,h=window.innerHeight,pixelRatio=Math.min(window.devicePixelRatio||1,2);
+      if(w!==width||h!==height||pixelRatio!==dpr){width=w;height=h;dpr=pixelRatio;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
+      ctx.clearRect(0,0,width,height);ctx.globalCompositeOperation='lighter';ctx.lineCap='round';
+      const radius=Math.min(width*.39,height*.34,245),spread=Math.min(width*.34,235),vertical=Math.min(height*.27,195);
       for(const b of bursts){
-        const age=elapsed-b.at;if(age<0||age>1.45)continue;
-        const x=width/2+b.x*radius,y=height/2+b.y*radius;
-        // Local glow only: no full-screen flash or dark overlay.
-        if(age<.24){const glow=ctx.createRadialGradient(x,y,0,x,y,radius*.34);glow.addColorStop(0,'hsla('+b.hue+',100%,90%,'+(.5*(1-age/.24))+')');glow.addColorStop(1,'transparent');ctx.fillStyle=glow;ctx.fillRect(x-radius*.34,y-radius*.34,radius*.68,radius*.68);}
+        const rocketAge=elapsed-b.at,age=rocketAge-b.flight;if(rocketAge<0)continue;
+        const x=width/2+b.x*spread,y=height/2+b.y*vertical;
+        if(!b.launched){b.launched=true;if(rocketAge<.12)rankFireworkSound(preview,'launch',b.x*.55,.48);}
+        if(age<0){
+          const originY=Math.min(height+12,y+radius*1.6),originX=x-b.x*radius*.28;
+          const position=u=>({x:originX+(x-originX)*u,y:originY+(y-originY)*(1-(1-u)**1.55)});
+          for(let j=6;j>=0;j--){const u=Math.max(0,Math.min(1,rocketAge/b.flight-j*.025)),p=position(u),q=position(Math.max(0,u-.035));ctx.strokeStyle='rgba(255,211,128,'+((1-j/7)*.85)+')';ctx.lineWidth=j?1.2:2;ctx.beginPath();ctx.moveTo(q.x,q.y);ctx.lineTo(p.x,p.y);ctx.stroke();}
+          continue;
+        }
+        if(!b.exploded){b.exploded=true;if(age<.14)rankFireworkSound(preview,'burst',b.x*.55,b.size);}
+        // Small local core only: no screen flash, and sparks fall under gravity.
+        if(age<.16){const glow=ctx.createRadialGradient(x,y,0,x,y,22);glow.addColorStop(0,'rgba(255,241,190,'+(.46*(1-age/.16))+')');glow.addColorStop(1,'transparent');ctx.fillStyle=glow;ctx.fillRect(x-22,y-22,44,44);}
         for(const p of b.sparks){
           if(age>p.life)continue;
-          const distance=t=>radius*p.speed*(1-Math.exp(-2.8*t)),fall=t=>radius*.3*t*t;
-          const px=x+Math.cos(p.angle)*distance(age),py=y+Math.sin(p.angle)*distance(age)+fall(age);
-          const tail=Math.max(0,age-.07),tx=x+Math.cos(p.angle)*distance(tail),ty=y+Math.sin(p.angle)*distance(tail)+fall(tail);
-          const alpha=Math.pow(1-age/p.life,.75)*(.78+.22*Math.sin(age*16+p.phase));
-          ctx.strokeStyle='hsla('+b.hue+',95%,72%,'+alpha+')';ctx.lineWidth=p.width;ctx.lineCap='round';ctx.shadowColor='hsl('+b.hue+',100%,65%)';ctx.shadowBlur=5;
-          ctx.beginPath();ctx.moveTo(tx,ty);ctx.lineTo(px,py);ctx.stroke();
-          ctx.fillStyle='rgba(255,251,222,'+alpha+')';ctx.fillRect(px-.65,py-.65,1.3,1.3);
+          const position=t=>{const distance=radius*p.speed*(1-Math.exp(-2.5*t));return {x:x+Math.cos(p.angle)*distance,y:y+Math.sin(p.angle)*distance*p.depth+radius*.25*t*t};};
+          const head=position(age),tail=position(Math.max(0,age-.045)),fade=Math.pow(1-age/p.life,1.35),alpha=fade*(.83+.17*Math.sin(age*22+p.phase));
+          ctx.strokeStyle='hsla('+b.hue+',85%,'+(70-age*17)+'%,'+alpha+')';ctx.lineWidth=p.width;ctx.beginPath();ctx.moveTo(tail.x,tail.y);ctx.lineTo(head.x,head.y);ctx.stroke();
+          if(age<.55){ctx.fillStyle='rgba(255,247,210,'+(alpha*.85)+')';ctx.fillRect(head.x-.6,head.y-.6,1.2,1.2);}
         }
       }
-      ctx.shadowBlur=0;ctx.globalCompositeOperation='source-over';rankFireworkFrame=requestAnimationFrame(frame);
+      ctx.globalCompositeOperation='source-over';rankFireworkFrame=requestAnimationFrame(frame);
     }
     rankFireworkFrame=requestAnimationFrame(frame);
   }
-
-  function rankApplause(preview=false){
-    if(!(preview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_sound===false||!audioContext||audioContext.state!=='running')return;
-    try{
-      const start=audioContext.currentTime,rate=audioContext.sampleRate;
-      // Layered, spatial handclaps with a small room tail, fading after 1.8 seconds.
-      const room=audioContext.createConvolver(),wet=audioContext.createGain(),impulse=audioContext.createBuffer(2,Math.ceil(rate*.24),rate);
-      for(let channel=0;channel<2;channel++){const data=impulse.getChannelData(channel);for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*Math.pow(1-i/data.length,3);}
-      room.buffer=impulse;wet.gain.value=.17;room.connect(wet);wet.connect(audioContext.destination);
-      const buffer=audioContext.createBuffer(1,Math.ceil(rate*.12),rate),samples=buffer.getChannelData(0);
-      for(let i=0;i<samples.length;i++){const t=i/rate,envelope=Math.exp(-t*80)+(t>.009?.65*Math.exp(-(t-.009)*100):0)+(t>.019?.4*Math.exp(-(t-.019)*110):0);samples[i]=(Math.random()*2-1)*envelope*.65;}
-      let remaining=32;
-      for(let i=0;i<32;i++){
-        const source=audioContext.createBufferSource(),filter=audioContext.createBiquadFilter(),gain=audioContext.createGain(),pan=audioContext.createStereoPanner();
-        const t=start+i*.048+(i%3)*.007,fade=Math.min(1,(32-i)/8);
-        source.buffer=buffer;source.playbackRate.value=.82+(i%6)*.08;
-        filter.type='highpass';filter.frequency.value=500+(i%4)*100;
-        gain.gain.value=(.24+(i%3)*.025)*fade;pan.pan.value=((i%7)-3)/4;
-        source.connect(filter);filter.connect(gain);gain.connect(pan);pan.connect(audioContext.destination);pan.connect(room);applauseSources.add(source);
-        source.onended=()=>{applauseSources.delete(source);source.disconnect();filter.disconnect();gain.disconnect();pan.disconnect();if(--remaining===0){room.disconnect();wet.disconnect();}};
-        source.start(t);source.stop(t+.17);
-      }
-    }catch(e){/* A browser audio restriction must not interrupt work. */}
+  function showRankNotice(milestone,preview=false){
+    dismissRankNotice();
+    if(document.hidden||!(preview?canAdmin():enabled()))return;
+    const el=document.createElement('aside');el.id='game-rank-celebration';el.setAttribute('role','status');el.setAttribute('aria-live','polite');el.setAttribute('aria-atomic','true');
+    const effects=appConfig?.testReviewFlags?.game_effects!==false&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.classList.toggle('festive',effects);
+    const index=Math.max(0,levels.findIndex(l=>l.at===milestone.at)),numerals=['I','II','III','IV','V','VI'];
+    const title=document.createElement('strong');title.className='rank-eyebrow';title.textContent=milestone.at?'НОВЫЙ РАНГ':'ДОБРО ПОЖАЛОВАТЬ';
+    const emblem=document.createElement('span');emblem.className='rank-emblem';emblem.setAttribute('aria-hidden','true');
+    // Original inline vector artwork; no external image, font, audio or network request.
+    emblem.innerHTML='<svg viewBox="0 0 116 100" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="rankGold" x1="30" y1="8" x2="83" y2="85" gradientUnits="userSpaceOnUse"><stop stop-color="#fff1b5"/><stop offset=".45" stop-color="#d4a849"/><stop offset="1" stop-color="#8e682c"/></linearGradient></defs><path d="M30 80C13 69 9 47 20 31M86 80c17-11 21-33 10-49" stroke="#c5a35e" stroke-width="1.4"/><path d="M20 63c-9-2-12-7-12-14 8 1 12 6 12 14Zm-2-15c-7-4-8-10-6-16 7 3 9 8 6 16Zm3-14c-4-6-3-12 1-17 5 6 4 11-1 17ZM25 74c-8 1-14-2-17-8 8-2 14 1 17 8Zm71-11c9-2 12-7 12-14-8 1-12 6-12 14Zm2-15c7-4 8-10 6-16-7 3-9 8-6 16Zm-3-14c4-6 3-12-1-17-5 6-4 11 1 17ZM91 74c8 1 14-2 17-8-8-2-14 1-17 8Z" fill="#c8a45c"/><path d="m58 5 31 18v37L58 88 27 60V23L58 5Z" fill="url(#rankGold)"/><path d="m58 11 25 15v32L58 81 33 58V26l25-15Z" fill="#1c2b36" stroke="#f7dc90" stroke-opacity=".65"/><path d="m58 17 19 11v27L58 73 39 55V28l19-11Z" fill="#e7bd5c" fill-opacity=".1"/><path d="m58 23 2.5 5.4 5.9.7-4.4 4 .9 5.8-4.9-2.8-5 2.8 1-5.8-4.4-4 5.9-.7L58 23Z" fill="#ffe5a0"/><path d="m38 84 20 9 20-9" stroke="#d7b564" stroke-width="1.2"/></svg><span>'+numerals[index]+'</span>';
+    const text=document.createElement('p');text.className='rank-name';text.textContent=milestone.name.replace(/^\S+\s+/u,'');
+    const message=document.createElement('p');message.className='rank-message';message.textContent=milestone.at?'Отличная работа. Так держать!':'Большой путь начинается с первого шага.';
+    const detail=document.createElement('span');detail.className='rank-milestone';
+    const tier=document.createElement('span');tier.textContent='РАНГ '+(index+1)+' / '+levels.length;
+    const dot=document.createElement('i');dot.setAttribute('aria-hidden','true');
+    const threshold=document.createElement('span');threshold.textContent=milestone.at.toLocaleString('ru-RU')+' МОНЕТ';detail.append(tier,dot,threshold);
+    const note=document.createElement('small');note.className='rank-footnote';note.textContent=preview?'Предпросмотр · баланс не меняется':'Заслужено работой на линии';
+    const close=document.createElement('button');close.className='rank-dismiss';close.type='button';close.textContent='×';close.setAttribute('aria-label','Закрыть поздравление');close.onclick=dismissRankNotice;
+    el.append(title,emblem,text,message,detail,note,close);document.body.append(el);rankNotice=el;rankNoticePreview=preview;
+    const sessionUid=currentUid,tab=document.querySelector('.tab-content.active')?.id;
+    function watch(){
+      if(!rankNotice)return;
+      if(document.hidden||sessionUid!==currentUid||!(preview?canAdmin():enabled())||tab!==document.querySelector('.tab-content.active')?.id){dismissRankNotice();return;}
+      if(appConfig?.testReviewFlags?.game_sound===false)stopRankAudio();
+      if(appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches){if(rankFireworkCanvas){stopRankFireworks();stopRankAudio();}el.classList.remove('festive');}
+      rankLifecycleTimer=setTimeout(watch,100);
+    }
+    rankLifecycleTimer=setTimeout(watch,100);
+    if(effects)startRankFireworks(preview);
+    // Independent sound preference: static card gets one gentle chord, never orphan rockets.
+    if(!rankFireworkCanvas)rankFireworkSound(preview,'cue',0,.7);
+    rankNoticeTimer=setTimeout(dismissRankNotice,3600);
+  }
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&rankNotice)dismissRankNotice();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)dismissRankNotice();});
+  for(const event of ['pagehide','popstate','hashchange'])window.addEventListener(event,dismissRankNotice);
+  /* RANK CELEBRATION V2 END */
+  function cancelRankCelebration({keepPreview=false}={}){
+    if(!keepPreview||!rankNoticePreview)dismissRankNotice();clearTimeout(rankQueueTimer);rankQueueTimer=null;pendingRankAt=null;
   }
   function showPendingRank(){
     clearTimeout(rankQueueTimer);rankQueueTimer=null;
@@ -321,19 +386,6 @@
     const milestone=levels.find(l=>l.at===pendingRankAt);if(!milestone)return;
     showRankNotice(milestone);
     const marker=readRankMarker();if(marker)saveRankMarker({...marker,pending:null});pendingRankAt=null;
-  }
-  function showRankNotice(milestone,preview=false){
-    dismissRankNotice();
-    const el=document.createElement('aside');el.id='game-rank-celebration';el.setAttribute('role','status');el.setAttribute('aria-live','polite');el.setAttribute('aria-atomic','true');
-    const effects=appConfig?.testReviewFlags?.game_effects!==false&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
-    el.classList.toggle('festive',effects);
-    const title=document.createElement('strong');title.textContent=milestone.at?'🎉 Ура, новый ранг!':'🎉 Добро пожаловать в бригаду!';
-    const text=document.createElement('p');text.textContent='Поздравляем! Ваш ранг — '+milestone.name+'.';
-    const note=document.createElement('small');note.textContent=(preview?'Предпросмотр · ':'')+milestone.at.toLocaleString('ru-RU')+' монет'+(preview?' · баланс не меняется':' — заслуженно!');
-    const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Закрыть поздравление');close.onclick=dismissRankNotice;
-    el.append(title,text,note,close);document.body.append(el);rankNotice=el;rankNoticePreview=preview;
-    if(effects)startRankFireworks();
-    rankApplause(preview);rankNoticeTimer=setTimeout(dismissRankNotice,3000);
   }
   async function previewRankCelebration(){
     if(!canAdmin())return;
@@ -495,12 +547,12 @@
     const button=document.createElement('button');button.type='button';button.textContent='Понятно';button.onclick=()=>{for(const e of pending)read.add(e.id);try{localStorage.setItem(ackKey(),JSON.stringify([...read]));closePenaltyNotice();}catch(e){showError('Не удалось сохранить прочтение уведомления');}};el.append(button);document.body.append(el);penaltyNotice=el;
   }
   window.__gameFlushPenalties=async()=>{
-    if(flushBusy||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active')return;
-    const session=currentUid;flushBusy=true;
+    if(flushBusy||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||!offlineJournalCanWrite())return;
+    const session=currentUid,owner=offlineJournalSessionToken();flushBusy=true;
     try{for(const op of offlineJournalRead().filter(o=>o.status==='cancelled'&&!o.penaltyDelivered)){
-      if(session!==currentUid)break;
-      await window.__historyRawTransaction(async tx=>{if(session!==currentUid)throw new Error('Учётная запись изменилась');const save=await window.__gameStagePenalty(tx,'local:'+op.id,{user:op.email,name:op.actor,description:({load:'Погрузка',arrive:'Прибытие',ttn:'ТТН',reset:'Сброс таймера'}[op.type]||op.type)+' · '+op.truckName,shiftId:op.shiftId,objectId:op.objectId,objectName:op.objectName});save();});
-      if(session!==currentUid)break;const all=offlineJournalRead(),saved=all.find(o=>o.id===op.id);if(saved){saved.penaltyDelivered=true;offlineJournalWrite(all);}
+      if(session!==currentUid||!offlineJournalOwns(owner)||currentUserStatus!=='active'||!permissionsLoaded)break;
+      await window.__historyRawTransaction(async tx=>{if(session!==currentUid||!offlineJournalOwns(owner))throw new Error('Учётная запись или вкладка изменилась');const save=await window.__gameStagePenalty(tx,'local:'+op.id,{user:op.email,name:op.actor,description:({load:'Погрузка',arrive:'Прибытие',ttn:'ТТН',reset:'Сброс таймера'}[op.type]||op.type)+' · '+op.truckName,shiftId:op.shiftId,objectId:op.objectId,objectName:op.objectName});if(session!==currentUid||!offlineJournalOwns(owner)||currentUserStatus!=='active'||!permissionsLoaded)throw new Error('Доступ изменился');save();});
+      if(session!==currentUid||!offlineJournalOwns(owner)||currentUserStatus!=='active'||!permissionsLoaded)break;const all=offlineJournalRead(),saved=all.find(o=>o.id===op.id);if(saved){saved.penaltyDelivered=true;offlineJournalWrite(all);}
     }}catch(e){console.warn('[game penalty sync]',e);}finally{flushBusy=false;}
   };
   setInterval(()=>window.__gameFlushPenalties(),5000);

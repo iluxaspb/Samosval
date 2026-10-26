@@ -412,7 +412,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.4.6</span>
+        <span class="version-text">Версия 3.4.7</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -1860,7 +1860,7 @@
       let st = state.truckStatus[t.id] || {};
       let savedTtn = reportTtnStatus ? reportTtnStatus[t.id] : st.ttnStatus;
       let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (isClosed && tLogs.length > 0 && savedTtn !== true && savedTtn !== 'pending') : (tLogs.length > 0 && st.ttnStatus !== true);
-      let dupHtml = isDup ? ' <span style="color:red; font-size:10px; font-weight:bold;">ДУБЛИКАТ</span>' : '';
+      let dupHtml = isDup ? ' <span style="color:red; font-size:10px; font-weight:bold;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
       const brandCell = type === 'gai' ? `${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tLogs.length}</span>${dupHtml}` : `${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³</span>${dupHtml}`;
       html += `<tr><td style="font-weight:bold;">${idx + 1}</td><td class="truck-cell"><div class="paper-truck-brand">${brandCell}</div>${t.number ? renderRussianPlate(t.number) : ''}</td>`;
       for (let i = 0; i < maxTrips; i++) {
@@ -2019,7 +2019,7 @@
     mB.innerHTML = rTrucks.map((t, idx)=>{
       let tL = stdLogs.filter(l=>l.truckId===t.id).slice().reverse(), st = state.truckStatus[t.id]||{}, sum = tL.reduce((s,l)=>s+l.volume,0);
       let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
-      let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
+      let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
       let cells = '';
       for(let i=0; i<maxT; i++) {
         if(tL[i]) {
@@ -2048,7 +2048,7 @@
       let tL = gaiLogs.filter(l=>l.truckId===t.id).slice().reverse();
       let st = state.truckStatus[t.id] || {};
       let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
-      let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
+      let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
       let cells = '';
       for(let i=0; i<gaiMaxT; i++) {
         if(tL[i]) {
@@ -2136,7 +2136,7 @@
       let tks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?{id, name:f.brand+' '+f.number}:{id, name:(stdLogs.find(l=>l.truckId===id)?.truckName||'—')}; });
       let mT=8; tks.forEach(t=>{ let c=stdLogs.filter(l=>l.truckId===t.id).length; if(c>mT) mT=c; });
       let hC = ''; for(let i=1; i<=mT; i++) hC+=`<th>Рейс ${i}</th>`;
-      let mH = tks.map(t=>{ let l = stdLogs.filter(x=>x.truckId===t.id).slice().reverse(), sm = l.reduce((x,y)=>x+y.volume,0), cells=''; let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (l.length > 0 && ttnStatus[t.id] !== true && ttnStatus[t.id] !== 'pending') : (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
+      let mH = tks.map(t=>{ let l = stdLogs.filter(x=>x.truckId===t.id).slice().reverse(), sm = l.reduce((x,y)=>x+y.volume,0), cells=''; let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (l.length > 0 && ttnStatus[t.id] !== true && ttnStatus[t.id] !== 'pending') : (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
         for(let i=0; i<mT; i++) { if(l[i]) { let isL=(i===l.length-1), cH = ttnStatus[t.id] && isL ? '<div class="hand-drawn-circle"></div>':''; let commHtml = l[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l[i].comment)}</div>` : ''; cells += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(l[i].timeStr)}</div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l[i].createdByEmail, l[i].createdBy))}</div>${commHtml}</div></td>`; }
           else if (i === l.length && ttnStatus[t.id] === 'pending') { cells += `<td><div class="cell-content"><div class="hand-drawn-circle"></div></div></td>`; }
           else cells += '<td></td>';
@@ -2148,7 +2148,7 @@
       let tks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?{id, name:f.brand+' '+f.number}:{id, name:(gaiLogs.find(l=>l.truckId===id)?.truckName||'—')}; });
       let mT=8; tks.forEach(t=>{ let c=gaiLogs.filter(l=>l.truckId===t.id).length; if(c>mT) mT=c; });
       let hC = ''; for(let i=1; i<=mT; i++) hC+=`<th>Рейс ${i}</th>`;
-      let mH = tks.map(t=>{ let l = gaiLogs.filter(x=>x.truckId===t.id).slice().reverse(), cells=''; let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (l.length > 0 && ttnStatus[t.id] !== true && ttnStatus[t.id] !== 'pending') : (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;">ДУБЛИКАТ</span>' : '';
+      let mH = tks.map(t=>{ let l = gaiLogs.filter(x=>x.truckId===t.id).slice().reverse(), cells=''; let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (l.length > 0 && ttnStatus[t.id] !== true && ttnStatus[t.id] !== 'pending') : (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
         for(let i=0; i<mT; i++) { if(l[i]) { let commHtml = l[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l[i].comment)}</div>` : ''; cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(l[i].timeStr)}</div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l[i].createdByEmail, l[i].createdBy))}</div>${commHtml}</div></td>`; }
           else cells += '<td></td>';
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">Рейсов: ${l.length}</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
@@ -2207,7 +2207,7 @@
     try { let r = refs.trucks.doc(); await tfAwait(r.set({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, createdAt: Date.now(), createdBy: getUserName() })); await addTruckToLine(r.id); document.getElementById('truckSearchInput').value = ''; renderSelectorList(); }
     catch(e) { showError(e.message); }
   }
-  function openSelectorModal() { if(!requireEdit('edit_line') || !state.shift) return; document.getElementById('selectorModal').classList.add('open'); renderSelectorList(); }
+  function openSelectorModal() { if(!requireEdit('edit_line') || !state.shift) return; const search=document.getElementById('truckSearchInput');if(search)search.value=''; document.getElementById('selectorModal').classList.add('open'); renderSelectorList(); }
   function closeSelectorModal() { document.getElementById('selectorModal').classList.remove('open'); }
   async function toggleLineTruck(id) { if(!requireEdit('edit_line')) return; if(getActiveLineIds().includes(id)) await removeTruckFromLine(id); else await addTruckToLine(id); renderSelectorList(); }
 
@@ -3360,69 +3360,342 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
 
 
 <script>window.__closedShiftDupEnabled = () => true;</script>
-<script>
+<script>/* One paper viewer. Summary is the approved visual benchmark; archive captures a
+ * selected record once and uses the same paper markup, scale and hold control. */
 (function () {
-  const key = 'samosval:test:summary-viewer:v1';
+  if (window.__paperSheetViewerInstalled) return;
+  window.__paperSheetViewerInstalled = true;
   const tab = document.getElementById('tab-report');
-  let on = false, dialog = null, opener = null, observer = null;
+  const host = document.getElementById('archiveModal');
+  let viewer = null, archiveSnapshot = null, disposeArchiveHold = null;
+  const esc = value => escapeHtml(value);
+  const allowed = kind => hasTabAccess(kind === 'archive' ? 'archive' : 'report');
+  const gaiAllowed = kind => allowed(kind) && hasPermission('view_gai_report');
   const style = document.createElement('style');
+  style.id = 'shared-paper-viewer-style';
   style.textContent = `
-    body.summary-viewer-on #tab-report > .action-row,
-    body.summary-viewer-on #tab-report > div:first-child,
-    body.summary-viewer-on #pluginPdfButtonsContainer,
+    body.summary-viewer-on #tab-report > .action-row {display:none!important}
+    body.summary-viewer-on #pluginPdfButtonsContainer {display:none!important}
     body.summary-viewer-on #tab-report .stylus-canvas {display:none!important}
     #summary-open-sheet {width:100%;margin-bottom:12px}
     body:not(.summary-viewer-on) #summary-open-sheet {display:none}
-    body.summary-viewer-on #tab-report .paper-scroll-wrapper {cursor:zoom-in}
-    #summary-sheet-dialog {position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;border:0;padding:0;background:#0f172a;color:#f8fafc;overscroll-behavior:none}
-    #summary-sheet-dialog::backdrop {background:#0f172a}
-    #summary-sheet-dialog[open] {display:flex;flex-direction:column}
+    body.summary-viewer-on #tab-report .paper-scroll-wrapper,
+    #archive-paper-wrapper .paper-scroll-wrapper {cursor:zoom-in}
+    .archive-view-switch {display:flex;justify-content:flex-end;margin:-8px 0 0}
+    .archive-toggle-icon {display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:0;border-radius:0;background:none;box-shadow:none;color:inherit;font-size:20px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .paper-sheet-dialog {position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;padding:0;background:#0f172a;color:#f8fafc;overscroll-behavior:none}
+    .paper-sheet-dialog::backdrop {background:#0f172a}
+    .paper-sheet-dialog[open] {display:flex;flex-direction:column}
     .sheet-tools {display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px;padding-top:max(12px,env(safe-area-inset-top));border-bottom:1px solid #334155}
     .sheet-tools button {min-width:44px;min-height:44px;border:1px solid #475569;border-radius:8px;background:#1e293b;color:white;padding:8px;cursor:pointer}
     .sheet-stage {position:relative;flex:1;min-height:0;overflow:hidden;touch-action:none;user-select:none;cursor:grab}
     .sheet-stage:active {cursor:grabbing}
     .sheet-page {position:absolute;left:0;top:0;transform-origin:0 0;background:white;width:max-content}
-    #summary-sheet-dialog .paper-report-container {zoom:1!important;transition:none!important;width:max-content;min-width:780px}
-    #summary-sheet-dialog .stylus-canvas {display:none!important}
+    .paper-sheet-dialog .paper-report-container {zoom:1!important;transition:none!important;width:max-content;min-width:780px}
+    .paper-sheet-dialog canvas {display:none!important}
     .sheet-hint {font-size:12px;color:#94a3b8;padding:8px;text-align:center;padding-bottom:max(8px,env(safe-area-inset-bottom))}
   `;
   document.head.append(style);
+  document.body.classList.add('summary-viewer-on');
 
-  function close() { if (!dialog) return; observer?.disconnect(); dialog.close(); dialog.remove(); dialog=null; document.body.style.overflow=oldOverflow; opener?.focus(); }
-  let oldOverflow='';
-  function open() {
-    if (!on || dialog) return;
-    const source = document.getElementById(document.getElementById('gaiReportWrapper').style.display !== 'none' ? 'gaiPaperContainer' : 'paperReportContainer');
-    if (!source) return;
-    opener=document.activeElement; oldOverflow=document.body.style.overflow; document.body.style.overflow='hidden';
-    dialog=document.createElement('dialog'); dialog.id='summary-sheet-dialog'; dialog.setAttribute('aria-label','Просмотр сводки');
-    dialog.innerHTML='<div class="sheet-tools"><strong style="flex:1">Сводка</strong><button type="button" data-action="out" aria-label="Уменьшить">−</button><span class="sheet-scale" aria-live="polite"></span><button type="button" data-action="in" aria-label="Увеличить">+</button><button type="button" data-action="fit">Лист целиком</button><button type="button" data-action="close" aria-label="Закрыть просмотр">✕</button></div><div class="sheet-stage"><div class="sheet-page"></div></div><div class="sheet-hint">Двигайте лист пальцем · Масштаб — двумя пальцами · Двойное нажатие — лист целиком</div>';
-    document.body.append(dialog); dialog.showModal();
-    const stage=dialog.querySelector('.sheet-stage'), page=dialog.querySelector('.sheet-page'), scaleLabel=dialog.querySelector('.sheet-scale');
-    let x=0,y=0,scale=1,min=.1;
-    function copy() {const clone=source.cloneNode(true); clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id')); clone.querySelectorAll('canvas').forEach(el=>el.remove()); clone.classList.remove('compact'); page.replaceChildren(clone);}
-    function paint() {const w=page.offsetWidth*scale,h=page.offsetHeight*scale; x=w<=stage.clientWidth?(stage.clientWidth-w)/2:Math.min(0,Math.max(stage.clientWidth-w,x)); y=h<=stage.clientHeight?(stage.clientHeight-h)/2:Math.min(0,Math.max(stage.clientHeight-h,y));page.style.transform=`translate(${x}px,${y}px) scale(${scale})`;scaleLabel.textContent=Math.round(scale*100)+'%';}
-    function fit() {min=Math.min(1,(stage.clientWidth-24)/page.offsetWidth,(stage.clientHeight-24)/page.offsetHeight);min=Math.max(.02,min);scale=min;x=y=0;paint();}
-    function zoom(next,cx=stage.clientWidth/2,cy=stage.clientHeight/2) {next=Math.min(4,Math.max(min,next));x=cx-(cx-x)*next/scale;y=cy-(cy-y)*next/scale;scale=next;paint();}
-    copy(); fit();
-    observer=new MutationObserver(()=>{copy();paint();});observer.observe(source,{childList:true,subtree:true,characterData:true});
-    const resize=new ResizeObserver(()=>paint());resize.observe(stage);
-    dialog.addEventListener('close',()=>resize.disconnect(),{once:true});
-    dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
-    dialog.querySelector('.sheet-tools').addEventListener('click',e=>{const a=e.target.closest('button')?.dataset.action;if(a==='close')close();if(a==='fit')fit();if(a==='in')zoom(scale*1.3);if(a==='out')zoom(scale/1.3);});
-    const points=new Map(); let last=null, tapTime=0;
-    function geometry(){const p=[...points.values()];return {x:p.reduce((s,v)=>s+v.x,0)/p.length,y:p.reduce((s,v)=>s+v.y,0)/p.length,d:p.length>1?Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y):0};}
-    stage.addEventListener('pointerdown',e=>{const r=stage.getBoundingClientRect();points.set(e.pointerId,{x:e.clientX-r.left,y:e.clientY-r.top});stage.setPointerCapture(e.pointerId);last=geometry();});
-    stage.addEventListener('pointermove',e=>{if(!points.has(e.pointerId))return;const r=stage.getBoundingClientRect();points.set(e.pointerId,{x:e.clientX-r.left,y:e.clientY-r.top});const g=geometry();if(last){x+=g.x-last.x;y+=g.y-last.y;if(g.d&&last.d)zoom(scale*g.d/last.d,g.x,g.y);else paint();}last=g;});
-    const release=e=>{points.delete(e.pointerId);last=points.size?geometry():null;};
-    stage.addEventListener('pointerup',release);stage.addEventListener('pointercancel',release);stage.addEventListener('lostpointercapture',release);
-    stage.addEventListener('click',e=>{if(Date.now()-tapTime<300){fit();tapTime=0;}else tapTime=Date.now();});
-    stage.addEventListener('wheel',e=>{e.preventDefault();const r=stage.getBoundingClientRect();zoom(scale*Math.exp(-e.deltaY*.002),e.clientX-r.left,e.clientY-r.top);},{passive:false});
-    if(document.fonts)document.fonts.ready.then(()=>{if(dialog)paint();});
+  // Same cancellation rules as the benchmark Summary button. This binds only
+  // archive's newly created button; summary-hold.js owns the original control.
+  function bindHold(button, callback, canRun) {
+    button.title = 'Удерживайте 0,8 с для переключения листа';
+    button.setAttribute('aria-label', button.title);
+    button.style.touchAction = 'none';
+    button.style.userSelect = button.style.webkitUserSelect = 'none';
+    button.style.webkitTouchCallout = 'none';
+    let timer = null, pointer = null, startX = 0, startY = 0, heldKey = null;
+    const listeners = [];
+    function listen(node, event, fn, options) {
+      node.addEventListener(event, fn, options);
+      listeners.push(() => node.removeEventListener(event, fn, options));
+    }
+    function cancel() { clearTimeout(timer); timer = null; pointer = null; heldKey = null; }
+    function start() {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        if (!document.hidden && button.isConnected && button.getClientRects().length && canRun()) callback();
+      }, 800);
+    }
+    listen(button, 'click', e => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+    listen(button, 'contextmenu', e => e.preventDefault());
+    listen(button, 'pointerdown', e => {
+      if (!e.isPrimary || e.button !== 0) { cancel(); return; }
+      cancel(); pointer = e.pointerId; startX = e.clientX; startY = e.clientY;
+      button.setPointerCapture(e.pointerId); start();
+    });
+    listen(button, 'pointermove', e => {
+      if (e.pointerId !== pointer) return;
+      const r = button.getBoundingClientRect();
+      if (Math.hypot(e.clientX-startX, e.clientY-startY)>12 ||
+          e.clientX<r.left || e.clientX>r.right || e.clientY<r.top || e.clientY>r.bottom) cancel();
+    });
+    ['pointerup','pointercancel','pointerleave','lostpointercapture','blur','keyup'].forEach(type => listen(button, type, cancel));
+    listen(button, 'keydown', e => {
+      if (e.key !== ' ' && e.key !== 'Enter') return;
+      e.preventDefault();
+      if (e.repeat || heldKey) return;
+      heldKey = e.key; start();
+    });
+    listen(window, 'blur', cancel);
+    listen(document, 'visibilitychange', cancel);
+    listen(document, 'scroll', cancel, true);
+    return () => { cancel(); listeners.forEach(remove => remove()); };
   }
-  tab.addEventListener('click',e=>{if(on&&e.target.closest('.paper-scroll-wrapper')){e.preventDefault();open();}},true);
-  function apply(value){on=value;if(!on)close();document.body.classList.toggle('summary-viewer-on',on);if(on&&typeof drawMode!=='undefined'&&drawMode&&typeof toggleDrawMode==='function')toggleDrawMode();}
-  apply(true);
+
+  function clonePaper(source) {
+    const clone = source.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+    clone.querySelectorAll('canvas').forEach(node => node.remove());
+    clone.classList.remove('compact');
+    clone.style.zoom = '1';
+    clone.style.transform = 'none';
+    clone.style.transition = 'none';
+    return clone;
+  }
+  function closeViewer() { viewer?.close(); }
+  function openViewer(source, kind) {
+    if (!source || !allowed(kind) || viewer) return;
+    // Clone before showing the dialog. No observers copy later/live report data.
+    const frozenPaper = clonePaper(source);
+    const opener = document.activeElement, oldOverflow = document.body.style.overflow;
+    const dialog = document.createElement('dialog');
+    dialog.id = kind === 'archive' ? 'archive-sheet-dialog' : 'summary-sheet-dialog';
+    dialog.className = 'paper-sheet-dialog';
+    dialog.setAttribute('aria-label', 'Просмотр сводки');
+    dialog.innerHTML = '<div class="sheet-tools"><strong style="flex:1">Сводка</strong><button type="button" data-action="out" aria-label="Уменьшить">−</button><span class="sheet-scale" aria-live="polite"></span><button type="button" data-action="in" aria-label="Увеличить">+</button><button type="button" data-action="fit">Лист целиком</button><button type="button" data-action="close" aria-label="Закрыть просмотр">✕</button></div><div class="sheet-stage"><div class="sheet-page"></div></div><div class="sheet-hint">Двигайте лист пальцем · Масштаб — двумя пальцами · Двойное нажатие — лист целиком</div>';
+    const stage = dialog.querySelector('.sheet-stage'), page = dialog.querySelector('.sheet-page'), scaleLabel = dialog.querySelector('.sheet-scale');
+    page.append(frozenPaper);
+    let x = 0, y = 0, scale = 1, min = .02, fitted = true, closed = false;
+    const points = new Map();
+    function close() {
+      if (closed) return;
+      closed = true;
+      resize.disconnect(); hostObserver?.disconnect();
+      points.clear();
+      if (dialog.open) dialog.close();
+      dialog.remove();
+      if (viewer?.dialog === dialog) viewer = null;
+      document.body.style.overflow = oldOverflow;
+      if (opener?.isConnected) opener.focus();
+    }
+    function paint() {
+      if (closed || !page.offsetWidth || !page.offsetHeight) return;
+      const w = page.offsetWidth*scale, h = page.offsetHeight*scale;
+      x = w<=stage.clientWidth ? (stage.clientWidth-w)/2 : Math.min(0,Math.max(stage.clientWidth-w,x));
+      y = h<=stage.clientHeight ? (stage.clientHeight-h)/2 : Math.min(0,Math.max(stage.clientHeight-h,y));
+      page.style.transform = `translate(${x}px,${y}px) scale(${scale})`;
+      scaleLabel.textContent = Math.round(scale*100)+'%';
+    }
+    function fit() {
+      if (closed || !page.offsetWidth || !page.offsetHeight) return;
+      min = Math.max(.02,Math.min(1,(stage.clientWidth-24)/page.offsetWidth,(stage.clientHeight-24)/page.offsetHeight));
+      scale = min; x = y = 0; fitted = true; paint();
+    }
+    function zoom(next, cx=stage.clientWidth/2, cy=stage.clientHeight/2) {
+      next = Math.min(4,Math.max(min,next));
+      x = cx-(cx-x)*next/scale; y = cy-(cy-y)*next/scale;
+      scale = next; fitted = false; paint();
+    }
+    const resize = new ResizeObserver(() => fitted ? fit() : paint());
+    const hostObserver = kind === 'archive' && host ? new MutationObserver(() => {
+      if (!host.classList.contains('open')) close();
+    }) : null;
+    viewer = {kind, dialog, close};
+    document.body.style.overflow = 'hidden';
+    document.body.append(dialog); dialog.showModal(); fit(); resize.observe(stage);
+    hostObserver?.observe(host, {attributes:true,attributeFilter:['class']});
+    dialog.addEventListener('close', close);
+    dialog.addEventListener('cancel', e => { e.preventDefault(); close(); });
+    dialog.querySelector('.sheet-tools').addEventListener('click', e => {
+      const action = e.target.closest('button')?.dataset.action;
+      if (action === 'close') close();
+      if (action === 'fit') fit();
+      if (action === 'in') zoom(scale*1.3);
+      if (action === 'out') zoom(scale/1.3);
+    });
+    let last = null, lastTap = 0, tapStart = null, gestureMoved = false;
+    function geometry() {
+      const p = [...points.values()];
+      return p.length ? {x:p.reduce((s,v)=>s+v.x,0)/p.length,y:p.reduce((s,v)=>s+v.y,0)/p.length,d:p.length>1?Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y):0} : null;
+    }
+    stage.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const r = stage.getBoundingClientRect();
+      points.set(e.pointerId,{x:e.clientX-r.left,y:e.clientY-r.top});
+      if (points.size === 1) { tapStart={x:e.clientX,y:e.clientY}; gestureMoved=false; }
+      else gestureMoved = true;
+      stage.setPointerCapture(e.pointerId); last=geometry();
+    });
+    stage.addEventListener('pointermove', e => {
+      if (!points.has(e.pointerId)) return;
+      if (tapStart && Math.hypot(e.clientX-tapStart.x,e.clientY-tapStart.y)>8) gestureMoved=true;
+      const r=stage.getBoundingClientRect();
+      points.set(e.pointerId,{x:e.clientX-r.left,y:e.clientY-r.top});
+      const g=geometry();
+      if(last){x+=g.x-last.x;y+=g.y-last.y;if(g.d&&last.d)zoom(scale*g.d/last.d,g.x,g.y);else paint();}
+      last=g;
+    });
+    function release(e) {
+      if (!points.has(e.pointerId)) return;
+      if(e.type==='pointerup' && points.size===1 && !gestureMoved) {
+        if(Date.now()-lastTap<300) {fit();lastTap=0;} else lastTap=Date.now();
+      } else lastTap=0;
+      points.delete(e.pointerId); last=geometry();
+    }
+    ['pointerup','pointercancel','lostpointercapture'].forEach(type=>stage.addEventListener(type,release));
+    stage.addEventListener('wheel',e=>{e.preventDefault();const r=stage.getBoundingClientRect();zoom(scale*Math.exp(-e.deltaY*.002),e.clientX-r.left,e.clientY-r.top);},{passive:false});
+    if(document.fonts) document.fonts.ready.then(()=>{if(!closed)fitted?fit():paint();});
+  }
+  tab?.addEventListener('click', e => {
+    if (!e.target.closest('.paper-scroll-wrapper') || !allowed('report')) return;
+    const gai = document.getElementById('gaiReportWrapper')?.style.display !== 'none';
+    if (gai && !gaiAllowed('report')) return;
+    e.preventDefault();
+    openViewer(document.getElementById(gai ? 'gaiPaperContainer' : 'paperReportContainer'), 'report');
+  }, true);
+
+  // Archive uses only its own logs/TTN. Directory labels are copied synchronously
+  // on date-open; no later GAI toggle, zoom or PNG reads a live directory/status.
+  function captureArchive(record) {
+    const logs = (record.logs || []).map(log => ({...log, author:resolveUserDisplayName(log.createdByEmail,log.createdBy)}));
+    const activeIds = [...(record.activeLineIds || [])], ttn = {...(record.ttnStatus || {})};
+    const trucks = new Map();
+    new Set([...activeIds,...logs.map(log=>log.truckId)]).forEach(id => {
+      const truck=findTruck(id), ref=logs.find(log=>log.truckId===id);
+      if(!truck && !ref)return;
+      const savedName=String(ref?.truckName||'').trim();
+      // Closed records contain a saved truck label, not a live directory link.
+      // Split only the recognizable Russian plate suffix; never invent a plate.
+      const plate=savedName.match(/^(.*?)\s+([а-яёa-z]\s*\d{3}\s*[а-яёa-z]{2}\s*\d{2,3})$/iu);
+      trucks.set(id, savedName ? {id,brand:plate?plate[1]:savedName,number:plate?plate[2]:'',isGAI:!!ref.isGAI}
+        : truck ? {...truck} : {id,brand:'Машина',number:'',isGAI:!!ref?.isGAI});
+    });
+    const snapshot = {id:record.id,objectName:record.objectName||'—',date:record.date||'',logs,activeIds,ttn,trucks};
+    return Object.freeze({id:snapshot.id,objectName:snapshot.objectName,date:snapshot.date,
+      regular:renderArchiveSheet(snapshot,false),gai:renderArchiveSheet(snapshot,true)});
+  }
+  function renderArchiveSheet(snapshot, gai) {
+    const logs=snapshot.logs.filter(log=>!!log.isGAI===gai);
+    const active=snapshot.activeIds.filter(id=>snapshot.trucks.has(id) && !!snapshot.trucks.get(id).isGAI===gai);
+    const ids=[...new Set([...active,...logs.map(log=>log.truckId)])];
+    const first={}; logs.forEach(log=>{if(first[log.truckId]===undefined || log.timestamp<first[log.truckId])first[log.truckId]=log.timestamp;});
+    ids.sort((a,b)=>(first[a]||0)-(first[b]||0));
+    const max=Math.max(8,...ids.map(id=>logs.filter(log=>log.truckId===id).length));
+    let head='<th>№</th><th style="text-align:left;">Самосвал</th>';
+    for(let i=1;i<=max;i++)head+=`<th>Рейс ${i}</th>`;
+    const rows=ids.map((id,index)=>{
+      const truck=snapshot.trucks.get(id), trips=logs.filter(log=>log.truckId===id).slice().reverse(), ttn=snapshot.ttn[id];
+      const duplicate=(typeof window.__closedShiftDupEnabled==='function' && window.__closedShiftDupEnabled()) ? (trips.length>0 && ttn!==true && ttn!=='pending') : (trips.length>0 && !ttn);
+      const dup=duplicate?' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>':'';
+      let cells='';
+      for(let i=0;i<max;i++) {
+        const log=trips[i];
+        if(log) {
+          const circle=!gai && ttn && i===trips.length-1?'<div class="hand-drawn-circle"></div>':'';
+          const comment=log.comment?`<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${esc(log.comment)}</div>`:'';
+          cells+=`<td><div class="cell-content">${circle}<div class="paper-time">${esc(log.timeStr)} </div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${esc(log.author)}</div>${comment}</div></td>`;
+        } else if(!gai && i===trips.length && ttn==='pending')cells+='<td><div class="cell-content"><div class="hand-drawn-circle"></div></div></td>';
+        else cells+='<td></td>';
+      }
+      const volume=gai?'Рейсов: '+trips.length:trips.reduce((sum,log)=>sum+log.volume,0)+' м³';
+      return `<tr><td style="font-weight:bold;">${index+1}</td><td class="truck-cell"><div class="paper-truck-brand">${esc(truck.brand)} <span class="paper-truck-volume">${volume}</span>${dup}</div>${truck.number?renderRussianPlate(truck.number):''}</td>${cells}</tr>`;
+    }).join('');
+    const total=gai?'Всего рейсов ГАИ: <b>'+logs.length+'</b>':'Общий объем: <b>'+logs.reduce((sum,log)=>sum+log.volume,0)+' м³</b>';
+    return `<div class="paper-report-container compact"><div class="paper-header"><div class="paper-object-name">Объект: ${esc(snapshot.objectName)}</div><div class="paper-date-vol-row"><div class="paper-report-title">${esc(snapshot.date)}</div><div class="paper-total-info">${total}</div></div></div><table class="paper-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  if (host) {
+    const legacyClose = window.closeArchiveModal;
+    function renderFrozenArchive() {
+      if (!archiveSnapshot || !allowed('archive')) return;
+      if (!gaiAllowed('archive')) viewingArchiveGAITable=false;
+      document.getElementById('modalArchiveTitle').textContent=archiveSnapshot.date;
+      document.getElementById('archiveRestoreBtn').style.display=hasPermission('archive_edit')?'':'none';
+      document.getElementById('archiveDeleteBtn').style.display=hasPermission('archive_delete')?'':'none';
+      disposeArchiveHold?.(); disposeArchiveHold=null;
+      const body=document.getElementById('modalArchiveBody');
+      body.innerHTML='<div id="archive-paper-wrapper"><div class="paper-scroll-wrapper">'+archiveSnapshot[viewingArchiveGAITable?'gai':'regular']+'</div></div>'+
+        (gaiAllowed('archive')?'<div class="archive-view-switch"><button type="button" class="archive-toggle-icon">📄</button></div>':'');
+      const button=body.querySelector('.archive-toggle-icon');
+      if(button) {
+        button.setAttribute('aria-pressed',String(viewingArchiveGAITable));
+        disposeArchiveHold=bindHold(button,()=>window.toggleArchiveReportType(),()=>host.classList.contains('open')&&!!archiveSnapshot&&gaiAllowed('archive'));
+      }
+    }
+    window.openArchiveModal=function(id) {
+      if(!allowed('archive'))return;
+      const record=state.archive.find(item=>item.id===id);
+      if(!record)return;
+      // Realtime list refresh calls this same entry point. Do not silently replace
+      // the selected frozen record or reset its current regular/GAI choice.
+      if(!archiveSnapshot || archiveSnapshot.id!==id || !host.classList.contains('open')) {
+        if(viewer?.kind==='archive')closeViewer();
+        archiveSnapshot=captureArchive(record); viewingArchiveGAITable=false;
+      }
+      viewingArchiveId=id; renderFrozenArchive(); host.classList.add('open');
+    };
+    window.renderArchiveModalContent=function(record) {
+      if(!allowed('archive') || !record)return;
+      if(!archiveSnapshot || archiveSnapshot.id!==record.id)archiveSnapshot=captureArchive(record);
+      renderFrozenArchive();
+    };
+    window.toggleArchiveReportType=function() {
+      if(!archiveSnapshot || !gaiAllowed('archive') || !host.classList.contains('open'))return;
+      viewingArchiveGAITable=!viewingArchiveGAITable; renderFrozenArchive();
+    };
+    window.closeArchiveModal=function() {
+      if(viewer?.kind==='archive')closeViewer();
+      disposeArchiveHold?.(); disposeArchiveHold=null; archiveSnapshot=null;
+      if(typeof legacyClose==='function')legacyClose();
+      else {host.classList.remove('open');viewingArchiveId=null;}
+    };
+    host.addEventListener('click',e=>{
+      if(!e.target.closest('#archive-paper-wrapper .paper-report-container'))return;
+      if(viewingArchiveGAITable&&!gaiAllowed('archive'))return;
+      e.preventDefault();openViewer(host.querySelector('#archive-paper-wrapper .paper-report-container'),'archive');
+    },true);
+
+    // Both supported release entry names use the frozen date/type and paper.
+    // The controls stay outside the paper, exactly as before.
+    window.saveArchivePNG=window.exportArchivePNG=async function() {
+      if(!archiveSnapshot || !allowed('archive') || (viewingArchiveGAITable&&!gaiAllowed('archive')))return;
+      const selected=archiveSnapshot, gai=!!viewingArchiveGAITable;
+      const source=host.querySelector('#archive-paper-wrapper .paper-report-container');
+      if(!source || typeof window.html2pdf!=='function') {showError('Экспорт изображения недоступен');return;}
+      const sheet=clonePaper(source);
+      sheet.style.width='max-content';sheet.style.maxWidth='none';
+      const holder=document.createElement('div');
+      holder.style.cssText='position:fixed;left:-100000px;top:0;width:max-content;background:#fdfdfd;pointer-events:none;z-index:-1';
+      holder.append(sheet);document.body.append(holder);
+      const button=host.querySelector('#archiveSavePngBtn,button[onclick="exportArchivePNG()"]');
+      if(button?.disabled){holder.remove();return;}
+      if(button)button.disabled=true;
+      let worker;
+      try {
+        if(document.fonts?.ready)await Promise.race([document.fonts.ready,new Promise(resolve=>setTimeout(resolve,2500))]);
+        const table=sheet.querySelector('.paper-table'),bounds=sheet.getBoundingClientRect();
+        const width=Math.ceil(Math.max(1,sheet.scrollWidth,bounds.width,table?table.getBoundingClientRect().right-bounds.left+12:0));
+        const height=Math.ceil(Math.max(1,sheet.scrollHeight,bounds.height));
+        const scale=Math.min(2,Math.sqrt(16000000/(width*height)),8192/width,8192/height);
+        worker=window.html2pdf().set({margin:0,pagebreak:{mode:[],before:[],after:[],avoid:[]},html2canvas:{scale,width,height,windowWidth:Math.max(window.innerWidth,width),windowHeight:Math.max(window.innerHeight,height),scrollX:0,scrollY:0,useCORS:true,logging:false,backgroundColor:'#fdfdfd'},jsPDF:{unit:'px',format:'a4'}}).from(sheet).toContainer().then(function(){
+          this.prop.container.style.width=width+'px';this.prop.container.style.maxWidth='none';this.prop.container.style.height='auto';this.prop.container.style.overflow='visible';
+        });
+        const canvas=await worker.toCanvas().get('canvas');
+        if(!canvas || canvas.width<width*scale*.97 || canvas.height<height*scale*.97)throw new Error('PNG получился обрезанным');
+        const blob=await new Promise((resolve,reject)=>canvas.toBlob(result=>result?resolve(result):reject(new Error('Браузер не смог создать PNG')),'image/png'));
+        const clean=value=>String(value||'').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_');
+        const url=URL.createObjectURL(blob),link=document.createElement('a');
+        link.href=url;link.download=clean(selected.objectName).slice(0,70)+'_'+clean(selected.date)+(gai?'_ГАИ':'')+'.png';
+        document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+        showToastEl('Отчёт PNG сохранён',false);
+      } catch(error) {console.warn('Archive PNG',error);showError('Не удалось сохранить PNG: '+error.message);}
+      finally {worker?.prop?.overlay?.remove();holder.remove();if(button)button.disabled=false;}
+    };
+  }
 })();
 </script>
 <script>
@@ -3430,6 +3703,9 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
 (function () {
   const button = document.getElementById('toggleReportBtn');
   if (!button) return;
+  button.title = 'Удерживайте 0,8 с для переключения листа';
+  button.setAttribute('aria-label', button.title);
+  // Deliberately keep the small lower-right sheet icon hold-only (800 ms).
   button.style.touchAction = 'none';
   button.style.userSelect = 'none';
   button.style.webkitUserSelect = 'none';
@@ -3440,7 +3716,8 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
     clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      if (document.hidden || !button.isConnected || !button.getClientRects().length) return;
+      if (document.hidden || !button.isConnected || !button.getClientRects().length ||
+          !hasTabAccess('report') || !hasPermission('view_gai_report')) return;
       toggleReportType();
     }, 800);
   }
@@ -3457,7 +3734,7 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
     if (Math.hypot(e.clientX - startX, e.clientY - startY) > 12 ||
         e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) cancel();
   });
-  ['pointerup','pointercancel','lostpointercapture'].forEach(type => button.addEventListener(type, cancel));
+  ['pointerup','pointercancel','pointerleave','lostpointercapture'].forEach(type => button.addEventListener(type, cancel));
   button.addEventListener('keydown', e => {
     if (e.key !== ' ' && e.key !== 'Enter') return;
     e.preventDefault();
@@ -3468,6 +3745,7 @@ catch (e) { console.error('[baked patch: Компактная админка]', 
   button.addEventListener('blur', cancel);
   window.addEventListener('blur', cancel);
   document.addEventListener('visibilitychange', cancel);
+  document.addEventListener('scroll', cancel, true);
 })();
 </script>
 <script>
@@ -3679,6 +3957,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.4.7',title:'Единый просмотр листов и обновление интерфейса',items:['Сводка и архив используют единый полноэкранный просмотр листа: перетаскивание, масштабирование двумя пальцами, кнопки масштаба и «Лист целиком».','Иконка 📄 в правом нижнем углу переключает обычный и ГАИ-лист после удержания 800 мс. Короткое нажатие не переключает отчёт.','Метка дубликата показана красной латинской D. Это только отображение: сохранённые данные и правила определения дубликата не меняются.','Поздравление с новым рангом расположено по центру экрана; звук салюта учитывает настройку игровых звуков.','Поиск техники очищается при каждом открытии выбора самосвалов. Сброс встроен в основную функцию открытия и не зависит от включения патча.']},
     {version:'3.4.6',title:'Просмотр архивного листа в полный экран',items:['Лист архива открывается поверх программы как в сводке: перетаскивание, увеличение, уменьшение, масштабирование двумя пальцами и подгонка целиком.','Кнопка переключения обычного листа и ГАИ — только значок 📄 в правом нижнем углу без подписи.','Рисование отключено в обеих версиях. Данные, сортировка рейсов, архивные PNG и автоматические отметки ТТН сохранены.']},
     {version:'3.4.5',title:'Ручное рисование на листах отключено',items:['Убраны кнопки «Рисовать» и «Очистить» на листах сводки, ГАИ и в архиве.','Отключены обработчики рисования и прозрачные слои поверх листов.','Просмотр, масштабирование, отметки ТТН, архив и экспорт PNG сохранены. Историю версий видит только активный администратор.']},
     {version:'3.4.4',title:'Видимость версии у администратора',items:['Исправлено отображение зелёного номера версии в верхней части страницы для активного администратора.','Просмотр истории изменений по нажатию на номер версии по-прежнему доступен только администратору.','Сохранены прежние права, данные, отчёты и поведение архивного PNG.']},
@@ -3890,10 +4169,31 @@ window.appNotice=function(message){return window.showConfirmModal('Сообще�
 <style id="game-coins-style">
 .game-preview-settings{border-top:1px solid var(--border);padding-top:12px;margin-top:12px}.game-preview-settings>label{display:block;font-size:13px;font-weight:700;margin-bottom:8px}.game-preview-settings select{margin-bottom:8px;font-size:13px}.game-preview-settings>button{width:100%}
 #game-ranks-toggle{width:100%;margin:0 0 14px;padding:9px 12px;border:1px solid #b8893266;border-radius:10px;background:#fbbf2410;color:#fcd34d;cursor:pointer;font-size:13px;font-weight:700}#game-ranks-toggle:focus-visible{outline:2px solid #fbbf24;outline-offset:3px}.game-ranks-guide{margin:0 0 16px;padding:12px;border:1px solid var(--border);border-radius:12px;font-size:12px;line-height:1.5}.game-ranks-guide[hidden]{display:none}.game-ranks-guide p{margin-bottom:8px}.game-ranks-guide table{width:100%;border-collapse:collapse;text-align:left}.game-ranks-guide th,.game-ranks-guide td{padding:8px 5px;border-bottom:1px solid var(--border)}.game-ranks-guide td,.game-ranks-guide th:last-child{text-align:right;white-space:nowrap}.game-ranks-guide th:first-child{font-weight:600}.game-ranks-guide .current{background:#fbbf2417;color:#fcd34d}.game-ranks-guide small{display:block;font-weight:400;color:var(--muted)}
-#game-rank-celebration{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:11002;width:min(440px,calc(100vw - 24px));padding:16px 38px 16px 18px;border:1px solid #eecb7899;border-radius:16px;background:linear-gradient(125deg,#283047f5,#34270ff5);color:#fff8dc;box-shadow:0 8px 28px #0005,0 0 18px #fbbf2414;pointer-events:none;line-height:1.4;overflow:hidden}#game-rank-celebration strong{display:block;font-size:12px;letter-spacing:.05em;color:#fcd976}#game-rank-celebration p{margin:6px 0;font-size:17px;font-weight:700}#game-rank-celebration small{font-size:11px;color:#dac9a1}#game-rank-celebration button{position:absolute;top:4px;right:4px;width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#fff8dc;font-size:22px;cursor:pointer;pointer-events:auto}#game-rank-celebration.festive{animation:rankNoticeIn .28s ease-out}
+/* RANK CELEBRATION V2 START — presentation only; shared by TEST and production. */
+#game-rank-celebration{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:11002;box-sizing:border-box;width:min(376px,calc(100vw - 40px));max-height:calc(100dvh - 32px);padding:25px 25px 22px;border:1px solid #d7b768a8;border-radius:24px;background:radial-gradient(ellipse at 50% 0,#987b3030,transparent 57%),linear-gradient(150deg,#17232ffb,#0e1723fc 64%,#202b30fc);color:#fff8e8;box-shadow:0 20px 64px #0006,0 0 0 5px #f5cf6b08,inset 0 1px #fff3;text-align:center;pointer-events:none;line-height:1.4;overflow:hidden;font-family:inherit;isolation:isolate}
+#game-rank-celebration::before{content:"";position:absolute;inset:7px;border:1px solid #f2cf7424;border-radius:18px;pointer-events:none}
+#game-rank-celebration .rank-eyebrow{display:flex;align-items:center;justify-content:center;gap:10px;font-size:10px;font-weight:800;letter-spacing:.2em;color:#f2d78e}
+#game-rank-celebration .rank-eyebrow::before,#game-rank-celebration .rank-eyebrow::after{content:"";height:1px;width:24px;background:linear-gradient(90deg,transparent,#cba75b)}
+#game-rank-celebration .rank-eyebrow::after{transform:rotate(180deg)}
+#game-rank-celebration .rank-emblem{position:relative;display:block;width:116px;height:100px;margin:13px auto 10px;filter:drop-shadow(0 5px 14px #edb64e30)}
+#game-rank-celebration .rank-emblem svg{display:block;width:100%;height:100%}
+#game-rank-celebration .rank-emblem span{position:absolute;left:0;right:0;top:45px;color:#fff4c5;font-size:16px;font-weight:800;letter-spacing:.05em;text-shadow:0 1px 2px #0008}
+#game-rank-celebration .rank-name{position:relative;margin:0;font-size:clamp(21px,5.6vw,27px);font-weight:800;letter-spacing:-.025em;line-height:1.17;text-wrap:balance;color:#fff8e8;overflow-wrap:anywhere}
+#game-rank-celebration .rank-message{margin:11px 0 16px;font-size:13px;line-height:1.5;color:#c4cdd4;text-wrap:balance}
+#game-rank-celebration .rank-milestone{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #e6c47632;border-radius:999px;background:#f5cf6b0a;color:#ead39c;font-size:10px;font-weight:700;letter-spacing:.07em}
+#game-rank-celebration .rank-milestone i{height:3px;width:3px;border-radius:50%;background:#c5a65c}
+#game-rank-celebration .rank-footnote{display:block;margin-top:12px;font-size:10px;line-height:1.4;color:#9caeb8}
+#game-rank-celebration .rank-dismiss{position:absolute;top:8px;right:8px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:transparent;color:#c7d1d8;font-family:inherit;font-size:25px;line-height:1;cursor:pointer;pointer-events:auto;touch-action:manipulation}
+#game-rank-celebration .rank-dismiss:hover{background:#ffffff12;color:#fff}
+#game-rank-celebration .rank-dismiss:focus-visible{outline:2px solid #f5d47f;outline-offset:-2px;background:#ffffff12}
+#game-rank-celebration.festive{animation:rankNoticeIn .48s cubic-bezier(.2,.8,.2,1) both}
+#game-rank-celebration.festive .rank-emblem{animation:rankEmblemIn .68s cubic-bezier(.16,1,.3,1) both}
 #game-rank-fireworks{position:fixed;inset:0;width:100%;height:100%;z-index:11001;pointer-events:none}
-@keyframes rankNoticeIn{from{opacity:0;transform:translate(-50%,-12px)}to{opacity:1;transform:translate(-50%,0)}}
-@media(prefers-reduced-motion:reduce){#game-rank-celebration.festive{animation:none}#game-rank-fireworks{display:none}}
+@keyframes rankNoticeIn{from{opacity:0;transform:translate(-50%,-47%) scale(.94)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes rankEmblemIn{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
+@media(max-height:520px){#game-rank-celebration{padding:16px 24px;width:min(420px,calc(100vw - 40px))}#game-rank-celebration .rank-emblem{width:78px;height:67px;margin:5px auto}#game-rank-celebration .rank-emblem span{top:29px;font-size:12px}#game-rank-celebration .rank-message{margin:7px 0 10px}#game-rank-celebration .rank-footnote{margin-top:8px}}
+@media(prefers-reduced-motion:reduce){#game-rank-celebration.festive,#game-rank-celebration.festive .rank-emblem{animation:none}#game-rank-fireworks{display:none}}
+/* RANK CELEBRATION V2 END */
 #disabledScreen{z-index:2147483646}.user-access-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--border);padding-top:9px;margin-top:9px;font-size:12px}.user-access-row small{display:block;color:var(--muted);margin-top:3px}.user-access-row .toggle-switch{flex-shrink:0}.user-access-limited{border-color:#f59e0b77}.user-access-limited .user-access-row{color:#fbbf24}
 
 .admin-settings-group{border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--card)}.admin-settings-group>summary{cursor:pointer;padding:11px 12px;font-size:13px;font-weight:700;line-height:1.4}.admin-settings-group>summary>span{display:block;padding-left:16px;color:var(--muted);font-size:11px;font-weight:400}.admin-settings-group>.form-card{border:0;border-top:1px solid var(--border);border-radius:0 0 10px 10px;margin:0;padding:12px}.admin-settings-note{color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:12px}.admin-settings-group .settings-row{gap:12px}.admin-settings-group .toggle-switch{flex-shrink:0}
@@ -4019,7 +4319,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   const wallet=document.createElement('button');wallet.id='game-wallet';wallet.hidden=true;wallet.type='button';wallet.setAttribute('aria-label','Монеты и рейтинг пользователей');document.querySelector('#mainHeader .top-row')?.insertBefore(wallet,document.querySelector('#mainHeader .gear-btn'));
   const modal=document.createElement('dialog');modal.id='game-ranking';modal.setAttribute('aria-labelledby','game-title');document.body.append(modal);
   const admin=document.createElement('details');admin.id='game-admin';admin.className='admin-settings-group';admin.hidden=true;
-  const gameOptions=[['game_mode','Игровой режим для всех'],['game_sound','Игровые звуки: монеты и аплодисменты'],['game_effects','Анимации монет и праздничный салют']];
+  const gameOptions=[['game_mode','Игровой режим для всех'],['game_sound','Игровые звуки: монеты и салют'],['game_effects','Анимации монет и праздничный салют']];
   admin.innerHTML='<summary>🪙 Игровой режим <span id="game-mode-state"></span></summary><div class="form-card">'
     +gameOptions.map(([id,label])=>'<div class="settings-row"><label for="'+id+'">'+label+'</label><label class="toggle-switch"><input type="checkbox" id="'+id+'" data-game-setting="'+id+'"><span class="toggle-slider"></span></label></div>').join('')
     +'<p class="game-note">Общие настройки для всех пользователей. Монеты и штрафы продолжают учитываться при выключенном игровом режиме. Уведомления о штрафах остаются доступны.</p>'
@@ -4155,86 +4455,144 @@ body.game-coin-feedback #toast{visibility:hidden}
     rankMarkers.set(rankMarkerKey(),marker);
     try{localStorage.setItem(rankMarkerKey(),JSON.stringify(marker));}catch(e){/* Session memory still prevents duplicate celebrations. */}
   }
-  function dismissRankNotice(){
-    stopRankFireworks();
-    clearTimeout(rankNoticeTimer);rankNoticeTimer=null;rankNotice?.remove();rankNotice=null;rankNoticePreview=false;
-    for(const source of [...applauseSources])try{source.stop();}catch(e){}
+  /* RANK CELEBRATION V2 START — presentation only; no score or reward writes. */
+  let rankFireworkCanvas=null,rankFireworkFrame=null,rankLifecycleTimer=null,rankAudioBus=null;
+  const rankAudioNodes=new Map();
+  function stopRankAudio(){
+    for(const source of [...applauseSources]){try{source.stop();}catch(e){}try{source.disconnect();}catch(e){}}
     applauseSources.clear();
+    for(const nodes of rankAudioNodes.values())for(const node of nodes)try{node.disconnect();}catch(e){}
+    rankAudioNodes.clear();
+    if(rankAudioBus){for(const node of rankAudioBus.nodes)try{node.disconnect();}catch(e){}rankAudioBus=null;}
   }
-  function cancelRankCelebration({keepPreview=false}={}){
-    if(!keepPreview||!rankNoticePreview)dismissRankNotice();clearTimeout(rankQueueTimer);rankQueueTimer=null;pendingRankAt=null;
+  function dismissRankNotice(){
+    stopRankFireworks();stopRankAudio();
+    clearTimeout(rankLifecycleTimer);rankLifecycleTimer=null;
+    clearTimeout(rankNoticeTimer);rankNoticeTimer=null;rankNotice?.remove();rankNotice=null;rankNoticePreview=false;
   }
-  let rankFireworkCanvas=null,rankFireworkFrame=null;
   function stopRankFireworks(){
     if(rankFireworkFrame!==null)cancelAnimationFrame(rankFireworkFrame);
     rankFireworkFrame=null;rankFireworkCanvas?.remove();rankFireworkCanvas=null;
   }
-  function startRankFireworks(){
+  // Gentle, self-contained pyrotechnics: shaped noise + a low transient, not applause.
+  // Sources and all graph nodes are tracked so close/revocation stops even scheduled sound.
+  function rankFireworkSound(preview=false,kind='burst',pan=0,energy=1){
+    if(!(preview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_sound===false||!audioContext||audioContext.state!=='running')return;
+    try{
+      const ac=audioContext,rate=ac.sampleRate,t=ac.currentTime+.008;
+      if(!rankAudioBus){
+        const input=ac.createGain(),compressor=ac.createDynamicsCompressor(),output=ac.createGain();
+        input.gain.value=.42;compressor.threshold.value=-14;compressor.knee.value=12;compressor.ratio.value=5;compressor.attack.value=.004;compressor.release.value=.18;output.gain.value=.6;
+        input.connect(compressor);compressor.connect(output);output.connect(ac.destination);
+        rankAudioBus={input,nodes:[input,compressor,output]};
+      }
+      const duration=kind==='launch'?.42:kind==='cue'?.72:1.12,buffer=ac.createBuffer(1,Math.ceil(rate*duration),rate),data=buffer.getChannelData(0);
+      let brown=0;
+      // A bounded deterministic generator avoids non-repeatable harsh impulses.
+      let seed=kind==='launch'?173:827;
+      const noise=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/2147483648-1;};
+      for(let i=0;i<data.length;i++){
+        const age=i/rate,n=noise();brown=(brown+.035*n)/1.035;
+        if(kind==='cue'){const envelope=Math.min(1,age/.035)*Math.exp(-age*5)*Math.min(1,(duration-age)/.09);data[i]=(Math.sin(2*Math.PI*523.25*age)*.19+Math.sin(2*Math.PI*659.25*age)*.11+Math.sin(2*Math.PI*783.99*age)*.07)*envelope;}
+        else if(kind==='launch')data[i]=n*.11*Math.sin(Math.PI*age/duration)**2;
+        else{
+          const attack=Math.min(1,age/.009),body=(brown*2.1+n*.13)*Math.exp(-age*6.5),thump=Math.sin(2*Math.PI*(67*age-15*age*age))*.24*Math.exp(-age*13);
+          // Uneven late crackles, each with a smooth 2ms onset and soft tail.
+          let crackle=0;for(const at of [.17,.235,.31,.41,.54,.67,.81]){const d=age-at;if(d>=0&&d<.045)crackle+=n*.095*Math.min(1,d/.002)*Math.exp(-d*100)*(1-at*.65);}
+          data[i]=(body+thump)*attack+crackle;
+        }
+      }
+      const source=ac.createBufferSource(),filter=ac.createBiquadFilter(),gain=ac.createGain(),nodes=[source,filter,gain];
+      source.buffer=buffer;filter.type='lowpass';filter.frequency.value=kind==='launch'?1600:2600;filter.Q.value=.45;gain.gain.value=Math.max(.15,Math.min(energy,1));
+      source.connect(filter);filter.connect(gain);
+      if(typeof ac.createStereoPanner==='function'){const stereo=ac.createStereoPanner();stereo.pan.value=Math.max(-.7,Math.min(.7,pan));gain.connect(stereo);stereo.connect(rankAudioBus.input);nodes.push(stereo);}else gain.connect(rankAudioBus.input);
+      applauseSources.add(source);rankAudioNodes.set(source,nodes);
+      source.onended=()=>{applauseSources.delete(source);for(const node of rankAudioNodes.get(source)||[])try{node.disconnect();}catch(e){}rankAudioNodes.delete(source);};
+      source.start(t);source.stop(t+duration+.02);
+    }catch(e){stopRankAudio();/* Audio support is optional and never interrupts work. */}
+  }
+  function startRankFireworks(preview=false){
     stopRankFireworks();
     if(appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
     const canvas=document.createElement('canvas');canvas.id='game-rank-fireworks';canvas.setAttribute('aria-hidden','true');
-    const ctx=canvas.getContext?.('2d');if(!ctx)return;
+    let ctx;try{ctx=canvas.getContext?.('2d');}catch(e){return;}if(!ctx)return;
     document.body.append(canvas);rankFireworkCanvas=canvas;
-    // Five overlapping bursts around the screen centre; bounded particle count.
-    const bursts=[
-      {at:0,x:0,y:0,hue:43,count:64,size:1},
-      {at:.32,x:-.55,y:-.3,hue:185,count:48,size:.78},
-      {at:.65,x:.58,y:-.16,hue:320,count:48,size:.82},
-      {at:1.02,x:-.2,y:.18,hue:48,count:56,size:.92},
-      {at:1.36,x:.22,y:-.35,hue:38,count:64,size:1.05}
-    ];
-    for(const b of bursts)b.sparks=Array.from({length:b.count},(_,i)=>({angle:Math.PI*2*i/b.count+(Math.random()-.5)*.06,speed:(.68+Math.random()*.4)*b.size,life:1.12+Math.random()*.3,width:1+Math.random()*.8,phase:Math.random()*6.28}));
-    const started=performance.now();let width=0,height=0;
+    // Four rockets, 264 sparks total; no particle creation inside the animation loop.
+    const bursts=[{at:.02,x:-.78,y:-.95,hue:42,count:72,size:1},{at:.43,x:.85,y:-.65,hue:171,count:60,size:.85},{at:.85,x:-.8,y:.8,hue:35,count:60,size:.83},{at:1.21,x:.35,y:-1.1,hue:46,count:72,size:1.03}];
+    for(const b of bursts){b.flight=.49+b.size*.07;b.launched=false;b.exploded=false;b.sparks=Array.from({length:b.count},(_,i)=>({angle:Math.PI*2*i/b.count+(Math.random()-.5)*.1,speed:(.48+Math.random()*.55)*b.size,life:.82+Math.random()*.52,width:.7+Math.random()*.85,phase:Math.random()*6.28,depth:.68+Math.random()*.32}));}
+    const started=performance.now();let width=0,height=0,dpr=0;
     function frame(now){
-      if(!canvas.isConnected||document.hidden||!rankNotice||!(rankNoticePreview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches){stopRankFireworks();return;}
-      const elapsed=(now-started)/1000;if(elapsed>2.85){stopRankFireworks();return;}
-      const w=window.innerWidth,h=window.innerHeight,dpr=Math.min(window.devicePixelRatio||1,2);
-      if(w!==width||h!==height){width=w;height=h;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
-      ctx.clearRect(0,0,width,height);ctx.globalCompositeOperation='lighter';
-      const radius=Math.min(width,height)*.28;
+      if(!canvas.isConnected||document.hidden||!rankNotice||!(preview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches){stopRankFireworks();stopRankAudio();return;}
+      const elapsed=(now-started)/1000;if(elapsed>3.35){stopRankFireworks();return;}
+      const w=window.innerWidth,h=window.innerHeight,pixelRatio=Math.min(window.devicePixelRatio||1,2);
+      if(w!==width||h!==height||pixelRatio!==dpr){width=w;height=h;dpr=pixelRatio;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
+      ctx.clearRect(0,0,width,height);ctx.globalCompositeOperation='lighter';ctx.lineCap='round';
+      const radius=Math.min(width*.39,height*.34,245),spread=Math.min(width*.34,235),vertical=Math.min(height*.27,195);
       for(const b of bursts){
-        const age=elapsed-b.at;if(age<0||age>1.45)continue;
-        const x=width/2+b.x*radius,y=height/2+b.y*radius;
-        // Local glow only: no full-screen flash or dark overlay.
-        if(age<.24){const glow=ctx.createRadialGradient(x,y,0,x,y,radius*.34);glow.addColorStop(0,'hsla('+b.hue+',100%,90%,'+(.5*(1-age/.24))+')');glow.addColorStop(1,'transparent');ctx.fillStyle=glow;ctx.fillRect(x-radius*.34,y-radius*.34,radius*.68,radius*.68);}
+        const rocketAge=elapsed-b.at,age=rocketAge-b.flight;if(rocketAge<0)continue;
+        const x=width/2+b.x*spread,y=height/2+b.y*vertical;
+        if(!b.launched){b.launched=true;if(rocketAge<.12)rankFireworkSound(preview,'launch',b.x*.55,.48);}
+        if(age<0){
+          const originY=Math.min(height+12,y+radius*1.6),originX=x-b.x*radius*.28;
+          const position=u=>({x:originX+(x-originX)*u,y:originY+(y-originY)*(1-(1-u)**1.55)});
+          for(let j=6;j>=0;j--){const u=Math.max(0,Math.min(1,rocketAge/b.flight-j*.025)),p=position(u),q=position(Math.max(0,u-.035));ctx.strokeStyle='rgba(255,211,128,'+((1-j/7)*.85)+')';ctx.lineWidth=j?1.2:2;ctx.beginPath();ctx.moveTo(q.x,q.y);ctx.lineTo(p.x,p.y);ctx.stroke();}
+          continue;
+        }
+        if(!b.exploded){b.exploded=true;if(age<.14)rankFireworkSound(preview,'burst',b.x*.55,b.size);}
+        // Small local core only: no screen flash, and sparks fall under gravity.
+        if(age<.16){const glow=ctx.createRadialGradient(x,y,0,x,y,22);glow.addColorStop(0,'rgba(255,241,190,'+(.46*(1-age/.16))+')');glow.addColorStop(1,'transparent');ctx.fillStyle=glow;ctx.fillRect(x-22,y-22,44,44);}
         for(const p of b.sparks){
           if(age>p.life)continue;
-          const distance=t=>radius*p.speed*(1-Math.exp(-2.8*t)),fall=t=>radius*.3*t*t;
-          const px=x+Math.cos(p.angle)*distance(age),py=y+Math.sin(p.angle)*distance(age)+fall(age);
-          const tail=Math.max(0,age-.07),tx=x+Math.cos(p.angle)*distance(tail),ty=y+Math.sin(p.angle)*distance(tail)+fall(tail);
-          const alpha=Math.pow(1-age/p.life,.75)*(.78+.22*Math.sin(age*16+p.phase));
-          ctx.strokeStyle='hsla('+b.hue+',95%,72%,'+alpha+')';ctx.lineWidth=p.width;ctx.lineCap='round';ctx.shadowColor='hsl('+b.hue+',100%,65%)';ctx.shadowBlur=5;
-          ctx.beginPath();ctx.moveTo(tx,ty);ctx.lineTo(px,py);ctx.stroke();
-          ctx.fillStyle='rgba(255,251,222,'+alpha+')';ctx.fillRect(px-.65,py-.65,1.3,1.3);
+          const position=t=>{const distance=radius*p.speed*(1-Math.exp(-2.5*t));return {x:x+Math.cos(p.angle)*distance,y:y+Math.sin(p.angle)*distance*p.depth+radius*.25*t*t};};
+          const head=position(age),tail=position(Math.max(0,age-.045)),fade=Math.pow(1-age/p.life,1.35),alpha=fade*(.83+.17*Math.sin(age*22+p.phase));
+          ctx.strokeStyle='hsla('+b.hue+',85%,'+(70-age*17)+'%,'+alpha+')';ctx.lineWidth=p.width;ctx.beginPath();ctx.moveTo(tail.x,tail.y);ctx.lineTo(head.x,head.y);ctx.stroke();
+          if(age<.55){ctx.fillStyle='rgba(255,247,210,'+(alpha*.85)+')';ctx.fillRect(head.x-.6,head.y-.6,1.2,1.2);}
         }
       }
-      ctx.shadowBlur=0;ctx.globalCompositeOperation='source-over';rankFireworkFrame=requestAnimationFrame(frame);
+      ctx.globalCompositeOperation='source-over';rankFireworkFrame=requestAnimationFrame(frame);
     }
     rankFireworkFrame=requestAnimationFrame(frame);
   }
-
-  function rankApplause(preview=false){
-    if(!(preview?canAdmin():enabled())||appConfig?.testReviewFlags?.game_sound===false||!audioContext||audioContext.state!=='running')return;
-    try{
-      const start=audioContext.currentTime,rate=audioContext.sampleRate;
-      // Layered, spatial handclaps with a small room tail, fading after 1.8 seconds.
-      const room=audioContext.createConvolver(),wet=audioContext.createGain(),impulse=audioContext.createBuffer(2,Math.ceil(rate*.24),rate);
-      for(let channel=0;channel<2;channel++){const data=impulse.getChannelData(channel);for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*Math.pow(1-i/data.length,3);}
-      room.buffer=impulse;wet.gain.value=.17;room.connect(wet);wet.connect(audioContext.destination);
-      const buffer=audioContext.createBuffer(1,Math.ceil(rate*.12),rate),samples=buffer.getChannelData(0);
-      for(let i=0;i<samples.length;i++){const t=i/rate,envelope=Math.exp(-t*80)+(t>.009?.65*Math.exp(-(t-.009)*100):0)+(t>.019?.4*Math.exp(-(t-.019)*110):0);samples[i]=(Math.random()*2-1)*envelope*.65;}
-      let remaining=32;
-      for(let i=0;i<32;i++){
-        const source=audioContext.createBufferSource(),filter=audioContext.createBiquadFilter(),gain=audioContext.createGain(),pan=audioContext.createStereoPanner();
-        const t=start+i*.048+(i%3)*.007,fade=Math.min(1,(32-i)/8);
-        source.buffer=buffer;source.playbackRate.value=.82+(i%6)*.08;
-        filter.type='highpass';filter.frequency.value=500+(i%4)*100;
-        gain.gain.value=(.24+(i%3)*.025)*fade;pan.pan.value=((i%7)-3)/4;
-        source.connect(filter);filter.connect(gain);gain.connect(pan);pan.connect(audioContext.destination);pan.connect(room);applauseSources.add(source);
-        source.onended=()=>{applauseSources.delete(source);source.disconnect();filter.disconnect();gain.disconnect();pan.disconnect();if(--remaining===0){room.disconnect();wet.disconnect();}};
-        source.start(t);source.stop(t+.17);
-      }
-    }catch(e){/* A browser audio restriction must not interrupt work. */}
+  function showRankNotice(milestone,preview=false){
+    dismissRankNotice();
+    if(document.hidden||!(preview?canAdmin():enabled()))return;
+    const el=document.createElement('aside');el.id='game-rank-celebration';el.setAttribute('role','status');el.setAttribute('aria-live','polite');el.setAttribute('aria-atomic','true');
+    const effects=appConfig?.testReviewFlags?.game_effects!==false&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.classList.toggle('festive',effects);
+    const index=Math.max(0,levels.findIndex(l=>l.at===milestone.at)),numerals=['I','II','III','IV','V','VI'];
+    const title=document.createElement('strong');title.className='rank-eyebrow';title.textContent=milestone.at?'НОВЫЙ РАНГ':'ДОБРО ПОЖАЛОВАТЬ';
+    const emblem=document.createElement('span');emblem.className='rank-emblem';emblem.setAttribute('aria-hidden','true');
+    // Original inline vector artwork; no external image, font, audio or network request.
+    emblem.innerHTML='<svg viewBox="0 0 116 100" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="rankGold" x1="30" y1="8" x2="83" y2="85" gradientUnits="userSpaceOnUse"><stop stop-color="#fff1b5"/><stop offset=".45" stop-color="#d4a849"/><stop offset="1" stop-color="#8e682c"/></linearGradient></defs><path d="M30 80C13 69 9 47 20 31M86 80c17-11 21-33 10-49" stroke="#c5a35e" stroke-width="1.4"/><path d="M20 63c-9-2-12-7-12-14 8 1 12 6 12 14Zm-2-15c-7-4-8-10-6-16 7 3 9 8 6 16Zm3-14c-4-6-3-12 1-17 5 6 4 11-1 17ZM25 74c-8 1-14-2-17-8 8-2 14 1 17 8Zm71-11c9-2 12-7 12-14-8 1-12 6-12 14Zm2-15c7-4 8-10 6-16-7 3-9 8-6 16Zm-3-14c4-6 3-12-1-17-5 6-4 11 1 17ZM91 74c8 1 14-2 17-8-8-2-14 1-17 8Z" fill="#c8a45c"/><path d="m58 5 31 18v37L58 88 27 60V23L58 5Z" fill="url(#rankGold)"/><path d="m58 11 25 15v32L58 81 33 58V26l25-15Z" fill="#1c2b36" stroke="#f7dc90" stroke-opacity=".65"/><path d="m58 17 19 11v27L58 73 39 55V28l19-11Z" fill="#e7bd5c" fill-opacity=".1"/><path d="m58 23 2.5 5.4 5.9.7-4.4 4 .9 5.8-4.9-2.8-5 2.8 1-5.8-4.4-4 5.9-.7L58 23Z" fill="#ffe5a0"/><path d="m38 84 20 9 20-9" stroke="#d7b564" stroke-width="1.2"/></svg><span>'+numerals[index]+'</span>';
+    const text=document.createElement('p');text.className='rank-name';text.textContent=milestone.name.replace(/^\S+\s+/u,'');
+    const message=document.createElement('p');message.className='rank-message';message.textContent=milestone.at?'Отличная работа. Так держать!':'Большой путь начинается с первого шага.';
+    const detail=document.createElement('span');detail.className='rank-milestone';
+    const tier=document.createElement('span');tier.textContent='РАНГ '+(index+1)+' / '+levels.length;
+    const dot=document.createElement('i');dot.setAttribute('aria-hidden','true');
+    const threshold=document.createElement('span');threshold.textContent=milestone.at.toLocaleString('ru-RU')+' МОНЕТ';detail.append(tier,dot,threshold);
+    const note=document.createElement('small');note.className='rank-footnote';note.textContent=preview?'Предпросмотр · баланс не меняется':'Заслужено работой на линии';
+    const close=document.createElement('button');close.className='rank-dismiss';close.type='button';close.textContent='×';close.setAttribute('aria-label','Закрыть поздравление');close.onclick=dismissRankNotice;
+    el.append(title,emblem,text,message,detail,note,close);document.body.append(el);rankNotice=el;rankNoticePreview=preview;
+    const sessionUid=currentUid,tab=document.querySelector('.tab-content.active')?.id;
+    function watch(){
+      if(!rankNotice)return;
+      if(document.hidden||sessionUid!==currentUid||!(preview?canAdmin():enabled())||tab!==document.querySelector('.tab-content.active')?.id){dismissRankNotice();return;}
+      if(appConfig?.testReviewFlags?.game_sound===false)stopRankAudio();
+      if(appConfig?.testReviewFlags?.game_effects===false||matchMedia('(prefers-reduced-motion: reduce)').matches){if(rankFireworkCanvas){stopRankFireworks();stopRankAudio();}el.classList.remove('festive');}
+      rankLifecycleTimer=setTimeout(watch,100);
+    }
+    rankLifecycleTimer=setTimeout(watch,100);
+    if(effects)startRankFireworks(preview);
+    // Independent sound preference: static card gets one gentle chord, never orphan rockets.
+    if(!rankFireworkCanvas)rankFireworkSound(preview,'cue',0,.7);
+    rankNoticeTimer=setTimeout(dismissRankNotice,3600);
+  }
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&rankNotice)dismissRankNotice();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)dismissRankNotice();});
+  for(const event of ['pagehide','popstate','hashchange'])window.addEventListener(event,dismissRankNotice);
+  /* RANK CELEBRATION V2 END */
+  function cancelRankCelebration({keepPreview=false}={}){
+    if(!keepPreview||!rankNoticePreview)dismissRankNotice();clearTimeout(rankQueueTimer);rankQueueTimer=null;pendingRankAt=null;
   }
   function showPendingRank(){
     clearTimeout(rankQueueTimer);rankQueueTimer=null;
@@ -4246,19 +4604,6 @@ body.game-coin-feedback #toast{visibility:hidden}
     const milestone=levels.find(l=>l.at===pendingRankAt);if(!milestone)return;
     showRankNotice(milestone);
     const marker=readRankMarker();if(marker)saveRankMarker({...marker,pending:null});pendingRankAt=null;
-  }
-  function showRankNotice(milestone,preview=false){
-    dismissRankNotice();
-    const el=document.createElement('aside');el.id='game-rank-celebration';el.setAttribute('role','status');el.setAttribute('aria-live','polite');el.setAttribute('aria-atomic','true');
-    const effects=appConfig?.testReviewFlags?.game_effects!==false&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
-    el.classList.toggle('festive',effects);
-    const title=document.createElement('strong');title.textContent=milestone.at?'🎉 Ура, новый ранг!':'🎉 Добро пожаловать в бригаду!';
-    const text=document.createElement('p');text.textContent='Поздравляем! Ваш ранг — '+milestone.name+'.';
-    const note=document.createElement('small');note.textContent=(preview?'Предпросмотр · ':'')+milestone.at.toLocaleString('ru-RU')+' монет'+(preview?' · баланс не меняется':' — заслуженно!');
-    const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Закрыть поздравление');close.onclick=dismissRankNotice;
-    el.append(title,text,note,close);document.body.append(el);rankNotice=el;rankNoticePreview=preview;
-    if(effects)startRankFireworks();
-    rankApplause(preview);rankNoticeTimer=setTimeout(dismissRankNotice,3000);
   }
   async function previewRankCelebration(){
     if(!canAdmin())return;
@@ -4982,166 +5327,7 @@ A.subscribe(syncUI);window.addEventListener('review-flags-changed',syncUI);windo
 })();
 
 </script>
-<script>
-
-(function () {
-  if (window.__archiveSheetViewerInstalled) return;
-  const host = document.getElementById('archiveModal');
-  if (!host) return;
-  window.__archiveSheetViewerInstalled = true;
-
-  const css = document.createElement('style');
-  css.textContent = [
-    '.archive-view-switch{display:flex;justify-content:flex-end;padding:6px 3px 2px}',
-    '.archive-toggle-icon{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border:0;background:transparent;color:inherit;font-size:22px;cursor:pointer}',
-    '#archive-sheet-dialog{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;padding:0;background:#0f172a;color:#f8fafc;overscroll-behavior:none}',
-    '#archive-sheet-dialog::backdrop{background:#0f172a}',
-    '#archive-sheet-dialog[open]{display:flex;flex-direction:column}',
-    '#archive-sheet-dialog .archive-sheet-tools{display:flex;align-items:center;gap:8px;padding:12px;padding-top:max(12px,env(safe-area-inset-top));border-bottom:1px solid #334155}',
-    '#archive-sheet-dialog .archive-sheet-tools strong{flex:1;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-    '#archive-sheet-dialog .archive-sheet-tools button{min-width:44px;min-height:44px;border:1px solid #475569;border-radius:8px;background:#1e293b;color:#fff;font-size:17px;cursor:pointer}',
-    '#archive-sheet-dialog .archive-sheet-stage{position:relative;flex:1;min-height:0;overflow:hidden;touch-action:none;user-select:none;cursor:grab}',
-    '#archive-sheet-dialog .archive-sheet-stage:active{cursor:grabbing}',
-    '#archive-sheet-dialog .archive-sheet-page{position:absolute;left:0;top:0;transform-origin:0 0;width:max-content;background:#fff}',
-    '#archive-sheet-dialog .paper-report-container{zoom:1!important;transition:none!important;width:max-content;min-width:780px}',
-    '#archive-sheet-dialog canvas{display:none!important}',
-    '#archive-sheet-dialog .archive-sheet-hint{text-align:center;color:#94a3b8;font-size:12px;padding:8px 64px 12px 8px;padding-bottom:max(12px,env(safe-area-inset-bottom))}',
-    '#archive-sheet-dialog .archive-gai-switch{position:absolute;right:14px;bottom:max(14px,env(safe-area-inset-bottom));z-index:5;width:44px;height:44px;border:1px solid #475569;border-radius:10px;background:#1e293b;color:#fff;font-size:23px;cursor:pointer}',
-    '@media(max-width:460px){#archive-sheet-dialog .archive-sheet-tools{gap:5px;padding-left:7px;padding-right:7px}#archive-sheet-dialog .archive-sheet-tools button{min-width:40px}#archive-sheet-dialog .archive-sheet-hint{font-size:11px}}'
-  ].join('\n');
-  document.head.append(css);
-
-  let dialog = null, stage = null, page = null, scaleLabel = null;
-  let previousOverflow = '', opener = null, resize = null, archiveObserver = null;
-  let x = 0, y = 0, scale = 1, minScale = 0.02;
-  function source() { return host.querySelector('#modalArchiveBody #archive-paper-wrapper .paper-report-container'); }
-  function copySheet() {
-    const original = source();
-    if (!original || !page) return false;
-    const clone = original.cloneNode(true);
-    clone.removeAttribute('id');
-    clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
-    clone.querySelectorAll('canvas').forEach(el => el.remove());
-    clone.classList.remove('compact');
-    clone.style.zoom = '1';
-    page.replaceChildren(clone);
-    return true;
-  }
-  function paint() {
-    if (!dialog || !stage || !page || !page.offsetWidth || !page.offsetHeight) return;
-    const w = page.offsetWidth * scale, h = page.offsetHeight * scale;
-    x = w <= stage.clientWidth ? (stage.clientWidth - w)/2 : Math.max(stage.clientWidth - w, Math.min(0, x));
-    y = h <= stage.clientHeight ? (stage.clientHeight - h)/2 : Math.max(stage.clientHeight - h, Math.min(0, y));
-    page.style.transform = 'translate(' + x + 'px,' + y + 'px) scale(' + scale + ')';
-    scaleLabel.textContent = Math.round(scale * 100) + '%';
-  }
-  function fit() {
-    if (!stage || !page || !page.offsetWidth || !page.offsetHeight) return;
-    minScale = Math.max(0.02, Math.min(1, (stage.clientWidth - 20)/page.offsetWidth, (stage.clientHeight - 20)/page.offsetHeight));
-    scale = minScale; x = 0; y = 0; paint();
-  }
-  function zoom(next, cx = stage.clientWidth/2, cy = stage.clientHeight/2) {
-    const value = Math.max(minScale, Math.min(5, next));
-    x = cx - (cx-x)*value/scale; y = cy - (cy-y)*value/scale;
-    scale = value; paint();
-  }
-  function updateGaiButton() {
-    if (!dialog) return;
-    const button = dialog.querySelector('.archive-gai-switch');
-    const active = !!(typeof viewingArchiveGAITable !== 'undefined' && viewingArchiveGAITable);
-    button.setAttribute('aria-label', active ? 'Показать обычный лист' : 'Показать лист ГАИ');
-    button.title = active ? 'Обычный лист' : 'Лист ГАИ';
-    button.setAttribute('aria-pressed', String(active));
-  }
-  function refresh() { if (dialog && copySheet()) { fit(); updateGaiButton(); } }
-  function close() {
-    if (!dialog) return;
-    const old = dialog; dialog = null;
-    resize?.disconnect(); archiveObserver?.disconnect();
-    resize = archiveObserver = null;
-    if (old.open) old.close();
-    old.remove();
-    document.body.style.overflow = previousOverflow;
-    opener?.focus?.();
-  }
-  function open() {
-    if (dialog || !host.classList.contains('open') || !source()) return;
-    opener = document.activeElement;
-    previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    dialog = document.createElement('dialog');
-    dialog.id = 'archive-sheet-dialog';
-    dialog.setAttribute('aria-label', 'Просмотр архивного листа');
-    dialog.innerHTML = '<div class="archive-sheet-tools"><strong>Архивный лист</strong><button type="button" data-action="out" aria-label="Уменьшить масштаб">−</button><span class="archive-sheet-scale" aria-live="polite"></span><button type="button" data-action="in" aria-label="Увеличить масштаб">+</button><button type="button" data-action="fit" aria-label="Лист целиком">⛶</button><button type="button" data-action="close" aria-label="Закрыть просмотр">✕</button></div><div class="archive-sheet-stage"><div class="archive-sheet-page"></div></div><div class="archive-sheet-hint">Двигайте лист пальцем · Масштаб двумя пальцами · Дважды коснитесь для полного листа</div><button class="archive-gai-switch" type="button" aria-label="Переключить вид листа">📄</button>';
-    document.body.append(dialog);
-    dialog.showModal();
-    stage = dialog.querySelector('.archive-sheet-stage');
-    page = dialog.querySelector('.archive-sheet-page');
-    scaleLabel = dialog.querySelector('.archive-sheet-scale');
-    copySheet(); fit(); updateGaiButton();
-    resize = new ResizeObserver(() => paint());
-    resize.observe(stage);
-    archiveObserver = new MutationObserver(() => { if (!host.classList.contains('open')) close(); });
-    archiveObserver.observe(host, {attributes:true,attributeFilter:['class']});
-    dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
-    dialog.querySelector('.archive-sheet-tools').addEventListener('click', event => {
-      const a = event.target.closest('button')?.dataset.action;
-      if (a === 'close') close();
-      if (a === 'fit') fit();
-      if (a === 'in') zoom(scale*1.3);
-      if (a === 'out') zoom(scale/1.3);
-    });
-    dialog.querySelector('.archive-gai-switch').addEventListener('click', () => {
-      if (typeof toggleArchiveReportType !== 'function') return;
-      toggleArchiveReportType();
-      refresh();
-    });
-    const points = new Map();
-    let last = null;
-    function geometry() {
-      const p = Array.from(points.values()), n = p.length;
-      if (!n) return null;
-      return {x:p.reduce((sum,v)=>sum+v.x,0)/n,y:p.reduce((sum,v)=>sum+v.y,0)/n,d:n>1?Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y):0};
-    }
-    stage.addEventListener('pointerdown', event => {
-      if (event.pointerType === 'mouse' && event.button !== 0) return;
-      const rect = stage.getBoundingClientRect();
-      points.set(event.pointerId,{x:event.clientX-rect.left,y:event.clientY-rect.top});
-      stage.setPointerCapture(event.pointerId);
-      last = geometry();
-    });
-    stage.addEventListener('pointermove', event => {
-      if (!points.has(event.pointerId)) return;
-      const rect=stage.getBoundingClientRect();
-      points.set(event.pointerId,{x:event.clientX-rect.left,y:event.clientY-rect.top});
-      const now=geometry();
-      if(last) {
-        x+=now.x-last.x; y+=now.y-last.y;
-        if(now.d&&last.d) zoom(scale*now.d/last.d,now.x,now.y); else paint();
-      }
-      last=now;
-    });
-    const release = event => {points.delete(event.pointerId); last=geometry();};
-    stage.addEventListener('pointerup',release);
-    stage.addEventListener('pointercancel',release);
-    stage.addEventListener('lostpointercapture',release);
-    stage.addEventListener('dblclick',event => { event.preventDefault(); fit(); });
-    stage.addEventListener('wheel',event => {
-      event.preventDefault();
-      const rect=stage.getBoundingClientRect();
-      zoom(scale*Math.exp(-event.deltaY*.002),event.clientX-rect.left,event.clientY-rect.top);
-    },{passive:false});
-    if (document.fonts) document.fonts.ready.then(() => { if(dialog) paint(); });
-  }
-  host.addEventListener('click', event => {
-    if (event.target.closest('#archive-paper-wrapper .paper-report-container')) {
-      event.preventDefault();
-      open();
-    }
-  },true);
-})();
-
-</script>
+<!-- Shared paper viewer is installed with Summary. -->
 </body>
 </html>
 

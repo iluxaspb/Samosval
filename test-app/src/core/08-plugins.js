@@ -21,6 +21,8 @@
             document.getElementById('plugin-tabs-container').appendChild(tabDiv);
             pluginTabs[tabId] = { render: renderFn, container: tabDiv };
           },
+          registerPngButton: (label, generateHtmlFn) => { pluginPdfButtons.push({ label, generateHtmlFn }); },
+          // Existing extensions keep their registration API; every report is now PNG.
           registerPdfButton: (label, generateHtmlFn) => { pluginPdfButtons.push({ label, generateHtmlFn }); }
         };
         const run = new Function('ctx', p.code); run(ctx);
@@ -33,10 +35,11 @@
     c.innerHTML = '';
     pluginPdfButtons.forEach((p, idx) => {
       const btn = document.createElement('button'); btn.className = 'btn btn-secondary btn-small'; btn.style.flex = '1';
-      btn.innerHTML = `📄 ${p.label}`;
+      btn.textContent = `🖼 ${String(p.label).replace(/\bPDF\b/gi, 'PNG')}`;
       btn.onclick = async () => {
-        try { showToastEl('⏳ Генерация PDF...', false); const html = p.generateHtmlFn(); const blob = await generatePDFFromHTML(html, `plugin_${idx}.pdf`); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `plugin_${idx}_${Date.now()}.pdf`; a.click(); URL.revokeObjectURL(url); showToastEl('✅ PDF готов', false); }
-        catch(e) { showError('Ошибка PDF: ' + e.message); }
+        if (!hasTabAccess('report')) { showError('Нет прав'); return; }
+        try { showToastEl('⏳ Подготовка PNG...', false); const html = await p.generateHtmlFn(); const blob = await generatePNGFromHTML(html); downloadReportPNG(blob, `plugin_${idx}_${Date.now()}.png`); showToastEl('✅ PNG готов', false); }
+        catch(e) { showError('Ошибка PNG: ' + e.message); }
       };
       c.appendChild(btn);
     });

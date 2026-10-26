@@ -7,60 +7,34 @@ try { (function(){
   const IDLE_THRESHOLD_MS = 5 * 60 * 1000;
   const LAST_SUCCESS_KEY = 'dt_max_last_success';
   const LAST_WARMUP_KEY = 'dt_max_last_warmup';
-  const CONFIG_CACHE_MS = 30000;
-
-  let cachedConfig = null;
-  let cachedConfigAt = 0;
   let warmupInFlight = null;
+  function timestampKey(key, url) { return key + ':' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + location.pathname + ':' + currentUid + ':' + url; }
+  function getTs(key) { try { return parseInt(localStorage.getItem(key) || '0') || 0; } catch(e) { return 0; } }
+  function setTs(key, value) { try { localStorage.setItem(key, String(value || Date.now())); } catch(e) {} }
 
-  function getTs(key) {
-    try { return parseInt(localStorage.getItem(key) || '0') || 0; } catch(e) { return 0; }
-  }
-  function setTs(key, v) {
-    try { localStorage.setItem(key, String(v || Date.now())); } catch(e) {}
-  }
-
-  async function getConfig() {
-    const now = Date.now();
-    if (cachedConfig && (now - cachedConfigAt) < CONFIG_CACHE_MS) {
-      return cachedConfig;
-    }
-    try {
-      const doc = await firebase.firestore().collection('settings').doc('appConfig').get();
-      if (doc.exists) {
-        cachedConfig = doc.data();
-        cachedConfigAt = now;
-        return cachedConfig;
-      }
-    } catch(e) {
-      console.warn('[MAX] Config read failed:', e.message);
-    }
-    return cachedConfig || {};
-  }
-
-  async function warmUpServer(url) {
+  async function warmUpServer(url, stampKey) {
     if (warmupInFlight) return warmupInFlight;
     if (!url) return false;
 
     warmupInFlight = (async () => {
       console.log('[MAX] 🔥 Warm-up: бужу сервер...');
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), WARMUP_TIMEOUT_MS);
       try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), WARMUP_TIMEOUT_MS);
         await fetch(url, {
           method: 'GET',
           signal: ctrl.signal,
           cache: 'no-store',
           keepalive: true
         });
-        clearTimeout(timer);
         console.log('[MAX] ✅ Warm-up: сервер проснулся');
-        setTs(LAST_WARMUP_KEY, Date.now());
+        setTs(stampKey, Date.now());
         return true;
       } catch(e) {
         console.warn('[MAX] ❌ Warm-up failed:', e.name || e.message);
         return false;
       } finally {
+        clearTimeout(timer);
         warmupInFlight = null;
       }
     })();
@@ -69,21 +43,25 @@ try { (function(){
   }
 
   window.sendMaxOnce = async function(item) {
-    const cfg = await getConfig();
+    if (!item || item.type !== 'text' || typeof item.text !== 'string') return 'drop';
+    if (!currentUid || currentUserStatus !== 'active') return 'drop';
+    const cfg = { ...appConfig }, uid = currentUid;
     if (!cfg.maxEnabled || !cfg.maxUrl) return 'drop';
+    const sameSession = () => currentUid === uid && currentUserStatus === 'active' && appConfig.maxEnabled && appConfig.maxUrl === cfg.maxUrl && appConfig.maxChatId === cfg.maxChatId && appConfig.maxToken === cfg.maxToken;
 
     const url = cfg.maxUrl;
     const token = cfg.maxToken || '';
     const chatId = cfg.maxChatId || '';
 
-    const lastSuccess = getTs(LAST_SUCCESS_KEY);
-    const lastWarmup = getTs(LAST_WARMUP_KEY);
+    const successKey = timestampKey(LAST_SUCCESS_KEY, url), warmupKey = timestampKey(LAST_WARMUP_KEY, url);
+    const lastSuccess = getTs(successKey);
+    const lastWarmup = getTs(warmupKey);
     const idle = Date.now() - lastSuccess;
     const sinceWarmup = Date.now() - lastWarmup;
 
     if (idle > IDLE_THRESHOLD_MS && sinceWarmup > 60000) {
       console.log(`[MAX] ⏰ Idle ${Math.round(idle/1000)}s — warm-up перед отправкой`);
-      const ok = await warmUpServer(url);
+      const ok = await warmUpServer(url, warmupKey);
       if (!ok) {
         console.warn('[MAX] Warm-up неудачен — retry');
         return 'retry';
@@ -91,15 +69,14 @@ try { (function(){
       await new Promise(r => setTimeout(r, 1000));
     }
 
+    if (!sameSession()) return 'retry';
     const headers = { 'Content-Type': 'application/json' };
     if (token) {
       const tk = String(token).trim();
       headers['Authorization'] = tk.startsWith('Bearer ') ? tk : 'Bearer ' + tk;
     }
 
-    const body = item.type === 'document'
-      ? { chat_id: chatId, text: item.caption || '', document: { filename: item.filename, content_base64: item.base64 } }
-      : { chat_id: chatId, text: item.text };
+    const body = { chat_id: chatId, text: item.text };
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
@@ -116,7 +93,7 @@ try { (function(){
       clearTimeout(timer);
 
       if (resp.ok) {
-        setTs(LAST_SUCCESS_KEY, Date.now());
+        setTs(successKey, Date.now());
         console.log('[MAX] ✅ Отправлено');
         return 'ok';
       }

@@ -174,35 +174,7 @@ try { (function(){
       return null;
     }
 
-    function getUserNameForTicker(last) {
-      if (!last) return '';
-      const candidates = [last.userName, last.createdBy];
-      try {
-        if (typeof state !== 'undefined' && state && state.users && last.createdByEmail) {
-          const u = state.users.find(x => x.email && x.email.toLowerCase() === String(last.createdByEmail).toLowerCase());
-          if (u) {
-            if (u.nickname) candidates.push(u.nickname);
-            if (u.email) candidates.push(sanitizeName(u.email));
-          }
-        }
-      } catch(e) {}
-      if (last.createdByEmail) {
-        try { candidates.push(sanitizeName(last.createdByEmail)); } catch(e) {}
-      }
-      if (last.timestamp && (Date.now() - last.timestamp) < 600000) {
-        try { candidates.push(getUserName()); } catch(e) {}
-        try { candidates.push(sanitizeName(currentEmail)); } catch(e) {}
-      }
-      try { candidates.push(getUserName()); } catch(e) {}
-
-      for (let i = 0; i < candidates.length; i++) {
-        const c = candidates[i];
-        if (!c) continue;
-        const v = String(c).trim();
-        if (v && v !== '—' && v !== 'undefined' && v !== 'null') return v;
-      }
-      return '';
-    }
+    function getUserNameForTicker(last) { return notificationAuthorName(last); }
 
     // ===== Инъекция имени в верхнюю строку =====
     let _injecting = false;
@@ -213,55 +185,12 @@ try { (function(){
       try {
         const t = document.getElementById('statusTicker');
         if (!t || t.style.display === 'none') return;
-
         const last = getLastNotification();
         if (!last) return;
-
         const userName = getUserNameForTicker(last);
-        if (!userName) return;
-
-        const userLabel = '· 👤 ' + userName;
-        const topRow = t.querySelector('.ticker-row-top');
-        if (!topRow) return;
-
-        let nameLine = topRow.querySelector('.ticker-name-line');
-
-        if (!nameLine) {
-          const children = Array.from(topRow.children);
-          let firstTextEl = null;
-          for (const ch of children) {
-            if (ch.classList && ch.classList.contains('ticker-time')) continue;
-            if (ch.id === 'tickerTimeAgo') continue;
-            if (ch.tagName === 'SPAN' && !ch.classList.contains('ticker-user')) {
-              firstTextEl = ch;
-              break;
-            }
-          }
-
-          if (firstTextEl) {
-            nameLine = document.createElement('span');
-            nameLine.className = 'ticker-name-line';
-            firstTextEl.parentNode.insertBefore(nameLine, firstTextEl);
-            nameLine.appendChild(firstTextEl);
-          } else {
-            nameLine = document.createElement('span');
-            nameLine.className = 'ticker-name-line';
-            nameLine.innerHTML = '<span>ПОСЛЕДНЕЕ ДЕЙСТВИЕ</span>';
-            const timeEl = topRow.querySelector('.ticker-time') || topRow.querySelector('#tickerTimeAgo');
-            if (timeEl) topRow.insertBefore(nameLine, timeEl);
-            else topRow.appendChild(nameLine);
-          }
-        }
-
-        let userSpan = nameLine.querySelector('.ticker-user');
-        if (!userSpan) {
-          userSpan = document.createElement('span');
-          userSpan.className = 'ticker-user';
-          nameLine.appendChild(userSpan);
-        }
-        if (userSpan.textContent !== userLabel) {
-          userSpan.textContent = userLabel;
-        }
+        const userSpan = t.querySelector('.ticker-user');
+        const userLabel = userName ? '· 👤 ' + userName : '';
+        if (userSpan && userSpan.textContent !== userLabel) userSpan.textContent = userLabel;
       } catch(e) {
         console.warn('[ticker-v9] inject error:', e.message);
       } finally {
@@ -272,126 +201,68 @@ try { (function(){
     // ===== Оригинальные трекеры =====
     let lastTickerTs = 0;
     let lastTickerId = null;
+    let lastTickerContent = null;
 
     // ===== renderStatusTicker — оригинальная логика анимации =====
     window.renderStatusTicker = function() {
       const t = document.getElementById('statusTicker');
       if (!t) return;
-
       const last = getLastNotification();
       if (!last) {
-        const reverseEnabled = true;
         const outgoing = t.querySelector('.ticker-left.active');
-        if (reverseEnabled && outgoing) {
+        if (outgoing) {
           outgoing.classList.remove('active');
           outgoing.classList.add('leave-reverse');
           setTimeout(() => {
             if (!getLastNotification()) {
               t.style.display = 'none';
-              t.innerHTML = '';
-              lastTickerTs = 0;
-              lastTickerId = null;
+              t.replaceChildren();
+              lastTickerTs = 0; lastTickerId = null; lastTickerContent = null;
             }
           }, 800);
           return;
         }
-        if (reverseEnabled && t.querySelector('.leave-reverse')) return;
-        t.style.display = 'none';
-        t.innerHTML = '';
-        lastTickerTs = 0;
-        lastTickerId = null;
+        if (t.querySelector('.leave-reverse')) return;
+        t.style.display = 'none'; t.replaceChildren();
+        lastTickerTs = 0; lastTickerId = null; lastTickerContent = null;
         t.removeAttribute('data-ticker-v9');
         return;
       }
 
-      const isNew = (last.timestamp || 0) !== lastTickerTs;
+      const timestamp = notificationTimestamp(last.timestamp);
       const isNewId = last.id !== lastTickerId;
       const userName = getUserNameForTicker(last);
-      const cleanHtml = stripUserName(last.html || '', userName);
-      const userLabel = userName ? '· 👤 ' + userName : '';
-      const showUndo = (typeof canUndoCurrent === 'function') ? canUndoCurrent(last) : false;
-
-      // Первый рендер / после скрытия — полная перестройка без слайда
+      const markup = notificationMarkup(last.html);
+      const content = JSON.stringify([markup, userName]);
+      let fresh = false;
       if (t.style.display === 'none' || !t.querySelector('.ticker-text-wrapper')) {
-        t.style.display = 'flex';
-        t.innerHTML = `
-          <div class="ticker-row-top">
-            <span class="ticker-name-line">
-              <span>ПОСЛЕДНЕЕ ДЕЙСТВИЕ</span>
-              <span class="ticker-user">${userLabel ? escapeHtml(userLabel) : ''}</span>
-            </span>
-            <span id="tickerTimeAgo" class="ticker-time" data-timestamp="${last.timestamp||Date.now()}">${formatTimeAgo(last.timestamp)}</span>
-          </div>
-          <div class="ticker-row-bottom">
-            <div class="ticker-text-wrapper">
-              <div class="ticker-left active">${cleanHtml}</div>
-            </div>
-            ${showUndo ? '<button class="btn-undo" onclick="undoLastAction()" title="Отменить">↩</button>' : ''}
-          </div>
-        `;
-        lastTickerTs = last.timestamp || 0;
-        lastTickerId = last.id;
-        t.classList.remove('flash');
-        void t.offsetWidth;
-        t.classList.add('flash');
-        return;
-      }
-
-      // === Анимация слайда при новом уведомлении (как в оригинале) ===
-      if (isNewId || !t.querySelector('.ticker-left.active')) {
-        const reverse = isNewId && (last.timestamp || 0) <= lastTickerTs;
+        renderNotificationContent(createStatusTickerFrame(t), markup, userName);
+        fresh = true;
+      } else if (isNewId || !t.querySelector('.ticker-left.active')) {
+        const reverse = isNewId && timestamp <= lastTickerTs;
         const wrapper = t.querySelector('.ticker-text-wrapper');
         const oldText = wrapper.querySelector('.ticker-left.active');
-
-        // Remove obsolete outgoing cards during rapid successive updates.
-        wrapper.querySelectorAll('.ticker-left').forEach(node => {
-          if (node !== oldText) node.remove();
-        });
-        {
-          const newText = document.createElement('div');
-          newText.className = reverse ? 'ticker-left enter-reverse' : 'ticker-left enter';
-          newText.innerHTML = cleanHtml;
-          wrapper.appendChild(newText);
-          void newText.offsetWidth;
-          if (oldText) {
-            oldText.classList.remove('active');
-            oldText.classList.add(reverse ? 'leave-reverse' : 'leave');
-          }
-          newText.classList.remove('enter', 'enter-reverse');
-          newText.classList.add('active');
-          setTimeout(() => { if (oldText && oldText.parentNode) oldText.remove(); }, 800);
+        // Keep at most one outgoing card during rapid successive updates.
+        wrapper.querySelectorAll('.ticker-left').forEach(node => { if (node !== oldText) node.remove(); });
+        const newText = document.createElement('div');
+        newText.className = reverse ? 'ticker-left enter-reverse' : 'ticker-left enter';
+        renderNotificationContent(newText, markup, userName);
+        wrapper.appendChild(newText); void newText.offsetWidth;
+        if (oldText) {
+          oldText.classList.remove('active');
+          oldText.classList.add(reverse ? 'leave-reverse' : 'leave');
         }
-
-        // Кнопка отмены
-        let undoBtn = t.querySelector('.btn-undo');
-        if (showUndo && !undoBtn) {
-          const btn = document.createElement('button');
-          btn.className = 'btn-undo';
-          btn.innerHTML = '↩';
-          btn.onclick = window.undoLastAction;
-          t.querySelector('.ticker-row-bottom').appendChild(btn);
-        } else if (!showUndo && undoBtn) {
-          undoBtn.remove();
-        }
-
-        // Время
-        const timeEl = document.getElementById('tickerTimeAgo');
-        if (timeEl) {
-          timeEl.textContent = formatTimeAgo(last.timestamp);
-          timeEl.setAttribute('data-timestamp', last.timestamp);
-        }
-
-        // Flash
-        t.classList.remove('flash');
-        void t.offsetWidth;
-        t.classList.add('flash');
-
-        lastTickerTs = last.timestamp || 0;
-        lastTickerId = last.id;
+        newText.classList.remove('enter', 'enter-reverse');
+        newText.classList.add('active');
+        setTimeout(() => { if (oldText && oldText.parentNode) oldText.remove(); }, 800);
+        fresh = true;
+      } else if (content !== lastTickerContent) {
+        // A server correction to the same ID must not leave stale text/author.
+        renderNotificationContent(t.querySelector('.ticker-left.active'), markup, userName);
       }
-
-      // Имя всегда обновляем (не зависит от анимации нижней строки)
-      injectUserName();
+      updateStatusTickerMeta(t, last, userName);
+      if (fresh) { t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); }
+      lastTickerTs = timestamp; lastTickerId = last.id; lastTickerContent = content;
     };
 
     // ===== pushNotification — сохраняем имя =====

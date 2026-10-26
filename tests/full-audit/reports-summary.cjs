@@ -5,8 +5,11 @@ const viewer=read('features/summary-viewer.js'),shell=read('shell.html');
 const reportMarkup=shell.slice(shell.indexOf('<div id="tab-report"'),shell.indexOf('<div id="tab-archive"'));
 assert.match(reportMarkup,/<div id="tab-report"[^>]*>\s*<div id="paperReportWrapper">/,'regular sheet is the current first child, not a removed toolbar');
 assert(!viewer.includes('#tab-report > div:first-child'),'viewer must not hide the actual regular sheet');
-assert(viewer.includes('#tab-report > .action-row {display:none!important}'),'minimal fix must not re-expose legacy PDF/MAX controls');
-assert(viewer.includes('#pluginPdfButtonsContainer {display:none!important}'),'legacy plugin PDF controls remain hidden');
+// The user explicitly chose the published TEST3.1.21 Summary as the visual
+// benchmark. Its legacy action/plugin rows stay hidden; unlike the old positional
+// selector, those selectors must never hide the actual first-child paper sheet.
+assert(viewer.includes('#tab-report > .action-row {display:none!important}'),'approved benchmark keeps legacy action rows hidden');
+assert(viewer.includes('#pluginPdfButtonsContainer {display:none!important}'),'approved benchmark keeps legacy plugin controls hidden');
 assert(viewer.includes("e.target.closest('.paper-scroll-wrapper')"),'actual sheets remain viewer entry points');
 assert(viewer.includes('summary-sheet-dialog')&&viewer.includes('archive-sheet-dialog'),'both full-screen viewers retained');
 assert.match(reportMarkup,/<div id="gaiReportToggleContainer"[^>]*justify-content:flex-end/,'small paper toggle remains below sheets at the right');
@@ -56,4 +59,4 @@ const before=calls;fire(button.events,'keydown',{key:'Enter'});tick(799);fire(bu
 press({isPrimary:false});tick(1000);press({button:2});tick(1000);assert.equal(calls,before,'secondary pointer/buttons cannot switch');
 c.showGAITable=false;c.renderReport();regular();
 assert.equal(timers.size,0);
-console.log('PASS Summary regression: actual regular/GAI sheets retained, legacy PDF/MAX controls unchanged, familiar lower-right icon, 800 ms hold-only, early release/leave/cancel/scroll/key safeguards, one switch per hold and permission recheck');
+console.log('PASS Summary regression: actual regular/GAI sheets retained, approved benchmark legacy controls hidden, familiar lower-right icon, 800 ms hold-only, early release/leave/cancel/scroll/key safeguards, one switch per hold and permission recheck');

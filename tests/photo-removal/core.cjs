@@ -2,65 +2,48 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 
-// Exercise the real TEST queue, shift and archive code with retained user data.
-// No Firebase connection or IndexedDB deletion is used in this fixture.
-const scripts = ['06-sync', '14-archive', '18-shifts', '20-offline-journal']
-  .map(name => fs.readFileSync('test-app/src/core/' + name + '.js', 'utf8'));
-const clone = value => JSON.parse(JSON.stringify(value));
-
-function fixture({pending = [], logs = []} = {}) {
-  const journalKey = 'samosval_offline_v1_test_workspace_user';
-  const storage = new Map([
-    [journalKey, JSON.stringify(pending)],
-    ['dt_settings', JSON.stringify({cycleMinutes: 60})],
-    ['dt_max_queue', JSON.stringify([{id: 'notification-1', type: 'text', text: 'Arrival'}])],
-    ['timesheet-sentinel', JSON.stringify({hours: 8, material: 12})]
+// Exercise the real TEST queue, shift, archive and atomic history code.
+// No Firebase connection, IndexedDB deletion or production-file change is used.
+const {fixture: shiftFixture}=require('../full-audit/shift-harness.cjs');
+const {createLockManager}=require('../full-audit/offline-harness.cjs');
+const scripts=['05-formatting','06-sync','13-reports','19-line-state','20-offline-journal']
+  .map(name=>fs.readFileSync('test-app/src/core/'+name+'.js','utf8'));
+const clone=value=>JSON.parse(JSON.stringify(value));
+function fixture({pending=[],logs=[]}={}){
+  const env=shiftFixture({active:false}),context=env.ctx;
+  const journalKey='samosval_offline_v1_test_test_operator';
+  const storage=new Map([
+    [journalKey,JSON.stringify(pending)],
+    ['dt_settings',JSON.stringify({cycleMinutes:60})],
+    ['dt_max_queue',JSON.stringify([{id:'notification-1',type:'text',text:'Arrival'}])],
+    ['timesheet-sentinel',JSON.stringify({hours:8,material:12})],
+    ['photos-sentinel',JSON.stringify({legacyPhotoIds:['retained-photo']})]
   ]);
-  const elements = new Map();
-  const element = id => {
-    if (!elements.has(id)) elements.set(id, {value: '', innerHTML: '', textContent: '', style: {}, classList: {add() {}, remove() {}}});
+  const elements=new Map(),element=id=>{
+    if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',style:{},classList:{add(){},remove(){}}});
     return elements.get(id);
   };
-  const archives = [], errors = [], notices = [], events = [];
-  const rowMaps = {logs: new Map(logs.map((row, i) => ['log-' + i, clone(row)])), truckStatus: new Map([['truck', {onLine: true}]])};
-  const refs = {
-    archive: {doc: () => ({set: async value => {archives.push(clone(value)); events.push('archive');}})},
-    shift: {delete: async () => {events.push('delete-shift');}}
-  };
-  for (const [name, rows] of Object.entries(rowMaps)) {
-    refs[name] = {get: async () => ({size: rows.size, forEach: callback => {
-      for (const id of rows.keys()) callback({ref: {name, id}});
-    }})};
-  }
-  const context = {
-    console, Date, Math, Set, Map,
-    firebaseConfig: {projectId: 'test'}, WORKSPACE_ID: 'workspace', currentUid: 'user',
-    currentEmail: 'operator@example.test', currentUserRole: 'admin', currentUserStatus: 'active',
-    initialized: true, permissionsLoaded: true, pendingOps: 0,
-    navigator: {onLine: true}, settings: {cycleMinutes: 60}, MIN_CYCLE_MINUTES: 15,
-    syncState: {errors: {}, fromCache: {}, pendingWrites: {}, everConnected: Object.fromEntries(['profile', 'permissions', 'trucks', 'status', 'shift'].map(key => [key, true]))},
-    localStorage: {getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value))},
-    state: {shift: {id: 'shift', isActive: true, objectName: 'Object', objectId: 'object', startDate: '2026-10-26'}, logs: clone(logs), truckStatus: {truck: {onLine: true, ttnStatus: true}}, archive: [], trash: [], notifications: []},
-    appConfig: {maxEnabled: false}, refs, confirmedLoadIds: new Set(),
-    db: {batch() {const deletes = []; return {delete: ref => deletes.push(ref), commit: async () => {for (const ref of deletes) rowMaps[ref.name].delete(ref.id); events.push('cleanup');}};}},
-    document: {getElementById: id => id === 'syncDot' ? null : element(id)},
-    window: {}, viewingArchiveId: null, viewingArchiveGAITable: false,
-    requireEdit: () => true, hasTabAccess: () => true, hasPermission: () => true,
-    canAdmin: () => true, appConfirm: async () => true,
-    getLogs: () => context.state.logs, getUserName: () => 'Operator',
-    tfAwait: promise => promise, addAudit: async () => {}, clearAllNotifications: async () => {},
-    sendShiftReportToMax: async () => {throw Error('MAX is disabled');},
-    showToastEl: () => {}, appNotice: text => notices.push(text), showError: text => errors.push(text),
-    escapeHtml: String, resolveUserDisplayName: (email, name) => name || email,
-    findTruck: id => ({id, brand: 'Truck', number: '1', isGAI: false}),
-    setTimeout() {},
-  };
-  Object.defineProperty(context.window, 'ObjectPhotos', {get() {throw Error('Removed photo service must not be read');}});
-  Object.defineProperty(context.window, '__attachArchivePhotos', {get() {throw Error('Removed photo archive hook must not be called');}});
-  Object.defineProperty(context, 'indexedDB', {get() {throw Error('Existing photos/timesheets must not be opened or deleted');}});
-  vm.createContext(context);
-  for (const script of scripts) vm.runInContext(script, context);
-  return {context, storage, journalKey, archives, errors, notices, events, elements, element};
+  env.seed('shift','current',{id:'shift',isActive:true,objectName:'Object',objectId:'object',startDate:'2026-10-26'});
+  env.seed('truckStatus','truck',{onLine:true,shiftId:'shift',ttnStatus:true});
+  logs.forEach((row,i)=>env.seed('logs','log-'+i,{...clone(row),shiftId:'shift'}));env.sync();
+  Object.assign(context,{
+    firebaseConfig:{projectId:'test'},currentUserNickname:'Operator',initialized:true,permissionsLoaded:true,pendingOps:0,
+    navigator:{onLine:false,locks:createLockManager()},AbortController,settings:{cycleMinutes:60},MIN_CYCLE_MINUTES:15,
+    syncState:{errors:{},fromCache:{},pendingWrites:{},everConnected:Object.fromEntries(['profile','permissions','trucks','status','shift'].map(key=>[key,true]))},
+    localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value))},
+    appConfig:{maxEnabled:false},confirmedLoadIds:new Set(),loadInFlight:{},
+    document:{getElementById:id=>id==='syncDot'?null:element(id)},viewingArchiveGAITable:false,
+    getLogs:()=>context.state.logs.filter(row=>row.shiftId==='shift'),canAdmin:()=>true,
+    renderLine(){},renderHeaderStats(){},renderStatusTicker(){},scheduleRenderForTab(){},
+    escapeHtml:String,resolveUserDisplayName:(email,name)=>name||email,
+    findTruck:id=>({id,brand:'Truck',number:'1',isGAI:false}),setTimeout(){},clearTimeout(){}
+  });
+  context.state.trash=[];context.state.notifications=[];context.state.users=[];context.state.trucks=[{id:'truck',brand:'Truck',number:'1',isGAI:false}];
+  Object.defineProperty(context,'indexedDB',{get(){throw Error('Existing photos/timesheets must not be opened or deleted');}});
+  for(const script of scripts)vm.runInContext(script,context);
+  vm.runInContext('offlineRemoteStatuses={...state.truckStatus};offlineRemoteLogs=state.logs.slice();',context);
+  context.offlineEnsureJournalOwnership();context.navigator.onLine=true;
+  return {context,env,storage,journalKey,get archives(){return env.selected('archive');},errors:env.errors,events:env.events,elements,element};
 }
 
 (async () => {
@@ -80,15 +63,20 @@ function fixture({pending = [], logs = []} = {}) {
   f = fixture();
   await f.context.closeShift();
   assert.deepEqual(f.errors, []);
-  assert.equal(f.archives.length, 0);
-  assert(f.events.includes('delete-shift'), 'An empty shift can close without waiting for any photo service');
+  assert.equal(f.archives.length, 1, 'Resumable close records even an empty shift before final deletion');
+  assert.equal(f.archives[0].logs.length, 0);
+  assert.equal(f.archives[0].photoShiftIds, undefined);
+  assert.equal(f.env.read('shift','current'), undefined, 'An empty shift can close without waiting for any photo service');
 
   const logs = [
     {truckId: 'truck', truckName: 'Truck 1', volume: 12, timestamp: 1000, timeStr: '10:00', createdBy: 'Operator', createdByEmail: 'operator@example.test', isGAI: false},
     {truckId: 'truck', truckName: 'Truck 1', volume: 18, timestamp: 2000, timeStr: '11:00', createdBy: 'Operator', createdByEmail: 'operator@example.test', isGAI: false}
   ];
   f = fixture({logs});
+  const retainedStorage=[...f.storage.entries()];
   await f.context.closeShift();
+  assert.deepEqual([...f.storage.entries()],retainedStorage,'Closing a shift must not touch stored notifications, timesheets or legacy photos');
+  assert(f.env.read('logs','foreign'));assert(f.env.read('truckStatus','foreign'));
   assert.deepEqual(f.errors, []);
   assert.equal(f.archives.length, 1);
   assert.equal(f.archives[0].sourceShiftId, 'shift');

@@ -1,0 +1,10 @@
+{
+  "name": "samosval-rank-celebration-acceptance",
+  "private": true,
+  "scripts": {
+    "fixture": "python3 tests/fixture.py",
+    "test": "python3 tests/fixture.py && node tests/runtime.cjs",
+    "browser": "python3 tests/browser.py"
+  },
+  "devDependencies": { "jsdom": "26.1.0" }
+}

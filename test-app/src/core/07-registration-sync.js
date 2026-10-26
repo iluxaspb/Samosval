@@ -44,20 +44,25 @@
   async function refreshRegistrationRequests() {
     if(!canAdmin()||refreshingRegistrationRequests)return;
     refreshingRegistrationRequests=true;
+    const requestedUid=currentUid,epoch=registrationSyncEpoch;
     try {
       const sources=['requests','users'];
       const results=await Promise.allSettled([requestsRef.get({source:'server'}),usersRef.get({source:'server'})]);
+      if(currentUid!==requestedUid||registrationSyncEpoch!==epoch||!canAdmin())return;
       results.forEach((result,index)=>{if(result.status==='fulfilled')acceptRegistrationSnapshot(sources[index],result.value);else registrationSyncError(sources[index],result.reason);});
     }finally{refreshingRegistrationRequests=false;}
   }
+  let registrationSyncEpoch=0;
   function startAdminSync() {
     if(!canAdmin())return;
+    const epoch=++registrationSyncEpoch,uid=currentUid;
+    const current=()=>epoch===registrationSyncEpoch&&uid===currentUid&&canAdmin();
     if(reqsUnsubscriber)reqsUnsubscriber();
     if(usersUnsubscriber)usersUnsubscriber();
     requestSyncStatus.requests=false;requestSyncStatus.users=false;requestSyncStatus.errors={};
     // Sort on the client so legacy records without createdAt are also included.
-    reqsUnsubscriber=requestsRef.onSnapshot({includeMetadataChanges:true},snapshot=>acceptRegistrationSnapshot('requests',snapshot),error=>registrationSyncError('requests',error));
-    usersUnsubscriber=usersRef.onSnapshot({includeMetadataChanges:true},snapshot=>acceptRegistrationSnapshot('users',snapshot),error=>registrationSyncError('users',error));
+    reqsUnsubscriber=requestsRef.onSnapshot({includeMetadataChanges:true},snapshot=>{if(current())acceptRegistrationSnapshot('requests',snapshot);},error=>{if(current())registrationSyncError('requests',error);});
+    usersUnsubscriber=usersRef.onSnapshot({includeMetadataChanges:true},snapshot=>{if(current())acceptRegistrationSnapshot('users',snapshot);},error=>{if(current())registrationSyncError('users',error);});
     renderRegistrationRequests();
   }
   function updateAdminBadge() {

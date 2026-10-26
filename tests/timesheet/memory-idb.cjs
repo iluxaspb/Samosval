@@ -7,11 +7,12 @@ module.exports=function(){
     setTimeout(()=>{
       const fresh=!databases.has(name);
       if(fresh)databases.set(name,new Map());
-      const stores=databases.get(name);
+      const stores=databases.get(name);let closed=false;
       req.result={
         createObjectStore:n=>stores.set(n,{data:new Map(),queue:[],running:false}),
-        close(){},
+        close(){closed=true;},
         transaction(name,mode){
+          if(closed)throw Error('IndexedDB connection is closed');
           const store=stores.get(name),tx={error:null},requests=[];
           let draft,active=false,failed=false,timer;
           function finish(){

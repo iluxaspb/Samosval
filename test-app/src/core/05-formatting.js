@@ -48,7 +48,7 @@
     return `<b>${escapeHtml(t.brand)}</b> ${renderRussianPlate(t.number)}`;
   }
   function truckName(id) { let t = findTruck(id); return t ? `${t.brand} ${t.number}` : 'Машина'; }
-  function getActiveLineIds() { return Object.keys(state.truckStatus).filter(id => state.truckStatus[id] && state.truckStatus[id].onLine === true); }
+  function getActiveLineIds() { const shiftId=state.shift?.id; return shiftId ? Object.keys(state.truckStatus).filter(id => state.truckStatus[id]?.onLine === true && state.truckStatus[id].shiftId === shiftId) : []; }
   // Reports, paper sheets, header totals and PDF must all see the same LOCAL
   // pending trips, even if an older Firestore cache snapshot arrives meanwhile.
   function getLogs() {
@@ -71,3 +71,85 @@
     return logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
   }
 
+  // Stored notifications are data, not HTML. Recognize only our legacy plate
+  // vocabulary and rebuild it with DOM APIs. Never parse untrusted markup in a
+  // browser document (including an inert document/template): even rejected tags
+  // must not create resource requests, event handlers or custom elements.
+  function notificationMarkup(value) { return typeof value === 'string' ? value : ''; }
+  function notificationTimestamp(value) {
+    const n = (typeof value === 'number' || typeof value === 'string') ? Number(value) : 0;
+    return Number.isFinite(n) && n > 0 && n <= 8640000000000000 ? n : 0;
+  }
+  function decodeNotificationText(value) {
+    const entities = {amp:'&', lt:'<', gt:'>', quot:'"', apos:"'", nbsp:'\u00a0', middot:'·'};
+    return value.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp|middot);/gi, (whole, entity) => {
+      if (entity[0] !== '#') return entities[entity.toLowerCase()];
+      const hex = entity[1].toLowerCase() === 'x';
+      const n = parseInt(entity.slice(hex ? 2 : 1), hex ? 16 : 10);
+      return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : '\ufffd';
+    });
+  }
+  function stripNotificationAuthor(root, name) {
+    const author = typeof name === 'string' ? name.trim() : '';
+    if (!author || author === '—') return;
+    const leaves = [];
+    function visit(node) {
+      if (node.nodeType === 3) leaves.push(node);
+      else Array.from(node.childNodes).forEach(visit);
+    }
+    visit(root);
+    const text = leaves.map(node => node.data).join('');
+    const escaped = author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const prefix = text.match(new RegExp('^\\s*' + escaped + '\\s*·\\s*', 'i'));
+    const suffix = text.match(new RegExp('(?:\\s*·\\s*|\\s{2,})' + escaped + '\\s*$', 'i'));
+    const start = prefix ? prefix[0].length : 0;
+    const end = suffix ? suffix.index : text.length;
+    let offset = 0;
+    for (const leaf of leaves) {
+      const length = leaf.data.length;
+      leaf.data = leaf.data.slice(Math.max(0, start - offset), Math.max(0, Math.min(length, end - offset)));
+      offset += length;
+    }
+  }
+  function renderNotificationContent(target, value, author) {
+    const doc = target.ownerDocument || document;
+    const root = doc.createDocumentFragment(), stack = [{tag:'', node:root}];
+    const text = notificationMarkup(value);
+    // This is deliberately a tiny legacy-format reader, not an HTML sanitizer.
+    // Everything outside exact allowlisted tokens remains literal visible text.
+    const tokens = text.match(/<[^<>]*>|[^<]+|</g) || [];
+    function appendText(value) { stack[stack.length - 1].node.appendChild(doc.createTextNode(decodeNotificationText(value))); }
+    for (const token of tokens) {
+      const close = token.match(/^<\/(b|strong|i|em|span|div)\s*>$/i);
+      if (close && stack.length > 1 && stack[stack.length - 1].tag === close[1].toLowerCase()) { stack.pop(); continue; }
+      const simple = token.match(/^<(b|strong|i|em|span|br)\s*\/?\s*>$/i);
+      const plate = token.match(/^<(div|span)\s+class\s*=\s*(["'])([a-z-]+)\2\s*>$/i);
+      const badge = /^<span\s+style\s*=\s*(["'])color:#f59e0b;font-size:10px;?\1\s*>$/i.test(token);
+      let tag = simple ? simple[1].toLowerCase() : badge ? 'span' : '';
+      let className = '';
+      if (plate) {
+        const allowed = plate[1].toLowerCase() === 'div'
+          ? ['ru-plate','ru-plate-main','ru-plate-region','ru-plate-flag']
+          : ['plate-digit','region-code','region-rus'];
+        if (allowed.includes(plate[3])) { tag = plate[1].toLowerCase(); className = plate[3]; }
+      }
+      if (!tag || stack.length >= 64) { appendText(token); continue; }
+      const node = doc.createElement(tag);
+      if (className) node.className = className;
+      if (badge) { node.style.color = '#f59e0b'; node.style.fontSize = '10px'; }
+      stack[stack.length - 1].node.appendChild(node);
+      if (tag !== 'br') stack.push({tag, node});
+    }
+    stripNotificationAuthor(root, author);
+    target.replaceChildren(root);
+  }
+  function notificationAuthorName(last) {
+    if (!last) return '';
+    const candidates = [last.userName, last.createdBy];
+    // Unknown historical authors must never be attributed to the current viewer.
+    if (typeof last.createdByEmail === 'string' && last.createdByEmail.trim()) {
+      candidates.push(resolveUserDisplayName(last.createdByEmail));
+    }
+    return candidates.find(value => typeof value === 'string' && value.trim()
+      && !['—','undefined','null'].includes(value.trim()))?.trim() || '';
+  }

@@ -1,7 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "test": "cd ../.. && node tests/timesheet/core.cjs && node tests/timesheet/emulator.cjs && node tests/timesheet/ui.cjs && node tests/timesheet/compact-ui.cjs && node tests/timesheet/crew-ui.cjs"
+    "test": "cd ../.. && node tests/timesheet/core.cjs && node tests/timesheet/emulator.cjs && node tests/timesheet/ui.cjs && node tests/timesheet/compact-ui.cjs && node tests/timesheet/crew-ui.cjs && node tests/timesheet/lifecycle.cjs"
   },
   "devDependencies": {
     "firebase": "10.8.0",

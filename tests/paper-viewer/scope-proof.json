@@ -1,0 +1,9 @@
+{
+  "scope": "Latest bounded apply to integration-current; no publication or build",
+  "production_non_viewer_bytes_unchanged": true,
+  "core13_non_label_bytes_unchanged": true,
+  "core14_non_label_bytes_unchanged": true,
+  "viewer_sha256": "452edec9e65c7a48929221af761992e589ad21c69af4126d02d180f37257e8fc",
+  "static_suite": "passed",
+  "browser_suite": "awaiting approved GitHub CI environment"
+}

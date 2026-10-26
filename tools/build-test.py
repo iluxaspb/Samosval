@@ -17,6 +17,9 @@ def build():
     out = APP / 'build' / version
     out.mkdir(parents=True, exist_ok=True)
     shell = text(APP / 'src/shell.html')
+    release = re.search(r"version:'([^']+)'", text(APP / 'src/features/release-history.js')).group(1)
+    assert 'Версия ' + release in shell, 'Shell version must match the current release history'
+    shell = shell.replace('</head>', '<meta name="test-app-build" content="'+version+'">\n<meta name="test-app-version" content="'+release+'">\n</head>')
     for module in spec['modules']:
         ext = 'css' if module['kind'] == 'style' else 'js'
         code = ''.join(text(APP / 'src' / p) for p in module['sources'])
@@ -37,10 +40,10 @@ def build():
     (ROOT/'index-test.html').write_text(shell, encoding='utf-8')
     assets = [ROOT/'index-test.html',ROOT/'manifest-test.webmanifest'] + sorted(out.glob('*'))
     # Keep legacy vendor files available to open clients, but only cache scripts used by this release.
-    assets += [p for p in (APP/'vendor').glob('*')
+    assets += [p for p in sorted((APP/'vendor').glob('*'))
                if p.suffix in ('.css','.ttf','.woff2')
                or (p.suffix == '.js' and './test-app/vendor/' + p.name in shell)]
-    assets += list((APP/'icons').glob('*.png'))
+    assets += sorted((APP/'icons').glob('*.png'))
     records = [{'url':'./'+str(p.relative_to(ROOT)), 'sha256':digest(p.read_bytes())} for p in assets]
     sw = text(APP/'src/service-worker.js').replace('__BUILD_VERSION__',version).replace('__PRECACHE_RECORDS__',json.dumps(records,ensure_ascii=False))
     (ROOT/'sw-test.js').write_text(sw, encoding='utf-8')

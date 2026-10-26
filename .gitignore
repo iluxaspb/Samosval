@@ -3,5 +3,10 @@
 node_modules/
 firestore-debug.log
 
-tests/full-audit/summary-visual.html
+# Local audit artifacts
 tests/full-audit/results/
+__pycache__/
+*.pyc
+
+tests/full-audit/summary-visual.html
+test-results/

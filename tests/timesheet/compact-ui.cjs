@@ -11,7 +11,7 @@ const pulse=(id,action,value)=>{const selector=action==='hours-step'?`[data-acti
 w.eval(fs.readFileSync('tests/timesheet/fixture.js','utf8'));
 for(const [id,name,group]of [['w1','Рабочий Один','worker'],['w2','Рабочий Два','worker'],['i1','Инженер','itr']])w.__rows.set('workspaces/main_workspace/timesheetPeople/'+id,{name,group,deleted:false,revision:1});
 w.__rows.get('workspaces/main_workspace/timesheetEquipment/w205').crewIds.push('w1','i1');
-w.eval(fs.readFileSync('assets/timesheet-core.js','utf8'));w.eval(fs.readFileSync('assets/timesheet.js','utf8'));
+w.eval(fs.readFileSync('test-app/src/features/timesheet-core.js','utf8'));w.eval(fs.readFileSync('test-app/src/features/timesheet-app.js','utf8'));
 (async()=>{try{
  await wait(()=>q('[data-action="add-equipment"]'));await wait(()=>w.document.body.textContent.includes('Данные подтверждены'));
  click('[data-view=catalog]');click('[data-action="catalog-group"][data-group=equipment]');click('[data-action=catalog][data-id=w205]');assert.equal(w.document.querySelectorAll('dialog input[name=crew]').length,0);q('dialog [data-close]').click();console.log('PASS equipment catalog has no permanent crew assignments');
@@ -36,4 +36,4 @@ w.eval(fs.readFileSync('assets/timesheet-core.js','utf8'));w.eval(fs.readFileSyn
  click('[data-action=conflict]');click('[data-action=resolve-server]');await wait(()=>!q('dialog'));
  w.currentUserRole='viewer';w.renderAll();assert.equal(w.document.querySelectorAll('.ts-inline-hours').length,0);assert(!q('[data-action=workers-apply]'));console.log('PASS read-only role gets no inline write controls');
  console.log('ALL COMPACT TIMESHEET UI TESTS PASSED');
-}catch(e){console.error(e);console.error(w.__messages);process.exitCode=1;}finally{dom.window.close();}})();
+}catch(e){console.error(e);console.error(w.__messages);process.exitCode=1;}finally{await w.Timesheet.dispose();dom.window.close();}})();

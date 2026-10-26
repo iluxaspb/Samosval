@@ -173,6 +173,16 @@ try { (function(){
   const revisionFields=['cycleRevision','ttnRevision'];
   function changedStatusFields(op){return [...new Set([...Object.keys(op.before||{}),...Object.keys(op.after||{})])].filter(k=>!revisionFields.includes(k)&&!sameHistoryValue(op.before?.[k]??null,op.after?.[k]??null));}
   function isTtnOnly(op){const fields=changedStatusFields(op);return op.collection==='truckStatus'&&op.before&&op.after&&fields.length>0&&fields.every(k=>ttnFields.includes(k));}
+  function historyTouchesFrozenShift(op,current,shift){
+    if(!shift||(!shift.closing&&!shift.restoring))return false;
+    if(op.collection==='shift')return true;
+    const records=[op.before,op.after,current].filter(Boolean);
+    if(op.collection==='logs'||op.collection==='truckStatus')return records.some(record=>record.shiftId===shift.id);
+    if(op.collection==='archive')return op.id===shift.restoredFrom
+      || op.id===(shift.closeArchiveId||('closed_'+shift.id))
+      || records.some(record=>record.sourceShiftId===shift.id);
+    return false;
+  }
   async function applyHistoryOperations(operations,direction,action){
     return window.__historyRawTransaction(async tx=>{
       if(!allowedHistory(direction,action))throw new Error('Нет права на это действие в журнале');
@@ -182,6 +192,9 @@ try { (function(){
       if(!allowedHistory(direction,canonical))throw new Error('Нет права на это действие в журнале');
       if(!sameHistoryValue(canonical.operations,operations))throw new Error('История обновилась. Откройте журнал заново.');
       if(historyDoc.exists&&historyDoc.data().history?.undone!==(direction==='after'))throw new Error('Это действие уже изменено другим пользователем. Обновите журнал.');
+      // Reading the shift also makes a concurrent freeze invalidate this transaction.
+      const shiftDoc=operations.some(op=>['shift','logs','truckStatus','archive'].includes(op.collection))?await tx.get(refs.shift):null;
+      const shift=shiftDoc?.exists?shiftDoc.data():null;
       const entries=[];
       for(const op of operations){
         const collection=['users','settings','registration_requests'].includes(op.collection)?db.collection(op.collection):refs[op.collection];
@@ -189,6 +202,7 @@ try { (function(){
         const ref=op.collection==='shift'?refs.shift:collection.doc(op.id),snapshot=await tx.get(ref);
         const expected=op[direction==='before'?'after':'before'];
         let current=snapshot.exists?snapshot.data():null;
+        if(historyTouchesFrozenShift(op,current,shift))throw new Error('Смена закрывается или восстанавливается. Сначала завершите эту операцию; отмена и восстановление её данных временно недоступны.');
         if(expected===null){if(current!==null)throw new Error('Запись уже существует. Обновите журнал.');}
         else {
           if(current===null)throw new Error('Запись удалена другим пользователем.');

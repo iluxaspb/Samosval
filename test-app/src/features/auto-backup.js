@@ -3,11 +3,15 @@ try { (function(){
   window.__autoBackupV1 = true;
 
   const BACKUPS_COLL = db.collection('backups');
-  const CHUNK_SIZE = 700000; // 700 KB на чанк (безопасно < 1 MB)
+  const CHUNK_SIZE = 700000; // UTF-8 bytes, not JavaScript characters
+  const FORMAT = 'samosval-backup';
+  const VERSION = 2;
+  const MAX_RESTORE_WRITES = 400;
+  const EXCLUSIONS = ['photo-jpeg-binaries', 'photo-metadata-and-counters', 'local-offline-queues', 'firebase-auth-credentials'];
   const MAX_BACKUPS = 15;
-  const DEFAULT_INTERVAL_H = 6;
 
   let backupInProgress = false;
+  let restoreInProgress = false;
 
   // ===== Утилиты =====
   function tsLabel(ts) {
@@ -20,7 +24,7 @@ try { (function(){
     return (bytes / (1024 * 1024)).toFixed(2) + ' МБ';
   }
   function byteLength(str) {
-    try { return new Blob([str]).size; } catch(e) { return str.length; }
+    return new TextEncoder().encode(str).length;
   }
 
   // ===== Список коллекций для бэкапа =====
@@ -33,7 +37,8 @@ try { (function(){
       { path: ['workspaces','main_workspace','logs'], name: 'logs', cat: 'shift' },
       { path: ['workspaces','main_workspace','truckStatus'], name: 'truckStatus', cat: 'shift' },
       { path: ['workspaces','main_workspace','notifications'], name: 'notifications', cat: 'shift' },
-      { path: ['workspaces','main_workspace','audit'], name: 'audit', cat: 'audit', limit: 500 },
+      { path: ['workspaces','main_workspace','audit'], name: 'audit', cat: 'audit', protected: true },
+      ...['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetChanges'].map(name => ({ path: ['workspaces','main_workspace',name], name, cat: 'timesheet', protected: true })),
       { path: ['workspaces','main_workspace','plugins'], name: 'plugins', cat: 'settings' },
       { path: ['workspaces','main_workspace','patches'], name: 'patches', cat: 'settings' },
       { path: ['users'], name: 'users', cat: 'users' },
@@ -44,139 +49,201 @@ try { (function(){
     ];
   }
 
+  function assertAdmin() {
+    if (typeof currentUserRole === 'undefined' || currentUserRole !== 'admin' ||
+        (typeof currentUserStatus !== 'undefined' && currentUserStatus !== 'active')) {
+      throw new Error('Полная резервная копия и восстановление доступны активному администратору');
+    }
+  }
+  function actor() {
+    return (typeof currentUid === 'undefined' ? '' : currentUid) + ':' +
+      (typeof currentEmail === 'undefined' ? '' : currentEmail);
+  }
+  function assertActor(owner) {
+    assertAdmin();
+    if (owner !== actor()) throw new Error('Учётная запись изменилась. Операция отменена');
+  }
   function refFromPath(path) {
     let ref = db;
-    for (let i = 0; i < path.length - 1; i++) {
-      ref = ref.collection(path[i]).doc(path[i + 1]);
-      i++;
-    }
-    if (path.length % 2 === 1) {
-      // последний — коллекция
-      ref = ref.collection(path[path.length - 1]);
-    }
+    for (let i = 0; i < path.length; i++) ref = i % 2 ? ref.doc(path[i]) : ref.collection(path[i]);
     return ref;
   }
-
-  async function readCollection(path, opts) {
-    opts = opts || {};
-    let ref = db;
-    for (let i = 0; i < path.length - 1; i++) {
-      if (i + 1 < path.length - 1 && path[i + 1]) {
-        ref = ref.collection(path[i]).doc(path[i + 1]);
-        i++;
-      }
+  function serverSnapshot(snap) {
+    if (snap.metadata && (snap.metadata.fromCache || snap.metadata.hasPendingWrites)) {
+      throw new Error('Нужны подтверждённые сервером данные, не локальный кэш');
     }
-    if (path.length % 2 === 1) {
-      ref = ref.collection(path[path.length - 1]);
-      let q = ref;
-      if (opts.limit) {
-        try {
-          q = ref.orderBy('timestamp', 'desc').limit(opts.limit);
-        } catch(e) {
-          q = ref.limit(opts.limit);
-        }
+    return snap;
+  }
+  async function readCollection(path) {
+    const snap = serverSnapshot(await refFromPath(path).get({ source: 'server' }));
+    return path.length % 2 ? snap.docs.map(d => ({ id: d.id, data: d.data() })) :
+      (snap.exists ? [{ id: snap.id, data: snap.data() }] : []);
+  }
+  function record(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+  function validId(id) {
+    return typeof id === 'string' && id.length > 0 && byteLength(id) <= 1500 &&
+      id !== '.' && id !== '..' && !id.includes('/') && !/^__.*__$/.test(id);
+  }
+  // Firestore timestamps occur in timesheet receipts. Never silently flatten types.
+  function encodeValue(value) {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (Array.isArray(value)) return value.map(encodeValue);
+    if (value && typeof value.toDate === 'function' && Number.isInteger(value.seconds) && Number.isInteger(value.nanoseconds)) {
+      return { __backupType: 'timestamp', seconds: value.seconds, nanoseconds: value.nanoseconds };
+    }
+    if (Object.prototype.toString.call(value) === '[object Date]') {
+      return { __backupType: 'date', value: value.toISOString() };
+    }
+    if (!record(value) || Object.prototype.toString.call(value) !== '[object Object]' ||
+        (Object.getPrototypeOf(value) && Object.getPrototypeOf(value).constructor.name !== 'Object')) {
+      throw new Error('Неподдерживаемый тип поля: копия не создана');
+    }
+    const result = {};
+    for (const key of Object.keys(value)) {
+      if (['__backupType','__proto__','constructor','prototype'].includes(key)) throw new Error('Зарезервированное имя поля: ' + key);
+      result[key] = encodeValue(value[key]);
+    }
+    return result;
+  }
+  function decodeValue(value, hydrate) {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (Array.isArray(value)) return value.map(v => decodeValue(v, hydrate));
+    if (!record(value)) throw new Error('Недопустимое значение поля');
+    if (Object.prototype.hasOwnProperty.call(value, '__backupType')) {
+      if (value.__backupType === 'timestamp' && Object.keys(value).length === 3 && Number.isInteger(value.seconds) &&
+          value.seconds >= -62135596800 && value.seconds <= 253402300799 &&
+          Number.isInteger(value.nanoseconds) && value.nanoseconds >= 0 && value.nanoseconds < 1000000000) {
+        return hydrate ? new firebase.firestore.Timestamp(value.seconds, value.nanoseconds) : value;
       }
-      const snap = await q.get();
-      return snap.docs.map(d => ({ id: d.id, data: d.data() }));
-    } else {
-      // последний элемент — id документа
-      const docRef = ref.doc(path[path.length - 1]);
-      const snap = await docRef.get();
-      return snap.exists ? [{ id: snap.id, data: snap.data() }] : [];
+      if (value.__backupType === 'date' && Object.keys(value).length === 2 && typeof value.value === 'string' &&
+          new Date(value.value).toISOString() === value.value) return hydrate ? new Date(value.value) : value;
+      throw new Error('Некорректный тип поля резервной копии');
+    }
+    const out = {};
+    for (const key of Object.keys(value)) {
+      if (['__proto__','constructor','prototype'].includes(key)) throw new Error('Недопустимое имя поля');
+      out[key] = decodeValue(value[key], hydrate);
+    }
+    return out;
+  }
+  function fieldCount(value) {
+    if (!value || typeof value !== 'object' || value.__backupType) return 0;
+    return Object.keys(value).reduce((n, k) => n + (Array.isArray(value) ? 0 : 1) + fieldCount(value[k]), 0);
+  }
+  function validateRows(rows, col) {
+    if (!Array.isArray(rows) || (col.isDoc && rows.length > 1)) throw new Error('Некорректный раздел: ' + col.name);
+    const ids = new Set();
+    for (const row of rows) {
+      if (!record(row) || !validId(row.id) || ids.has(row.id) || !record(row.data) || row.data.__backupType ||
+          (col.isDoc && row.id !== col.path[col.path.length - 1])) throw new Error('Некорректная запись: ' + col.name);
+      ids.add(row.id);
+      decodeValue(row.data, false);
     }
   }
-
-  // ===== Создание бэкапа =====
+  function validatePayload(payload, allowLegacy) {
+    if (!record(payload) || !record(payload.data)) throw new Error('Файл не похож на резервную копию');
+    if (payload.version === 1 && allowLegacy) {
+      for (const col of collectionsForBackup()) if (Object.prototype.hasOwnProperty.call(payload.data, col.name)) validateRows(payload.data[col.name], col);
+      return payload;
+    }
+    if (payload.format !== FORMAT || payload.version !== VERSION || payload.complete !== true ||
+        !record(payload.manifest) || !Array.isArray(payload.exclusions) ||
+        EXCLUSIONS.some(name => !payload.exclusions.includes(name))) throw new Error('Неполная или неподдерживаемая резервная копия');
+    const cols = collectionsForBackup();
+    if (Object.keys(payload.data).length !== cols.length || Object.keys(payload.manifest).length !== cols.length) throw new Error('Неверный набор разделов');
+    for (const col of cols) {
+      const rows = payload.data[col.name], entry = payload.manifest[col.name];
+      validateRows(rows, col);
+      if (!record(entry) || entry.path !== col.path.join('/') || entry.count !== rows.length ||
+          entry.fields !== rows.reduce((n, r) => n + fieldCount(r.data), 0) ||
+          entry.status !== (col.isDoc && !rows.length ? 'missing' : 'complete')) throw new Error('Нарушена полнота раздела: ' + col.name);
+    }
+    return payload;
+  }
+  async function collectPayload(type, description) {
+    assertAdmin();
+    const owner = actor();
+    const payload = { format: FORMAT, version: VERSION, complete: true, createdAt: Date.now(), type,
+      description: description || '', consistency: 'sequential-server-reads', exclusions: EXCLUSIONS.slice(), data: {}, manifest: {} };
+    for (const col of collectionsForBackup()) {
+      // A denied/failed read is never equivalent to an empty collection or missing document.
+      const docs = await readCollection(col.path);
+      assertActor(owner);
+      payload.data[col.name] = docs.map(r => ({ id: r.id, data: encodeValue(r.data) }));
+      payload.manifest[col.name] = { path: col.path.join('/'), count: docs.length,
+        fields: payload.data[col.name].reduce((n, r) => n + fieldCount(r.data), 0),
+        status: col.isDoc && !docs.length ? 'missing' : 'complete' };
+    }
+    return validatePayload(payload);
+  }
+  function splitChunks(text) {
+    const chunks = []; let chunk = '', bytes = 0;
+    for (const ch of text) {
+      const cp = ch.codePointAt(0), size = cp <= 0x7f ? 1 : cp <= 0x7ff ? 2 : cp <= 0xffff ? 3 : 4;
+      if (bytes + size > CHUNK_SIZE) { chunks.push(chunk); chunk = ''; bytes = 0; }
+      chunk += ch; bytes += size;
+    }
+    if (chunk) chunks.push(chunk);
+    return chunks;
+  }
+  async function digest(text) {
+    if (!window.crypto || !window.crypto.subtle) throw new Error('Для проверки копии нужен защищённый браузер (HTTPS)');
+    const bytes = new TextEncoder().encode(text);
+    return Array.from(new Uint8Array(await window.crypto.subtle.digest('SHA-256', bytes))).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
   async function createBackup(type, description) {
-    if (backupInProgress) {
-      if (typeof showToastEl === 'function') showToastEl('⏳ Уже идёт создание бэкапа', true);
+    if (backupInProgress || (restoreInProgress && type !== 'before_restore')) {
+      if (typeof showError === 'function') showError('Другая операция резервного копирования уже выполняется');
       return null;
     }
     backupInProgress = true;
-
+    let metaRef, published = false;
     try {
-      if (typeof showToastEl === 'function') showToastEl('💾 Создание бэкапа...', false);
-
-      const cols = collectionsForBackup();
-      const payload = {
-        version: 1,
-        createdAt: Date.now(),
-        type: type,
-        description: description || '',
-        appVersion: '2.88',
-        data: {}
-      };
-      const counts = {};
-
-      for (const col of cols) {
-        try {
-          const docs = await readCollection(col.path, { limit: col.limit });
-          payload.data[col.name] = docs;
-          counts[col.name] = docs.length;
-        } catch(e) {
-          console.warn('[backup] read error:', col.name, e);
-          payload.data[col.name] = [];
-          counts[col.name] = 0;
-        }
+      assertAdmin();
+      const owner = actor(), payload = await collectPayload(type, description);
+      const json = JSON.stringify(payload), chunks = splitChunks(json), counts = {};
+      for (const [name, entry] of Object.entries(payload.manifest)) counts[name] = entry.count;
+      metaRef = BACKUPS_COLL.doc();
+      const meta = { id: metaRef.id, format: FORMAT, version: VERSION, complete: true, createdAt: payload.createdAt,
+        createdBy: typeof getUserName === 'function' ? getUserName() : '—',
+        createdByEmail: typeof currentEmail === 'undefined' ? '' : currentEmail,
+        type, description: description || '', sizeBytes: byteLength(json), chunkCount: chunks.length, counts,
+        sha256: await digest(json), important: type === 'before_restore' || type === 'before_import' };
+      for (let i = 0; i < chunks.length; i++) {
+        assertActor(owner);
+        await metaRef.collection('chunks').doc(String(i)).set({ idx: i, data: chunks[i] });
       }
-
-      // Сериализация
-      const jsonStr = JSON.stringify(payload);
-      const totalBytes = byteLength(jsonStr);
-      const chunkCount = Math.ceil(jsonStr.length / CHUNK_SIZE);
-
-      // Метаданные
-      const metaRef = BACKUPS_COLL.doc();
-      const meta = {
-        id: metaRef.id,
-        createdAt: Date.now(),
-        createdBy: (typeof getUserName === 'function') ? getUserName() : '—',
-        createdByEmail: (typeof currentEmail !== 'undefined') ? currentEmail : '',
-        type: type,
-        description: description || '',
-        sizeBytes: totalBytes,
-        chunkCount: chunkCount,
-        counts: counts,
-        appVersion: '2.88'
-      };
-
-      // Чанки
-      for (let i = 0; i < chunkCount; i++) {
-        const chunk = jsonStr.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-        await metaRef.collection('chunks').doc(String(i)).set({ idx: i, data: chunk });
-      }
-
-      // Метаданные последними (чтобы бэкап считался готовым только когда все чанки на месте)
+      assertActor(owner);
       await metaRef.set(meta);
-
-      console.log('[backup] Created:', meta.id, sizeLabel(totalBytes), counts);
-      if (typeof showToastEl === 'function') showToastEl('✅ Бэкап создан (' + sizeLabel(totalBytes) + ')', false);
-
-      // Обновить "last auto"
-      if (type === 'auto') {
-        try { localStorage.setItem('dt_backup_last_auto', String(Date.now())); } catch(e) {}
-      }
-
-      // Ротация (удалить старые, кроме important)
+      await readBackupData(meta.id); // Read back, verify chunk indexes, bytes, digest, manifest and counts.
+      assertActor(owner);
+      published = true;
+      if (type === 'auto') try { localStorage.setItem('dt_backup_last_auto', String(Date.now())); } catch(e) {}
+      if (typeof showToastEl === 'function') showToastEl('✅ Бэкап проверен (' + sizeLabel(meta.sizeBytes) + '). Фотографии не включены.', false);
       await rotateBackups();
-
-      // Перерисовать UI
-      renderBackupUI();
-
+      try { renderBackupUI(); } catch(e) { console.warn('[backup] UI:', e); }
       return meta;
     } catch(e) {
+      if (metaRef && !published) {
+        // Failed publication must not leave a selectable incomplete recovery point.
+        try {
+          await metaRef.delete();
+          const chunks = await metaRef.collection('chunks').get({ source: 'server' });
+          for (const chunk of chunks.docs) await chunk.ref.delete();
+        } catch(cleanup) { console.warn('[backup] Incomplete copy cleanup failed:', metaRef.id, cleanup); }
+      }
       console.error('[backup] Create error:', e);
-      if (typeof showError === 'function') showError('Ошибка бэкапа: ' + e.message);
+      if (typeof showError === 'function') showError('Бэкап НЕ создан / не проверен: ' + e.message);
       return null;
-    } finally {
-      backupInProgress = false;
-    }
+    } finally { backupInProgress = false; }
   }
 
   // ===== Ротация =====
   async function rotateBackups() {
     try {
-      const snap = await BACKUPS_COLL.orderBy('createdAt', 'desc').get();
+      const snap = await BACKUPS_COLL.orderBy('createdAt', 'desc').get({ source: 'server' });
       const docs = snap.docs;
       if (docs.length <= MAX_BACKUPS) return;
 
@@ -190,7 +257,7 @@ try { (function(){
 
       for (const doc of toDelete) {
         // Удалить чанки
-        const chunksSnap = await doc.ref.collection('chunks').get();
+        const chunksSnap = await doc.ref.collection('chunks').get({ source: 'server' });
         for (const ch of chunksSnap.docs) {
           await ch.ref.delete();
         }
@@ -208,33 +275,46 @@ try { (function(){
   // ===== Список бэкапов =====
   async function listBackups() {
     try {
-      const snap = await BACKUPS_COLL.orderBy('createdAt', 'desc').limit(50).get();
+      const snap = await BACKUPS_COLL.orderBy('createdAt', 'desc').limit(50).get({ source: 'server' });
       return snap.docs.map(d => d.data());
     } catch(e) {
       console.warn('[backup] List error:', e);
-      return [];
+      throw e;
     }
   }
 
   // ===== Чтение бэкапа =====
-  async function readBackupData(id) {
-    const metaDoc = await BACKUPS_COLL.doc(id).get();
+  async function readBackupData(id, allowLegacy) {
+    if (!validId(id)) throw new Error('Неверный ID копии');
+    const metaDoc = serverSnapshot(await BACKUPS_COLL.doc(id).get({ source: 'server' }));
     if (!metaDoc.exists) throw new Error('Бэкап не найден');
     const meta = metaDoc.data();
-    const chunksSnap = await BACKUPS_COLL.doc(id).collection('chunks').orderBy('idx', 'asc').get();
-    if (chunksSnap.size !== meta.chunkCount) {
-      throw new Error('Не все чанки найдены (' + chunksSnap.size + '/' + meta.chunkCount + ')');
+    if (!Number.isSafeInteger(meta.chunkCount) || meta.chunkCount < 1 || !Number.isSafeInteger(meta.sizeBytes) || meta.sizeBytes <= 0) throw new Error('Некорректные метаданные копии');
+    const snap = serverSnapshot(await BACKUPS_COLL.doc(id).collection('chunks').get({ source: 'server' }));
+    if (snap.docs.length !== meta.chunkCount) throw new Error('Не все чанки найдены');
+    const rows = snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => a.idx - b.idx);
+    rows.forEach((row, i) => {
+      if (row.id !== String(i) || row.idx !== i || typeof row.data !== 'string') throw new Error('Неверный порядок / дубликат чанка');
+    });
+    const json = rows.map(r => r.data).join('');
+    if (byteLength(json) !== meta.sizeBytes) throw new Error('Размер копии не совпадает');
+    const payload = JSON.parse(json);
+    if (payload.version !== 1 || !allowLegacy) {
+      if (meta.version !== VERSION || meta.complete !== true || meta.sha256 !== await digest(json)) throw new Error('Контрольная сумма / версия копии не совпадает');
     }
-    let json = '';
-    chunksSnap.docs.forEach(d => { json += d.data().data; });
-    return JSON.parse(json);
+    validatePayload(payload, allowLegacy);
+    if (payload.version === VERSION) {
+      if (!record(meta.counts) || Object.keys(meta.counts).length !== Object.keys(payload.manifest).length ||
+          Object.entries(payload.manifest).some(([name, entry]) => meta.counts[name] !== entry.count)) throw new Error('Число записей копии не совпадает');
+    }
+    return payload;
   }
 
   // ===== Удаление бэкапа =====
   async function deleteBackup(id) {
     if (!(await appConfirm('Удалить этот бэкап? Восстановить из него будет невозможно.'))) return;
     try {
-      const chunksSnap = await BACKUPS_COLL.doc(id).collection('chunks').get();
+      const chunksSnap = await BACKUPS_COLL.doc(id).collection('chunks').get({ source: 'server' });
       for (const ch of chunksSnap.docs) await ch.ref.delete();
       await BACKUPS_COLL.doc(id).delete();
       if (typeof showToastEl === 'function') showToastEl('🗑 Бэкап удалён', false);
@@ -247,9 +327,13 @@ try { (function(){
   // ===== Скачать бэкап как файл =====
   async function downloadBackupFile(id) {
     try {
+      assertAdmin(); const owner = actor();
       if (typeof showToastEl === 'function') showToastEl('⏳ Загрузка...', false);
-      const data = await readBackupData(id);
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const data = await readBackupData(id, true);
+      if (data.version === 1 && !(await appConfirm('Старая копия не подтверждает полноту: настройки могли быть пропущены, аудит ограничен, табель и фото отсутствуют. Скачать только для проверки?'))) return;
+      const file = await fileEnvelope(data);
+      assertActor(owner);
+      const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -263,77 +347,188 @@ try { (function(){
   }
 
   // ===== Восстановление =====
-  async function restoreBackup(id, sections) {
-    // sections: { base: true, archive: true, settings: true, users: true, shift: true }
-    try {
-      if (typeof showToastEl === 'function') showToastEl('⏳ Чтение бэкапа...', false);
-      const payload = await readBackupData(id);
-
-      // 1. Авто-бэкап текущего состояния (before_restore)
-      if (typeof showToastEl === 'function') showToastEl('⏳ Бэкап текущего состояния...', false);
-      await createBackup('before_restore', 'Перед восстановлением из ' + id);
-
-      // 2. Восстановление
-      if (typeof showToastEl === 'function') showToastEl('⏳ Восстановление...', false);
-
-      const cols = collectionsForBackup();
-      for (const col of cols) {
-        const cat = col.cat;
-        if (sections[cat] !== true) continue;
-
-        const docs = payload.data[col.name] || [];
-        const ref = refFromPath(col.path);
-
-        // Определяем, коллекция это или документ
-        const isDoc = col.isDoc === true;
-
-        if (isDoc) {
-          if (docs.length > 0) {
-            await ref.set(docs[0].data, { merge: false });
-          } else {
-            await ref.delete().catch(() => {});
-          }
-          continue;
-        }
-
-        // Коллекция — удалить всё старое и добавить
-        const existing = await ref.get();
-        // Батчи по 400
-        const existingDocs = existing.docs;
-        for (let i = 0; i < existingDocs.length; i += 400) {
-          const b = db.batch();
-          for (let j = i; j < Math.min(i + 400, existingDocs.length); j++) {
-            b.delete(existingDocs[j].ref);
-          }
-          await b.commit();
-        }
-
-        // Восстановление
-        for (let i = 0; i < docs.length; i += 400) {
-          const b = db.batch();
-          for (let j = i; j < Math.min(i + 400, docs.length); j++) {
-            const item = docs[j];
-            b.set(ref.doc(item.id), item.data, { merge: false });
-          }
-          await b.commit();
-        }
-
-        console.log('[backup] Restored', col.name, ':', docs.length, 'docs');
-      }
-
-      if (typeof showToastEl === 'function') showToastEl('✅ Восстановление завершено. Перезагрузка...', false);
-      setTimeout(() => location.reload(), 1500);
-    } catch(e) {
-      console.error('[backup] Restore error:', e);
-      if (typeof showError === 'function') showError('Ошибка восстановления: ' + e.message);
+  function assertRestoreReady() {
+    assertAdmin();
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Восстановление/импорт требуют связи с сервером');
+    if (typeof offlinePendingCount !== 'function') throw new Error('Не удалось проверить локальную очередь. Восстановление/импорт заблокированы');
+    const pending = offlinePendingCount();
+    if (!Number.isSafeInteger(pending) || pending !== 0 ||
+        (typeof offlineJournalReadError !== 'undefined' && offlineJournalReadError) ||
+        (typeof offlineUndeliveredEffects === 'function' && offlineUndeliveredEffects().length)) {
+      throw new Error('Сначала синхронизируйте локальные действия/эффекты и устраните ошибки очереди. Восстановление/импорт заблокированы');
+    }
+    if (typeof offlineJournalCanWrite === 'function' && !offlineJournalCanWrite()) throw new Error('Очередь открыта в другой вкладке. Восстановление/импорт заблокированы');
+  }
+  function requireSettledShift(snap) {
+    // closing/restoring deliberately set isActive:false, but their archive and
+    // partly-cleaned live rows remain recovery sources until the lifecycle ends.
+    const local = typeof state === 'undefined' ? null : state.shift;
+    const remote = snap.exists ? snap.data() : null;
+    if ([local, remote].some(shift => shift && (shift.closing || shift.restoring))) {
+      throw new Error('Восстановление/импорт заблокированы: закрытие или восстановление смены ещё не завершено. Сначала завершите и синхронизируйте эту операцию');
     }
   }
+  function requireClosedShift(snap) {
+    requireSettledShift(snap);
+    if ((typeof state !== 'undefined' && state.shift && state.shift.isActive) || (snap.exists && snap.data().isActive)) {
+      throw new Error('Замена разделов заблокирована во время активной смены. Завершите и синхронизируйте её; остановите работу других устройств');
+    }
+  }
+  async function makePlan(payload, sections, merge) {
+    validatePayload(payload);
+    const selected = collectionsForBackup().filter(col => sections[col.cat] === true);
+    if (!selected.length) throw new Error('Не выбран раздел');
+    if (selected.some(col => col.protected)) throw new Error('Табель и аудит/игровая экономика защищены от клиентской перезаписи. Нужна отдельная контролируемая миграция');
+    const plan = [];
+    for (const col of selected) {
+      const existing = await readCollection(col.path), rows = payload.data[col.name];
+      const old = new Map(existing.map(r => [r.id, r.data])), wanted = new Set(rows.map(r => r.id));
+      for (const row of rows) plan.push({ ref: col.isDoc ? refFromPath(col.path) : refFromPath(col.path).doc(row.id),
+        data: decodeValue(row.data, true), before: old.has(row.id) ? encodeValue(old.get(row.id)) : null, merge: !!merge });
+      if (!merge) for (const row of existing) if (!wanted.has(row.id)) plan.push({
+        ref: col.isDoc ? refFromPath(col.path) : refFromPath(col.path).doc(row.id), remove: true, before: encodeValue(row.data) });
+    }
+    if (plan.length > MAX_RESTORE_WRITES) throw new Error('Выбрано ' + plan.length + ' операций; предел безопасного атомарного восстановления — ' + MAX_RESTORE_WRITES + '. Выберите меньше разделов или используйте контролируемую миграцию');
+    return plan;
+  }
+  function canonical(value) {
+    if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+    if (record(value)) return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + canonical(value[k])).join(',') + '}';
+    return JSON.stringify(value);
+  }
+  async function commitPlan(plan, owner, destructive) {
+    assertActor(owner);
+    assertRestoreReady();
+    // One transaction: a permission error cannot leave half-restored collections.
+    // Compare against preflight on every retry so concurrent edits are never overwritten.
+    await db.runTransaction(async tx => {
+      assertRestoreReady();
+      // Merge imports can overwrite a reserved archive too. Always read the
+      // lifecycle document so a concurrent freeze forces a transaction retry.
+      const shift = await tx.get(refFromPath(['workspaces','main_workspace','shift','current']));
+      const checkShift = destructive ? requireClosedShift : requireSettledShift;
+      checkShift(shift);
+      for (const op of plan) {
+        const snap = await tx.get(op.ref), current = snap.exists ? encodeValue(snap.data()) : null;
+        if (canonical(current) !== canonical(op.before)) throw new Error('Данные изменились на другом устройстве. Восстановление отменено');
+      }
+      assertActor(owner);
+      assertRestoreReady();
+      checkShift(shift); // Local state may have changed while awaiting plan reads.
+      for (const op of plan) {
+        if (op.remove) tx.delete(op.ref);
+        else tx.set(op.ref, op.data, { merge: op.merge });
+      }
+    });
+  }
+  async function restoreBackup(id, sections) {
+    if (restoreInProgress || backupInProgress) { showError('Другая операция уже выполняется'); return false; }
+    restoreInProgress = true;
+    let safety, commitAttempted = false;
+    try {
+      assertRestoreReady(); const owner = actor();
+      requireClosedShift(serverSnapshot(await refFromPath(['workspaces','main_workspace','shift','current']).get({ source: 'server' })));
+      const payload = await readBackupData(id);
+      const plan = await makePlan(payload, sections, false);
+      assertRestoreReady();
+      safety = await createBackup('before_restore', 'Перед восстановлением из ' + id);
+      if (!safety) throw new Error('Защитная копия не создана / не проверена. Текущие данные не изменены');
+      assertActor(owner);
+      commitAttempted = true;
+      await commitPlan(plan, owner, true);
+      if (typeof showToastEl === 'function') showToastEl('✅ Восстановлено атомарно. Аудит, табель и фото не изменены. Защитная копия: ' + safety.id, false);
+      setTimeout(() => location.reload(), 1500);
+      return true;
+    } catch(e) {
+      console.error('[backup] Restore error:', e);
+      if (typeof showError === 'function') showError((commitAttempted ? 'Результат атомарной записи не подтверждён; проверьте данные перед повтором: ' : 'Восстановление не выполнено: ') + e.message + (safety ? '. Защитная копия: ' + safety.id : ''));
+      return false;
+    } finally { restoreInProgress = false; }
+  }
+  async function fileEnvelope(payload) {
+    validatePayload(payload, true);
+    return { format: FORMAT + '-file', version: VERSION, payload, sha256: await digest(canonical(payload)) };
+  }
+  async function exportFileData() {
+    if (backupInProgress || restoreInProgress) throw new Error('Другая операция уже выполняется');
+    backupInProgress = true;
+    try {
+      assertAdmin(); const owner = actor();
+      const file = await fileEnvelope(await collectPayload('file', 'Экспорт файла'));
+      assertActor(owner);
+      return file;
+    } finally { backupInProgress = false; }
+  }
+  async function importRows(data) {
+    if (restoreInProgress || backupInProgress) throw new Error('Другая операция уже выполняется');
+    assertRestoreReady();
+    const owner = actor(), names = ['trucks','objects','archive'];
+    restoreInProgress = true;
+    let safety, commitAttempted = false;
+    try {
+      if (data && data.format === FORMAT + '-file') {
+        if (data.version !== VERSION || !record(data.payload) || data.sha256 !== await digest(canonical(data.payload))) throw new Error('Контрольная сумма файла не совпадает');
+        data = data.payload;
+      }
+      if (data && data.format && data.format !== FORMAT) throw new Error('Неподдерживаемый формат файла');
+      if (data && data.format === FORMAT && data.version !== VERSION && data.version !== 1) throw new Error('Неподдерживаемая версия файла');
+      let source;
+      if (data && data.format === FORMAT && data.version === VERSION) {
+        validatePayload(data); source = data.data;
+      } else if (data && data.version === 1 && record(data.data)) {
+        validatePayload(data, true); source = data.data;
+      } else {
+        if (!record(data) || !names.some(n => Array.isArray(data[n]))) throw new Error('Файл не похож на резервную копию программы');
+        source = {};
+        for (const name of names) {
+          if (data[name] !== undefined && !Array.isArray(data[name])) throw new Error('Неверный раздел: ' + name);
+          source[name] = (data[name] || []).map(item => {
+            if (!record(item) || !validId(item.id)) throw new Error('Запись без допустимого ID: ' + name);
+            const value = { ...item }; delete value.id;
+            return { id: item.id, data: value };
+          });
+        }
+      }
+      const rows = {};
+      for (const name of names) {
+        rows[name] = source[name] || [];
+        validateRows(rows[name], collectionsForBackup().find(col => col.name === name));
+      }
+      // File import remains a merge, never a destructive replacement of legacy copies.
+      const counts = names.map(n => n + ': ' + rows[n].length).join('\n');
+      if (!(await appConfirm('Импорт только базы и архива: добавит/обновит по ID, ничего не удалит.\n' + counts +
+        '\nТабель, аудит/игровая экономика, настройки и фото НЕ восстанавливаются этим импортом. Старые копии могли быть неполными. Перед записью обязательна проверенная защитная копия. Продолжить?'))) return null;
+      assertRestoreReady();
+      requireSettledShift(serverSnapshot(await refFromPath(['workspaces','main_workspace','shift','current']).get({ source: 'server' })));
+      const plan = [];
+      for (const name of names) for (const row of rows[name]) {
+        const col = collectionsForBackup().find(c => c.name === name), ref = refFromPath(col.path).doc(row.id);
+        const snap = serverSnapshot(await ref.get({ source: 'server' }));
+        plan.push({ ref, data: decodeValue(row.data, true), merge: true, before: snap.exists ? encodeValue(snap.data()) : null });
+      }
+      if (plan.length > MAX_RESTORE_WRITES) throw new Error('Импорт больше 400 записей требует контролируемой миграции: частичная запись запрещена');
+      assertRestoreReady();
+      safety = await createBackup('before_restore', 'Перед импортом файла');
+      if (!safety) throw new Error('Защитная копия не создана / не проверена. Импорт отменён');
+      commitAttempted = true;
+      await commitPlan(plan, owner);
+      return { written: plan.length, safetyId: safety.id };
+    } catch(e) {
+      if (commitAttempted) e.message = 'Результат атомарной записи не подтверждён. Проверьте данные перед повтором. ' + e.message;
+      if (safety) e.message += '. Защитная копия: ' + safety.id;
+      throw e;
+    } finally { restoreInProgress = false; }
+  }
+  window.SamosvalBackup = Object.freeze({ collectPayload, validatePayload, createBackup, readBackupData, restoreBackup, importRows, fileEnvelope, exportFileData });
 
   // ===== Модалка восстановления =====
   async function openRestoreModal(id) {
-    const metaDoc = await BACKUPS_COLL.doc(id).get();
+    assertAdmin(); const owner = actor();
+    const metaDoc = serverSnapshot(await BACKUPS_COLL.doc(id).get({ source: 'server' }));
     if (!metaDoc.exists) { showError('Бэкап не найден'); return; }
+    assertActor(owner);
     const meta = metaDoc.data();
+    if (meta.version !== VERSION || meta.complete !== true) { showError('Старая или неполная копия: восстановление заблокировано. Скачайте файл для проверки; допустим только явный импорт базы/архива без удаления.'); return; }
 
     const old = document.getElementById('restoreBackupModal');
     if (old) old.remove();
@@ -354,12 +549,12 @@ try { (function(){
       </div>
       <div style="font-size:12px; color:var(--muted); margin-bottom:12px; line-height:1.5;">
         📅 <b>${tsLabel(meta.createdAt)}</b><br>
-        👤 ${escapeHtml(meta.createdBy || '—')} · ${sizeLabel(meta.sizeBytes)} · ${meta.type || 'manual'}
+        👤 ${escapeHtml(meta.createdBy || '—')} · ${sizeLabel(meta.sizeBytes)} · ${escapeHtml(meta.type || 'manual')}
       </div>
 
       <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:10px; font-size:12px; color:#fca5a5; margin-bottom:14px; line-height:1.4;">
-        ⚠️ <b>Внимание!</b> Текущие данные в выбранных секциях будут заменены данными из бэкапа.<br>
-        Перед восстановлением автоматически создаётся резервная копия текущего состояния.
+        ⚠️ <b>Внимание!</b> Записи выбранных разделов будут заменены данными из бэкапа. Новые записи других устройств, отсутствовавшие при проверке, не удаляются; единого снимка всех устройств нет.<br>
+        Перед восстановлением обязательно создаётся и проверяется защитная копия. Активная смена, незавершённое закрытие/восстановление смены и несинхронизированная/повреждённая локальная очередь блокируют замену. Остановите работу на других устройствах. Не более 400 операций за одну атомарную запись. Табель и полный аудит (включая игровую экономику) сохраняются в файле, но защищены от клиентской перезаписи. JPEG, метаданные/счётчики фото и локальные очереди не включены.
       </div>
 
       <div style="font-size:13px; font-weight:700; margin-bottom:8px;">Что восстановить:</div>
@@ -427,6 +622,7 @@ try { (function(){
     block.id = 'backupAutoBlock';
     block.innerHTML = `
       <div class="section-title" style="margin-top:0;">💾 Автоматические бэкапы на сервере</div>
+      <p style="font-size:12px; color:var(--muted);">Включены табель и полный аудит/игровая экономика. Фото (JPEG, метаданные, счётчики), локальные очереди и пароли не включены. Снимок читается по разделам, не является единой транзакцией; на время копирования остановите работу других устройств.</p>
       <div class="form-card">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
           <div style="flex:1; min-width:150px;">
@@ -524,7 +720,7 @@ try { (function(){
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-wrap:wrap;">
               <div style="flex:1; min-width:0;">
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <span style="font-size:11px; font-weight:800; color:${t.color}; text-transform:uppercase;">${t.label}</span>
+                  <span style="font-size:11px; font-weight:800; color:${t.color}; text-transform:uppercase;">${escapeHtml(t.label)}</span>
                   ${b.important ? '<span style="font-size:10px; background:rgba(139,92,246,0.2); color:#c4b5fd; padding:1px 6px; border-radius:4px; font-weight:700;">⭐ ВАЖНЫЙ</span>' : ''}
                 </div>
                 <div style="font-size:12px; font-weight:600; margin-top:3px;">${tsLabel(b.createdAt)}</div>
@@ -545,7 +741,10 @@ try { (function(){
       }).join('');
 
       c.querySelectorAll('[data-restore-id]').forEach(btn => {
-        btn.onclick = () => openRestoreModal(btn.dataset.restoreId);
+        btn.onclick = async () => {
+          try { await openRestoreModal(btn.dataset.restoreId); }
+          catch(e) { showError('Не удалось открыть восстановление: ' + e.message); }
+        };
       });
       c.querySelectorAll('[data-download-id]').forEach(btn => {
         btn.onclick = () => downloadBackupFile(btn.dataset.downloadId);
@@ -597,27 +796,11 @@ try { (function(){
       if (state.shift && state.shift.isActive && typeof currentUserRole !== 'undefined' && currentUserRole === 'admin') {
         const ok = (await appConfirm('Перед закрытием смены создать резервную копию?'));
         if (ok) {
-          await createBackup('before_close', 'Перед закрытием смены ' + (state.shift.objectName || ''));
+          const saved = await createBackup('before_close', 'Перед закрытием смены ' + (state.shift.objectName || ''));
+          if (!saved) { showError('Закрытие отменено: запрошенная защитная копия не создана'); return; }
         }
       }
       return origCloseShift.apply(this, arguments);
-    };
-  }
-
-  // ===== Хук: перед импортом =====
-  const origImportBackup = window.importBackupFile;
-  if (origImportBackup) {
-    window.importBackupFile = async function(ev) {
-      if (typeof currentUserRole !== 'undefined' && currentUserRole === 'admin') {
-        const file = ev.target?.files?.[0];
-        if (file) {
-          const ok = (await appConfirm('Перед импортом создать резервную копию текущих данных?'));
-          if (ok) {
-            await createBackup('before_import', 'Перед импортом бэкапа');
-          }
-        }
-      }
-      return origImportBackup.apply(this, arguments);
     };
   }
 

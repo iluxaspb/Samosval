@@ -1,7 +1,7 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{spawn}=require('child_process');
 const firebase=require('firebase/compat/app');require('firebase/compat/firestore');
 const {initializeTestEnvironment,assertFails}=require('@firebase/rules-unit-testing');
-const C=require('../../assets/timesheet-core.js');
+const C=require('../../test-app/src/features/timesheet-core.js');
 const project='demo-timesheet',port=8091,apps=[];
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const child=spawn('java',['-jar',process.env.FIRESTORE_EMULATOR_JAR||'firestore-emulator.jar','--host','127.0.0.1','--port',String(port),'--project_id',project]);

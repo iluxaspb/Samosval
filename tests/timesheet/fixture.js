@@ -1,5 +1,6 @@
 /* Local QA only. Never loaded by index-test.html. */
 var firebaseConfig={projectId:'samosval-offline'},WORKSPACE_ID='main_workspace';
+var appConfig={testReviewFlags:{}};
 var currentUid='qa-admin',currentUserStatus='active',permissionsLoaded=true,currentUserRole='admin';
 var state={objects:[{id:'obj',name:'Всеволожск · ул. Свердлова'}],shift:{objectId:'obj'}};
 var __messages=[],__authListeners=[],__rows=new Map(),__subscriptions=[];
@@ -11,7 +12,7 @@ function showToastEl(s){__messages.push(s);}
 function showError(s){__messages.push('ERROR: '+s);}
 function renderAll(){}
 function stopSync(){}
-var auth={onAuthStateChanged:cb=>{__authListeners.push(cb);return()=>{};}};
+var auth={onAuthStateChanged:cb=>{__authListeners.push(cb);return()=>{__authListeners=__authListeners.filter(listener=>listener!==cb);};}};
 var firebase={firestore:{FieldValue:{serverTimestamp:()=>Date.now()}}};
 function __clone(v){return v===undefined?undefined:JSON.parse(JSON.stringify(v));}
 function __snapshot(path){const d=__rows.get(path);return {exists:d!==undefined,id:path.split('/').pop(),data:()=>__clone(d)};}
