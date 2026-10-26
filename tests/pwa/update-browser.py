@@ -91,6 +91,13 @@ class Release:
         assert label, 'Missing release label in generated HTML'
         self.label = label[1].strip()
         self.version = self.label.removeprefix('Версия ')
+        # The pinned historical artifact genuinely had divergent labels: HTML
+        # says 3.1.17, but its history module hardcodes runtime header 3.1.16.
+        # Preserve that input, derive its runtime expectation from actual bytes,
+        # and require the current release to agree with current HTML below.
+        history = next(r for r in self.manifest['assets'] if r['url'].endswith('/release-history.js'))
+        literal = re.search(r"button\.textContent\s*=\s*(['\"])(.*?)\1\s*;", self.raw(history['url']).decode())
+        self.runtime_label = literal[2] if literal else self.label
         assert './test-app/build/' + self.build + '/' in html
         # Verify actual input artifacts before the local deployment-config rewrite.
         for record in self.manifest['assets']:
@@ -192,7 +199,7 @@ def main():
     output = ROOT / 'test-results'
     output.mkdir(exist_ok=True)
     report = {'status':'running', 'baselineCommit':BASELINE_COMMIT,
-              'oldBuild':old.build, 'newBuild':new.build, 'oldRelease':old.label, 'newRelease':new.label,
+              'oldBuild':old.build, 'newBuild':new.build, 'oldRelease':old.label, 'oldRuntimeRelease':old.runtime_label, 'newRelease':new.label,
               'browser':'Chromium, sandbox required', 'steps':[], 'errors':[], 'blockedRequests':[], 'requests':[],
               'fixtures':{'auth':'Signed-out local UI stub, no Auth service',
                 'roleChecks':'Synthetic local permission variables with empty UID; not server authorization',
@@ -304,6 +311,12 @@ def main():
             for action, value in [('load','1'), ('arrive','2'), ('ttn','0')]:
                 assert p.locator('#game-reward-' + action).input_value() == value
 
+        def old_release_checks(p):
+            assert p.locator('#mainHeader .version-text').text_content() == old.runtime_label
+            assert p.locator('#admin-camera-button').count() == 1, 'Pinned old release must retain the original camera control'
+            scripts = p.locator('script[src]').evaluate_all('(els)=>els.map(e=>new URL(e.src).pathname).filter(p=>p.includes("/test-app/build/"))')
+            assert scripts and all('/test-app/build/' + old.build + '/' in src for src in scripts), 'The actual old build must still be loaded'
+
         def role_checks(p):
             # This tests actual visibility and the real click handler using explicit
             # synthetic roles, never pretending to be authenticated to a service.
@@ -334,8 +347,7 @@ def main():
         ctx = context()
         page = ctx.new_page(); page.goto(base + 'index-test.html'); app_ready(page)
         wait_for_page_state(page, '() => !!navigator.serviceWorker.controller && window.TestPWA.snapshot().shellReady', timeout=45000)
-        assert page.locator('#mainHeader .version-text').text_content() == old.label
-        assert page.locator('#admin-camera-button').count() == 1, 'Pinned old release must retain the original camera control'
+        old_release_checks(page)
         journal_key = f'samosval_offline_v1_{PROJECT}_main_workspace_qa-update'
         queue = [{'id':f'op-{i}', 'shiftId':'qa-shift', 'truckId':'qa-truck',
                   'type':['arrive','load','ttn','reset'][i % 4], 'status':'pending', 'createdAt':i+1} for i in range(24)]
@@ -357,8 +369,7 @@ def main():
 
         phase['new'] = True
         page.goto(base + 'index-test.html?release=' + new.build); app_ready(page)
-        assert page.locator('#mainHeader .version-text').text_content() == old.label
-        assert page.locator('#admin-camera-button').count() == 1
+        old_release_checks(page)
         passed('ordinary refresh/query preserves the genuinely cached old build')
         helper = ctx.new_page(); helper.goto(base + 'update-test.html')
         helper.wait_for_selector('#state[data-state="waiting"]', timeout=45000)
@@ -366,7 +377,7 @@ def main():
         assert new.build in helper.locator('#build').inner_text() and old.build in helper.locator('#build').inner_text()
         assert helper.locator('#close-hint').is_visible()
         retained(page)
-        assert page.locator('#mainHeader .version-text').text_content() == old.label
+        old_release_checks(page)
         passed('new integrity-checked worker waits without forced reload or loss of 24 queued entries')
         page.close()
         helper.wait_for_selector('#state[data-state="ready"]', timeout=45000)

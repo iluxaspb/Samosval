@@ -17,6 +17,7 @@ const report = {startedAt:new Date().toISOString(), status:'running', project:PR
     data:'Generated example.test identities and local demo data only'},
   exclusions:['Real Firebase Auth/password delivery', 'Production/live project rules deployment', 'Physical iOS/Android installation',
     'Physical camera/GPS/Storage upload', 'External MAX delivery', 'Security/exploit payload execution',
+    'Summary export controls are intentionally hidden in the approved paper-viewer layout; CSV uses callable API coverage, not a visible click',
     'PWA release-update activation (covered separately by sandbox-required tests/pwa/update-browser.py)'],
   cases:[], steps:[], pageErrors:[], console:[], blockedRequests:[], cspViolations:[], serverRequests:[], cleanup:[]};
 let env, emulator, server, origin, chromium, sdk, activeContext, page, currentCase = 'setup', traceNumber = 0;
@@ -193,9 +194,14 @@ async function assertSummarySheets() {
     const paper=gai?'#gaiPaperContainer':'#paperReportContainer';
     await page.locator(paper).waitFor({state:'visible'});
     assert.equal(await page.locator(gai?'#paperReportWrapper':'#gaiReportWrapper').isVisible(),false);
+    assert.equal(await page.evaluate(()=>showGAITable),gai,'Hold must switch the actual report state once');
+    assert.equal(await page.locator('#toggleReportBtn').innerText(),'📄','Switch stays icon-only');
+    const tableText=await page.locator(paper+' .paper-table').innerText();
     await page.locator(paper).click({position:{x:40,y:35}});
     await page.locator('#summary-sheet-dialog[open] .paper-table').waitFor({state:'visible'});
-    assert.match(await page.locator('#summary-sheet-dialog .paper-object-name').innerText(),gai?/ГАИ/:/Локальный учебный объект/);
+    assert.match(await page.locator('#summary-sheet-dialog .paper-object-name').innerText(),/Локальный учебный объект/);
+    assert.match(await page.locator('#summary-sheet-dialog .paper-total-info').innerText(),gai?/Всего рейсов ГАИ/:/Общий объем/);
+    assert.equal(await page.locator('#summary-sheet-dialog .paper-table').innerText(),tableText,'Viewer must clone the selected sheet, not the other report');
     const scale=await page.locator('#summary-sheet-dialog .sheet-scale').innerText();
     await page.locator('#summary-sheet-dialog [data-action="in"]').click();
     assert.notEqual(await page.locator('#summary-sheet-dialog .sheet-scale').innerText(),scale);
@@ -207,8 +213,10 @@ async function assertSummarySheets() {
   }
   await page.locator('#toggleReportBtn').click({delay:950});
   await page.locator('#paperReportWrapper').waitFor({state:'visible'});
-  assert(await page.locator('button[onclick="exportCSV()"]').isVisible(),'CSV action is not clickable');
-  for (const type of ['regular','gai']) assert(await page.locator('button[onclick="exportCurrentReportPNG(\''+type+'\')"]').isVisible(),'PNG action is not clickable: '+type);
+  // The user-approved benchmark intentionally hides legacy Summary export rows.
+  // Preserve that UI; API export coverage below is labelled separately.
+  assert.equal(await page.locator('button[onclick="exportCSV()"]').isVisible(),false);
+  for (const type of ['regular','gai']) assert.equal(await page.locator('button[onclick="exportCurrentReportPNG(\''+type+'\')"]').isVisible(),false);
 }
 
 async function authenticationCases() {
@@ -314,14 +322,14 @@ async function responsiveCase(mobile) {
     await hold('qa-truck','ttn'); await wait(() => state.truckStatus['qa-truck'].ttnStatus === true && offlinePendingCount() === 0 && !offlineReplayRunning);
     assert.equal((await readRows('logs')).length, 1); await evidence('line');
   });
-  await step('report-csv-and-edit-cancel', async () => {
+  await step('report-sheets-csv-api-and-edit-cancel', async () => {
     await nav('report'); await wait(() => document.getElementById('matrixTableBody').textContent.includes('20'));
     await assertSummarySheets();
     assert.match(await page.locator('#paperTotalVolume').innerText(), /20/);
     await page.locator('#logsContainer .btn-edit').first().click(); await page.locator('#editLogVolume').fill('99');
     await page.locator('#editLogModal button[onclick="closeEditLogModal()"]').last().click();
     assert.equal((await readRows('logs'))[0].volume, 20);
-    const downloaded = page.waitForEvent('download'); await page.locator('button[onclick="exportCSV()"]').click();
+    const downloaded = page.waitForEvent('download'); await page.evaluate(()=>exportCSV());
     const file = await downloaded; await file.saveAs(path.join(output,currentCase + '-report.csv'));
     const csv = fs.readFileSync(path.join(output,currentCase + '-report.csv'),'utf8'); assert(csv.includes('20')); assert(csv.includes('А123АА78'));
     await evidence('report');
@@ -429,19 +437,29 @@ async function responsiveCase(mobile) {
     if (await group.locator('.archive-group-header').getAttribute('aria-expanded')!=='true') await group.locator('.archive-group-header').click();
     await group.locator('.archive-shift-item').click();
     await page.locator('#archiveModal.open').waitFor({state:'visible'});
-    assert.equal(await page.locator('#archive-paper-wrapper .paper-table th').count(),41);
+    assert.equal(await page.locator('#archive-paper-wrapper .paper-table th').count(),42);
     assert(await page.locator('#archive-paper-wrapper .paper-report-container').isVisible());
     await page.locator('#archive-paper-wrapper .paper-report-container').click({position:{x:40,y:35}});
     await page.locator('#archive-sheet-dialog[open]').waitFor({state:'visible'});
-    assert.equal(await page.locator('#archive-sheet-dialog .paper-table th').count(),41);
-    const before=await page.locator('.archive-sheet-scale').innerText();
+    assert.equal(await page.locator('#archive-sheet-dialog .paper-table th').count(),42);
+    const before=await page.locator('#archive-sheet-dialog .sheet-scale').innerText();
     await page.locator('#archive-sheet-dialog [data-action="in"]').click();
-    assert.notEqual(await page.locator('.archive-sheet-scale').innerText(),before);
+    assert.notEqual(await page.locator('#archive-sheet-dialog .sheet-scale').innerText(),before);
     await page.locator('#archive-sheet-dialog [data-action="fit"]').click();
-    const icon=page.locator('#archive-sheet-dialog .archive-gai-switch'); assert.equal(await icon.innerText(),'📄');
-    await icon.click(); assert.equal(await icon.getAttribute('aria-pressed'),'true');
-    await icon.click(); assert.equal(await icon.getAttribute('aria-pressed'),'false');
     await page.keyboard.press('Escape'); await page.locator('#archive-sheet-dialog').waitFor({state:'detached'});
+    const icon=page.locator('#archiveModal .archive-toggle-icon'); assert.equal(await icon.innerText(),'📄');
+    await icon.click(); await icon.click({delay:350});
+    assert.equal(await page.evaluate(()=>viewingArchiveGAITable),false,'Archive short press must not switch');
+    await icon.click({delay:950}); assert.equal(await icon.getAttribute('aria-pressed'),'true');
+    assert.equal(await page.evaluate(()=>viewingArchiveGAITable),true);
+    assert.match(await page.locator('#archive-paper-wrapper .paper-total-info').innerText(),/Всего рейсов ГАИ/);
+    await page.locator('#archive-paper-wrapper .paper-report-container').click({position:{x:40,y:35}});
+    await page.locator('#archive-sheet-dialog[open] .paper-table').waitFor({state:'visible'});
+    assert.match(await page.locator('#archive-sheet-dialog .paper-total-info').innerText(),/Всего рейсов ГАИ/);
+    await page.locator('#archive-sheet-dialog [data-action="close"]').click();
+    await page.locator('#archive-sheet-dialog').waitFor({state:'detached'});
+    await icon.click({delay:950}); assert.equal(await icon.getAttribute('aria-pressed'),'false');
+    assert.equal(await page.locator('#archive-paper-wrapper .paper-table th').count(),42);
     const fullWidth=await page.locator('#archive-paper-wrapper .paper-table').evaluate(table=>table.scrollWidth);
     assert(fullWidth>2000,'Fixture must exceed viewport/A4 width');
     const pending=page.waitForEvent('download',{timeout:65000}); await page.locator('#archiveSavePngBtn').click();

@@ -54,14 +54,16 @@ self-test needs no browser/emulator/npm dependencies and is not a browser pass.
   pointer hold cancellation/arrival/load/TTN and confirmed undo; cooldown.
 - Both visible Summary sheets and nonblank full-screen viewers; short/released
   pointer holds do not switch the paper icon, an 800 ms+ hold switches once;
-  moved-away cancellation, zoom/fit, Escape/close/reentry. Visible CSV and PNG
-  controls, real CSV download and canceled edit; close cancellation/repeated close;
+  moved-away cancellation, zoom/fit, Escape/close/reentry. The approved Summary
+  benchmark intentionally hides legacy export rows: CSV is a real download via
+  the callable application API, **not a visible-button test**. Canceled edit;
+  close cancellation/repeated close;
   archive search/open/close/reopen and canceled/repeated restore. Counts are
   verified against the emulator, not merely optimistic UI.
 - A generated 40-trip archive fixture is exported through the real download
   button and bundled rasterizer. PNG signature/chunks/dimensions and browser
   decoding are verified, including nonblank rightmost columns beyond viewport/A4
-  width. The actual PNG is retained. Archive zoom/fit and icon-only GAI switching
+  width. The actual PNG is retained. Archive zoom/fit and icon-only 800 ms hold GAI switching
   are exercised; no live MAX destination is configured.
 - Local settings persistence; theme preview/next/close restoration; game and
   arcade toggles; reward defaults, invalid-value rejection, real transaction save,
@@ -95,6 +97,9 @@ the new label/build come from the current generated HTML/manifest, not fixed
 inert demo configuration with matching worker/manifest hashes and exact-origin
 routing plus worker CSP. Auth is a signed-out local stub; synthetic empty-UID
 role checks cover UI gating only and are **not** Firestore authorization tests.
+The pinned old artifact's HTML says 3.1.17 while its history module hardcodes the
+runtime header to 3.1.16. This historical discrepancy is derived from its unchanged
+module and recorded separately; current HTML/runtime labels must match strictly.
 
 It checks the waiting update does not force an active tab to reload, activation
 after that tab closes, byte-for-byte preservation of 24 synthetic pending entries,
