@@ -85,7 +85,8 @@
   function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
   function applyRoleUI() {
     const versionAllowed = permissionsLoaded && canAdmin();
-    document.body.toggleAttribute('data-release-admin', versionAllowed);
+    if (versionAllowed) document.body.setAttribute('data-release-admin', '1');
+    else document.body.removeAttribute('data-release-admin');
     if (!versionAllowed) document.getElementById('releaseHistoryDialog')?.close();
     const viewBanner = document.getElementById('viewOnlyBanner'); const canDoAnything = hasPermission('start_shift') || hasPermission('edit_line') || hasPermission('action_load');
     if (viewBanner) viewBanner.style.display = (!canDoAnything && state.shift) ? 'block' : 'none';
