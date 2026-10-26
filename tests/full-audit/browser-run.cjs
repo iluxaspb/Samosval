@@ -137,10 +137,15 @@ async function ready() {
   await wait(() => permissionsLoaded && currentUserStatus === 'active' && state.trucks.length === 2 && state.objects.length === 1
     && (!navigator.onLine || syncState.everConnected.shift && syncState.everConnected.logs && syncState.everConnected.status));
 }
-async function confirm(accept = true) {
-  await page.locator('.pcm-overlay.pcm-open').waitFor({state:'visible'});
-  await page.locator(accept ? '.pcm-btn-confirm' : '.pcm-btn-cancel').click();
-  await page.locator('.pcm-overlay').waitFor({state:'detached'});
+async function confirm(accept = true, expectedMessage) {
+  const overlay=page.locator('.pcm-overlay.pcm-open');
+  await overlay.waitFor({state:'visible'});
+  if (expectedMessage) assert.match(await overlay.locator('.pcm-message').innerText(),expectedMessage);
+  const current=await overlay.elementHandle(); assert(current);
+  await overlay.locator(accept ? '.pcm-btn-confirm' : '.pcm-btn-cancel').click();
+  // A legitimate successor prompt may appear immediately (optional backup →
+  // final close). Wait for THIS dismissed instance, never every future modal.
+  await current.waitForElementState('hidden'); await current.dispose();
 }
 async function nav(name) { await page.locator('#nav-' + name).click(); await page.locator('#tab-' + name + '.active').waitFor({state:'visible'}); }
 async function toggleCheckbox(id, checked) {
@@ -335,8 +340,20 @@ async function responsiveCase(mobile) {
     await evidence('report');
   });
   await step('close-cancel-double-close-archive-reopen-restore', async () => {
-    await page.locator('#closeShiftBtn').click(); await confirm(false); assert.equal(await page.evaluate(() => state.shift.isActive), true);
-    await page.locator('#closeShiftBtn').dblclick(); await confirm();
+    await page.locator('#closeShiftBtn').click();
+    await confirm(false,/Перед закрытием смены создать резервную копию/);
+    await confirm(false,/^Закрыть смену\?$/);
+    assert.equal(await page.evaluate(() => state.shift.isActive), true);
+    assert.equal((await readRows('archive')).length,0,'Cancel final close must not archive the shift');
+    await page.locator('.pcm-overlay').waitFor({state:'detached'});
+    await page.locator('#closeShiftBtn').dblclick();
+    await page.locator('.pcm-overlay.pcm-open').waitFor({state:'visible'});
+    const closePrompt=await page.locator('.pcm-overlay.pcm-open .pcm-message').innerText();
+    // A real second pointer click can cancel the optional backup backdrop. The
+    // final close confirmation is still mandatory, and never accepted blindly.
+    if (/Перед закрытием смены создать резервную копию/.test(closePrompt)) await confirm(false,/Перед закрытием смены создать резервную копию/);
+    else assert.match(closePrompt,/^Закрыть смену\?$/);
+    await confirm(true,/^Закрыть смену\?$/);
     await wait(() => !state.shift && state.archive.length === 1 && !closeShiftInFlight);
     assert.equal((await readRows('archive')).length, 1); assert.equal((await readRows('logs')).length, 0);
     await nav('archive'); await page.locator('#archiveSearchToggle').click(); await page.locator('#archiveSearchInput').fill('учебный');

@@ -97,6 +97,9 @@ the new label/build come from the current generated HTML/manifest, not fixed
 inert demo configuration with matching worker/manifest hashes and exact-origin
 routing plus worker CSP. Auth is a signed-out local stub; synthetic empty-UID
 role checks cover UI gating only and are **not** Firestore authorization tests.
+Real Firestore persistence remains enabled, but the SDK's network is disabled
+before background listeners or role fixtures run. No inert-host errors or external
+connectivity probes are exempted from the strict CSP/network failure checks.
 The pinned old artifact's HTML says 3.1.17 while its history module hardcodes the
 runtime header to 3.1.16. This historical discrepancy is derived from its unchanged
 module and recorded separately; current HTML/runtime labels must match strictly.

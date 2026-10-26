@@ -9,3 +9,16 @@
   flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;
 }
 #archiveModal .archive-test-fullscreen > div:last-child {flex-shrink:0;padding-bottom:env(safe-area-inset-bottom);}
+
+/* Keep the existing four actions/labels/order; narrow screens need two columns
+   so the restore label cannot be clipped by the legacy flex row. TEST only. */
+@media (max-width:480px) {
+  #archiveModal .archive-test-fullscreen > div:last-child {
+    display:grid !important;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  }
+  #archiveModal .archive-test-fullscreen > div:last-child > button {
+    min-width:0;
+    white-space:normal;
+  }
+}

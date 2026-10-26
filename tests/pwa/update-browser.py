@@ -46,11 +46,12 @@ def wait_for_page_state(page, predicate, timeout=30000):
         page.wait_for_timeout(100)
 
 # Runs before the app; only Auth and forbidden Storage are stubs. Real Firestore
-# is configured to an unreachable loopback host; it is never signed in or queried.
+# persistence is retained, but its network is disabled using the SDK API before
+# app/background listeners or synthetic roles can start service traffic.
 # This is NOT the Firestore-emulator/domain-action suite in full-audit/browser-run.
 FIXTURE = r'''() => {
-  window.__upgradeFixture = {ready:false, authSettled:false, storageCalls:0,
-    kind:'Signed-out local Auth stub; synthetic role UI only; no Firestore service'};
+  window.__upgradeFixture = {ready:false, authSettled:false, networkDisabled:false, storageCalls:0,
+    kind:'Signed-out local Auth stub; real Firestore persistence with SDK network disabled; synthetic role UI only'};
   const report = value => window.__upgradeReport(value);
   window.addEventListener('unhandledrejection', e => report({kind:'unhandledrejection', message:String(e.reason?.stack || e.reason)}));
   document.addEventListener('securitypolicyviolation', e => report({kind:'csp', message:e.violatedDirective + ': ' + e.blockedURI}));
@@ -73,7 +74,21 @@ FIXTURE = r'''() => {
       // Settings alone do not start the SDK, so real persistence can still open.
       const settings=firestore.settings.bind(firestore);
       firestore.settings=options=>settings({...options,host:'127.0.0.1:9',ssl:false});
-      firestore.settings({}); app.auth=()=>auth; app.storage=()=>storage; return app;
+      firestore.settings({});
+      if (!name || name==='[DEFAULT]') {
+        const persistence=firestore.enablePersistence.bind(firestore);
+        firestore.enablePersistence=(...args)=>{
+          // Queue real persistence first, then SDK offline mode synchronously;
+          // never start networking to an inert host and rely on CSP to stop it.
+          const persisted=persistence(...args), disabled=firestore.disableNetwork();
+          return Promise.all([persisted,disabled]).then(([result])=>{
+            window.__upgradeFixture.networkDisabled=true; return result;
+          });
+        };
+      } else {
+        firestore.disableNetwork().catch(error=>report({kind:'fixture-network-disable',message:String(error)}));
+      }
+      app.auth=()=>auth; app.storage=()=>storage; return app;
     };
     window.__upgradeFixture.ready=true;
   }, true);
@@ -203,7 +218,7 @@ def main():
               'browser':'Chromium, sandbox required', 'steps':[], 'errors':[], 'blockedRequests':[], 'requests':[],
               'fixtures':{'auth':'Signed-out local UI stub, no Auth service',
                 'roleChecks':'Synthetic local permission variables with empty UID; not server authorization',
-                'firestore':'Real SDK, inert demo configuration, loopback-only host; no queried service',
+                'firestore':'Real SDK/persistence; SDK network disabled before application/background queries, inert demo configuration; no service',
                 'queue':'24 synthetic pending journal entries, byte-for-byte retention; not replay verification',
                 'source':'HTTP-only demo deployment identifiers and matching integrity manifests; repository artifacts unchanged'},
               'exclusions':['Real authentication', 'Domain queue replay', 'Live Firebase or MAX', 'Physical mobile/PWA installation']}
@@ -296,7 +311,7 @@ def main():
             return ctx
 
         def app_ready(p):
-            wait_for_page_state(p, '() => window.__upgradeFixture?.ready && window.__upgradeFixture.authSettled && !!window.TestPWA')
+            wait_for_page_state(p, '() => window.__upgradeFixture?.ready && window.__upgradeFixture.authSettled && window.__upgradeFixture.networkDisabled && !!window.TestPWA')
             assert p.evaluate('window.__upgradeFixture.storageCalls') == 0
             assert p.evaluate('firebase.app().options.projectId') == PROJECT
 

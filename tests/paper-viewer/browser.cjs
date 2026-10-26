@@ -11,6 +11,25 @@ async function hold(page,selector,ms=850,cancel){const button=page.locator(selec
 // the approved 44 px target only after its real CSS transitions reach scale(1),
 // not at the initial scale(0.9); never disable or rewrite application animation.
 async function settleArchive(page){await page.locator('#archiveModal').evaluate(async host=>{getComputedStyle(host).visibility;getComputedStyle(host.querySelector('.modal-content')).transform;await Promise.all(host.getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));});}
+// Real pointer clicks are intercepted only in this isolated fixture, before
+// application actions, so hit-testing never restores/deletes a real record.
+async function footerChecks(page,width){
+ const buttons=page.locator('#archiveModal .archive-test-fullscreen > div:last-child > button');
+ const expected=['♻️ Восстановить','🖼 Сохранить отчёт','Закрыть','🗑 Удалить'];
+ assert.equal(await buttons.count(),4);assert.deepEqual((await buttons.allTextContents()).map(text=>text.trim()),expected);
+ await page.evaluate(()=>{window.fixtureFooterClicks=[];});
+ for(let i=0;i<4;i++){
+  const button=buttons.nth(i),geometry=await button.evaluate(node=>{const rect=node.getBoundingClientRect(),range=document.createRange();range.selectNodeContents(node);const labels=[...range.getClientRects()].map(box=>({left:box.left,right:box.right,top:box.top,bottom:box.bottom}));const hit=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);return{box:{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom},labels,inViewport:rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight,hit:hit===node||node.contains(hit)};});
+  assert(geometry.inViewport,expected[i]+' is inside '+width+'px viewport');assert(geometry.hit,expected[i]+' is not obscured');
+  assert(geometry.labels.length>0);for(const label of geometry.labels)assert(label.left>=geometry.box.left-.5&&label.right<=geometry.box.right+.5&&label.top>=geometry.box.top-.5&&label.bottom<=geometry.box.bottom+.5,expected[i]+' label fits completely inside its button at '+width+'px');
+  await button.click({trial:true});
+  await button.evaluate(node=>node.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();fixtureFooterClicks.push(node.textContent.trim());},{capture:true,once:true}));
+  await button.click();
+ }
+ assert.deepEqual(await page.evaluate(()=>fixtureFooterClicks),expected,'all four rendered actions receive real pointer clicks in original order');
+ assert.deepEqual(await page.evaluate(()=>fixtureWrites),[]);
+ pass('test '+width+'px: all four unchanged footer labels contained, unobscured and real-clickable; no record actions executed');
+}
 async function shape(locator){return locator.evaluate(node=>{const copy=node.cloneNode(true);[copy,...copy.querySelectorAll('*')].forEach(n=>n.removeAttribute('id'));return copy.outerHTML.replace(/>\s+</g,'><');});}
 async function viewerChecks(page,kind){const dialog=page.locator('#'+kind+'-sheet-dialog'),stage=dialog.locator('.sheet-stage'),paper=dialog.locator('.sheet-page');await dialog.waitFor({state:'visible'});const tools=await dialog.locator('.sheet-tools').innerHTML();assert.equal(await dialog.locator('canvas').count(),0);assert.equal(await dialog.locator('button').count(),4);const fit=await dialog.locator('.sheet-scale').innerText();await dialog.locator('[data-action=in]').click();assert.notEqual(await dialog.locator('.sheet-scale').innerText(),fit);for(let i=0;i<5;i++)await dialog.locator('[data-action=in]').click();const before=await paper.getAttribute('style');const box=await stage.boundingBox();await page.mouse.move(box.x+box.width*.6,box.y+box.height*.6);await page.mouse.down();await page.mouse.move(box.x+box.width*.3,box.y+box.height*.35,{steps:5});await page.mouse.up();assert.notEqual(await paper.getAttribute('style'),before,'drag pans a magnified sheet');await dialog.locator('[data-action=fit]').click();assert.equal(await dialog.locator('.sheet-scale').innerText(),fit);await stage.hover();await page.mouse.wheel(0,-300);assert.notEqual(await dialog.locator('.sheet-scale').innerText(),fit);await stage.dblclick({position:{x:40,y:40}});assert.equal(await dialog.locator('.sheet-scale').innerText(),fit);return tools;}
 (async()=>{
@@ -30,7 +49,7 @@ async function viewerChecks(page,kind){const dialog=page.locator('#'+kind+'-shee
    const expected=await shape(page.locator('#paperReportContainer'));
    await page.locator('#paperReportContainer').click();const summaryTools=await viewerChecks(page,'summary');
    const frozenSummary=await page.locator('#summary-sheet-dialog .paper-report-container').innerHTML();await page.evaluate(()=>{state.logs[0].comment='LIVE CHANGED';state.shift.objectName='LIVE SHIFT';renderReport();});assert.equal(await page.locator('#summary-sheet-dialog .paper-report-container').innerHTML(),frozenSummary);await page.keyboard.press('Escape');await page.locator('#summary-sheet-dialog').waitFor({state:'detached'});assert.equal(await page.evaluate(()=>document.body.style.overflow),'');pass(prefix+': shared Summary zoom, drag, wheel, fit, double-tap, escape; live updates cannot change open sheet');
-   await page.evaluate(()=>resetFixture());await page.locator('.archive-shift-item').filter({hasText:'26.10.2026'}).click();await page.locator('#archiveModal').waitFor({state:'visible'});await settleArchive(page);
+   await page.evaluate(()=>resetFixture());await page.locator('.archive-shift-item').filter({hasText:'26.10.2026'}).click();await page.locator('#archiveModal').waitFor({state:'visible'});await settleArchive(page);if(mode==='test'&&mobile)await footerChecks(page,390);
    const archived=page.locator('#archive-paper-wrapper .paper-report-container');assert.equal(await shape(archived),expected,'archive paper markup exactly matches Summary benchmark for matching data');
    assert.equal(await page.locator('#modalArchiveBody > .archive-view-switch').count(),1);assert(await page.locator('#modalArchiveBody > .archive-view-switch').evaluate(node=>node.previousElementSibling.id==='archive-paper-wrapper'));
    const button=page.locator('.archive-toggle-icon'),b=await button.boundingBox(),wrap=await page.locator('.archive-view-switch').boundingBox();const logical=await button.evaluate(node=>({width:getComputedStyle(node).width,height:getComputedStyle(node).height}));assert.deepEqual(logical,{width:'44px',height:'44px'});assert(Math.abs(b.width-44)<.01,'settled button width is 44 px');assert(Math.abs(b.height-44)<.01,'settled button height is 44 px');assert(Math.abs(b.x+b.width-wrap.x-wrap.width)<1);assert.equal(await button.getAttribute('onclick'),null);
@@ -53,5 +72,13 @@ async function viewerChecks(page,kind){const dialog=page.locator('#'+kind+'-shee
   }
   await ctx.close();
  }
+ // Narrow-phone regression is local TEST outer chrome only; do not alter the
+ // production modal or expand the approved paper benchmark/layout itself.
+ const narrow=await browser.newContext({viewport:{width:320,height:740},isMobile:true,hasTouch:true,locale:'ru-RU'});
+ await narrow.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+ const narrowPage=await narrow.newPage();activePage=narrowPage;narrowPage.on('pageerror',error=>report.errors.push('test 320px: '+error.message));
+ await narrowPage.goto(origin+'/tests/paper-viewer/test.html');await narrowPage.evaluate(()=>document.fonts.ready);
+ await narrowPage.locator('.archive-shift-item').filter({hasText:'26.10.2026'}).click();await narrowPage.locator('#archiveModal').waitFor({state:'visible'});await settleArchive(narrowPage);
+ await footerChecks(narrowPage,320);await narrowPage.screenshot({path:path.join(out,'test-mobile320-archive.png'),fullPage:true});await narrow.close();
  assert.deepEqual(report.errors,[]);report.status='passed';
 })().catch(async error=>{report.status='failed';report.error=error.stack;console.error(error);process.exitCode=1;if(activePage&&!activePage.isClosed()){try{await activePage.screenshot({path:path.join(out,'failure-screen.png'),fullPage:true});report.failureUI=await activePage.evaluate(()=>({archiveOpen:document.getElementById('archiveModal')?.className,modalTransform:document.querySelector('#archiveModal .modal-content')?getComputedStyle(document.querySelector('#archiveModal .modal-content')).transform:null,viewer:document.querySelector('.paper-sheet-dialog')?.innerText,errors:window.fixtureErrors}));}catch(captureError){report.failureCaptureError=captureError.message;}}}).finally(async()=>{fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));await browser?.close();server.close();});

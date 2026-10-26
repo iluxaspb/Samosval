@@ -74,6 +74,42 @@ async function testServer() {
   } finally { await new Promise(resolve => {server.close(resolve);server.closeAllConnections();}); }
 }
 
+async function testUpgradeNetworkFixture() {
+  // Exercise the Python harness's exact serialized JS without a browser. This
+  // does not substitute for the CI upgrade, but prevents isolation regressions.
+  const python=fs.readFileSync(path.join(root,'tests/pwa/update-browser.py'),'utf8');
+  const fixture=python.match(/^FIXTURE = r'''([\s\S]*?)'''/m)?.[1]; assert(fixture);
+  const events={}, calls=[], reports=[];
+  let persistenceError;
+  const sdk={auth:()=>{},storage:()=>{},initializeApp:config=>{
+    const db={settings(){calls.push('settings');},enablePersistence(){calls.push('persistence');return persistenceError?Promise.reject(persistenceError):Promise.resolve('real-persistence-result');},
+      disableNetwork(){calls.push('disable-network');return Promise.resolve();}};
+    return {options:config,firestore:()=>db};
+  }};
+  const ctx={window:{firebase:sdk,__upgradeReport:value=>reports.push(value),addEventListener(){}},
+    document:{addEventListener:(type,fn)=>events[type]=fn},Promise,setTimeout};
+  vm.createContext(ctx);vm.runInContext('('+fixture+')()',ctx);
+  events.load({target:{tagName:'SCRIPT',src:'/html2pdf-local.js'}});
+  const config={projectId:'demo-samosval-upgrade-audit',apiKey:'local-demo-not-a-credential'};
+  const app=sdk.initializeApp(config);
+  assert.deepEqual(calls,['settings'],'Network must not start before app config/persistence');
+  const persisted=app.firestore().enablePersistence({synchronizeTabs:true});
+  assert.deepEqual(calls,['settings','persistence','disable-network'],'Disable queues immediately after real persistence, before listeners');
+  assert.equal(await persisted,'real-persistence-result');
+  assert.equal(ctx.window.__upgradeFixture.networkDisabled,true);
+  sdk.initializeApp(config,'Secondary');
+  assert.deepEqual(calls.slice(-2),['settings','disable-network'],'Secondary app is also offline');
+  assert.throws(()=>sdk.initializeApp({projectId:'live-project'}),/Non-demo/);
+  assert.deepEqual(reports,[]);
+  // A genuine persistence error must remain visible, never converted to success.
+  const rejected=Object.assign(Error('persistence denied'),{code:'failed-precondition'});
+  persistenceError=rejected; ctx.window.__upgradeFixture.networkDisabled=false;
+  await assert.rejects(()=>sdk.initializeApp(config).firestore().enablePersistence(),error=>error===rejected);
+  assert.equal(ctx.window.__upgradeFixture.networkDisabled,false,'Failed persistence must not claim fixture ready');
+  assert.deepEqual(calls.slice(-3),['settings','persistence','disable-network']);
+  console.log('PASS upgrade infrastructure mock: real persistence result retained; primary/secondary SDK networking disabled before roles/listeners');
+}
+
 (async () => {
   const context={fixture:'emulator context'}, environment={async withSecurityRulesDisabled(callback){await callback(context);}};
   assert.deepEqual(await readWithRulesDisabled(environment,async actual=>{assert.equal(actual,context);return [{id:'actual-sdk-row'}];}),[{id:'actual-sdk-row'}]);
@@ -83,5 +119,5 @@ async function testServer() {
   assert.deepEqual(pngDetails(png),{width:1,height:1});
   assert.throws(()=>pngDetails(Buffer.from('PNG fixture')),/signature/);
   assert.throws(()=>pngDetails(png.subarray(0,png.length-3)),/Incomplete/);
-  await testFixture(); await testServer();
+  await testFixture(); await testUpgradeNetworkFixture(); await testServer();
 })().catch(error => {console.error(error);process.exitCode=1;});
