@@ -1,0 +1,79 @@
+name: TEST update recovery checks
+on:
+  push:
+    branches: [root, repair/test-update-recovery-20261026]
+    paths:
+      - update-test.html
+      - tests/pwa/update-browser.py
+      - .github/workflows/test-update-recovery.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Existing business and offline regressions
+        run: |
+          set -eu
+          for test in tests/coins/admin-settings.cjs tests/coins/test-parity.cjs tests/photo-removal/build.cjs tests/photo-removal/core.cjs tests/pwa/service-worker.cjs tests/shift-close/regression.cjs tests/shift-close/max-text.cjs tests/png-export/regression.cjs; do
+            node "$test"
+          done
+      - name: Fetch exact pre-update application
+        run: |
+          git fetch --depth=1 origin d355556c72f81f6f104aa3bac9b28f584dbc0c9a
+          mkdir -p "$RUNNER_TEMP/samosval-old"
+          git archive FETCH_HEAD | tar -x -C "$RUNNER_TEMP/samosval-old"
+      - name: Install browser test dependencies
+        run: |
+          python -m pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: Actual browser old-to-new upgrade without live Firebase
+        run: python -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old"
+      - name: Verify files served by live GitHub Pages
+        env:
+          CHECK_UPDATER: ${{ github.ref_name == 'root' && '1' || '0' }}
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,time,urllib.request
+          from pathlib import Path
+          from concurrent.futures import ThreadPoolExecutor
+          base='https://iluxaspb.github.io/Samosval/'
+          manifest=json.loads(Path('test-app/build-manifest.json').read_text())
+          def get(path):
+              req=urllib.request.Request(base+path,headers={'Cache-Control':'no-cache','User-Agent':'Samosval-release-verification'})
+              with urllib.request.urlopen(req,timeout=45) as response:
+                  assert response.status==200
+                  return response.read()
+          def check(record):
+              content=get(record['url'].removeprefix('./'))
+              assert hashlib.sha256(content).hexdigest()==record['sha256'],record['url']
+          with ThreadPoolExecutor(max_workers=4) as pool:
+              list(pool.map(check,manifest['assets']))
+          assert get('sw-test.js')==Path('sw-test.js').read_bytes(),'Live worker differs'
+          print('PASS LIVE PAGES:',len(manifest['assets']),'asset SHA-256 hashes plus service worker match build',manifest['version'])
+          if os.environ['CHECK_UPDATER']=='1':
+              for attempt in range(18):
+                  try:
+                      assert get('update-test.html?verify='+str(time.time_ns()))==Path('update-test.html').read_bytes()
+                      print('PASS LIVE PAGES: update-test.html matches this commit exactly')
+                      break
+                  except Exception:
+                      if attempt==17: raise
+                      time.sleep(10)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-update-browser-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
