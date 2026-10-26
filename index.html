@@ -42,6 +42,8 @@
       pointer-events:none;
     }
     .version-text { opacity: 1; color: #22c55e; font-weight: 800; font-size: 11px; }
+    /* Номер версии скрыт до проверки роли администратора; индикатор синхронизации остаётся видимым. */
+    body:not([data-release-admin="1"]) .version-text { display: none !important; }
 
     .sync-dot-wrap {
       position: relative; display: inline-flex; align-items: center; justify-content: center;
@@ -417,7 +419,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.4.2</span>
+        <span class="version-text">Версия 3.4.3</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -1664,6 +1666,9 @@
 
   function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
   function applyRoleUI() {
+    const versionAllowed = permissionsLoaded && canAdmin();
+    document.body.toggleAttribute('data-release-admin', versionAllowed);
+    if (!versionAllowed) document.getElementById('releaseHistoryDialog')?.close();
     const viewBanner = document.getElementById('viewOnlyBanner'); const canDoAnything = hasPermission('start_shift') || hasPermission('edit_line') || hasPermission('action_load');
     if (viewBanner) viewBanner.style.display = (!canDoAnything && state.shift) ? 'block' : 'none';
     const startBtn = document.getElementById('startShiftBtn'); if (startBtn) startBtn.style.display = hasPermission('start_shift') ? '' : 'none';
@@ -3736,6 +3741,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.4.3',title:'Архивные PNG и доступ к истории версий',items:['PNG архивного отчёта сохраняет все строки и столбцы без обрезки, включая длинные списки рейсов.','Порядок машин и рейсов повторяет открытый лист: данные не пересортировываются и не берутся из другого архива.','При сохранении сохраняются рукописные пометки и выбранный вид листа, включая ГАИ.','Номер версии и история обновлений в интерфейсе доступны только активному администратору после проверки прав.']},
     {version:'3.4.2',title:'Настройка монет за действия',items:['Администратор может настроить монеты за погрузку, возвращение после погрузки и «Забрал ТТН». Значения по умолчанию: 1, 2 и 0.','Новые ставки сохраняются для следующих подтверждённых действий; прошлые начисления не пересчитываются.','Повторы синхронизации не начисляют монеты повторно. Отмена действия снимает его награду, восстановление возвращает исходное начисление.']},
     {version:'3.4.1',title:'Закрытие смены и отчёты PNG',items:['Закрытие смены больше не ждёт отчёт для MAX. Рейсы сохраняются в архив, очистка выполняется небольшими порциями; после сбоя можно продолжить закрытие.','Отчёты текущей смены, ГАИ, архива и расширений скачиваются в PNG.','В MAX остаются только текстовые уведомления. Отправка отчётов и её настройки убраны.']},
     {version:'3.4',title:'Мини-игры и рейтинг выигрышей',items:['Марио: 20 уровней, пять редких монет на уровень и максимум 100 монет в день по московскому времени. Собранные монеты и открытые уровни сохраняются в аккаунте.','Однорукий бандит: общий банк со стартовыми 1 000 монетами, ставка 10 монет, звуки, редкий джекпот и открытая таблица вероятностей. Только виртуальная валюта.','Мини-игры доступны всем активным пользователям, включая наблюдателей. В админке можно выключить их все, каждую игру отдельно и приглашения.','Добавлены общий рейтинг выплат, отдельный рейтинг Марио и последние 20 выигрышей. Рабочие ранги и очки не меняются от игры.','Возвращение самосвала сопровождают две монеты; при уменьшении кошелька монеты улетают от счёта.','Общий игровой журнал согласует ставки и покупки между устройствами; повторная проверка одного действия не списывает ставку дважды.']},
@@ -3759,8 +3765,9 @@ function calculateTripAnalytics(sessions, trucks, now) {
     .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия 3.4.2';button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия '+releases[0].version;button.setAttribute('aria-haspopup','dialog');button.title='История версий';label.replaceWith(button);
   button.addEventListener('click',()=>{
+    if (!permissionsLoaded || !canAdmin()) return;
     if(document.getElementById('releaseHistoryDialog'))return;
     const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
     const header=document.createElement('div');header.className='release-heading';const title=document.createElement('h2');title.id='releaseHistoryTitle';title.textContent='История версий';const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Закрыть историю версий');close.onclick=()=>dialog.close();header.append(title,close);dialog.append(header);
