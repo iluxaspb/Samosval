@@ -369,13 +369,6 @@
       margin-bottom: 14px;
     }
 
-    .stylus-canvas {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 100;
-      pointer-events: none; cursor: crosshair; touch-action: none;
-    }
-    .stylus-canvas.active {
-      pointer-events: auto;
-    }
   </style>
 </head>
 <body>
@@ -419,7 +412,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.4.4</span>
+        <span class="version-text">Версия 3.4.5</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -460,15 +453,10 @@
   </div>
 
   <div id="tab-report" class="tab-content">
-    <div style="display:flex; gap:8px; margin-bottom: 8px;">
-        <button class="btn btn-secondary btn-small" id="btnDrawToggle" style="flex:1;" onclick="toggleDrawMode()">✏️ Рисовать</button>
-        <button class="btn btn-danger btn-small" style="flex:1;" onclick="clearDrawings()">🗑 Очистить</button>
-    </div>
 
     <div id="paperReportWrapper">
       <div class="paper-scroll-wrapper">
         <div class="paper-report-container compact" id="paperReportContainer">
-          <canvas id="draw-canvas-main" class="stylus-canvas"></canvas>
           <div class="paper-header">
             <div class="paper-object-name" id="paperObjectName">Объект: —</div>
             <div class="paper-date-vol-row">
@@ -486,7 +474,6 @@
     <div id="gaiReportWrapper" style="display:none;">
       <div class="paper-scroll-wrapper">
         <div class="paper-report-container compact" id="gaiPaperContainer">
-          <canvas id="draw-canvas-gai" class="stylus-canvas"></canvas>
           <div class="paper-header">
             <div class="paper-object-name" id="gaiObjectName">Объект: —</div>
             <div class="paper-date-vol-row">
@@ -839,11 +826,6 @@
 <div id="archiveModal" class="modal" onclick="if(event.target===this)closeArchiveModal()">
   <div class="modal-content">
     <div style="display:flex; justify-content:space-between; align-items:center;"><h3 id="modalArchiveTitle">Отчет</h3><button class="btn-del" onclick="closeArchiveModal()">✕</button></div>
-    
-    <div style="display:flex; gap:8px; margin-top:8px;">
-        <button class="btn btn-secondary btn-small" id="btnDrawToggleArchive" style="flex:1;" onclick="toggleDrawModeArchive()">✏️ Рисовать</button>
-        <button class="btn btn-danger btn-small" style="flex:1;" onclick="clearDrawingsArchive()">🗑 Очистить</button>
-    </div>
 
     <div class="modal-body" id="modalArchiveBody"></div>
     <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
@@ -1083,7 +1065,6 @@
   let lastTickerTs = 0;
   let pluginTabs = {};
   let pluginPdfButtons = [];
-  let drawMode = false;
 
   function pendingStart() { pendingOps++; updateSyncUI(); }
   function pendingEnd() { pendingOps = Math.max(0, pendingOps - 1); updateSyncUI(); }
@@ -1859,32 +1840,7 @@
   }
 
   // === STYLUS ===
-  function setupStylus(canvasId, containerId) {
-    const canvas = document.getElementById(canvasId); const container = document.getElementById(containerId);
-    if (!canvas || !container) return;
-    canvas.width = container.scrollWidth; canvas.height = container.scrollHeight;
-    const ctx = canvas.getContext('2d'); ctx.strokeStyle = '#0000FF'; ctx.lineWidth = 2; ctx.lineCap = 'round';
-    let isDrawing = false;
-    canvas.addEventListener('pointerdown', (e) => { if (!drawMode) return; e.preventDefault(); isDrawing = true; const rect = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top); });
-    canvas.addEventListener('pointermove', (e) => { if (!isDrawing) return; e.preventDefault(); const rect = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top); ctx.stroke(); });
-    canvas.addEventListener('pointerup', () => { isDrawing = false; });
-    canvas.addEventListener('pointerleave', () => { isDrawing = false; });
-  }
-  function toggleDrawMode() {
-    drawMode = !drawMode;
-    const c1 = document.getElementById('draw-canvas-main'); const c2 = document.getElementById('draw-canvas-gai'); const btn = document.getElementById('btnDrawToggle');
-    if (drawMode) { if (c1) c1.classList.add('active'); if (c2) c2.classList.add('active'); btn.innerHTML = '🖐 Отключить'; btn.classList.replace('btn-secondary', 'btn-quick'); showToastEl('✏️ Рисование ВКЛ', false); }
-    else { if (c1) c1.classList.remove('active'); if (c2) c2.classList.remove('active'); btn.innerHTML = '✏️ Рисовать'; btn.classList.replace('btn-quick', 'btn-secondary'); showToastEl('🖐 Рисование ВЫКЛ', false); }
-  }
-  function clearDrawings() { ['draw-canvas-main', 'draw-canvas-gai'].forEach(id => { const c = document.getElementById(id); if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height); }); showToastEl('🗑 Очищено', false); }
-  function toggleDrawModeArchive() {
-    const c = document.getElementById('draw-canvas-archive'); const btn = document.getElementById('btnDrawToggleArchive'); if (!c) return;
-    const isActive = c.classList.contains('active');
-    if (isActive) { c.classList.remove('active'); btn.innerHTML = '✏️ Рисовать'; btn.classList.replace('btn-quick', 'btn-secondary'); drawMode = false; }
-    else { c.classList.add('active'); btn.innerHTML = '🖐 Отключить'; btn.classList.replace('btn-secondary', 'btn-quick'); drawMode = true; }
-  }
-  function clearDrawingsArchive() { const c = document.getElementById('draw-canvas-archive'); if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height); showToastEl('🗑 Очищено', false); }
-
+  // Ручное рисование отключено; маркер раздела сохранён для проверки PNG.
   // === ОТЧЕТ HTML ===
   function buildReportHTML({ objectName, date, logs, activeLineIds, type, checkTTN, isClosed = false, reportTtnStatus = null }) {
     const filteredLogs = type === 'gai' ? logs.filter(l => l.isGAI) : logs.filter(l => !l.isGAI);
@@ -1935,9 +1891,7 @@
     try {
       showToastEl('⏳ Подготовка PNG...', false);
       const html = buildReportHTML({ objectName: state.shift.objectName, date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
-      const canvas = document.getElementById(type === 'gai' ? 'draw-canvas-gai' : 'draw-canvas-main'); let finalHtml = html;
-      if (canvas) finalHtml = `<div style="position:relative;"><img src="${canvas.toDataURL()}" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none;"><div style="position:relative; z-index:1;">${html}</div></div>`;
-      const blob = await generatePNGFromHTML(finalHtml); downloadReportPNG(blob, `report_${type}_${Date.now()}.png`); showToastEl('✅ PNG готов', false);
+      const blob = await generatePNGFromHTML(html); downloadReportPNG(blob, `report_${type}_${Date.now()}.png`); showToastEl('✅ PNG готов', false);
     } catch(e) { showError('Ошибка PNG: ' + e.message); }
   }
   async function exportArchivePNG() {
@@ -1959,20 +1913,6 @@
     const snapshot = liveWrapper.cloneNode(true);
     const sheet = snapshot.querySelector('.paper-report-container');
     const scroller = snapshot.querySelector('.paper-scroll-wrapper');
-    const sourceCanvas = liveWrapper.querySelector('#draw-canvas-archive');
-    const clonedCanvas = snapshot.querySelector('#draw-canvas-archive');
-    const screenZoom = parseFloat(getComputedStyle(livePaper).zoom) || 1;
-    // Preserve any handwritten marks; a cloned <canvas> does not copy its bitmap.
-    if (sourceCanvas && clonedCanvas) {
-      try {
-        const drawing = document.createElement('img');
-        const rect = sourceCanvas.getBoundingClientRect();
-        drawing.src = sourceCanvas.toDataURL('image/png');
-        drawing.style.cssText = 'position:absolute;left:0;top:0;z-index:100;pointer-events:none;width:' +
-          (rect.width / screenZoom) + 'px;height:' + (rect.height / screenZoom) + 'px';
-        clonedCanvas.replaceWith(drawing);
-      } catch (e) { clonedCanvas.remove(); }
-    }
     snapshot.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
     snapshot.style.width = 'max-content';
     snapshot.style.maxWidth = 'none';
@@ -2126,7 +2066,6 @@
       let commHtml = l.comment ? `<div class="log-comment">💬 ${escapeHtml(l.comment)}</div>` : '';
       return `<div class="log-item"><div><div class="log-info">${truckLabelHtml(l.truckId, l.truckName)} — ${volHtml}</div><div class="log-meta">${escapeHtml(l.timeStr)}${au}${l.offlinePending?' · ☁️ офлайн':''}</div>${commHtml}</div>${canEditL&&!l.offlinePending?`<div style="display:flex;gap:6px;"><button class="btn-edit" onclick="openEditLog('${l.id}')">✏️</button><button class="btn-del" onclick="deleteLog('${l.id}')">X</button></div>`:''}</div>`;
     }).join('');
-    setTimeout(() => { setupStylus('draw-canvas-main', 'paperReportContainer'); setupStylus('draw-canvas-gai', 'gaiPaperContainer'); }, 50);
   }
   function toggleReportType() { if (!hasPermission('view_gai_report')) { showError('Нет прав'); return; } showGAITable = !showGAITable; renderReport(); }
   function openEditLog(id) { if(!requireEdit('edit_logs')) return; let l=state.logs.find(x=>x.id===id); if(!l) return; editingLogId=id; document.getElementById('editLogTruckInfo').innerHTML=`<b>${escapeHtml(l.truckName)}</b>`; document.getElementById('editLogVolume').value=l.volume; document.getElementById('editLogTime').value=l.timeStr; document.getElementById('editLogComment').value=l.comment || ''; document.getElementById('editLogModal').classList.add('open'); }
@@ -2202,7 +2141,7 @@
           else if (i === l.length && ttnStatus[t.id] === 'pending') { cells += `<td><div class="cell-content"><div class="hand-drawn-circle"></div></div></td>`; }
           else cells += '<td></td>';
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">${sm} м³</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
-      html = `<div style="position:relative;" id="archive-paper-wrapper"><canvas id="draw-canvas-archive" class="stylus-canvas"></canvas><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Объем: <b>${tV} м³</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Объем: <b>${tV} м³</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
     } else {
       let aIds = activeLineIds.filter(id => { let t = findTruck(id); return t && t.isGAI; });
       let tIds = new Set(aIds); gaiLogs.forEach(l=>tIds.add(l.truckId));
@@ -2213,10 +2152,9 @@
         for(let i=0; i<mT; i++) { if(l[i]) { let commHtml = l[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l[i].comment)}</div>` : ''; cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(l[i].timeStr)}</div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l[i].createdByEmail, l[i].createdBy))}</div>${commHtml}</div></td>`; }
           else cells += '<td></td>';
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">Рейсов: ${l.length}</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
-      html = `<div style="position:relative;" id="archive-paper-wrapper"><canvas id="draw-canvas-archive" class="stylus-canvas"></canvas><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)} (ГАИ)</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Рейсов ГАИ: <b>${gaiLogs.length}</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)} (ГАИ)</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Рейсов ГАИ: <b>${gaiLogs.length}</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
     }
     document.getElementById('modalArchiveBody').innerHTML = toggleBtnHtml + html;
-    setTimeout(() => { setupStylus('draw-canvas-archive', 'archive-paper-wrapper'); }, 100);
   }
   function closeArchiveModal() { document.getElementById('archiveModal').classList.remove('open'); viewingArchiveId=null; }
   async function restoreArchiveToShift() {
@@ -3741,6 +3679,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.4.5',title:'Ручное рисование на листах отключено',items:['Убраны кнопки «Рисовать» и «Очистить» на листах сводки, ГАИ и в архиве.','Отключены обработчики рисования и прозрачные слои поверх листов.','Просмотр, масштабирование, отметки ТТН, архив и экспорт PNG сохранены. Историю версий видит только активный администратор.']},
     {version:'3.4.4',title:'Видимость версии у администратора',items:['Исправлено отображение зелёного номера версии в верхней части страницы для активного администратора.','Просмотр истории изменений по нажатию на номер версии по-прежнему доступен только администратору.','Сохранены прежние права, данные, отчёты и поведение архивного PNG.']},
     {version:'3.4.3',title:'Архивные PNG и доступ к истории версий',items:['PNG архивного отчёта сохраняет все строки и столбцы без обрезки, включая длинные списки рейсов.','Порядок машин и рейсов повторяет открытый лист: данные не пересортировываются и не берутся из другого архива.','При сохранении сохраняются рукописные пометки и выбранный вид листа, включая ГАИ.','Номер версии и история обновлений в интерфейсе доступны только активному администратору после проверки прав.']},
     {version:'3.4.2',title:'Настройка монет за действия',items:['Администратор может настроить монеты за погрузку, возвращение после погрузки и «Забрал ТТН». Значения по умолчанию: 1, 2 и 0.','Новые ставки сохраняются для следующих подтверждённых действий; прошлые начисления не пересчитываются.','Повторы синхронизации не начисляют монеты повторно. Отмена действия снимает его награду, восстановление возвращает исходное начисление.']},
