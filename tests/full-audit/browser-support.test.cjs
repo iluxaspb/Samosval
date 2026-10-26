@@ -70,11 +70,13 @@ async function testServer() {
     const probeHead=await fetch(origin+FIRESTORE_PROBE_FIXTURE.path,{method:'HEAD'});
     assert.equal(probeHead.status,200); assert.equal((await probeHead.arrayBuffer()).byteLength,0);
     assert.equal((await fetch(origin+FIRESTORE_PROBE_FIXTURE.path,{method:'POST'})).status,405);
+    let probeVendorRecords=0;
     for (const record of records) {
       const response=await fetch(new URL(record.url,origin + '/Samosval/sw-test.js')); assert.equal(response.status,200,record.url);
       const bytes=Buffer.from(await response.arrayBuffer());
       assert.equal(createHash('sha256').update(bytes).digest('hex'),record.sha256,record.url);
-      if (record.url===FIRESTORE_PROBE_FIXTURE.asset) {
+      if (record.url.replace(/^\.\//,'')===FIRESTORE_PROBE_FIXTURE.asset) {
+        probeVendorRecords++;
         const original=fs.readFileSync(path.join(root,record.url));
         assert.notEqual(record.sha256,FIRESTORE_PROBE_FIXTURE.originalSha256,'Worker must verify rewritten response bytes');
         assert.deepEqual(bytes,rewriteConnectivityProbe(original));
@@ -88,6 +90,7 @@ async function testServer() {
         }
       }
     }
+    assert.equal(probeVendorRecords,1,'Exactly one actual cached vendor response must be checked');
     assert.deepEqual(errors,[]);
     const original='const firebaseConfig = {projectId:"samosval-offline"};\nconst TEST_FIREBASE_PROJECT_ID = \'samosval-offline\';';
     assert.equal(rewriteDemoSource(original,true).includes(PROJECT),true);
