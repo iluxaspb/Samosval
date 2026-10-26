@@ -85,41 +85,117 @@
     setTimeout(() => { setupStylus('draw-canvas-archive', 'archive-paper-wrapper'); }, 100);
   }
   async function saveArchivePNG() {
-    if(!hasTabAccess('archive') || !viewingArchiveId)return;
-    const archive=state.archive.find(x=>x.id===viewingArchiveId);
-    const paper=document.querySelector('#modalArchiveBody .paper-report-container');
-    const button=document.getElementById('archiveSavePngBtn');
-    if(!archive || !paper || typeof window.html2pdf!=='function'){
-      showError('Экспорт изображения недоступен');return;
+    // Export the archive sheet that is currently displayed, not a re-sorted/rebuilt report.
+    if (!hasTabAccess('archive') || !viewingArchiveId) return;
+    const archiveId = viewingArchiveId;
+    const isGAI = viewingArchiveGAITable;
+    const archive = state.archive.find(s => s.id === archiveId);
+    const modal = document.getElementById('archiveModal');
+    const liveWrapper = modal?.querySelector('#modalArchiveBody #archive-paper-wrapper');
+    const livePaper = liveWrapper?.querySelector('.paper-report-container');
+    const button = modal?.querySelector('#archiveSavePngBtn, button[onclick="exportArchivePNG()"]');
+    if (!archive || !livePaper || typeof window.html2pdf !== 'function') {
+      showError('Экспорт изображения недоступен');
+      return;
     }
-    const holder=document.createElement('div');
-    holder.style.cssText='position:fixed;left:-100000px;top:0;width:max-content;z-index:-1;background:#fff;pointer-events:none';
-    const clone=paper.cloneNode(true);
-    clone.style.zoom='1';
-    clone.style.transform='none';
-    clone.style.width='max-content';
-    holder.appendChild(clone);
+
+    // Snapshot before any await: the user may switch dates or report types while PNG renders.
+    const snapshot = liveWrapper.cloneNode(true);
+    const sheet = snapshot.querySelector('.paper-report-container');
+    const scroller = snapshot.querySelector('.paper-scroll-wrapper');
+    const sourceCanvas = liveWrapper.querySelector('#draw-canvas-archive');
+    const clonedCanvas = snapshot.querySelector('#draw-canvas-archive');
+    const screenZoom = parseFloat(getComputedStyle(livePaper).zoom) || 1;
+    // Preserve any handwritten marks; a cloned <canvas> does not copy its bitmap.
+    if (sourceCanvas && clonedCanvas) {
+      try {
+        const drawing = document.createElement('img');
+        const rect = sourceCanvas.getBoundingClientRect();
+        drawing.src = sourceCanvas.toDataURL('image/png');
+        drawing.style.cssText = 'position:absolute;left:0;top:0;z-index:100;pointer-events:none;width:' +
+          (rect.width / screenZoom) + 'px;height:' + (rect.height / screenZoom) + 'px';
+        clonedCanvas.replaceWith(drawing);
+      } catch (e) { clonedCanvas.remove(); }
+    }
+    snapshot.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+    snapshot.style.width = 'max-content';
+    snapshot.style.maxWidth = 'none';
+    snapshot.style.height = 'auto';
+    if (scroller) {
+      scroller.style.width = 'max-content';
+      scroller.style.maxWidth = 'none';
+      scroller.style.overflow = 'visible';
+      scroller.style.height = 'auto';
+      scroller.style.margin = '0';
+    }
+    sheet.style.zoom = '1';
+    sheet.style.transform = 'none';
+    sheet.style.transition = 'none';
+    sheet.style.width = 'max-content';
+    sheet.style.maxWidth = 'none';
+
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-100000px;top:0;width:max-content;background:#fdfdfd;pointer-events:none;z-index:-1';
+    holder.appendChild(snapshot);
     document.body.appendChild(holder);
-    if(button)button.disabled=true;
-    try{
-      if(document.fonts?.ready)await document.fonts.ready;
-      const canvas=await window.html2pdf().set({
-        margin:0,
-        html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,scrollX:0,scrollY:0},
-        jsPDF:{unit:'px',format:'a4'}
-      }).from(clone).toCanvas().get('canvas');
-      if(!canvas || !canvas.width || !canvas.height)throw Error('Пустое изображение');
-      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
-      if(!blob)throw Error('Браузер не смог создать PNG');
-      const safeName=String(archive.objectName||'Объект').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,70);
-      const safeDate=String(archive.date||'').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_');
-      const url=URL.createObjectURL(blob),link=document.createElement('a');
-      link.href=url;link.download=safeName+'_'+safeDate+(viewingArchiveGAITable?'_ГАИ':'')+'.png';
-      document.body.appendChild(link);link.click();link.remove();
-      setTimeout(()=>URL.revokeObjectURL(url),60000);
-      showToastEl('Отчёт PNG сохранён',false);
-    }catch(e){console.warn('Archive PNG',e);showError('Не удалось сохранить PNG: '+e.message);}
-    finally{holder.remove();if(button)button.disabled=false;}
+    if (button) button.disabled = true;
+    let worker;
+    try {
+      if (document.fonts?.ready) await Promise.race([
+        document.fonts.ready, new Promise(resolve => setTimeout(resolve, 2500))
+      ]);
+      const table = snapshot.querySelector('.paper-table');
+      const rootBounds = snapshot.getBoundingClientRect();
+      const width = Math.ceil(Math.max(
+        1, snapshot.scrollWidth, rootBounds.width, sheet.scrollWidth,
+        table ? table.getBoundingClientRect().right - rootBounds.left + 12 : 0
+      ));
+      const height = Math.ceil(Math.max(1, snapshot.scrollHeight, rootBounds.height));
+      // Fit very wide/long reports inside browser canvas limits without dropping trips.
+      const scale = Math.min(2, Math.sqrt(16000000 / (width * height)), 8192 / width, 8192 / height);
+      worker = window.html2pdf().set({
+        margin: 0,
+        pagebreak: { mode: [], before: [], after: [], avoid: [] },
+        html2canvas: {
+          scale, width, height, windowWidth: Math.max(window.innerWidth, width),
+          windowHeight: Math.max(window.innerHeight, height),
+          scrollX: 0, scrollY: 0, useCORS: true, logging: false, backgroundColor: '#fdfdfd'
+        },
+        jsPDF: { unit: 'px', format: 'a4' }
+      }).from(snapshot).toContainer().then(function () {
+        // html2pdf normally constrains its intermediate container to A4 width.
+        // The PNG must instead cover the full rendered archive table.
+        this.prop.container.style.width = width + 'px';
+        this.prop.container.style.maxWidth = 'none';
+        this.prop.container.style.height = 'auto';
+        this.prop.container.style.overflow = 'visible';
+      });
+      const canvas = await worker.toCanvas().get('canvas');
+      if (!canvas || canvas.width < width * scale * 0.97 ||
+          canvas.height < height * scale * 0.97) {
+        throw new Error('PNG получился обрезанным');
+      }
+      const blob = await new Promise((resolve, reject) =>
+        canvas.toBlob(result => result ? resolve(result) : reject(new Error('Браузер не смог создать PNG')), 'image/png')
+      );
+      const safeName = String(archive.objectName || 'Объект').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 70);
+      const safeDate = String(archive.date || '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_');
+      const url = URL.createObjectURL(blob), link = document.createElement('a');
+      link.href = url;
+      link.download = safeName + '_' + safeDate + (isGAI ? '_ГАИ' : '') + '.png';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      showToastEl('Отчёт PNG сохранён', false);
+    } catch (e) {
+      console.warn('Archive PNG', e);
+      showError('Не удалось сохранить PNG: ' + e.message);
+    } finally {
+      if (worker?.prop?.overlay?.parentNode) worker.prop.overlay.remove();
+      holder.remove();
+      if (button) button.disabled = false;
+    }
   }
   function closeArchiveModal() {
     cancelArchiveHold();

@@ -41,7 +41,7 @@ function rasterFixture({height = 1000, pendingFonts = false, pendingCanvas = fal
   }
   if (pendingFonts) d.document.fonts = {load: () => new Promise(() => {}), ready: new Promise(() => {})};
   const context = {document: d.document, Blob, console, Promise, html2pdf: () => new Worker(),
-    setTimeout: (fn, ms) => setTimeout(fn, ms === 2000 ? 1 : pendingCanvas && ms === 45000 ? 5 : ms === 1000 ? 1 : ms), clearTimeout,
+    setTimeout: (fn, ms) => setTimeout(fn, ms === 2000 || ms === 60000 ? 1 : pendingCanvas && ms === 45000 ? 5 : ms === 1000 ? 1 : ms), clearTimeout,
     URL: {createObjectURL: blob => { assert.equal(blob.type, 'image/png'); created.push(blob); return 'blob:png'; }, revokeObjectURL: url => revoked.push(url)}};
   vm.createContext(context); vm.runInContext(helper, context);
   return {...d, context, calls, created, revoked};
@@ -69,10 +69,38 @@ function functionCode(name) {
     getLogs: () => [{isGAI: false}, {isGAI: true}], hasPermission: () => true, getActiveLineIds: () => ['truck'],
     buildReportHTML: data => { reportInputs.push(data); return '<table>report</table>'; }, showToastEl() {}, showError: e => errors.push(e), viewingArchiveId: 'archive', viewingArchiveGAITable: false,
     generatePNGFromHTML: async html => { requests.push(html); return new Blob(['png'], {type: 'image/png'}); }});
+  // A real archive image must be a clone of the visible report, never rebuilt from logs.
+  const snapshot = f.element('div'), sheet = f.element('div'), scroller = f.element('div'), table = f.element('table');
+  const sourcePaper = f.element('div');
+  snapshot.querySelectorAll = () => [];
+  snapshot.getBoundingClientRect = () => ({left:0, width:1400, height:1000});
+  table.getBoundingClientRect = () => ({right:1380});
+  snapshot.querySelector = selector => selector === '.paper-report-container' ? sheet
+    : selector === '.paper-scroll-wrapper' ? scroller : selector === '.paper-table' ? table : null;
+  const wrapper = {cloneNode: () => snapshot, querySelector: selector =>
+    selector === '.paper-report-container' ? sourcePaper : null};
+  const saveButton = {disabled:false};
+  f.elements.set('archiveModal', {querySelector: selector =>
+    selector.includes('archive-paper-wrapper') ? wrapper : saveButton});
+  const archiveSnapshots = [], makeWorker = f.context.html2pdf;
+  f.context.window = {innerWidth:1200, innerHeight:800, html2pdf: () => {
+    const worker = makeWorker(), originalFrom = worker.from;
+    worker.from = function(node) { archiveSnapshots.push(node); return originalFrom.call(this,node); };
+    return worker;
+  }};
+  Object.assign(f.context, {hasTabAccess: () => true, getComputedStyle: () => ({zoom:'1'})});
   vm.runInContext(functionCode('exportCurrentReportPNG') + '\n' + functionCode('exportArchivePNG'), f.context);
-  await f.context.exportCurrentReportPNG('regular'); await f.context.exportCurrentReportPNG('gai'); await f.context.exportArchivePNG();
-  assert.equal(f.downloads.length, 3); assert(f.downloads.every(d => d.filename.endsWith('.png'))); assert.deepEqual(errors, []);
-  assert.equal(reportInputs[0].logs.length, 1); assert.equal(reportInputs[1].logs.length, 1); assert.equal(reportInputs[2].isClosed, true);
+  await f.context.exportCurrentReportPNG('regular');
+  await f.context.exportCurrentReportPNG('gai');
+  await f.context.exportArchivePNG();
+  assert.equal(f.downloads.length, 3);
+  assert(f.downloads.every(d => d.filename.endsWith('.png')));
+  assert.deepEqual(errors, []);
+  assert.equal(reportInputs[0].logs.length, 1);
+  assert.equal(reportInputs[1].logs.length, 1);
+  assert.equal(reportInputs.length, 2, 'archive must not re-build or re-sort the visible report');
+  assert.equal(archiveSnapshots[0], snapshot, 'PNG must rasterize visible report clone');
+  assert.equal(saveButton.disabled, false, 'button re-enabled after export');
   const pluginHost = f.element('div'); f.elements.set('pluginPdfButtonsContainer', pluginHost);
   f.context.pluginPdfButtons = [{label: 'PDF plugin', generateHtmlFn: () => '<p>plugin</p>'}];
   const begin = source.indexOf('  function renderPluginPdfButtons()'), end = source.indexOf('  function renderPluginsList()', begin);

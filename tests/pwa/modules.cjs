@@ -5,7 +5,7 @@ const blocks=[...baseline.matchAll(/<(script|style)\b([^>]*)>([\s\S]*?)<\/\1>/g)
 const changes=new Set(['core','built-in-features','base','release-history','history-recorder','game-coins-v2']);let preserved=0,corePreserved=0;
 // Reviewed changes since modularization: remove photo dependencies and freeze configurable rewards.
 // Every other core source must still match the published pre-change revision.
-const changedCore=new Set(['00-config.js','06-sync.js','14-archive.js','18-shifts.js','20-offline-journal.js']);
+const changedCore=new Set(['00-config.js','06-sync.js','09-auth.js','14-archive.js','18-shifts.js','20-offline-journal.js']);
 const coreBaseline=JSON.parse(fs.readFileSync('tests/pwa/core-baseline.json')).sha256;
 for(const m of spec.modules){
  const content=m.sources.map(p=>fs.readFileSync('test-app/src/'+p,'utf8')).join('');
@@ -32,3 +32,13 @@ assert(!/<script[^>]+src="https?:/.test(html));assert(!/fonts.googleapis.com/.te
 const manifest=JSON.parse(fs.readFileSync('manifest-test.webmanifest'));assert.equal(manifest.scope,'./index-test.html');assert.equal(manifest.start_url,'./index-test.html');assert.equal(manifest.id,'./index-test.html');assert(manifest.icons.some(i=>i.sizes==='192x192'));assert(manifest.icons.some(i=>i.sizes==='512x512'));
 const files=JSON.parse(fs.readFileSync('test-app/build-manifest.json')).assets;for(const a of files)assert.equal(sha(fs.readFileSync(a.url)),a.sha256,a.url);
 console.log('PASS '+preserved+' unchanged blocks; '+corePreserved+' untouched core files match the published baseline; 13 built-in features preserved; '+scripts+' runtime scripts compile; all precache hashes verified');
+
+// Only active administrators may see the release label or open the changelog.
+const testCss=fs.readFileSync('test-app/src/styles/base.css','utf8');
+const testAuth=fs.readFileSync('test-app/src/core/09-auth.js','utf8');
+const testHistory=fs.readFileSync('test-app/src/features/release-history.js','utf8');
+assert.match(testCss,/body:not\(\[data-release-admin="1"\]\) \.version-text/);
+assert.match(testAuth,/permissionsLoaded && canAdmin\(\)/);
+assert.match(testAuth,/toggleAttribute\('data-release-admin', versionAllowed\)/);
+assert.match(testHistory,/!permissionsLoaded \|\| typeof canAdmin/);
+assert.match(html,/Версия 3\.1\.19 · тест/);
