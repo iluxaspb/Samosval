@@ -67,7 +67,7 @@
           else if (i === l.length && ttnStatus[t.id] === 'pending') { cells += `<td><div class="cell-content"><div class="hand-drawn-circle"></div></div></td>`; }
           else cells += '<td></td>';
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">${sm} м³</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
-      html = `<div style="position:relative;" id="archive-paper-wrapper"><canvas id="draw-canvas-archive" class="stylus-canvas"></canvas><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Объем: <b>${tV} м³</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Объем: <b>${tV} м³</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
     } else {
       let aIds = activeLineIds.filter(id => { let t = findTruck(id); return t && t.isGAI; });
       let tIds = new Set(aIds); gaiLogs.forEach(l=>tIds.add(l.truckId));
@@ -78,10 +78,9 @@
         for(let i=0; i<mT; i++) { if(l[i]) { let commHtml = l[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l[i].comment)}</div>` : ''; cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(l[i].timeStr)}</div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l[i].createdByEmail, l[i].createdBy))}</div>${commHtml}</div></td>`; }
           else cells += '<td></td>';
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">Рейсов: ${l.length}</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
-      html = `<div style="position:relative;" id="archive-paper-wrapper"><canvas id="draw-canvas-archive" class="stylus-canvas"></canvas><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)} (ГАИ)</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Рейсов ГАИ: <b>${gaiLogs.length}</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)} (ГАИ)</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Рейсов ГАИ: <b>${gaiLogs.length}</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
     }
     document.getElementById('modalArchiveBody').innerHTML = toggleBtnHtml + html;
-    setTimeout(() => { setupStylus('draw-canvas-archive', 'archive-paper-wrapper'); }, 100);
   }
   async function saveArchivePNG() {
     // Export the archive sheet that is currently displayed, not a re-sorted/rebuilt report.
@@ -102,20 +101,6 @@
     const snapshot = liveWrapper.cloneNode(true);
     const sheet = snapshot.querySelector('.paper-report-container');
     const scroller = snapshot.querySelector('.paper-scroll-wrapper');
-    const sourceCanvas = liveWrapper.querySelector('#draw-canvas-archive');
-    const clonedCanvas = snapshot.querySelector('#draw-canvas-archive');
-    const screenZoom = parseFloat(getComputedStyle(livePaper).zoom) || 1;
-    // Preserve any handwritten marks; a cloned <canvas> does not copy its bitmap.
-    if (sourceCanvas && clonedCanvas) {
-      try {
-        const drawing = document.createElement('img');
-        const rect = sourceCanvas.getBoundingClientRect();
-        drawing.src = sourceCanvas.toDataURL('image/png');
-        drawing.style.cssText = 'position:absolute;left:0;top:0;z-index:100;pointer-events:none;width:' +
-          (rect.width / screenZoom) + 'px;height:' + (rect.height / screenZoom) + 'px';
-        clonedCanvas.replaceWith(drawing);
-      } catch (e) { clonedCanvas.remove(); }
-    }
     snapshot.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
     snapshot.style.width = 'max-content';
     snapshot.style.maxWidth = 'none';
