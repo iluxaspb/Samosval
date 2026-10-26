@@ -4,9 +4,11 @@
   const tab = document.getElementById('tab-report');
   let on = false, dialog = null, opener = null, observer = null;
   const style = document.createElement('style');
-  // Do not hide positional children or action rows: the first child is the regular
-  // paper sheet after drawing removal, and action rows contain the export controls.
+  // The first child is now the regular paper sheet: never hide it by position.
+  // Keep legacy PDF/MAX controls hidden until the separate PNG/text-only repair is released.
   style.textContent = `
+    body.summary-viewer-on #tab-report > .action-row {display:none!important}
+    body.summary-viewer-on #pluginPdfButtonsContainer {display:none!important}
     body.summary-viewer-on #tab-report .stylus-canvas {display:none!important}
     #summary-open-sheet {width:100%;margin-bottom:12px}
     body:not(.summary-viewer-on) #summary-open-sheet {display:none}
