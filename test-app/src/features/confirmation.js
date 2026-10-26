@@ -239,16 +239,19 @@ try { (function(){
       overlay.appendChild(card);
       document.body.appendChild(overlay);
 
-      // Анимация открытия
-      requestAnimationFrame(() => {
-        overlay.classList.add('pcm-open');
-      });
-
       // Хелпер закрытия
       let closed = false;
+      let openFrame = null, focusTimer = null;
+      function isActive() {
+        return !closed && window.__closeActiveConfirmation === close && overlay.isConnected;
+      }
       function close(result) {
         if (closed) return;
-        closed = true;document.removeEventListener('keydown',onKey);if(window.__closeActiveConfirmation===close)window.__closeActiveConfirmation=null;
+        closed = true;
+        if (openFrame !== null) { cancelAnimationFrame(openFrame); openFrame = null; }
+        if (focusTimer !== null) { clearTimeout(focusTimer); focusTimer = null; }
+        document.removeEventListener('keydown',onKey);
+        if(window.__closeActiveConfirmation===close)window.__closeActiveConfirmation=null;
         overlay.classList.remove('pcm-open');
         setTimeout(() => {
           if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
@@ -263,6 +266,11 @@ try { (function(){
       card.querySelector('.pcm-btn-confirm').addEventListener('click', () => close(true));
 
       window.__closeActiveConfirmation=close;
+      // A backdrop click or replacement can close this instance before its frame.
+      openFrame = requestAnimationFrame(() => {
+        openFrame = null;
+        if (isActive()) overlay.classList.add('pcm-open');
+      });
       // Клик по фону — отмена
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) close(false);
@@ -276,7 +284,9 @@ try { (function(){
       document.addEventListener('keydown', onKey);
 
       // Фокус на подтверждение для accessibility
-      setTimeout(() => {
+      focusTimer = setTimeout(() => {
+        focusTimer = null;
+        if (!isActive()) return;
         try { card.querySelector('.pcm-btn-confirm').focus({ preventScroll: true }); } catch(e) {}
       }, 100);
     });

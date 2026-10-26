@@ -1,153 +1,153 @@
 {
-  "version": "6bc3e3e32c31b1a9",
+  "version": "bc7b91325fc58ec6",
   "baseline_commit": "a135b2c6f6316c446c1252f9fb65644099790490",
   "assets": [
     {
       "url": "./index-test.html",
-      "sha256": "4fa0c708c58e68256e6b0e95532fc2fff613a9623b60f4c41536e48a35f3a3ea"
+      "sha256": "990877decac72bd3609fcf1b354aa2fb190a6d1f480bb0686aee2fa33944d00a"
     },
     {
       "url": "./manifest-test.webmanifest",
       "sha256": "988ba7e5dc3e3d632b757cff04bb5a4023ae4ea133c8f6bd63aebaf5c836e589"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/archive-test-layout-20261025.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/archive-test-layout-20261025.css",
       "sha256": "57074f01318bbefc96d2e6d51b32f0cea7664dbfe04d60bfabc26748da72e0ae"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/base.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/base.css",
       "sha256": "555c078a03b371aec23d881e873f25517f9c5c51d7dd2f7576f99e16e46141cd"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/built-in-features.js",
-      "sha256": "4549f7f8579400670406f36f3a833d5ebeaef36a065a771a6234ae878b64d929"
+      "url": "./test-app/build/bc7b91325fc58ec6/built-in-features.js",
+      "sha256": "4bb39be718cd87efa8eb68976ec63c6fc026a2d5d57ca90dea06f3c898cfcda1"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/closed-shift-duplicates.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/closed-shift-duplicates.js",
       "sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/confirmation-adapter.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/confirmation-adapter.js",
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/core.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/core.js",
       "sha256": "2245114368f4e0c3de7f63378dc4283fb636504ad01efce73d45b8e955d2d559"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/game-coins-style.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/game-coins-style.css",
       "sha256": "889173f219331afe1144c8548a75c244b928987416f62a36fdffb98fcdcdf337"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/game-coins-v2.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/game-coins-v2.js",
       "sha256": "a4d57b92af89abd2deb65c78c5a08fc1fdb19bd97888c7912958db7cb2442060"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/history-recorder.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/history-recorder.js",
       "sha256": "646c2e77897db9b13989d244d7542615b37ab949360b3530a0116ce933d477c4"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/line-card-layers.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/line-card-layers.js",
       "sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/max-plate-notifications.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/max-plate-notifications.js",
       "sha256": "ad76f6121fc40ed6a53824b0a9e493a3c473834131796e6d45059eccef1ab9b5"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/offline-feedback.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/offline-feedback.js",
       "sha256": "94b6082bc2d2939da2214787ad258b870c426ef0475220b7dd364d3959498db7"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/offline-load-solo-style.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/offline-load-solo-style.css",
       "sha256": "5bb961c257c4b2ee387cc37fe8b6ffbfdaa16f85a61755a9e06637da159a5b72"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/pwa.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/pwa.js",
       "sha256": "cb529c5e4374b1b4398b8d9ab95e313b971cce8a1e600db14f1f161a62462ef5"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/release-history.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/release-history.js",
       "sha256": "7a9b139d93da08ad246ba6e492d9922e1ddc0b7f545d380da5883ad40d931b1f"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/review-config.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/review-config.js",
       "sha256": "fa398d41f48b46336b758aded932f431ae666d745151a79b7e0057efea1c00f4"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-arcade-core.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-arcade-core.js",
       "sha256": "10da96381e9f6662cf571a05a08839a9cc369440a289de656ba4ce1e1bfaee3f"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-arcade-runtime.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-arcade-runtime.js",
       "sha256": "cac8c82ca0c215c2cf4ed8094cc89149458be7c27d0d52e037b64317b3f76e80"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-arcade-style.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-arcade-style.css",
       "sha256": "07d479db20ededc54ecd6a8bc2769b528ebeda20bad4037f7b47ff63d0261ee2"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-arcade-ui.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-arcade-ui.js",
       "sha256": "e017a9adb44f2b84ea0e3ab864c97580497b47ebf47ccfd1d3c3538261c4fde5"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-jokes-style.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-jokes-style.css",
       "sha256": "8d5f0225bbadcb005ed8b35c42da8522d10c6c2325cdd083cdaa7355bd89dd55"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-jokes-v1.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-jokes-v1.js",
       "sha256": "a76c09f983b0c98a75cbddfac41aa32f2b96c06cf9bcc17a628042078bb20f2d"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-season-effects-style.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-season-effects-style.css",
       "sha256": "1316108b882c07cc196303c3411877ecc6adad7152cf9187033d0e333f86e34e"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-season-effects-v1.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-season-effects-v1.js",
       "sha256": "84b2611e7e5555ea586558632f04e813633317041237b906fd439ee8274034ee"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-shop-style.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-shop-style.css",
       "sha256": "03556c119e329120dab1ee04b4dfcc394b8dfe079bade748131a1d554f5ef88a"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/road-shop-v1.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/road-shop-v1.js",
       "sha256": "cd0620342fa047eea4cd2bde4e7b1fcd0967fc373f5d76cc3db93810b427bb68"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/summary-hold.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/summary-hold.js",
       "sha256": "584a1b9bfb8c3edd8229fe73be5db55788dc251c182b545c27a4cac1b9c1455a"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/summary-viewer.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/summary-viewer.js",
       "sha256": "452edec9e65c7a48929221af761992e589ad21c69af4126d02d180f37257e8fc"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/test-analytics-compact-20261025.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/test-analytics-compact-20261025.css",
       "sha256": "7007e9498438bbd81eb63a96471eb34b502dfd11cf649eef40f0552713fdef76"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/test-review-core.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/test-review-core.js",
       "sha256": "8607c3cf8da44c0c03b80d538cc903b8f47349d25a9da1707a7903353f64ebd7"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/timesheet-app.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/timesheet-app.js",
       "sha256": "b42ff6ce485150a99865e5359a5015300431ec778b4d73ba79b5237e2a2712de"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/timesheet-core.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/timesheet-core.js",
       "sha256": "85e282fe2ce0223f71f1215e2d9826c4ab3747aed62012533cea82a0f125907e"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/timesheet-css.css",
+      "url": "./test-app/build/bc7b91325fc58ec6/timesheet-css.css",
       "sha256": "eef779cfa5fdd0edad39ca45793549b49050e4b13858d65cfb49a665a060157a"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/trip-analytics.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/trip-analytics.js",
       "sha256": "98d90f9a4ce3323a80882b38cbd94c3af4361cd06633354326a5b77889b08e19"
     },
     {
-      "url": "./test-app/build/6bc3e3e32c31b1a9/work-report.js",
+      "url": "./test-app/build/bc7b91325fc58ec6/work-report.js",
       "sha256": "271356fd614d43a6e24d19e2758bd3132acd8c4d075ec59a15fe3d0acca711cf"
     },
     {
