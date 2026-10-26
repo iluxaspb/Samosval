@@ -9,30 +9,4 @@
     finally { document.body.removeChild(wrapper); }
   }
 
-  // === STYLUS ===
-  function setupStylus(canvasId, containerId) {
-    const canvas = document.getElementById(canvasId); const container = document.getElementById(containerId);
-    if (!canvas || !container) return;
-    canvas.width = container.scrollWidth; canvas.height = container.scrollHeight;
-    const ctx = canvas.getContext('2d'); ctx.strokeStyle = '#0000FF'; ctx.lineWidth = 2; ctx.lineCap = 'round';
-    let isDrawing = false;
-    canvas.addEventListener('pointerdown', (e) => { if (!drawMode) return; e.preventDefault(); isDrawing = true; const rect = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top); });
-    canvas.addEventListener('pointermove', (e) => { if (!isDrawing) return; e.preventDefault(); const rect = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top); ctx.stroke(); });
-    canvas.addEventListener('pointerup', () => { isDrawing = false; });
-    canvas.addEventListener('pointerleave', () => { isDrawing = false; });
-  }
-  function toggleDrawMode() {
-    drawMode = !drawMode;
-    const c1 = document.getElementById('draw-canvas-main'); const c2 = document.getElementById('draw-canvas-gai'); const btn = document.getElementById('btnDrawToggle');
-    if (drawMode) { if (c1) c1.classList.add('active'); if (c2) c2.classList.add('active'); btn.innerHTML = '🖐 Отключить'; btn.classList.replace('btn-secondary', 'btn-quick'); showToastEl('✏️ Рисование ВКЛ', false); }
-    else { if (c1) c1.classList.remove('active'); if (c2) c2.classList.remove('active'); btn.innerHTML = '✏️ Рисовать'; btn.classList.replace('btn-quick', 'btn-secondary'); showToastEl('🖐 Рисование ВЫКЛ', false); }
-  }
-  function clearDrawings() { ['draw-canvas-main', 'draw-canvas-gai'].forEach(id => { const c = document.getElementById(id); if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height); }); showToastEl('🗑 Очищено', false); }
-  function toggleDrawModeArchive() {
-    const c = document.getElementById('draw-canvas-archive'); const btn = document.getElementById('btnDrawToggleArchive'); if (!c) return;
-    const isActive = c.classList.contains('active');
-    if (isActive) { c.classList.remove('active'); btn.innerHTML = '✏️ Рисовать'; btn.classList.replace('btn-quick', 'btn-secondary'); drawMode = false; }
-    else { c.classList.add('active'); btn.innerHTML = '🖐 Отключить'; btn.classList.replace('btn-secondary', 'btn-quick'); drawMode = true; }
-  }
-  function clearDrawingsArchive() { const c = document.getElementById('draw-canvas-archive'); if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height); showToastEl('🗑 Очищено', false); }
-
+  // Ручное рисование отключено в рабочей и тестовой версиях.
