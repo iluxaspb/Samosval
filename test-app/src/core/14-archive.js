@@ -54,7 +54,7 @@
     let e = hasPermission('archive_edit');
     document.getElementById('archiveRestoreBtn').style.display = e?'':'none';
     document.getElementById('archiveDeleteBtn').style.display = hasPermission('archive_delete')?'':'none';
-    let toggleBtnHtml = `<div style="text-align:center; margin-bottom: 12px;"><button class="btn btn-secondary btn-small" style="min-width:135px;font-size:12px;touch-action:none;user-select:none" aria-label="Удерживайте 0,8 секунды для переключения листа" onpointerdown="startArchiveHold(event)" onpointerup="cancelArchiveHold()" onpointercancel="cancelArchiveHold()" onpointerleave="cancelArchiveHold()" oncontextmenu="event.preventDefault()" onkeydown="archiveHoldKey(event)" onkeyup="cancelArchiveHold()" onblur="cancelArchiveHold()">${viewingArchiveGAITable ? '📄 Обычный' : '📄 ГАИ'} · удерживать 0,8 с</button></div>`;
+    let toggleBtnHtml = `<div class="archive-view-switch"><button type="button" class="archive-toggle-icon" aria-label="${viewingArchiveGAITable ? 'Обычный лист' : 'Лист ГАИ'}" title="${viewingArchiveGAITable ? 'Обычный лист' : 'Лист ГАИ'}" onclick="toggleArchiveReportType()">📄</button></div>`;
     let activeLineIds = s.activeLineIds || []; let ttnStatus = s.ttnStatus || {}; let html = '';
     if (!viewingArchiveGAITable) {
       let aIds = activeLineIds.filter(id => { let t = findTruck(id); return t && !t.isGAI; });
