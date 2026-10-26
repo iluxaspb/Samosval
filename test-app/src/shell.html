@@ -60,7 +60,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.1.19 · тест</span>
+        <span class="version-text">Версия 3.1.20 · тест</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -102,15 +102,10 @@
   </div>
 
   <div id="tab-report" class="tab-content">
-    <div style="display:flex; gap:8px; margin-bottom: 8px;">
-        <button class="btn btn-secondary btn-small" id="btnDrawToggle" style="flex:1;" onclick="toggleDrawMode()">✏️ Рисовать</button>
-        <button class="btn btn-danger btn-small" style="flex:1;" onclick="clearDrawings()">🗑 Очистить</button>
-    </div>
 
     <div id="paperReportWrapper">
       <div class="paper-scroll-wrapper">
         <div class="paper-report-container compact" id="paperReportContainer">
-          <canvas id="draw-canvas-main" class="stylus-canvas"></canvas>
           <div class="paper-header">
             <div class="paper-object-name" id="paperObjectName">Объект: —</div>
             <div class="paper-date-vol-row">
@@ -128,7 +123,6 @@
     <div id="gaiReportWrapper" style="display:none;">
       <div class="paper-scroll-wrapper">
         <div class="paper-report-container compact" id="gaiPaperContainer">
-          <canvas id="draw-canvas-gai" class="stylus-canvas"></canvas>
           <div class="paper-header">
             <div class="paper-object-name" id="gaiObjectName">Объект: —</div>
             <div class="paper-date-vol-row">
@@ -501,11 +495,6 @@
 <div id="archiveModal" class="modal" onclick="if(event.target===this)closeArchiveModal()">
   <div class="modal-content archive-test-fullscreen">
     <div style="display:flex; justify-content:space-between; align-items:center;"><h3 id="modalArchiveTitle">Отчет</h3></div>
-    
-    <div style="display:none; gap:8px; margin-top:8px;" aria-hidden="true">
-        <button class="btn btn-secondary btn-small" id="btnDrawToggleArchive" style="flex:1;" onclick="toggleDrawModeArchive()">✏️ Рисовать</button>
-        <button class="btn btn-danger btn-small" style="flex:1;" onclick="clearDrawingsArchive()">🗑 Очистить</button>
-    </div>
 
     <div class="modal-body" id="modalArchiveBody"></div>
     <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
