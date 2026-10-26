@@ -12,6 +12,7 @@ import json
 import mimetypes
 import re
 import threading
+import time
 import traceback
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -27,6 +28,22 @@ CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
        "font-src 'self' data:; connect-src 'self'; worker-src 'self'; "
        "media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'")
+
+
+def wait_for_page_state(page, predicate, timeout=30000):
+    """Poll via protocol evaluation, never repeated in-page eval under CSP.
+
+    Playwright's string wait_for_function re-evaluates the string from a timer;
+    strict script-src correctly rejects that timer eval if the first poll is false.
+    Keep CSP intact and poll the unchanged condition from the test process instead.
+    """
+    deadline = time.monotonic() + timeout / 1000
+    while True:
+        if page.evaluate(predicate):
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError('Page state not reached: ' + predicate)
+        page.wait_for_timeout(100)
 
 # Runs before the app; only Auth and forbidden Storage are stubs. Real Firestore
 # is configured to an unreachable loopback host; it is never signed in or queried.
@@ -203,6 +220,34 @@ def main():
     try:
         if args.self_test:
             from urllib.request import urlopen
+            class PollFixture:
+                def __init__(self, values):
+                    self.values = iter(values)
+                    self.pauses = []
+
+                def evaluate(self, predicate):
+                    assert predicate.startswith('() => ')
+                    value = next(self.values)
+                    if isinstance(value, Exception):
+                        raise value
+                    return value
+
+                def wait_for_timeout(self, milliseconds):
+                    self.pauses.append(milliseconds)
+
+            poll = PollFixture([False, False, True])
+            wait_for_page_state(poll, '() => fixtureReady')
+            assert poll.pauses == [100, 100], 'False first poll must not require in-page eval'
+            try:
+                wait_for_page_state(PollFixture([False]), '() => fixtureReady', timeout=0)
+                raise AssertionError('A timed-out predicate must fail')
+            except TimeoutError:
+                pass
+            try:
+                wait_for_page_state(PollFixture([ValueError('fixture error')]), '() => fixtureReady')
+                raise AssertionError('Evaluation errors must propagate')
+            except ValueError as error:
+                assert str(error) == 'fixture error'
             for is_new, release in [(False, old), (True, new)]:
                 phase['new'] = is_new
                 with urlopen(base + 'sw-test.js') as response:
@@ -244,7 +289,7 @@ def main():
             return ctx
 
         def app_ready(p):
-            p.wait_for_function('window.__upgradeFixture?.ready && window.__upgradeFixture.authSettled && !!window.TestPWA')
+            wait_for_page_state(p, '() => window.__upgradeFixture?.ready && window.__upgradeFixture.authSettled && !!window.TestPWA')
             assert p.evaluate('window.__upgradeFixture.storageCalls') == 0
             assert p.evaluate('firebase.app().options.projectId') == PROJECT
 
@@ -288,7 +333,7 @@ def main():
 
         ctx = context()
         page = ctx.new_page(); page.goto(base + 'index-test.html'); app_ready(page)
-        page.wait_for_function('!!navigator.serviceWorker.controller && window.TestPWA.snapshot().shellReady', timeout=45000)
+        wait_for_page_state(page, '() => !!navigator.serviceWorker.controller && window.TestPWA.snapshot().shellReady', timeout=45000)
         assert page.locator('#mainHeader .version-text').text_content() == old.label
         assert page.locator('#admin-camera-button').count() == 1, 'Pinned old release must retain the original camera control'
         journal_key = f'samosval_offline_v1_{PROJECT}_main_workspace_qa-update'

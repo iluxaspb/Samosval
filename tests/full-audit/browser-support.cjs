@@ -10,6 +10,14 @@ const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charse
   '.css':'text/css; charset=utf-8','.webmanifest':'application/manifest+json',
   '.png':'image/png','.ttf':'font/ttf','.json':'application/json'};
 
+async function readWithRulesDisabled(environment, read) {
+  // RulesTestEnvironment.withSecurityRulesDisabled resolves void, not the
+  // callback's return value. Capture the actual SDK result without replacing it.
+  let result;
+  await environment.withSecurityRulesDisabled(async context => { result=await read(context); });
+  return result;
+}
+
 function pngDetails(bytes) {
   assert(Buffer.isBuffer(bytes), 'PNG must be actual downloaded bytes');
   assert(bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])), 'Invalid PNG signature');
@@ -151,4 +159,4 @@ function installBrowserFixture({port, uid, project, config, initiallySignedIn = 
   }, true);
 }
 
-module.exports = {PROJECT, DEMO_CONFIG, allowedUrl, rewriteDemoSource, createLocalServer, installBrowserFixture, pngDetails};
+module.exports = {PROJECT, DEMO_CONFIG, allowedUrl, rewriteDemoSource, createLocalServer, installBrowserFixture, pngDetails, readWithRulesDisabled};

@@ -2,7 +2,7 @@ const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_pro
 const root=path.resolve(__dirname,'../..'),out=path.join(__dirname,'results');fs.mkdirSync(out,{recursive:true});
 const tests=[
  'tests/pwa/modules.cjs','tests/pwa/service-worker.cjs','tests/pwa/client-state.cjs','tests/pwa/release-version.cjs','tests/pwa/build-determinism.py',
- ...['auth','shift-regression','shift-ui','offline-regression','offline-ownership','offline-receipts-regression','receipt-history-integration','reward-receipts-integration','archive-coins-integration','permissions-core','permissions-ui','undo-freeze','reports-png','reports-max','reports-snapshot','reports-edit','reports-effective','reports-data','reports-summary','notification-rendering','backup-roundtrip','backup-safety','backup-files','backup-history','browser-support.test'].map(n=>'tests/full-audit/'+n+'.cjs'),
+ ...['auth','auth-confirmation','shift-regression','shift-ui','offline-regression','offline-ownership','offline-receipts-regression','receipt-history-integration','reward-receipts-integration','archive-coins-integration','permissions-core','permissions-ui','undo-freeze','reports-png','reports-max','reports-snapshot','reports-edit','reports-effective','reports-data','reports-summary','notification-rendering','backup-roundtrip','backup-safety','backup-files','backup-history','browser-support.test'].map(n=>'tests/full-audit/'+n+'.cjs'),
  ...['undo','status','transactions','ui','jokes','seasons','themes','regression'].map(n=>'tests/modular/'+n+'.cjs'),
  ...['core','ui','compact-ui','crew-ui','lifecycle'].map(n=>'tests/timesheet/'+n+'.cjs')
 ];

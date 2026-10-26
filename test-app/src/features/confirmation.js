@@ -13,7 +13,8 @@ try { (function(){
     .pcm-overlay {
       position: fixed !important;
       inset: 0 !important;
-      z-index: 10050 !important;
+      /* Account-disabled gate stays blocking underneath; logout confirmation must remain reachable. */
+      z-index: 2147483647 !important;
       background: transparent !important;
       display: flex !important;
       align-items: center !important;

@@ -3,7 +3,7 @@
 // application payload. The browser acceptance result must come from browser-run.
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const assert = require('node:assert/strict'), {createHash} = require('node:crypto');
-const {PROJECT,DEMO_CONFIG,allowedUrl,rewriteDemoSource,createLocalServer,installBrowserFixture,pngDetails} = require('./browser-support.cjs');
+const {PROJECT,DEMO_CONFIG,allowedUrl,rewriteDemoSource,createLocalServer,installBrowserFixture,pngDetails,readWithRulesDisabled} = require('./browser-support.cjs');
 const root = path.resolve(__dirname,'../..');
 
 async function testFixture() {
@@ -75,6 +75,10 @@ async function testServer() {
 }
 
 (async () => {
+  const context={fixture:'emulator context'}, environment={async withSecurityRulesDisabled(callback){await callback(context);}};
+  assert.deepEqual(await readWithRulesDisabled(environment,async actual=>{assert.equal(actual,context);return [{id:'actual-sdk-row'}];}),[{id:'actual-sdk-row'}]);
+  assert.deepEqual(await readWithRulesDisabled(environment,async()=>({load:2})),{load:2});
+  await assert.rejects(()=>readWithRulesDisabled(environment,async()=>{throw Error('Read failed');}),/Read failed/);
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGv8AAAAASUVORK5CYII=','base64');
   assert.deepEqual(pngDetails(png),{width:1,height:1});
   assert.throws(()=>pngDetails(Buffer.from('PNG fixture')),/signature/);

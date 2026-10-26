@@ -99,6 +99,13 @@ def main():
             passed('Real RAF launches/bursts use synchronized procedural sound calls',sounds)
             page.wait_for_timeout(1900);cleanup_assert(page.evaluate('fixture.snapshot()'))
             passed('Automatic completion removes DOM, RAF, timer, lifecycle and sound resources')
+            # Force a fresh compositor snapshot after removal before flushing screencast.
+            # Some Chrome screencasts otherwise retain their last animation frame.
+            page.locator('#game-rank-celebration').wait_for(state='detached')
+            file=args.output/'desktop-dismissed.png';page.screenshot(path=str(file));png_size(file)
+            report['screenshots'].append(file.name)
+            page.wait_for_timeout(200)
+            passed('Post-dismissal screenshot verifies unobstructed work surface')
             video=page.video;context.close()
             if video:
                 path=Path(video.path());assert path.exists() and path.stat().st_size>3000

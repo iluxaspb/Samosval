@@ -3,7 +3,7 @@
 // Auth, a production deployment, physical mobile hardware, or a camera test.
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const assert = require('node:assert/strict'), {spawn} = require('node:child_process');
-const {PROJECT, DEMO_CONFIG, allowedUrl, createLocalServer, installBrowserFixture, pngDetails} = require('./browser-support.cjs');
+const {PROJECT, DEMO_CONFIG, allowedUrl, createLocalServer, installBrowserFixture, pngDetails, readWithRulesDisabled} = require('./browser-support.cjs');
 const root = path.resolve(__dirname, '../..');
 const output = path.join(__dirname, 'results', 'browser'); fs.mkdirSync(output, {recursive:true});
 const port = Number(process.env.AUDIT_FIRESTORE_PORT || 8099);
@@ -100,13 +100,13 @@ async function launch(profile, uid, mobile, offline = false, initiallySignedIn =
 }
 
 async function readRows(name) {
-  return env.withSecurityRulesDisabled(async context => (await sdk.getDocs(sdk.collection(context.firestore(), 'workspaces/main_workspace/' + name))).docs.map(d => ({id:d.id,...d.data()})));
+  return readWithRulesDisabled(env,async context => (await sdk.getDocs(sdk.collection(context.firestore(), 'workspaces/main_workspace/' + name))).docs.map(d => ({id:d.id,...d.data()})));
 }
 async function writeDoc(name, data, merge = false) {
   return env.withSecurityRulesDisabled(context => sdk.setDoc(sdk.doc(context.firestore(), name), data, {merge}));
 }
 async function readDoc(name) {
-  return env.withSecurityRulesDisabled(async context => (await sdk.getDoc(sdk.doc(context.firestore(),name))).data());
+  return readWithRulesDisabled(env,async context => (await sdk.getDoc(sdk.doc(context.firestore(),name))).data());
 }
 async function seed() {
   await env.clearFirestore();
