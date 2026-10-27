@@ -372,8 +372,8 @@
   </style>
 <link rel="stylesheet" href="./test-app/src/styles/timesheet-css.css">
   <style>.version-text { color: #e11d48 !important; }</style>
-  <meta name="test-app-version" content="3.4.9">
-  <meta name="test-app-build" content="test-3.4.9-anime-input-contrast">
+  <meta name="test-app-version" content="3.4.10">
+  <meta name="test-app-build" content="test-3.4.10-coin-ledger">
 </head>
 <body>
 
@@ -416,7 +416,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.4.9</span>
+        <span class="version-text">Версия 3.4.10</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -3965,6 +3965,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
+    {version:'3.4.10',title:'Журнал движений монет и награды',items:['Добавлен личный журнал доходов и расходов монет с временем, источником и суммой.','Активный администратор видит движения всех пользователей и может начислить выбранному пользователю монеты с обязательной причиной.','Начисления сохраняются отдельными записями, участвуют в доступном балансе и не меняют рейтинг; повтор транзакции не начисляет награду дважды.']},
     {version:'3.4.9',title:'Аниме-тема и читаемые поля ввода',items:['Добавлена оригинальная аниме-тема «Аниме-рейс» за 350 монет: персонаж изображён на карточке самосвала и кнопке «Погрузка».','Поля ввода, списки и их текст имеют контрастное оформление во всех темах, включая состояние фокуса.','Сохранены покупки, темы, работа начислений и существующие действия интерфейса.']},
     {version:'3.4.8',title:'Исправлены лишние виброотклики',items:['Убраны ложные виброотклики от фона окна настроек и контейнеров с обработчиком onclick.','Общий отклик срабатывает только на конкретных кнопках, вкладках и других явно заданных элементах управления.','Прокрутка и касания по фону модального окна не вызывают вибрацию; прокрутка внутри карточки самосвала также не вибрирует.','Настройки уровня и включения вибрации сохранены. Вибрация «Приехал», «Погрузка» и «ТТН» не изменена.']},
     {version:'3.4.7',title:'Единый просмотр листов и обновление интерфейса',items:['Сводка и архив используют единый полноэкранный просмотр листа: перетаскивание, масштабирование двумя пальцами, кнопки масштаба и «Лист целиком».','Иконка 📄 в правом нижнем углу переключает обычный и ГАИ-лист после удержания 800 мс. Короткое нажатие не переключает отчёт.','Метка дубликата показана красной латинской D. Это только отображение: сохранённые данные и правила определения дубликата не меняются.','Поздравление с новым рангом расположено по центру экрана; звук салюта учитывает настройку игровых звуков.','Поиск техники очищается при каждом открытии выбора самосвалов. Сброс встроен в основную функцию открытия и не зависит от включения патча.']},
@@ -4234,6 +4235,7 @@ body.game-coin-feedback #toast{visibility:hidden}
 @keyframes gameWalletShine{from{transform:translateX(-100%);opacity:0}25%{opacity:1}to{transform:translateX(100%);opacity:0}}
 @keyframes gameWalletBurst{0%{transform:scale(.35);opacity:0}25%{opacity:1}100%{transform:scale(1.2);opacity:0}}
 @media(prefers-reduced-motion:reduce){#game-wallet.game-wallet-hit{animation:none;background:#854d0e;box-shadow:0 0 8px #fbbf2466}#game-wallet.game-wallet-hit::after,.game-wallet-burst{display:none}}
+.game-ledger{border-top:1px solid var(--border);padding-top:12px;margin:14px 0}.game-ledger-scroll{max-height:48vh;overflow:auto;border:1px solid var(--border);border-radius:10px}.game-ledger-table{width:100%;border-collapse:collapse;font-size:12px;white-space:normal}.game-ledger-table th,.game-ledger-table td{padding:8px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}.game-ledger-table th{position:sticky;top:0;background:var(--card);z-index:1}.game-ledger-table td:first-child{white-space:nowrap}.game-ledger-table .positive,.game-ledger-table .negative{color:var(--text);font-weight:800;white-space:nowrap}.game-ledger-admin,.game-ledger-award{display:grid;gap:8px;margin:10px 0}.game-ledger-award{padding:12px;border:1px solid var(--border);border-radius:10px}.game-ledger select{width:100%;margin-top:4px;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text)}.game-ledger-award .form-control{min-height:40px}
 </style>
 <script id="game-coins-v2">
 (function(){
@@ -4286,45 +4288,53 @@ body.game-coin-feedback #toast{visibility:hidden}
   window.__gameRewardSnapshot=rewardSnapshot;
   // Rebuild rewards globally before filtering: later undo/delete affects the original scope.
   function calculate(records,filter={}){
-    const entries=scopedRecords(records),origins=new Map(),rewards=new Map(),penalties=[],activeTtn=new Map();
+    const entries=scopedRecords(records),origins=new Map(),rewards=new Map(),penalties=[],activeTtn=new Map(),cancelled=new Map();
     const slot=(o,e)=>(o.id+':'+(o.after?.shiftId||o.before?.shiftId||e.scope.shiftId||''));
     const ttnId=(o,e)=>'ttn:'+slot(o,e)+':'+(Number.isFinite(o.after?.ttnRevision)?'rev:'+o.after.ttnRevision:'event:'+(e.history?.gameRewards?.actionId||e.id));
     function candidates(e){
-      const ops=e.history?.operations||[],rates=recordedRewards(e),user=key(e.userEmail||e.history?.userEmail),name=e.userName||e.history?.user||user;
+      const ops=e.history?.operations||[],rates=recordedRewards(e),user=key(e.userEmail||e.history?.userEmail),name=e.userName||e.history?.user||user,at=e.history?.gameRewards?.actionAt||e.timestamp||0;
       const loading=ops.some(o=>o.collection==='logs'&&!o.before&&o.after),archiving=ops.some(o=>o.collection==='archive'&&o.after),out=[];
       for(const o of ops){const b=o.before||{},a=o.after||{};
-        if(o.collection==='logs'&&!o.before&&o.after&&a.clientOperationId)out.push(['load:'+o.id,{user:key(a.createdByEmail)||user,name:a.createdBy||name,coins:rates.load,kind:'load',scope:e.scope}]);
+        if(o.collection==='logs'&&!o.before&&o.after&&a.clientOperationId)out.push(['load:'+o.id,{user:key(a.createdByEmail)||user,name:a.createdBy||name,coins:rates.load,kind:'load',scope:e.scope,at,eventId:e.id}]);
         if(o.collection==='truckStatus'){
-          if(a.arriveTimestamp&&a.arriveTimestamp!==b.arriveTimestamp&&b.lastLoadTimestamp&&a.arriveTimestamp>b.lastLoadTimestamp)out.push(['arrive:'+o.id+':'+(a.shiftId||'')+':'+a.arriveTimestamp,{user,name,coins:rates.arrive,kind:'arrive',scope:e.scope}]);
-          if(o.before&&o.after&&!b.ttnStatus&&a.ttnStatus&&!loading&&!archiving)out.push([ttnId(o,e),{user,name,coins:rates.ttn,kind:'ttn',scope:e.scope,slot:slot(o,e)}]);
+          if(a.arriveTimestamp&&a.arriveTimestamp!==b.arriveTimestamp&&b.lastLoadTimestamp&&a.arriveTimestamp>b.lastLoadTimestamp)out.push(['arrive:'+o.id+':'+(a.shiftId||'')+':'+a.arriveTimestamp,{user,name,coins:rates.arrive,kind:'arrive',scope:e.scope,at,eventId:e.id}]);
+          if(o.before&&o.after&&!b.ttnStatus&&a.ttnStatus&&!loading&&!archiving)out.push([ttnId(o,e),{user,name,coins:rates.ttn,kind:'ttn',scope:e.scope,slot:slot(o,e),at,eventId:e.id}]);
         }
       }
       return out;
     }
-    // Keep the original author/rate even when an undo later restores the same logical action.
+    const remove=(id,e,description)=>{const r=rewards.get(id)||origins.get(id);if(r&&!cancelled.has(id))cancelled.set(id,{...r,at:e.timestamp||Date.now(),description});rewards.delete(id);};
     for(const e of entries)if(e.history)for(const [id,r] of candidates(e))if(!origins.has(id))origins.set(id,r);
     for(const e of entries){
       if(e.eventType==='game_penalty'){if(e.amount===-3&&e.targetEmail)penalties.push(e);continue;}
-      if(!e.history||e.history.undone)continue;
+      if(!e.history)continue;
+      if(e.history.undone){for(const [id,r] of candidates(e))if(origins.has(id))cancelled.set(id,{...r,at:e.timestamp||r.at,description:'Отменено начисление за действие'});continue;}
       const ops=e.history.operations||[],loading=ops.some(o=>o.collection==='logs'&&!o.before&&o.after),archiving=ops.some(o=>o.collection==='archive'&&o.after);
       for(const o of ops){const b=o.before||{},a=o.after||{};
-        if(o.collection==='logs'&&!o.after&&!archiving)rewards.delete('load:'+o.id);
+        if(o.collection==='logs'&&!o.after)remove('load:'+o.id,e,'Отменено начисление за погрузку');
         if(o.collection==='truckStatus'){
-          if(b.arriveTimestamp&&o.after&&!a.arriveTimestamp&&!loading&&!archiving&&a.shiftId===b.shiftId&&a.lastResetOperationId===b.lastResetOperationId&&a.lastLoadTimestamp===b.lastLoadTimestamp)rewards.delete('arrive:'+o.id+':'+(b.shiftId||'')+':'+b.arriveTimestamp);
-          if(o.after&&b.ttnStatus&&!a.ttnStatus&&!loading&&!archiving){const k=slot(o,e),id=activeTtn.get(k);if(id)rewards.delete(id);activeTtn.delete(k);}
+          if(b.arriveTimestamp&&o.after&&!a.arriveTimestamp&&!loading&&!archiving&&a.shiftId===b.shiftId&&a.lastResetOperationId===b.lastResetOperationId&&a.lastLoadTimestamp===b.lastLoadTimestamp)remove('arrive:'+o.id+':'+(b.shiftId||'')+':'+b.arriveTimestamp,e,'Отменено начисление за возвращение');
+          if(o.after&&b.ttnStatus&&!a.ttnStatus&&!loading&&!archiving){const k=slot(o,e),id=activeTtn.get(k);if(id)remove(id,e,'Отменено начисление за ТТН');activeTtn.delete(k);}
         }
       }
-      for(const [id] of candidates(e)){const r=origins.get(id);if(r.kind==='ttn')activeTtn.set(r.slot,id);rewards.set(id,r);}
+      for(const [id] of candidates(e)){const r=origins.get(id);if(r.kind==='ttn')activeTtn.set(r.slot,id);rewards.set(id,r);cancelled.delete(id);}
     }
     const users=new Map(),matches=s=>(!filter.shiftId||s.shiftId===filter.shiftId)&&(!filter.objectKey||objectKey(s)===filter.objectKey);
     function row(user,name){if(!users.has(user))users.set(user,{user,name,coins:0,loads:0,arrivals:0,ttns:0,penalties:0});return users.get(user);}
     for(const r of rewards.values()){if(!r.user||!matches(r.scope))continue;const u=row(r.user,r.name);u.coins+=r.coins;u[r.kind==='load'?'loads':r.kind==='ttn'?'ttns':'arrivals']++;}
     for(const e of penalties){if(!matches(e.scope))continue;const u=row(key(e.targetEmail),e.targetName||e.targetEmail);u.coins-=3;u.penalties++;}
-    return [...users.values()].sort((a,b)=>b.coins-a.coins||a.name.localeCompare(b.name,'ru'));
+    const result=[...users.values()].sort((a,b)=>b.coins-a.coins||a.name.localeCompare(b.name,'ru'));
+    result.movements=[];
+    for(const [id,r] of origins){if(!r.user||!r.coins||!matches(r.scope))continue;
+      result.movements.push({id:'earned:'+id,user:r.user,name:r.name,amount:r.coins,at:r.at,description:({load:'Погрузка',arrive:'Возвращение после погрузки',ttn:'Забрал ТТН'}[r.kind]||'Начисление'),scope:r.scope});
+      if(!rewards.has(id)){const c=cancelled.get(id);if(c)result.movements.push({id:'reversed:'+id,user:r.user,name:r.name,amount:-r.coins,at:c.at,description:c.description,scope:r.scope});}
+    }
+    for(const e of penalties){if(!matches(e.scope))continue;result.movements.push({id:'penalty:'+e.id,user:key(e.targetEmail),name:e.targetName||e.targetEmail,amount:-3,at:e.timestamp||0,description:e.description||'Штраф за отмену действия',scope:e.scope});}
+    return result;
   }
   window.__gameCoinsCore={calculate,rank,scopeFor,scopedRecords,rewardsAt,rewardSnapshot,recordedRewards,rewardSchedule,rewardDefaults,rewardLimit};
 
-  let records=[],unsubscribe=null,owner='',ready=false,error='',board=[],configReady=false,lastView='',rankingScope='shift',rankingObject='',rankGuideOpen=false,visualBalance=null,visualOwner='';
+  let records=[],unsubscribe=null,owner='',ready=false,error='',board=[],configReady=false,lastView='',rankingScope='shift',rankingObject='',rankGuideOpen=false,visualBalance=null,visualOwner='',ledgerOpen=false,ledgerUser='all',ledgerLimit=50,grantTargets=[],grantTargetsLoaded=false,grantTargetsLoading=false,grantBusy=false,grantMessage='',grantAmount='',grantReason='',grantOperationId='';
   const enabled=()=>configReady&&permissionsLoaded&&currentUserStatus==='active'&&!!currentUid&&appConfig?.testReviewFlags?.game_mode!==false;
   const wallet=document.createElement('button');wallet.id='game-wallet';wallet.hidden=true;wallet.type='button';wallet.setAttribute('aria-label','Монеты и рейтинг пользователей');document.querySelector('#mainHeader .top-row')?.insertBefore(wallet,document.querySelector('#mainHeader .gear-btn'));
   const modal=document.createElement('dialog');modal.id='game-ranking';modal.setAttribute('aria-labelledby','game-title');document.body.append(modal);
@@ -4379,6 +4389,62 @@ body.game-coin-feedback #toast{visibility:hidden}
   }
   gameControls.forEach(input=>input.onchange=()=>saveGameSetting(input));
   admin.querySelector('#game-preview-rank-button').onclick=previewRankCelebration;
+  function ledgerEntries(rows){
+    const out=[];
+    const earned=window.__gameCoinsCore.calculate(rows).movements||[];
+    for(const m of earned)out.push({...m,email:m.user,uid:''});
+    for(const e of rows){
+      if(e.eventType==='game_purchase'&&Number.isSafeInteger(e.price)&&e.price>0)
+        out.push({id:'purchase:'+e.id,uid:e.userUid||'',email:e.userEmail||'',name:e.userName||e.userEmail||'',at:e.timestamp||0,amount:-e.price,description:e.text||('Покупка '+(e.itemId||'темы'))});
+      if(e.eventType==='game_arcade'&&e.kind!=='purchase'){
+        if(Number.isSafeInteger(e.cost)&&e.cost>0)out.push({id:'arcade-cost:'+e.id,uid:e.userUid||'',email:e.userEmail||'',name:e.userName||e.userEmail||'',at:e.timestamp||0,amount:-e.cost,description:(e.text||'Мини-игра')+' · ставка'});
+        if(Number.isSafeInteger(e.payout)&&e.payout>0)out.push({id:'arcade-payout:'+e.id,uid:e.userUid||'',email:e.userEmail||'',name:e.userName||e.userEmail||'',at:e.timestamp||0,amount:e.payout,description:(e.text||'Мини-игра')+' · выплата'});
+      }
+      if(e.eventType==='game_coin_adjustment'&&Number.isSafeInteger(e.amount)&&e.amount>0)
+        out.push({id:'grant:'+e.id,uid:e.targetUid||'',email:e.targetEmail||'',name:e.targetName||e.targetEmail||'',at:e.timestamp||0,amount:e.amount,description:'Награда администратора: '+(e.reason||'без причины')});
+    }
+    return out.sort((a,b)=>(b.at||0)-(a.at||0)||String(a.id).localeCompare(String(b.id)));
+  }
+  function renderCoinLedger(rows,balance,esc){
+    const all=canAdmin(),scope=all?ledgerUser:'self',target=grantTargets.find(u=>u.id===scope),targetEmail=scope==='self'?currentEmail:target?.email||'',targetUid=scope==='self'?currentUid:target?.id||'';
+    const list=ledgerEntries(rows).filter(x=>all&&scope==='all'||(targetUid&&x.uid===targetUid)||(targetEmail&&key(x.email)===key(targetEmail)));
+    const shown=list.slice(0,ledgerLimit);
+    const userOptions=grantTargets.map(u=>'<option value="'+esc(u.id)+'" '+(ledgerUser===u.id?'selected':'')+'>'+esc(u.nickname||u.name||u.email)+' · '+esc(u.email||'')+'</option>').join('');
+    const adminControls=all?'<div class="game-ledger-admin"><label>Пользователь<select id="game-ledger-user"><option value="all" '+(ledgerUser==='all'?'selected':'')+'>Все пользователи</option><option value="self" '+(ledgerUser==='self'?'selected':'')+'>Мои движения</option>'+userOptions+'</select></label><div class="game-ledger-award"><b>Начислить монеты</b><select id="game-grant-user"><option value="">Выберите пользователя</option>'+grantTargets.filter(u=>u.status==='active').map(u=>'<option value="'+esc(u.id)+'">'+esc(u.nickname||u.name||u.email)+' · '+esc(u.email||'')+'</option>').join('')+'</select><input id="game-grant-amount" class="form-control" type="number" min="1" max="10000" step="1" inputmode="numeric" placeholder="Количество" value="'+esc(grantAmount)+'"><input id="game-grant-reason" class="form-control" type="text" maxlength="160" placeholder="Причина начисления" value="'+esc(grantReason)+'"><button type="button" class="btn btn-primary btn-small" id="game-grant-submit" '+(grantBusy?'disabled':'')+'>Начислить</button><p role="status">'+esc(grantMessage)+'</p></div></div>':'';
+    const table=shown.length?'<div class="game-ledger-scroll"><table class="game-ledger-table"><thead><tr><th>Дата</th>'+((all&&ledgerUser==='all')?'<th>Пользователь</th>':'')+'<th>Движение</th><th>Монеты</th></tr></thead><tbody>'+shown.map(x=>'<tr><td>'+esc(x.at?new Date(x.at).toLocaleString('ru-RU'):'—')+'</td>'+((all&&ledgerUser==='all')?'<td>'+esc(resolveUserDisplayName(x.email,x.name))+'</td>':'')+'<td>'+esc(x.description||'Операция')+'</td><td class="'+(x.amount>0?'positive':'negative')+'">'+(x.amount>0?'+':'')+x.amount.toLocaleString('ru-RU')+'</td></tr>').join('')+'</tbody></table></div>':'<p class="game-note">Движений пока нет.</p>';
+    return '<section class="game-ledger"><h3>Движение монет</h3><p class="game-note">Доступный баланс: <b>'+balance.toLocaleString('ru-RU')+' 🪙</b>. Плюс — начисление, минус — расход или отменённое начисление.</p>'+adminControls+table+'<p class="game-note">Показано '+shown.length+' из '+list.length+' движений.</p>'+(list.length>shown.length?'<button type="button" id="game-ledger-more" class="btn btn-secondary btn-small">Показать ещё</button>':'')+'</section>';
+  }
+  async function loadGrantTargets(){
+    if(grantTargetsLoaded||grantTargetsLoading||!canAdmin())return;
+    grantTargetsLoading=true;grantMessage='Загружаем пользователей…';paint();
+    try{const snap=await usersRef.get();grantTargets=snap.docs.map(doc=>({id:doc.id,...doc.data()})).sort((a,b)=>String(a.nickname||a.email||a.id).localeCompare(String(b.nickname||b.email||b.id),'ru'));grantTargetsLoaded=true;grantMessage='';}
+    catch(e){grantMessage='Не удалось загрузить пользователей: '+(e.message||'проверьте связь');}
+    finally{grantTargetsLoading=false;paint();}
+  }
+  async function submitCoinGrant(){
+    if(!canAdmin()||grantBusy)return;
+    const target=grantTargets.find(u=>u.id===modal.querySelector('#game-grant-user')?.value);
+    const amount=Number(modal.querySelector('#game-grant-amount')?.value),reason=String(modal.querySelector('#game-grant-reason')?.value||'').trim();
+    if(!target||target.status!=='active'){grantMessage='Выберите активного пользователя.';paint();return;}
+    if(!Number.isSafeInteger(amount)||amount<1||amount>10000){grantMessage='Введите целое число от 1 до 10 000.';paint();return;}
+    if(reason.length<3||reason.length>160){grantMessage='Укажите причину (от 3 до 160 символов).';paint();return;}
+    if(!navigator.onLine){grantMessage='Для начисления нужна связь с сервером.';paint();return;}
+    const actor=currentUid,operationId=grantOperationId||(crypto.randomUUID?crypto.randomUUID():Date.now()+'_'+Math.random().toString(36).slice(2));grantOperationId=operationId;const ref=refs.audit.doc('coin_grant_'+encodeURIComponent(target.id)+'_'+operationId);
+    grantBusy=true;grantMessage='Сохраняем начисление…';grantAmount=String(amount);grantReason=reason;paint();
+    try{
+      await db.runTransaction(async tx=>{
+        const duplicate=await tx.get(ref);if(duplicate.exists)return;
+        const profile=await tx.get(usersRef.doc(target.id));
+        if(!canAdmin()||currentUid!==actor)throw Error('Права администратора изменились.');
+        if(!profile.exists||profile.data().status!=='active'||profile.data().email!==target.email)throw Error('Пользователь неактивен или изменился.');
+        const timestamp=Date.now(),entry={eventType:'game_coin_adjustment',amount,targetUid:target.id,targetEmail:target.email,targetName:target.nickname||target.name||target.email,reason,timestamp,userEmail:currentEmail,userName:getUserName(),createdByEmail:currentEmail,createdByUid:currentUid,text:'Начисление +'+amount+' монет: '+reason,timeStr:new Date(timestamp).toLocaleString('ru-RU')};
+        tx.set(ref,entry);
+      });
+      grantMessage='Начислено '+amount.toLocaleString('ru-RU')+' 🪙 пользователю '+(target.nickname||target.email)+'.';
+      grantAmount='';grantReason='';grantOperationId='';
+    }catch(e){grantMessage='Не удалось начислить: '+(e.message||'проверьте доступ и соединение');}
+    finally{grantBusy=false;lastView='';paint();}
+  }
   function paint(){
     decorateButtons();wallet.hidden=!enabled();admin.hidden=!canAdmin();paintRewardSettings();
     gameControls.forEach(input=>{const id=input.dataset.gameSetting;if(!savingFlags.has(id))input.checked=appConfig?.testReviewFlags?.[id]!==false;input.disabled=!canAdmin()||savingFlags.has(id)||(id!=='game_mode'&&!enabled());});
@@ -4394,12 +4460,13 @@ body.game-coin-feedback #toast{visibility:hidden}
     wallet.textContent='🪙 '+(ready?balance.toLocaleString('ru-RU'):'…');wallet.title=rank(coins).name+' · Открыть рейтинг';
     if(!modal.open)return;
     const displayNames=board.map(r=>resolveUserDisplayName(r.user,r.name)),myName=resolveUserDisplayName(currentEmail,getUserName());
-    const view=JSON.stringify([board,coins,balance,currentEmail,myName,displayNames,ready,error,rankingScope,rankingObject,state.shift?.id,objects,rankGuideOpen,rewardsAt(appConfig)]);if(view===lastView&&modal.innerHTML)return;lastView=view;
+    const view=JSON.stringify([board,coins,balance,currentEmail,myName,displayNames,ready,error,rankingScope,rankingObject,state.shift?.id,objects,rankGuideOpen,rewardsAt(appConfig),ledgerOpen,ledgerUser,ledgerLimit,grantTargets.map(u=>u.id),grantBusy,grantMessage,grantAmount,grantReason]);if(view===lastView&&modal.innerHTML)return;lastView=view;
     const level=rank(coins),next=levels.find(x=>x.at>coins),esc=escapeHtml;
     modal.innerHTML='<div class="game-head"><h2 id="game-title">Лига дорожной бригады</h2><button aria-label="Закрыть рейтинг">×</button></div>'
       +'<div class="game-profile"><div class="game-profile-name">'+esc(myName)+'</div><div class="game-profile-rank">'+esc(level.name)+'</div>'
       +'<div class="game-profile-balance"><span class="game-profile-label">Кошелёк · доступно для покупок</span><strong class="game-profile-value"><span aria-hidden="true">🪙</span>'+balance.toLocaleString('ru-RU')+'</strong><small>Рейтинг: '+coins.toLocaleString('ru-RU')+' · Покупки его не уменьшают</small></div>'
       +'<div class="game-profile-progress">'+(next?'<progress value="'+Math.max(0,coins-level.at)+'" max="'+(next.at-level.at)+'" aria-label="Прогресс до следующего ранга"></progress><div>Ещё '+(next.at-coins)+' 🪙 до ранга «'+esc(next.name)+'»</div>':'<div>👑 Высший ранг — вы легенда команды!</div>')+'</div></div>'
+      +'<button type="button" id="game-ledger-toggle" aria-expanded="'+ledgerOpen+'">📒 Движение монет</button>'+(ledgerOpen?renderCoinLedger(records,balance,esc):'')
       +'<button type="button" id="game-ranks-toggle" aria-expanded="'+rankGuideOpen+'" aria-controls="game-ranks-guide">🏅 Все ранги · '+levels.length+'</button>'+renderRankGuide(coins)
       +'<div class="game-scopes" role="group" aria-label="Период рейтинга">'+[['all','Общий'],['shift','Текущая смена'],['object','Объект']].map(([id,label])=>'<button type="button" data-game-scope="'+id+'" aria-pressed="'+(rankingScope===id)+'">'+label+'</button>').join('')+'</div>'
       +(rankingScope==='object'?'<label class="game-note">Объект <select id="game-object">'+objects.map(o=>'<option value="'+esc(o.key)+'" '+(o.key===rankingObject?'selected':'')+'>'+esc(o.name)+'</option>').join('')+'</select></label>':'')
@@ -4407,6 +4474,13 @@ body.game-coin-feedback #toast{visibility:hidden}
       +(rankingScope==='shift'&&!state.shift?.id?'<p class="game-note">Смена не начата.</p>':'')
       +(error?'<p role="status">'+esc(error)+'</p>':!ready?'<p role="status">Загружаем накопления…</p>':board.length?board.map((r,i)=>'<div class="game-row '+(r.user===key(currentEmail)?'me':'')+'"><span class="game-place">'+(['🥇','🥈','🥉'][i]||i+1)+'</span><div class="game-person"><b>'+esc(displayNames[i])+(r.user===key(currentEmail)?' · вы':'')+'</b><small>Отметки погрузки: '+r.loads+' · Возвращения: '+r.arrivals+' · ТТН: '+r.ttns+' · Штрафы: '+r.penalties+' (−'+(r.penalties*3)+')</small></div><b class="game-score">'+r.coins+' 🪙</b></div>').join(''):'<p class="game-note">Здесь появятся участники, которые отмечают машины на линии фрезерования.</p>');
     modal.querySelector('.game-head button').onclick=()=>modal.close();
+    modal.querySelector('#game-ledger-toggle').onclick=()=>{ledgerOpen=!ledgerOpen;ledgerLimit=50;grantMessage='';paint();if(ledgerOpen&&canAdmin())loadGrantTargets();};
+    const ledgerUserSelect=modal.querySelector('#game-ledger-user');if(ledgerUserSelect)ledgerUserSelect.onchange=()=>{ledgerUser=ledgerUserSelect.value;paint();};
+    modal.querySelector('#game-ledger-more')?.addEventListener('click',()=>{ledgerLimit+=50;lastView='';paint();});
+    const grantSubmit=modal.querySelector('#game-grant-submit');if(grantSubmit)grantSubmit.onclick=submitCoinGrant;
+    const grantTargetInput=modal.querySelector('#game-grant-user');if(grantTargetInput)grantTargetInput.onchange=()=>{grantOperationId='';};
+    const grantAmountInput=modal.querySelector('#game-grant-amount');if(grantAmountInput)grantAmountInput.oninput=()=>{grantAmount=grantAmountInput.value;grantOperationId='';};
+    const grantReasonInput=modal.querySelector('#game-grant-reason');if(grantReasonInput)grantReasonInput.oninput=()=>{grantReason=grantReasonInput.value;grantOperationId='';};
     modal.querySelector('#game-ranks-toggle').onclick=()=>{rankGuideOpen=!rankGuideOpen;paint();modal.querySelector('#game-ranks-toggle')?.focus();};
     modal.querySelectorAll('[data-game-scope]').forEach(b=>b.onclick=()=>{rankingScope=b.dataset.gameScope;paint();});
     const objectSelect=modal.querySelector('#game-object');if(objectSelect)objectSelect.onchange=()=>{rankingObject=objectSelect.value;paint();};
@@ -4730,7 +4804,7 @@ body.game-coin-feedback #toast{visibility:hidden}
     }
     if(identity&&!unsubscribe){
       const session=owner;
-      unsubscribe=refs.audit.where('eventType','in',['history','game_penalty','game_purchase']).onSnapshot({includeMetadataChanges:true},s=>{if(owner!==session)return;records=s.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()}));ready=true;error='';rankSnapshotConfirmed=!s.metadata.fromCache&&!s.metadata.hasPendingWrites;notifyPenalties(records);paint();observeRankProgress();},e=>{if(owner!==session)return;rankSnapshotConfirmed=false;cancelRankCelebration();error='Не удалось загрузить рейтинг. Проверьте подключение и доступ к истории.';ready=false;paint();console.warn('[game coins]',e);});
+      unsubscribe=refs.audit.where('eventType','in',['history','game_penalty','game_purchase','game_arcade','game_coin_adjustment']).onSnapshot({includeMetadataChanges:true},s=>{if(owner!==session)return;records=s.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()}));ready=true;error='';rankSnapshotConfirmed=!s.metadata.fromCache&&!s.metadata.hasPendingWrites;notifyPenalties(records);paint();observeRankProgress();},e=>{if(owner!==session)return;rankSnapshotConfirmed=false;cancelRankCelebration();error='Не удалось загрузить рейтинг. Проверьте подключение и доступ к истории.';ready=false;paint();console.warn('[game coins]',e);});
     }
     paint();
   }
@@ -4831,7 +4905,8 @@ body.game-coin-feedback #toast{visibility:hidden}
   const spent=(rows,uid)=>[...purchases(rows,uid).values()].reduce((sum,r)=>sum+r.price,0);
   // Fixed testing allowance, not a recurring credit: durable purchases consume it.
   const bonus=(role,status)=>role==='admin'&&status==='active'?10000:0;
-  const available=(earned,paid,role,status)=>Math.max(0,earned+bonus(role,status)+(window.RoadArcade?.delta(currentUid)||0)-paid);
+  const adjustments=(rows,uid)=>rows.filter(r=>r.eventType==='game_coin_adjustment'&&r.targetUid===uid&&Number.isSafeInteger(r.amount)&&r.amount>0).reduce((sum,r)=>sum+r.amount,0);
+  const available=(earned,paid,role,status)=>Math.max(0,earned+bonus(role,status)+(window.RoadArcade?.delta(currentUid)||0)+adjustments(snapshot().records,currentUid)-paid);
   const canOpen=()=>canUse(currentUserRole,currentUserStatus,permissionsLoaded)&&window.__gameEconomy?.snapshot().enabled===true;
   let owner='',preview=null,selected='',filter='all',busy=false,message='',renderKey='',applied='';
   const style=document.createElement('style');style.id='road-theme-active';document.head.append(style);
@@ -4870,7 +4945,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   }
   const admin=document.createElement('details');admin.className='admin-settings-group';admin.id='road-shop-admin';admin.innerHTML='<summary>🧪 Магазин · тест '+THEMES.length+' интерфейсов</summary><div class="form-card"><p class="shop-hint">Бесплатная примерка всех тем без покупок. В магазине доступны выбор темы, предыдущая/следующая и возврат оформления.</p><button type="button" class="btn btn-secondary">Посмотреть все интерфейсы</button></div>';document.getElementById('admin-game-settings-slot')?.append(admin);admin.querySelector('button').onclick=()=>{if(canAdmin())open(THEMES[0].id);};
   const settingsButton=document.createElement('button');settingsButton.type='button';settingsButton.className='btn btn-secondary';settingsButton.textContent='🛍 Лавка дорожника';settingsButton.onclick=()=>{closeSettingsModal();open();};document.querySelector('#settingsModal .modal-body')?.append(settingsButton);
-  window.RoadShop={open,spent,bonus,available,canUse,purchases,themes:THEMES,purchaseId,getAppliedTheme:()=>applied};
+  window.RoadShop={open,spent,bonus,available,adjustments,canUse,purchases,themes:THEMES,purchaseId,getAppliedTheme:()=>applied};
   window.addEventListener('storage',e=>{if(e.key===localKey()){selected=e.newValue||'';apply();renderKey='';render();}});
   window.addEventListener('review-flags-changed',sync);setInterval(sync,500);sync();
 })();
@@ -5148,7 +5223,7 @@ async function loadPlayers(current,token){
  }));
 }
 function sync(){
- const next=active()?currentUid:'';if(next!==owner){unsub?.();winsUnsub?.();unsub=null;winsUnsub=null;ownPending=null;owner=next;generation++;head=C.initialHead();players={};recent=[];ready=false;error='';fetching.clear();emit();}
+ const next=active()?currentUid:'';if(next!==owner){unsub?.();winsUnsub?.();unsub=null;winsUnsub=null;ownPending=null;owner=next;ledgerUser='all';ledgerOpen=false;grantOperationId='';generation++;head=C.initialHead();players={};recent=[];ready=false;error='';fetching.clear();emit();}
  if(owner&&!unsub){const token=generation;unsub=refs.audit.orderBy('gameRound','desc').limit(80).onSnapshot({includeMetadataChanges:true},snap=>{
   if(token!==generation)return;const rows=snap.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()})).filter(validRound).sort((a,b)=>b.gameRound-a.gameRound);
   if(rows[0]&&rows[0].gameRound>=head.gameRound)head=rows[0];for(const row of rows)acceptPlayer(row);
@@ -5410,7 +5485,7 @@ A.subscribe(syncUI);window.addEventListener('review-flags-changed',syncUI);windo
 })();
 </script>
 <!-- Test-only, stand-alone Timesheet module. The production HTML is not modified. -->
-<script>window.TEST_APP_RELEASE={version:'3.4.9',label:'3.4.9'};window.__testGetShift=()=>state.shift;</script>
+<script>window.TEST_APP_RELEASE={version:'3.4.10',label:'3.4.10'};window.__testGetShift=()=>state.shift;</script>
 <script id="timesheet-core" src="./test-app/src/features/timesheet-core.js"></script>
 <script id="timesheet-app" src="./test-app/src/features/timesheet-app.js"></script>
 <script id="test-pwa" src="./test-app/src/pwa.js"></script>
