@@ -1,7 +1,7 @@
 /* Bundled test extension: visible/editable in Admin → Extensions. No Line writes. */
 (function () {
   'use strict';
-  const code = `// Табель 1.1.0-test.1. Код загрузчика для менеджера «Расширения».
+  const code = `// Табель 1.1.0-test.2. Код загрузчика для менеджера «Расширения».
 if (!ctx.ledgerHost || ctx.ledgerHost.session().projectId !== 'samosval-offline') {
   throw new Error('Этот Табель предназначен только для тестовой среды');
 }
@@ -27,7 +27,7 @@ ctx.registerTab('tabel', 'Табель', '📋', async function(container) {
 });
 ctx.onDispose(function() { disposed = true; return runtime && runtime.dispose(); });`;
   window.SamosvalBundledPlugins = [{
-    id: 'builtin-tabel', name: 'Табель', icon: '📋', version: '1.1.0-test.1',
+    id: 'builtin-tabel', name: 'Табель', icon: '📋', version: '1.1.0-test.2',
     allowedRoles: ['admin'], enabled: true, code, bundled: true
   }];
 })();

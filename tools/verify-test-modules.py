@@ -18,9 +18,9 @@ for old, module in zip(blocks,data['modules']):
     assert old[1] == module['kind'] and old[2] == module['attributes']
     code = b.body(module)
     if module['name'] == 'release-history':
-        code = re.sub(r"^    \{version:'3\.4\.(?:12|14)'.*\n",'',code,flags=re.M)
+        code = re.sub(r"^    \{version:'3\.4\.(?:12|14|15)'.*\n",'',code,flags=re.M)
     elif module['name'] == 'test-release':
-        code = code.replace('3.4.14','3.4.11').rstrip('\n')
+        code = code.replace('3.4.15','3.4.11').rstrip('\n')
     elif module['name'] == 'core':
         # Only the plugin manager/ctx contract may change; verify every byte outside it.
         a, z = code.index('  // === ПЛАГИНЫ ==='), code.index('  // === АВТОРИЗАЦИЯ ===')
@@ -48,7 +48,7 @@ def marker(m):
 expected = pattern.sub(marker,baseline)
 expected = ''.join(line for line in expected.splitlines(True) if not any(x in line for x in ['href="./test-app/src/styles/timesheet-css.css"','id="tab-timesheet"','id="nav-timesheet"','id="timesheet-core"','id="timesheet-app"']))
 expected = expected.replace('<!-- TEST-MODULE:core -->','<script id="tabel-plugin" src="./test-app/tabel/plugin.js"></script>\n<!-- TEST-MODULE:core -->')
-actual = (b.SOURCE / 'shell.html').read_text().replace('3.4.14','3.4.11')
+actual = (b.SOURCE / 'shell.html').read_text().replace('3.4.15','3.4.11')
 assert actual == expected, 'HTML/handler layout changed'
 for file in ['index.html','sw.js','manifest.json','firestore-v3.rules','firestore-coins-test.rules']:
     original = subprocess.check_output(['git','show',data['baseline_commit']+':'+file],cwd=ROOT)

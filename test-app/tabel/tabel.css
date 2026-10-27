@@ -3,7 +3,10 @@
 
 .tb-app[data-hints=false] .tb-small{display:none}
 
-/* Plugin is embedded in the existing dynamic tab; only its table is fullscreen. */
-.tb-embedded{position:relative;inset:auto;z-index:auto;min-height:72dvh;padding:0;border:1px solid #cbd4d9;border-radius:9px;overflow:hidden}.tb-embedded .tb-content{min-height:360px;overflow:visible}.tb-embedded.tb-table-mode{position:fixed;inset:0;z-index:30000;border:0;border-radius:0;min-height:0}.tb-embedded.tb-table-mode .tb-content{min-height:0;overflow:hidden}.tb-context{display:flex;gap:8px;flex-wrap:wrap;padding:6px 10px;background:#fff}.tb-context .tb-field{margin:0;flex:1;min-width:105px}.tb-context input,.tb-context select{width:100%}.tb-table-mode>.tb-context{display:none}.tb>nav{position:static;inset:auto;width:auto;box-shadow:none;height:auto;background:#f4f6f7;z-index:auto}.tb header{position:static;inset:auto}.tb-embedded .tb-status{position:sticky;bottom:60px}.tb-embedded.tb-table-mode .tb-status{position:static}
-
-.tb-embedded:not(.tb-table-mode){height:calc(100dvh - 230px);min-height:440px}.tb-embedded:not(.tb-table-mode) .tb-content{min-height:0;overflow:auto;padding-bottom:20px}.tb-embedded .tb-status{position:static;flex-shrink:0}
+/* Every plugin view fills the viewport; host chrome stays underneath. */
+#tab-plugin-tabel.active{animation:none}
+body:has(#tab-plugin-tabel.active>.tb-app){overflow:hidden}
+.tb-app.tb-embedded{position:fixed;inset:0;z-index:30000;width:100%;height:100vh;height:100dvh;min-height:0;max-height:none;margin:0;border:0;border-radius:0;overflow:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.tb-embedded .tb-content{min-height:0;overflow:auto;padding-bottom:20px}
+.tb-embedded.tb-table-mode .tb-content{overflow:hidden;padding-bottom:0}
+.tb-context{display:flex;gap:8px;flex-wrap:wrap;padding:6px 10px;background:#fff}.tb-context .tb-field{margin:0;flex:1;min-width:105px}.tb-context input,.tb-context select{width:100%}.tb-table-mode>.tb-context{display:none}.tb>nav{position:static;inset:auto;width:auto;box-shadow:none;height:auto;background:#f4f6f7;z-index:auto}.tb header{position:static;inset:auto}.tb-embedded .tb-status{position:static;flex-shrink:0}
