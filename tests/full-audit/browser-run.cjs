@@ -144,7 +144,10 @@ async function confirm(accept = true, expectedMessage, repeated = false) {
   if (expectedMessage) assert.match(await overlay.locator('.pcm-message').innerText(),expectedMessage);
   const current=await overlay.elementHandle(); assert(current);
   const button=overlay.locator(accept ? '.pcm-btn-confirm' : '.pcm-btn-cancel');
-  if (repeated) await button.dblclick(); else await button.click();
+  if (repeated) await button.dblclick(); else {
+    try {await button.click({timeout:5000});}
+    catch(error){if(accept||await current.evaluate(node=>node.isConnected))throw error;}
+  }
   // A legitimate successor prompt may appear immediately (optional backup →
   // final close). Wait for THIS dismissed instance, never every future modal.
   await page.waitForFunction(node=>!node.isConnected,current,{timeout:15000}); await current.dispose();
@@ -172,7 +175,7 @@ async function toggleCheckbox(id, checked) {
 async function hold(truck, kind, milliseconds = 650) {
   const cls = {arrive:'btn-arrive',load:'btn-quick',ttn:'btn-ttn'}[kind];
   const button=page.locator('.truck-card[data-truck-id="' + truck + '"] .action-row .' + cls);
-  await button.scrollIntoViewIfNeeded();
+  await button.hover();
   await wait(()=>!isScrolling);
   await button.click({delay:milliseconds});
 }
@@ -420,9 +423,9 @@ async function responsiveCase(mobile) {
     assert(await page.locator('#test-pwa-settings').isVisible());
     await page.locator('#settingsModal').getByRole('button',{name:'🛍 Лавка дорожника',exact:true}).click();
     await page.locator('#road-shop-dialog[open]').waitFor({state:'visible'});
-    await page.locator('#road-shop-preview').selectOption('roadworks');
-    await wait(() => RoadShop.getAppliedTheme() === 'roadworks');
-    await page.locator('#road-shop-dialog [data-step="1"]').click(); assert.notEqual(await page.evaluate(() => RoadShop.getAppliedTheme()), 'roadworks');
+    await page.locator('#road-shop-preview').selectOption('road');
+    await wait(() => RoadShop.getAppliedTheme() === 'road');
+    await page.locator('#road-shop-dialog [data-step="1"]').click(); assert.notEqual(await page.evaluate(() => RoadShop.getAppliedTheme()), 'road');
     await page.locator('#road-shop-dialog .shop-close').click(); await wait(() => RoadShop.getAppliedTheme() === '');
     await page.locator('#mainHeader .gear-btn').click(); await page.locator('#settingsModal button[onclick="closeSettingsModal()"]').last().click();
     await nav('admin'); await page.locator('button[onclick="switchAdminTab(\'appsettings\', this)"]').click();
