@@ -30,3 +30,26 @@ jobs:
           node tests/pwa/service-worker.cjs
           node -r ./tests/pwa/legacy-loader.cjs tests/coins/admin-settings.cjs
           node -r ./tests/pwa/legacy-loader.cjs tests/coins/test-parity.cjs
+  pwa-upgrade:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser dependencies
+        run: |
+          python3 -m pip install playwright==1.57.0
+          python3 -m playwright install --with-deps chromium
+      - name: Upgrade actual 3.4.11 to modular release without data deletion
+        run: |
+          git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
+          mkdir -p "$RUNNER_TEMP/samosval-old"
+          git archive FETCH_HEAD | tar -x -C "$RUNNER_TEMP/samosval-old"
+          python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 0f0881040d710261
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modular-pwa-upgrade
+          path: test-results/
