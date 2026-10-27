@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '8b0bd65b3c94d2d51e8e611bc9644800ddd58291'
 ALLOWED_FILES = {
+ 'firestore-timesheet-test.rules', # Explicitly authorized TEST rules publication, 27.10.2026.
  'index-test.html','sw-test.js','test-app/build-manifest.json','tools/build-test.py','tools/verify-test-modules.py',
  'test-app/source/core/04-subscriptions.js','test-app/source/shell.html',
  'test-app/source/features/test-release.js','test-app/source/features/release-history.js',
@@ -17,7 +18,7 @@ ALLOWED_FILES = {
 } # Explicitly authorized TEST plugin integration only.
 
 build = json.loads((ROOT/'test-app/build-manifest.json').read_text())['version']
-ALLOWED_DIRS = ('test-app/build/21e3174b72f1f963/', 'test-app/tabel/', 'tests/tabel/', 'test-app/build/'+build+'/')
+ALLOWED_DIRS = ('test-app/build/a56f826f30325346/', 'test-app/build/21e3174b72f1f963/', 'test-app/tabel/', 'tests/tabel/', 'test-app/build/'+build+'/')
 files = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', BASE], cwd=ROOT).decode().splitlines()
 protected = []
 for name in files:

@@ -9,6 +9,9 @@ out.mkdir(exist_ok=True)
 # Proposed rules stay inside this module as review/emulator artifacts.
 # The protected rules file is only read. Legacy validation is retained.
 rules_old = (ROOT / 'firestore-timesheet-test.rules').read_text()
+if 'function tabelTab()' in rules_old:
+    print('TEST ledger rules are already integrated. No files changed; read a fresh deployed ruleset before preparing a new release.')
+    raise SystemExit(0)
 sandbox = (HERE / 'firestore.sandbox.rules').read_text()
 helpers = sandbox[sandbox.index('    function tab()'):sandbox.index('    match /workspaces/main_workspace/{c}/{id}')]
 helpers = helpers.replace("['timesheetObjects','timesheetSheets','timesheetDays','timesheetValues','timesheetEntries']", "['timesheetObjects','timesheetSheets','timesheetDays','timesheetValues']")
