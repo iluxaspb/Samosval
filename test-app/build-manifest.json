@@ -1,11 +1,11 @@
 {
-  "version": "6b15327995925990",
+  "version": "0f0881040d710261",
   "baseline_commit": "a7e001ce2d33457f6252f9f527ea7f3dd4cdc258",
   "channel": "test-3.4.11-standalone-plus-timesheet",
   "assets": [
     {
       "url": "./index-test.html",
-      "sha256": "6b15327995925990dfe745ff1583363a129143ea2fe6d13da0f99c05bc16d3c4"
+      "sha256": "62b31848dcbf4fa2f8cec276a5afa13ef3172ba85ec8f4d53554f7c9d4608efe"
     },
     {
       "url": "./manifest-test.webmanifest",
