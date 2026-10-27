@@ -1,10 +1,11 @@
 name: TEST update recovery checks
 on:
   push:
-    branches: [root, repair/test-update-recovery-20261026]
+    branches: [root, repair/test-update-recovery-20261026, repair/standalone-ci-20261027]
     paths:
       - update-test.html
       - tests/pwa/update-browser.py
+      - tests/photo-removal/build.cjs
       - .github/workflows/test-update-recovery.yml
   workflow_dispatch:
 permissions:
@@ -24,12 +25,12 @@ jobs:
       - name: Existing business and offline regressions
         run: |
           set -eu
-          for test in tests/coins/admin-settings.cjs tests/coins/test-parity.cjs tests/photo-removal/build.cjs tests/photo-removal/core.cjs tests/pwa/service-worker.cjs tests/shift-close/regression.cjs tests/shift-close/max-text.cjs tests/png-export/regression.cjs; do
+          for test in tests/coins/admin-settings.cjs tests/coins/test-parity.cjs tests/coins/standalone.cjs tests/photo-removal/build.cjs tests/photo-removal/core.cjs tests/pwa/service-worker.cjs tests/shift-close/regression.cjs tests/shift-close/max-text.cjs tests/png-export/regression.cjs; do
             node "$test"
           done
       - name: Fetch exact pre-update application
         run: |
-          git fetch --depth=1 origin d355556c72f81f6f104aa3bac9b28f584dbc0c9a
+          git fetch --depth=1 origin bd0e906e15a6cafb8b3dd7fd390d0fbc584218a7
           mkdir -p "$RUNNER_TEMP/samosval-old"
           git archive FETCH_HEAD | tar -x -C "$RUNNER_TEMP/samosval-old"
       - name: Install browser test dependencies
