@@ -1,0 +1,497 @@
+// TEST ONLY: samosval-offline. Do not publish these rules to samosval-test.
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owner() {
+      return signedIn()
+        && request.auth.uid == 'LxibEkd18ASZ3euK5MPCJxTJitZ2';
+    }
+
+    function account() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function active() {
+      return signedIn() && (owner() || account().get('status', '') == 'active');
+    }
+
+    function admin() {
+      return signedIn() && (owner() || (
+        account().get('status', '') == 'active'
+        && account().get('role', '') == 'admin'
+      ));
+    }
+
+    function roleActions() {
+      return get(/databases/$(database)/documents/settings/permissions)
+        .data.get(account().get('role', ''), {}).get('actions', []);
+    }
+
+    function can(action) {
+      return signedIn() && (owner() || (
+        account().get('status', '') == 'active'
+        && (account().get('role', '') == 'admin' || action in roleActions())
+      ));
+    }
+
+    function loadingAllowed() {
+      return can('action_load');
+    }
+
+    function nextCycleRevision() {
+      return request.resource.data.get('cycleRevision', 0)
+        == resource.data.get('cycleRevision', 0) + 1;
+    }
+
+    function validLoadCreate(logId) {
+      let truckId = request.resource.data.truckId;
+      let before = get(/databases/$(database)/documents/workspaces/main_workspace/truckStatus/$(truckId)).data;
+      let after = getAfter(/databases/$(database)/documents/workspaces/main_workspace/truckStatus/$(truckId)).data;
+      return before.get('arriveStatus', null) != null
+        && before.shiftId == request.resource.data.shiftId
+        && request.resource.data.arrivalTimestamp == before.arriveTimestamp
+        && after.get('arriveStatus', null) == null
+        && after.get('lastLoadLogId', '') == logId
+        && after.lastLoadTimestamp == request.resource.data.timestamp
+        && after.get('cycleRevision', 0) == before.get('cycleRevision', 0) + 1;
+    }
+
+    function validLoadingStatus(truckId) {
+      let logId = request.resource.data.get('lastLoadLogId', 'missing');
+      let log = getAfter(/databases/$(database)/documents/workspaces/main_workspace/logs/$(logId)).data;
+      return resource.data.get('arriveStatus', null) != null
+        && request.resource.data.get('arriveStatus', null) == null
+        && nextCycleRevision()
+        && log.truckId == truckId
+        && log.shiftId == resource.data.shiftId
+        && log.timestamp == request.resource.data.lastLoadTimestamp
+        && log.createdByEmail == request.auth.token.get('email', '');
+    }
+
+    function validHistoryOperation(op) {
+      let path = op.collection in ['users', 'settings', 'registration_requests']
+        ? /databases/$(database)/documents/$(op.collection)/$(op.id)
+        : /databases/$(database)/documents/workspaces/main_workspace/$(op.collection)/$(op.id);
+      return op.before != op.after
+        && op.before == (exists(path) ? get(path).data : null)
+        && op.after == (existsAfter(path) ? getAfter(path).data : null);
+    }
+
+    function validHistoryCreate() {
+      let ops = request.resource.data.history.operations;
+      return request.resource.data.history.userUid == request.auth.uid
+        && request.resource.data.history.userEmail == request.auth.token.get('email', '')
+        && request.resource.data.history.undone == false
+        && ops is list && ops.size() > 0 && ops.size() <= 4
+        && validHistoryOperation(ops[0])
+        && (ops.size() < 2 || validHistoryOperation(ops[1]))
+        && (ops.size() < 3 || validHistoryOperation(ops[2]))
+        && (ops.size() < 4 || validHistoryOperation(ops[3]));
+    }
+
+    function ownLoadUndo() {
+      let logId = resource.data.get('lastLoadLogId', 'missing');
+      return can('undo_action')
+        && get(/databases/$(database)/documents/workspaces/main_workspace/logs/$(logId)).data.createdByEmail
+          == request.auth.token.get('email', '');
+    }
+
+    function changedOnly(fields) {
+      return request.resource.data.diff(resource.data)
+        .affectedKeys().hasOnly(fields);
+    }
+
+    function ownRecord() {
+      return signedIn()
+        && resource.data.get('createdByEmail', '')
+          == request.auth.token.get('email', '');
+    }
+
+    function ownNewRecord() {
+      return signedIn()
+        && request.resource.data.get('createdByEmail', '')
+          == request.auth.token.get('email', '');
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn()
+        && (request.auth.uid == uid || active());
+      allow list: if active();
+
+      allow create: if admin() || (
+        signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'email', 'nickname', 'role', 'status', 'createdAt'
+        ])
+        && request.resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.role == 'viewer'
+        && request.resource.data.status == 'pending'
+      );
+
+      allow update: if admin() || (
+        signedIn() && request.auth.uid == uid
+        && changedOnly(['nickname'])
+      );
+      allow delete: if admin();
+    }
+
+    match /settings/permissions {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    // The existing client uses this document for MAX notifications.
+    match /settings/appConfig {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    match /settings/undoRedoStacks {
+      allow read, write: if admin();
+    }
+
+    match /registration_requests/{uid} {
+      allow get: if admin() || (signedIn() && request.auth.uid == uid);
+      allow list: if admin();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'nickname', 'status', 'createdAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt is number
+        && getAfter(/databases/$(database)/documents/users/$(uid)).data.status == 'pending'
+        && getAfter(/databases/$(database)/documents/users/$(uid)).data.role == 'viewer';
+      allow update, delete: if admin();
+    }
+
+    match /backups/{document=**} {
+      allow read, write: if admin();
+    }
+
+    match /workspaces/main_workspace {
+      // The application subscribes to these shared collections.
+      // Non-admin writes are granted separately below.
+      match /{collection}/{id} {
+        allow read: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetChanges','timesheetObjects','timesheetSheets','timesheetDays','timesheetValues']) && active();
+        allow write: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetChanges','timesheetObjects','timesheetSheets','timesheetDays','timesheetValues']) && admin();
+      }
+
+    function tabelTab() { return active() && (admin() || 'timesheet' in get(/databases/$(database)/documents/settings/permissions).data.get(account().role,{}).get('tabs',[])); }
+    function tabelHostEdit() { return admin() || 'timesheet_edit' in get(/databases/$(database)/documents/settings/permissions).data.get(account().role,{}).get('actions',[]); }
+    function tabelConfig(objectId) { return get(/databases/$(database)/documents/workspaces/main_workspace/timesheetObjects/$(objectId)).data; }
+    function tabelGrant(objectId,key) {
+      return tabelTab() && (admin() || tabelConfig(objectId).acl.roles.get(account().role,{}).get(key,false) == true
+        || tabelConfig(objectId).acl.users.get(request.auth.uid,{}).get(key,false) == true);
+    }
+    function tabelReadArea(d,c) {
+      return c == 'timesheetObjects' ? tabelTab() :
+        c == 'timesheetSheets' ? tabelGrant(d.objectId,'table.view') :
+        c == 'timesheetDays' ? tabelGrant(d.objectId,'shift.view') :
+        c == 'timesheetValues' ? (tabelGrant(d.objectId,'table.view') || tabelGrant(d.objectId,d.kind == 'work' ? 'plans.view' : 'materials.view')) :
+        c == 'timesheetEntries' ? (tabelGrant(d.objectId,'table.view') || tabelGrant(d.objectId,'shift.view')) : false;
+    }
+    function tabelWriteArea(d,c,old) {
+      return tabelTab() && tabelHostEdit() && (
+        c == 'timesheetObjects' ? (
+          (old == null ? admin() :
+            (d.diff(old).affectedKeys().hasOnly(['request','revision','lastOpId','updatedBy','updatedName','updatedAt']) && tabelGrant(d.objectId,'request.edit'))
+            || (d.acl == old.acl && tabelGrant(d.objectId,'settings.edit'))
+            || (tabelGrant(d.objectId,'permissions.edit') && tabelGrant(d.objectId,'settings.edit')))
+        ) : c == 'timesheetSheets' ? tabelGrant(d.objectId,'table.edit') :
+        c == 'timesheetDays' ? tabelGrant(d.objectId,'shift.edit') :
+        c == 'timesheetValues' ? tabelGrant(d.objectId,d.kind == 'work' ? 'plans.edit' : 'materials.edit') :
+        c == 'timesheetEntries' ? tabelGrant(d.objectId,'shift.edit') && tabelGrant(d.objectId,d.kind == 'person' ? 'people.edit' : 'equipment.edit') : false
+      );
+    }
+    function tabelKnown(c) { return c in ['timesheetObjects','timesheetSheets','timesheetDays','timesheetValues']; }
+    function tabelDataValid(c,d) {
+      return d.objectId is string && d.objectId.size() > 0 && d.objectId.matches('[A-Za-z0-9_-]+')
+        && d.deleted is bool && (c == 'timesheetEntries' || d.schemaVersion == 1)
+        && (c == 'timesheetObjects' ? d.startDate is string && d.startDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+             && d.acl is map && d.acl.roles is map && d.acl.users is map
+             && d.volumeSource == 'manual' && d.request is map && d.works is list && d.materials is list
+          : c == 'timesheetSheets' ? d.cells is map && d.cells.size() <= 5000 && d.name is string && d.name.size() <= 80
+             && d.type in ['blank','template'] && d.rowCount is int && d.rowCount > 0 && d.rowCount <= 1000
+             && d.colCount is int && d.colCount > 0 && d.colCount <= 100
+          : d.date is string && d.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') && d.shift in ['day','night']
+             && d.scope == d.objectId + '|' + d.date.split('-')[0] + '-' + d.date.split('-')[1]
+             && (c == 'timesheetDays' ? d.started is bool
+               : c == 'timesheetValues' ? d.kind in ['work','material'] && d.entityId is string && d.unit is string
+                  && d.quantity is number && d.quantity >= 0 && d.quantity <= 100000000
+               : d.kind in ['person','equipment'] && d.entityId is string
+                  && (d.minutes == null || (d.minutes is int && d.minutes >= 0 && d.minutes <= 1440))
+                  && d.status in ['work','unfilled','off','absent']
+                  && (d.status == 'work' ? d.minutes != null : d.status == 'unfilled' ? d.minutes == null : d.minutes == 0)));
+    }
+    function tabelMatchingChange(ch,c,id,old) {
+      return ch.collection == c && ch.id == id && ch.before == old && ch.after == request.resource.data;
+    }
+    function tabelEnvelope(c,id,old) {
+      let d = request.resource.data;
+      let op = getAfter(/databases/$(database)/documents/workspaces/main_workspace/timesheetChanges/$(d.lastOpId)).data;
+      return d.updatedBy == request.auth.uid && d.updatedAt is number && d.updatedName is string
+        && d.revision == (old == null ? 1 : old.revision + 1)
+        && (old == null || (d.objectId == old.objectId && (c in ['timesheetObjects','timesheetSheets'] ||
+            (d.date == old.date && d.shift == old.shift && d.scope == old.scope))))
+        && op.uid == request.auth.uid && op.changes.size() > 0 && op.changes.size() <= 4
+        && (tabelMatchingChange(op.changes[0],c,id,old)
+          || (op.changes.size() > 1 && tabelMatchingChange(op.changes[1],c,id,old))
+          || (op.changes.size() > 2 && tabelMatchingChange(op.changes[2],c,id,old))
+          || (op.changes.size() > 3 && tabelMatchingChange(op.changes[3],c,id,old)));
+    }
+    function tabelReceiptChange(ch,opId) {
+      let path = /databases/$(database)/documents/workspaces/main_workspace/$(ch.collection)/$(ch.id);
+      let after = getAfter(path).data;
+      return tabelKnown(ch.collection) && after == ch.after && after.lastOpId == opId
+        && after.updatedBy == request.auth.uid
+        && (exists(path) ? ch.before == get(path).data && after.revision == get(path).data.revision + 1
+          : ch.before == null && after.revision == 1);
+    }
+    match /{c}/{id} {
+      allow read: if tabelKnown(c) && tabelTab() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/$(c)/$(id)) || tabelReadArea(resource.data,c));
+      allow create: if tabelKnown(c) && tabelDataValid(c,request.resource.data) && tabelWriteArea(request.resource.data,c,null)
+        && (c != 'timesheetObjects' || id == request.resource.data.objectId) && tabelEnvelope(c,id,null);
+      allow update: if tabelKnown(c) && tabelDataValid(c,request.resource.data) && tabelWriteArea(request.resource.data,c,resource.data)
+        && tabelEnvelope(c,id,resource.data);
+      allow delete: if false;
+    }
+
+      // Object grants apply to configured objects; legacy objects retain existing rules.
+      function tabelLegacyView(d,area) {
+        return !exists(/databases/$(database)/documents/workspaces/main_workspace/timesheetObjects/$(d.objectId))
+          || tabelGrant(d.objectId,area+'.view') || tabelGrant(d.objectId,'table.view');
+      }
+      function tabelLegacyWrite(d,area) {
+        return !exists(/databases/$(database)/documents/workspaces/main_workspace/timesheetObjects/$(d.objectId))
+          || tabelGrant(d.objectId,area+'.edit');
+      }
+
+      // Field ledger: enabled only on the separate samosval-offline test project.
+      function ledgerRead() {
+        return active() && (admin() || 'timesheet' in get(/databases/$(database)/documents/settings/permissions).data.get(account().get('role', ''), {}).get('tabs', []));
+      }
+      function ledgerEdit() { return ledgerRead() && can('timesheet_edit'); }
+      function ledgerManage() { return ledgerRead() && can('timesheet_manage'); }
+      function ledgerCollection(c) { return c in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetObjects','timesheetSheets','timesheetDays','timesheetValues']; }
+      function sameChange(c, collection, id) {
+        return c.collection == collection && c.id == id && c.after == request.resource.data;
+      }
+      function ledgerAudited(collection, id) {
+        let op = getAfter(/databases/$(database)/documents/workspaces/main_workspace/timesheetChanges/$(request.resource.data.lastOpId)).data;
+        let changes = op.changes;
+        return op.uid == request.auth.uid && changes is list && changes.size() > 0 && changes.size() <= 4
+          && (sameChange(changes[0],collection,id)
+            || (changes.size()>1 && sameChange(changes[1],collection,id))
+            || (changes.size()>2 && sameChange(changes[2],collection,id))
+            || (changes.size()>3 && sameChange(changes[3],collection,id)));
+      }
+      function ledgerEnvelope(collection,id) {
+        let d = request.resource.data;
+        return d.revision is int && d.revision > 0
+          && d.deleted is bool && d.updatedBy == request.auth.uid
+          && d.updatedName is string && d.updatedName.size() <= 160
+          && d.updatedAt is number && d.lastOpId is string
+          && ledgerAudited(collection,id);
+      }
+      function ledgerRevision() { return request.resource.data.revision == resource.data.revision + 1; }
+      function ledgerPeriod(d) {
+        return d.objectId is string && d.objectId.matches('^[A-Za-z0-9_-]+$')
+          && d.objectName is string && d.objectName.size()>0 && d.objectName.size()<=160
+          && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && d.shift in ['day','night']
+          && d.scope == d.objectId + '|' + d.date.split('-')[0] + '-' + d.date.split('-')[1];
+      }
+      function ledgerEntry(id) {
+        let d=request.resource.data;
+        return d.keys().hasOnly(['kind','entityId','name','group','ownership','contractor','objectId','objectName','date','shift','scope','minutes','idleMinutes','status','equipmentId','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
+          && ledgerPeriod(d) && d.kind in ['person','equipment']
+          && d.entityId is string && d.entityId.matches('^[A-Za-z0-9_-]+$')
+          && id == d.kind+'~'+d.objectId+'~'+d.date+'~'+d.shift+'~'+d.entityId
+          && d.name is string && d.name.size()>0 && d.name.size()<=160
+          && d.group is string && d.ownership is string && d.contractor is string && d.contractor.size()<=160
+          && d.equipmentId is string && d.equipmentId.size()<=160
+          && d.note is string && d.note.size()<=500
+          && d.status in ['unfilled','work','off','absent']
+          && (d.minutes == null || (d.minutes is int && d.minutes>=0 && d.minutes<=1440))
+          && d.idleMinutes is int && d.idleMinutes>=0 && d.idleMinutes<=1440
+          && (d.status != 'unfilled' || d.minutes == null)
+          && (d.status != 'work' || d.minutes != null)
+          && (!(d.status in ['off','absent']) || d.minutes == 0)
+          && (d.kind != 'person' || d.idleMinutes == 0)
+          && (d.kind != 'equipment' || d.idleMinutes+(d.minutes==null?0:d.minutes)<=1440);
+      }
+      function ledgerPerson() {
+        let d=request.resource.data;
+        return d.keys().hasOnly(['name','group','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
+          && d.name is string && d.name.size()>0 && d.name.size()<=160
+          && d.group in ['worker','itr','operator'];
+      }
+      function ledgerEquipment() {
+        let d=request.resource.data;
+        return d.keys().hasOnly(['name','ownership','contractor','crewIds','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
+          && d.name is string && d.name.size()>0 && d.name.size()<=160
+          && d.ownership in ['own','hired'] && d.contractor is string && d.contractor.size()<=160
+          && d.crewIds is list && d.crewIds.size()<=20;
+      }
+      function ledgerMaterial() {
+        let d=request.resource.data;
+        return d.keys().hasOnly(['objectId','objectName','date','shift','scope','material','supplier','quantity','unit','document','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt'])
+          && ledgerPeriod(d) && d.material is string && d.material.size()>0 && d.material.size()<=160
+          && d.supplier is string && d.supplier.size()>0 && d.supplier.size()<=160
+          && d.quantity is number && d.quantity>0 && d.quantity<=100000000
+          && d.unit in ['т','м³','шт','л','кг','м²','м.п.']
+          && d.document is string && d.document.size()<=160 && d.note is string && d.note.size()<=500;
+      }
+      function ledgerHistoryChange(c,id) {
+        let path=/databases/$(database)/documents/workspaces/main_workspace/$(c.collection)/$(c.id);
+        return ledgerCollection(c.collection) && c.before == (exists(path)?get(path).data:null)
+          && c.after == getAfter(path).data && c.after.lastOpId == id && c.after.updatedBy == request.auth.uid;
+      }
+      match /timesheetPeople/{id} {
+        allow read: if ledgerRead();
+        allow create: if ledgerManage() && ledgerPerson() && ledgerEnvelope('timesheetPeople',id) && request.resource.data.revision == 1;
+        allow update: if ledgerManage() && ledgerPerson() && ledgerEnvelope('timesheetPeople',id) && ledgerRevision();
+      }
+      match /timesheetEquipment/{id} {
+        allow read: if ledgerRead();
+        allow create: if ledgerManage() && ledgerEquipment() && ledgerEnvelope('timesheetEquipment',id) && request.resource.data.revision == 1;
+        allow update: if ledgerManage() && ledgerEquipment() && ledgerEnvelope('timesheetEquipment',id) && ledgerRevision();
+      }
+      match /timesheetEntries/{id} {
+        allow read: if ledgerRead() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/timesheetEntries/$(id)) || tabelLegacyView(resource.data,'shift'));
+        allow create: if ledgerEdit() && tabelLegacyWrite(request.resource.data,'shift') && tabelLegacyWrite(request.resource.data,request.resource.data.kind == 'person' ? 'people' : 'equipment') && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && request.resource.data.revision == 1;
+        allow update: if ledgerEdit() && tabelLegacyWrite(request.resource.data,'shift') && tabelLegacyWrite(request.resource.data,request.resource.data.kind == 'person' ? 'people' : 'equipment') && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && ledgerRevision()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','group','ownership','contractor','objectName','minutes','idleMinutes','status','equipmentId','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt']);
+      }
+      match /timesheetMaterials/{id} {
+        allow read: if ledgerRead() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/timesheetMaterials/$(id)) || tabelLegacyView(resource.data,'materials'));
+        allow create: if ledgerEdit() && tabelLegacyWrite(request.resource.data,'materials') && ledgerMaterial() && ledgerEnvelope('timesheetMaterials',id) && request.resource.data.revision == 1;
+        allow update: if ledgerEdit() && tabelLegacyWrite(request.resource.data,'materials') && ledgerMaterial() && ledgerEnvelope('timesheetMaterials',id) && ledgerRevision()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['objectName','material','supplier','quantity','unit','document','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt']);
+      }
+      match /timesheetChanges/{id} {
+        allow read: if ledgerRead();
+        allow create: if ledgerRead() && request.resource.data.keys().hasOnly(['uid','name','scope','createdAt','committedAt','label','changes'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.name is string && request.resource.data.name.size()<=160
+          && request.resource.data.scope is string && request.resource.data.label is string
+          && request.resource.data.createdAt is number
+          && request.resource.data.changes is list && request.resource.data.changes.size()>0 && request.resource.data.changes.size()<=4
+          && ledgerHistoryChange(request.resource.data.changes[0],id)
+          && (request.resource.data.changes.size()<2 || ledgerHistoryChange(request.resource.data.changes[1],id))
+          && (request.resource.data.changes.size()<3 || ledgerHistoryChange(request.resource.data.changes[2],id))
+          && (request.resource.data.changes.size()<4 || ledgerHistoryChange(request.resource.data.changes[3],id));
+      }
+
+      match /trucks/{id} {
+        allow write: if can('manage_trucks') || can('import_backup');
+      }
+
+      match /objects/{id} {
+        allow create: if can('manage_objects') || can('start_shift')
+          || can('import_backup');
+        allow update, delete: if can('manage_objects') || can('import_backup');
+      }
+
+      match /shift/{id} {
+        allow create: if can('start_shift') || can('archive_edit');
+        allow update: if can('edit_line') || can('close_shift')
+          || can('archive_edit');
+        allow delete: if can('close_shift') || can('archive_edit');
+      }
+
+      match /truckStatus/{id} {
+        allow create: if can('edit_line') || can('archive_edit');
+
+        allow update: if (
+          loadingAllowed()
+          && changedOnly([
+            'lastLoadTimestamp', 'lastLoadBy',
+            'arriveStatus', 'arriveTimestamp', 'arriveBy',
+            'loadedAfterArrive', 'ttnStatus', 'ttnBy', 'ttnLogId',
+            'cycleRevision', 'lastLoadLogId', 'ttnRevision'
+          ])
+          && ((nextCycleRevision() && (can('undo_any') || ownLoadUndo())) || validLoadingStatus(id))
+        ) || (
+          can('action_arrive')
+          && changedOnly([
+            'arriveStatus', 'arriveTimestamp',
+            'arriveBy', 'loadedAfterArrive', 'cycleRevision'
+          ])
+          && nextCycleRevision()
+        ) || (
+          can('action_ttn')
+          && changedOnly(['ttnStatus', 'ttnBy', 'ttnLogId', 'ttnRevision'])
+          && request.resource.data.get('ttnRevision', 0) == resource.data.get('ttnRevision', 0) + 1
+        ) || can('edit_line') || can('archive_edit');
+
+        allow delete: if can('edit_line') || can('close_shift')
+          || can('archive_edit') || can('manage_trucks');
+      }
+
+      match /logs/{id} {
+        allow create: if (
+          loadingAllowed() && ownNewRecord() && validLoadCreate(id)
+        ) || can('archive_edit');
+
+        allow update: if can('edit_logs');
+        allow delete: if can('edit_logs') || can('close_shift')
+          || can('archive_edit')
+          || (can('undo_action') && ownRecord());
+      }
+
+      match /archive/{id} {
+        allow create: if can('close_shift') || can('import_backup');
+        allow update: if can('archive_edit') || can('import_backup');
+        allow delete: if can('archive_delete') || can('archive_edit');
+      }
+
+      match /trash/{id} {
+        allow write: if can('archive_delete');
+      }
+
+      match /audit/{id} {
+        allow update: if resource.data.get('eventType','') == 'history'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['history'])
+          && request.resource.data.history.diff(resource.data.history).affectedKeys().hasOnly(['undone'])
+          && request.resource.data.history.undone is bool
+          && request.resource.data.history.undone != resource.data.history.undone
+          && ((request.resource.data.history.undone == true
+              && (can('history_undo_any') || (can('history_undo_own') && ownRecord())))
+            || (request.resource.data.history.undone == false
+              && (can('history_redo_any') || (can('history_redo_own') && ownRecord()))));
+
+        allow create: if active() && ownNewRecord()
+          && request.resource.data.get('eventType', '') != 'game_photo'
+          && request.resource.data.get('userEmail', '')
+            == request.auth.token.get('email', '')
+          && request.resource.data.text is string
+          && request.resource.data.timestamp is number
+          && (request.resource.data.get('eventType', '') != 'history' || validHistoryCreate());
+      }
+
+      match /notifications/{id} {
+        allow create: if active() && ownNewRecord() && (
+          can('action_arrive') || can('action_load')
+          || can('action_ttn') || can('edit_line')
+          || can('start_shift') || can('close_shift')
+        );
+
+        allow delete: if can('close_shift') || can('undo_any')
+          || (can('undo_action') && ownRecord());
+      }
+    }
+  }
+}
+
+

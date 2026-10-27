@@ -1,0 +1,91 @@
+{
+  "moduleVersion": "1.0.0-test.1",
+  "environment": "Local synthetic data; Chromium mobile emulation, not a physical Android device",
+  "results": [
+    {
+      "name": "domain",
+      "status": "passed",
+      "durationMs": 309
+    },
+    {
+      "name": "new-ui",
+      "status": "passed",
+      "durationMs": 3349
+    },
+    {
+      "name": "legacy-core",
+      "status": "passed",
+      "durationMs": 238
+    },
+    {
+      "name": "legacy-ui",
+      "status": "passed",
+      "durationMs": 1205
+    },
+    {
+      "name": "legacy-compact",
+      "status": "passed",
+      "durationMs": 1614
+    },
+    {
+      "name": "legacy-crew",
+      "status": "passed",
+      "durationMs": 4662
+    },
+    {
+      "name": "legacy-lifecycle",
+      "status": "passed",
+      "durationMs": 2849
+    },
+    {
+      "name": "coins",
+      "status": "passed",
+      "durationMs": 143
+    },
+    {
+      "name": "proposals",
+      "status": "passed",
+      "durationMs": 54
+    },
+    {
+      "name": "proposed-pwa-not-applied",
+      "status": "passed",
+      "durationMs": 252
+    },
+    {
+      "name": "legacy-emulator",
+      "status": "passed",
+      "durationMs": 8627
+    },
+    {
+      "name": "sandbox-emulator",
+      "status": "passed",
+      "durationMs": 7226
+    },
+    {
+      "name": "integrated-rule-proposal-not-applied",
+      "status": "passed",
+      "durationMs": 8254
+    },
+    {
+      "name": "chromium-mobile",
+      "status": "passed",
+      "durationMs": 9089
+    },
+    {
+      "name": "protected-paths",
+      "status": "passed",
+      "durationMs": 6320
+    }
+  ],
+  "blocked": [
+    "Live test Firebase rules were not changed or read from deployed service",
+    "Installed PWA release retains old manifest until separate approval",
+    "Native Android share and keyboard geometry are not device-verified"
+  ],
+  "additionalVerification": {
+    "chromiumClipboardAndSticky": "passed; real clipboard copy/paste/cut and both scroll axes",
+    "referenceImageGitBlob": "21f2ae6e7729240f60d5e63ec092919898a1f205",
+    "protectedFileCount": 854
+  }
+}

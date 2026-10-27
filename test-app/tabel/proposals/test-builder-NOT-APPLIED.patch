@@ -1,0 +1,20 @@
+--- a/tools/build-test.py
++++ b/tools/build-test.py
+@@ -26,6 +26,8 @@
+ def build():
+     spec = json.loads((APP / 'modules.json').read_text())
+     inputs = [APP / 'modules.json', Path(__file__)] + sorted(p for p in SOURCE.rglob('*') if p.is_file())
++    inputs += [APP / 'src/features/timesheet-core.js', APP / 'src/features/timesheet-app.js']
++    inputs += sorted((APP / 'tabel').glob('*.mjs')) + [APP / 'tabel/tabel.css']
+     build_id = sha(b''.join(str(p.relative_to(ROOT)).encode()+p.read_bytes() for p in inputs))[:16]
+     out = APP / 'build' / build_id
+     out.mkdir(parents=True, exist_ok=True)
+@@ -48,6 +50,8 @@
+     assets = [ROOT / 'index-test.html']
+     assets += [ROOT / r['url'] for r in old['assets'] if r['url'] != './index-test.html' and not r['url'].startswith('./test-app/build/')]
+     assets += sorted(out.glob('*.js'))
++    assets += sorted((APP / 'tabel').glob('*.mjs')) + [APP / 'tabel/tabel.css']
++    assets = list(dict.fromkeys(assets))
+     records = [{'url':'./'+str(p.relative_to(ROOT)), 'sha256':sha(p.read_bytes())} for p in assets]
+     sw = (SOURCE / 'service-worker.js').read_text()
+     sw = re.sub(r"const VERSION = '[^']+';", "const VERSION = '"+build_id+"';",sw)

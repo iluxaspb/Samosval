@@ -11,6 +11,12 @@
   const uid=()=>{if(crypto.randomUUID)return crypto.randomUUID();const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');};
   const S={user:'',generation:0,local:null,jobs:[],remote:{},unsubs:[],periodUnsubs:[],objectId:'',date:today(),shift:'day',view:'day',catalogGroup:'worker',scope:'',ready:{},objectRows:{timesheetEntries:[],timesheetMaterials:[]},objectReady:{},objectCached:{},objectViewId:'',objectUnsubs:[],objectRequest:0,errors:{},busy:false,dialog:null,lastHtml:'',bulkWorkers:false,bulkRows:[],bulkValue:'12',bulkSaving:false};
   for(const k of C.collections) S.remote[k]=[];
+  // The extension owns only ledger data. The host/core and its globals are read-only.
+  const extensionCache=new Map(),extensionSubscriptions=new Map(),extensionListeners=new Set();
+  let extensionModule=null;
+  const extensionURL=new URL('../../tabel/app.mjs',document.currentScript?.src||location.href).href;
+  function extensionNotify(){for(const fn of extensionListeners)fn();}
+  function extensionReset(){extensionSubscriptions.forEach(off=>off());extensionSubscriptions.clear();extensionCache.clear();extensionListeners.clear();extensionModule?.close();}
   const host=document.getElementById('tab-timesheet');
   let disposed=false,suspended=false,refreshTimer=null;
   const pendingTasks=new Set(),listeners=[],deferredTimers=new Set(),downloadUrls=new Set();
@@ -47,7 +53,7 @@
   function localOpen(name){return track(new Promise((resolve,reject)=>{const req=indexedDB.open(name,1);let abandoned=false;req.onupgradeneeded=()=>{req.result.createObjectStore('jobs',{keyPath:'id'});req.result.createObjectStore('cache',{keyPath:'key'});};req.onsuccess=()=>{if(abandoned)req.result.close();else resolve(req.result);};req.onerror=()=>{abandoned=true;reject(req.error);};req.onblocked=()=>{abandoned=true;reject(Error('Закройте другие вкладки, чтобы открыть локальное хранилище'));};}));}
   function local(store,method,value){const database=S.local;if(!database)return Promise.reject(Error('Локальное хранилище ещё не готово'));return track(new Promise((resolve,reject)=>{const tx=database.transaction(store,method==='get'||method==='getAll'?'readonly':'readwrite');const req=tx.objectStore(store)[method](value);let result;req.onsuccess=()=>{result=req.result;};tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error||req.error);tx.onabort=()=>reject(tx.error||Error('Не удалось сохранить на устройстве'));}));}
   async function loadJobs(){const generation=S.generation;const jobs=await local('jobs','getAll');if(generation===S.generation)S.jobs=jobs.sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));}
-  function reset(){S.generation++;for(const timer of deferredTimers)clearTimeout(timer);deferredTimers.clear();for(const url of downloadUrls)URL.revokeObjectURL(url);downloadUrls.clear();adding=false;stopObjectView();inlineDrafts.clear();inlineChains.clear();S.bulkWorkers=false;S.bulkRows=[];S.bulkSaving=false;for(const u of [...S.unsubs,...S.periodUnsubs])u();S.unsubs=[];S.periodUnsubs=[];S.local?.close();S.local=null;S.user='';S.scope='';S.jobs=[];S.ready={};S.errors={};S.busy=false;for(const k of C.collections)S.remote[k]=[];S.dialog?.close();S.lastHtml='';host.innerHTML='';}
+  function reset(){extensionReset();S.generation++;for(const timer of deferredTimers)clearTimeout(timer);deferredTimers.clear();for(const url of downloadUrls)URL.revokeObjectURL(url);downloadUrls.clear();adding=false;stopObjectView();inlineDrafts.clear();inlineChains.clear();S.bulkWorkers=false;S.bulkRows=[];S.bulkSaving=false;for(const u of [...S.unsubs,...S.periodUnsubs])u();S.unsubs=[];S.periodUnsubs=[];S.local?.close();S.local=null;S.user='';S.scope='';S.jobs=[];S.ready={};S.errors={};S.busy=false;for(const k of C.collections)S.remote[k]=[];S.dialog?.close();S.lastHtml='';host.innerHTML='';}
   function session(){return track(openSession());}
   async function openSession(){
     if(!allowed()){if(S.user)reset();return;}
@@ -117,12 +123,13 @@
     if(!allowed()||!S.local)throw Error('Войдите в приложение и дождитесь открытия табеля');
     if(!changes.length)return;
     if(changes.some(ch=>['timesheetPeople','timesheetEquipment'].includes(ch.collection)?!manage():!edit()))throw Error('Нет права на изменение этого раздела');
+    for(const ch of changes)extensionCheck(ch);
     const ops=[],stamp=Math.max(Date.now(),...S.jobs.map(x=>x.createdAt+1));
     for(let i=0;i<changes.length;i+=4){const op={id:uid(),uid:S.user,scope:S.scope||'catalog',label,createdAt:stamp+i,status:'queued',changes:changes.slice(i,i+4)};C.validateOperation(op);ops.push(op);}
     const generation=S.generation;
     await new Promise((resolve,reject)=>{const tx=S.local.transaction('jobs','readwrite');for(const op of ops)tx.objectStore('jobs').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('Очередь не сохранена'));});
     if(generation!==S.generation)return;
-    await loadJobs();if(generation!==S.generation)return;render();if(!quiet)toast(navigator.onLine?'Сохранено на устройстве · отправляем':'Сохранено на устройстве · ожидает связи');replay();
+    await loadJobs();if(generation!==S.generation)return;render();extensionNotify();if(!quiet)toast(navigator.onLine?'Сохранено на устройстве · отправляем':'Сохранено на устройстве · ожидает связи');replay();
   }
   function replay(){return track(replayQueue());}
   async function replayQueue(){
@@ -135,9 +142,11 @@
       for(const op of S.jobs.filter(x=>x.status==='queued')){
         if(generation!==S.generation||currentUid!==owner||!allowed()||!navigator.onLine)break;
         try{
+          for(const objectId of new Set(op.changes.filter(ch=>C.extensionCollections.includes(ch.collection)).map(ch=>ch.data.objectId)))if(currentUserRole!=='admin')await extensionRead('timesheetObjects',objectId);
+          for(const ch of op.changes)extensionCheck(ch);
           const result=await C.commitOperation(db,wsRef,op,{uid:owner,name:getUserName(),serverTimestamp:()=>firebase.firestore.FieldValue.serverTimestamp()},window.__historyRawTransaction||db.runTransaction.bind(db));
           if(generation!==S.generation)break;
-          if(result.changes)for(const ch of result.changes){if(ch.after.scope&&ch.after.scope!==S.scope)continue;const a=S.remote[ch.collection];const i=a.findIndex(x=>x.id===ch.id);const d={...ch.after,id:ch.id};if(i<0)a.push(d);else a[i]=d;}
+          if(result.changes)for(const ch of result.changes){await extensionAccept(ch);if(ch.after.scope&&ch.after.scope!==S.scope)continue;const a=S.remote[ch.collection];const i=a.findIndex(x=>x.id===ch.id);const d={...ch.after,id:ch.id};if(i<0)a.push(d);else a[i]=d;}
           await local('jobs','delete',op.id);
         }catch(e){
           if(generation!==S.generation)break;
@@ -150,7 +159,7 @@
     };
     try{if(navigator.locks)await navigator.locks.request('dt-timesheet-'+owner,{ifAvailable:true},lock=>lock?work():undefined);else await work();}
     catch(e){if(generation===S.generation)S.errors.queue=e.message;}
-    finally{if(generation===S.generation){S.busy=false;render();}}
+    finally{if(generation===S.generation){S.busy=false;render();extensionNotify();}}
   }
   function personGroup(r){return Object.hasOwn(groups,r.group)?r.group:(living('timesheetPeople').find(p=>p.id===r.entityId)?.group||'worker');}
   function summary(){const d=dayEntries();return `<div class="ts-stats">${[['worker','Рабочие'],['itr','ИТР'],['operator','Машинисты'],['equipment','Техника']].map(([kind,label])=>{const a=d.filter(r=>kind==='equipment'?r.kind==='equipment':r.kind==='person'&&personGroup(r)===kind);return `<div data-summary="${kind}"><strong>${a.length}</strong><span>${label}</span><small>${C.fmt(a.reduce((n,r)=>n+(r.minutes||0),0))} ${kind==='equipment'?'маш.-ч':'чел.-ч'}</small></div>`;}).join('')}</div>`;}
@@ -235,7 +244,7 @@
     const machine=living('timesheetEquipment').find(x=>x.id===r.equipmentId);
     const detail=r.kind==='person'?(machine?.name||''):[r.ownership==='hired'?r.contractor:'',r.idleMinutes?'простой '+C.fmt(r.idleMinutes)+' ч':''].filter(Boolean).join(' · ');
     const status=['off','absent'].includes(r.status)?statuses[r.status]:'';
-    return `<div class="ts-row ts-entry-row ${r.pending?'ts-pending':''}" data-entry-id="${E(r.id)}"><div class="ts-row-name"><strong title="${E(r.name)}">${E(r.name)}${r.pending?'<span class="ts-pending-dot" aria-label="Ожидает отправки">●</span>':''}</strong>${detail||status?`<small>${E([detail,status].filter(Boolean).join(' · '))}</small>`:''}</div>${hoursEditor(r.id,r.name,[r])}${btn('⋯','entry',`data-id="${E(r.id)}" aria-label="Подробности: ${E(r.name)}" title="Отметка, комментарий и другие поля"`)}${rowFeedback(r.id)}</div>`;
+    return `<div class="ts-row ts-entry-row ${r.pending?'ts-pending':''}" data-entry-id="${E(r.id)}"><div class="ts-row-name"><strong ${r.kind==='equipment'?`role="button" tabindex="0" data-action="tabel-multiday" data-id="${E(r.entityId)}"`:``} title="${E(r.name)}">${E(r.name)}${r.pending?'<span class="ts-pending-dot" aria-label="Ожидает отправки">●</span>':''}</strong>${detail||status?`<small>${E([detail,status].filter(Boolean).join(' · '))}</small>`:''}</div>${hoursEditor(r.id,r.name,[r])}${btn('⋯','entry',`data-id="${E(r.id)}" aria-label="Подробности: ${E(r.name)}" title="Отметка, комментарий и другие поля"`)}${rowFeedback(r.id)}</div>`;
   }
   function crewRow(machine){
     if(machine.ownership==='hired')return '';
@@ -364,8 +373,8 @@
     if(!showVersion)host.querySelector('.ts-version')?.remove();
     if(host.contains(document.activeElement)&&['INPUT','SELECT'].includes(document.activeElement.tagName))return;
     const pending=S.jobs.filter(x=>x.status==='queued').length,failed=S.jobs.filter(x=>x.status!=='queued');
-    const syncText=pending?`На устройстве: ${pending} · ожидают отправки`:!navigator.onLine?'Нет связи · показываем сохранённые данные':S.objectId&&C.collections.every(c=>S.ready[c])?'Данные подтверждены сервером':'Проверяем данные с сервером…';
-    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div>${showVersion?`<span class="ts-version">${E(window.TEST_APP_RELEASE?.label||'Тест')}</span>`:''}</div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${S.view==='object'?'':field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],...(objectSummaryEnabled()?[['object','Весь объект']]:[]),['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():S.view==='object'?objectView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
+    const syncText=pending?`На устройстве: ${pending} · ожидают отправки`:!navigator.onLine?'Нет связи · показываем сохранённые данные':S.objectId&&C.baseCollections.every(c=>S.ready[c])?'Данные подтверждены сервером':'Проверяем данные с сервером…';
+    const html=`<div class="ts-heading"><div><h2>Учёт объекта</h2><p>Люди · техника · материалы</p></div>${showVersion?`<span class="ts-version">${E(window.TEST_APP_RELEASE?.label||'Тест')}</span>`:''}</div><div class="ts-filters">${field('Объект',`<select id="ts-object"><option value="">Выберите объект</option>${state.objects.map(o=>choice(o.id,o.name,S.objectId)).join('')}</select>`)}${S.view==='object'?'':field(S.view==='month'?'Месяц':'Дата начала',`<input id="ts-date" type="${S.view==='month'?'month':'date'}" value="${S.view==='month'?S.date.slice(0,7):S.date}">`)}${S.view==='day'?field('Смена',`<select id="ts-shift">${choice('day','☀ День',S.shift)}${choice('night','☾ Ночь',S.shift)}</select>`):''}</div><div class="ts-toolbar ts-module-tools">${[['request','Заявка'],['table','Таблица'],['shift','Материалы и объёмы работ'],['settings','Настройки объекта']].map(([view,title])=>btn(title,'tabel-open',`data-view="${view}"`)).join('')}</div><div class="ts-tabs">${[['day','Смена'],['month','Месяц'],...(objectSummaryEnabled()?[['object','Весь объект']]:[]),['catalog','Справочники']].map(([v,t])=>btn(t,'view',`data-view="${v}" aria-pressed="${S.view===v}"`)).join('')}</div><div class="ts-sync" role="status">${E(syncText)}${pending?btn('Повторить отправку','retry'):''}</div>${Object.values(S.errors).map(e=>`<div class="ts-warning">${E(e)}</div>`).join('')}${failed.length?`<div class="ts-warning"><b>Требуют проверки: ${failed.length}</b>${failed.map(j=>`<div>${E(j.label)} · ${E(j.error||'Конфликт')} ${btn('Разобрать','conflict',`data-id="${j.id}"`)}</div>`).join('')}</div>`:''}${!S.local?note('Открываем локальное хранилище…'):S.view==='catalog'?catalogView():S.objectId?(S.view==='day'?dayView():S.view==='object'?objectView():monthView()):note('Выберите существующий объект. Новый объект можно добавить во вкладке «База».')}`;
     if(html!==S.lastHtml){host.innerHTML=html;S.lastHtml=html;}
   }
   function dialog(title,body,onSubmit){
@@ -487,12 +496,12 @@
     const data=materials?[['Объект','Дата начала смены','Смена','Материал','Поставщик','Количество','Ед.','Накладная','Комментарий'],...list.map(r=>[r.objectName,fmtDate(r.date),shiftName(r.shift),r.material,r.supplier,String(r.quantity).replace('.',','),r.unit,r.document,r.note])]:[['Объект','Дата начала смены','Смена','Вид','Сотрудник / техника','Отметка','Часы','Простой, ч','Организация','Комментарий'],...list.map(r=>[r.objectName,fmtDate(r.date),shiftName(r.shift),r.kind==='person'?'Сотрудник':'Техника',r.name,statuses[r.status],C.fmt(r.minutes),C.fmt(r.idleMinutes),r.contractor,r.note])];
     const a=document.createElement('a'),url=URL.createObjectURL(new Blob([C.csv(data)],{type:'text/csv;charset=utf-8;'}));a.href=url;a.download=(materials?'materialy-':'tabel-')+S.date.slice(0,7)+'.csv';a.click();downloadUrls.add(url);defer(()=>{URL.revokeObjectURL(url);downloadUrls.delete(url);},1000);
   }
-  function describe(r){if(!r)return 'Записи нет';if('minutes'in r)return `${r.name}: ${statuses[r.status]}${r.minutes===null?'':' · '+C.fmt(r.minutes)+' ч'}${r.deleted?' · удалено':''}${r.note?' · '+r.note:''}`;if('quantity'in r)return `${r.material}: ${r.quantity} ${r.unit} · ${r.supplier}${r.deleted?' · удалено':''}`;return r.name+(r.deleted?' · в архиве':'');}
+  function describe(r){if(!r)return 'Записи нет';if('minutes'in r)return `${r.name}: ${statuses[r.status]}${r.minutes===null?'':' · '+C.fmt(r.minutes)+' ч'}${r.deleted?' · удалено':''}${r.note?' · '+r.note:''}`;if('quantity'in r)return `${r.material}: ${r.quantity} ${r.unit} · ${r.supplier}${r.deleted?' · удалено':''}`;if(r.cells)return r.name+' · '+Object.entries(r.cells).slice(0,30).map(([key,c])=>key+' = '+c.raw+(c.background?' (фон '+c.background+')':'')).join('; ')+(Object.keys(r.cells).length>30?' · ещё '+(Object.keys(r.cells).length-30)+' ячеек':'');if(r.request)return 'Настройки '+r.objectId+' · начало '+r.startDate+' · заявка '+r.request.date+' · '+JSON.stringify({works:r.works,materials:r.materials,acl:r.acl}).slice(0,2000);return r.name+(r.deleted?' · в архиве':'');}
   async function conflictForm(id){
     const op=S.jobs.find(x=>x.id===id);if(!op)return;const generation=S.generation;
     const canRetry=op.changes.every(ch=>['timesheetPeople','timesheetEquipment'].includes(ch.collection)?manage():edit());
-    const el=dialog('Проверка изменений',`<p>${E(op.label)}</p><div class="ts-warning">${E(op.error||'Изменения не отправлены')}</div>${(op.conflicts||[]).map(c=>`<div class="ts-conflict"><p><b>В базе:</b> ${E(describe(c.server))}</p><p><b>Ваша правка:</b> ${E(describe(c.proposed))}</p></div>`).join('')}<div class="ts-toolbar">${canRetry?btn(op.status==='conflict'?'Применить мою правку':'Повторить отправку','resolve-local'):''}${btn('Оставить данные базы','resolve-server')}</div>`);
-    el.querySelector('[data-action=resolve-server]').onclick=()=>track((async()=>{try{await local('jobs','delete',op.id);if(generation!==S.generation)return;await loadJobs();if(generation!==S.generation)return;el.close();render();}catch(e){if(generation===S.generation)error(e);}})());
+    const el=dialog('Проверка изменений',`<p>${E(op.label)}</p><div class="ts-warning">${E(op.error||'Изменения не отправлены')}</div>${(op.conflicts||[]).map(c=>`<div class="ts-conflict"><p><b>Где:</b> ${E(c.proposed?.objectId||'Справочник')} · ${E(c.proposed?.date||'')} · ${E(c.collection)} / ${E(c.id)}</p><p><b>Кто / когда в базе:</b> ${E(c.server?.updatedName||c.server?.updatedBy||'не записано')} · ${c.server?.updatedAt?E(new Date(c.server.updatedAt).toLocaleString('ru-RU')):'не записано'}</p><p><b>До вашей правки:</b> ${E(describe(c.before))}</p><p><b>В базе:</b> ${E(describe(c.server))}</p><p><b>Ваша правка:</b> ${E(describe(c.proposed))}</p><p>При применении вашей версии значения базы выше будут заменены. Это затронет связанную смену, первый лист и отчёт; у свободного листа — только его ячейки. Обе версии сохраняются до выбора. Можно закрыть окно и разобраться позже.</p><details><summary>Полные снимки до / в базе / ваша версия</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${E(JSON.stringify({before:c.before,server:c.server,proposed:c.proposed},null,2))}</pre></details></div>`).join('')}<div class="ts-toolbar">${canRetry?btn(op.status==='conflict'?'Применить мою правку':'Повторить отправку','resolve-local'):''}${btn('Оставить данные базы','resolve-server')}</div>`);
+    el.querySelector('[data-action=resolve-server]').onclick=()=>track((async()=>{try{await local('cache','put',{key:'tabel-resolution:'+op.id,value:{...C.clone(op),resolution:'server',resolvedAt:Date.now()}});await local('jobs','delete',op.id);if(generation!==S.generation)return;await loadJobs();if(generation!==S.generation)return;el.close();render();}catch(e){if(generation===S.generation)error(e);}})());
     el.querySelector('[data-action=resolve-local]')?.addEventListener('click',e=>track((async()=>{
       if(!navigator.onLine)return error(Error('Для проверки нужна связь'));e.target.disabled=true;
       try{
@@ -504,7 +513,7 @@
           if(changedAgain){op.conflicts=snaps.map((s,i)=>({collection:op.changes[i].collection,id:op.changes[i].id,server:s.exists?s.data():null,proposed:op.changes[i].data}));await local('jobs','put',op);if(generation!==S.generation)return;await loadJobs();if(generation!==S.generation)return;el.close();await conflictForm(id);throw Error('Данные снова изменились. Сравните обновлённые значения.');}
           snaps.forEach((s,i)=>{op.changes[i].baseRevision=s.exists?s.data().revision||0:0;op.changes[i].before=s.exists?s.data():null;});
         }
-        op.status='queued';delete op.error;delete op.conflicts;await local('jobs','put',op);if(generation!==S.generation)return;await loadJobs();if(generation!==S.generation)return;el.close();render();replay();
+        await local('cache','put',{key:'tabel-resolution:'+op.id,value:{...C.clone(op),resolution:'local',resolvedAt:Date.now()}});op.status='queued';delete op.error;delete op.conflicts;await local('jobs','put',op);if(generation!==S.generation)return;await loadJobs();if(generation!==S.generation)return;el.close();render();replay();
       }catch(err){if(generation===S.generation)error(err);}finally{if(generation===S.generation)e.target.disabled=false;}
     })()));
   }
@@ -513,8 +522,86 @@
     const el=dialog('История изменений',note('Загружаем…'));const scope=S.scope,generation=S.generation;
     try{const snap=await wsRef.collection('timesheetChanges').where('scope','==',scope).get({source:'server'});if(generation!==S.generation||!el.isConnected)return;const list=snap.docs.map(d=>d.data()).sort((a,b)=>b.createdAt-a.createdAt).slice(0,100);el.querySelector('.ts-dialog-body').innerHTML=list.map(x=>`<section class="ts-history"><b>${E(x.label)}</b><small>${E(x.name)} · ${new Date(x.createdAt).toLocaleString('ru-RU')}</small>${x.changes.map(c=>`<p>${E(describe(c.before))} → ${E(describe(c.after))}</p>`).join('')}</section>`).join('')||note('Изменений пока нет.');}catch(e){if(generation!==S.generation||!el.isConnected)return;el.querySelector('.ts-dialog-body').textContent='Не удалось загрузить историю: '+e.message;}
   }
+  function extensionActor(){return {uid:currentUid,role:currentUserRole,status:currentUserStatus,tabAccess:allowed(),name:getUserName(),permissions:{view:allowed(),edit:hasPermission('timesheet_edit')}};}
+  function extensionConfig(objectId){const all=[...extensionCache.values()].filter(x=>x.col==='timesheetObjects').flatMap(x=>C.project(x.rows,S.jobs,x.col));return all.find(x=>x.objectId===objectId&&!x.deleted);}
+  function extensionPermission(objectId,area,mode){
+    const a=extensionActor();if(!a.tabAccess||a.status!=='active')return false;if(a.role==='admin')return true;
+    const cfg=extensionConfig(objectId),key=area+'.'+mode;
+    return !!a.permissions[mode==='view'?'view':'edit']&&(cfg?.acl?.users?.[a.uid]?.[key]===true||cfg?.acl?.roles?.[a.role]?.[key]===true);
+  }
+  function extensionCheck(ch){
+    if(!C.extensionCollections.includes(ch.collection))return;
+    const area=ch.collection==='timesheetSheets'?'table':ch.collection==='timesheetObjects'?'request':ch.collection==='timesheetDays'?'shift':ch.data.kind==='work'?'plans':'materials';
+    if(ch.collection!=='timesheetObjects'&&!extensionPermission(ch.data.objectId,area,'edit'))throw Error('Нет права: '+area+'.edit');
+    if(ch.collection==='timesheetObjects'){
+      const before=ch.before||{};
+      const rest=x=>Object.fromEntries(Object.entries(x).filter(([k])=>!['request','acl'].includes(k)));
+      if(JSON.stringify(rest(before))!==JSON.stringify(rest(ch.data))&&!extensionPermission(ch.data.objectId,'settings','edit'))throw Error('Нет права изменять настройки объекта');
+      if(JSON.stringify(before.acl||{})!==JSON.stringify(ch.data.acl||{})&&!extensionPermission(ch.data.objectId,'permissions','edit'))throw Error('Нет права управлять доступом');
+      if(JSON.stringify(before.request||{})!==JSON.stringify(ch.data.request||{})&&!extensionPermission(ch.data.objectId,'request','edit'))throw Error('Нет права изменять заявку');
+    }
+  }
+  async function extensionAccept(ch){
+    for(const [key,cache] of extensionCache){if(cache.col!==ch.collection||cache.objectId!==ch.after.objectId||(cache.scope&&cache.scope!==ch.after.scope))continue;
+      const i=cache.rows.findIndex(x=>x.id===ch.id),row={...ch.after,id:ch.id};if(i<0)cache.rows.push(row);else cache.rows[i]=row;
+      await local('cache','put',{key,rows:cache.rows,complete:true});
+    }
+  }
+  async function extensionRead(col,objectId,scope){
+    if(!allowed()||!S.local||!C.collections.includes(col))throw Error('Нет доступа к данным табеля');
+    const key='tabel:'+col+':'+objectId+':'+(scope||''),generation=S.generation;
+    if(!extensionCache.has(key)){
+      const cached=await local('cache','get',key);if(generation!==S.generation)throw Error('Учётная запись изменилась');
+      extensionCache.set(key,{col,objectId,scope,rows:cached?.rows||[],complete:!!cached?.complete});
+    }
+    const cache=extensionCache.get(key);if(extensionSubscriptions.has(key))return {rows:C.project(cache.rows,S.jobs,col).filter(x=>x.objectId===objectId),complete:cache.complete,error:cache.error||''};let query=wsRef.collection(col).where('objectId','==',objectId);
+    if(scope)query=query.where('scope','==',scope);
+    if(navigator.onLine){
+      try{const snap=await query.get({source:'server'});if(generation!==S.generation)throw Error('Учётная запись изменилась');cache.rows=snap.docs.map(d=>({...d.data(),id:d.id}));cache.complete=true;delete cache.error;await local('cache','put',{key,rows:cache.rows,complete:true});}
+      catch(e){cache.error=e.message;if(!cache.complete&&e.code!=='permission-denied')throw e;}
+    }
+    if(!extensionSubscriptions.has(key))extensionSubscriptions.set(key,query.onSnapshot({includeMetadataChanges:true},snap=>{
+      if(generation!==S.generation||snap.metadata.fromCache)return;
+      cache.rows=snap.docs.map(d=>({...d.data(),id:d.id}));cache.complete=true;delete cache.error;
+      track(local('cache','put',{key,rows:cache.rows,complete:true}).catch(error));extensionNotify();
+    },e=>{cache.error=e.message;extensionNotify();}));
+    return {rows:C.project(cache.rows,S.jobs,col).filter(x=>x.objectId===objectId),complete:cache.complete,error:cache.error||(!cache.complete?'Нет подтверждённого кэша. Подключитесь к сети.':'')};
+  }
+  function extensionPeek(col,objectId,scopes){const caches=[...extensionCache.values()].filter(x=>x.col===col&&x.objectId===objectId&&(!scopes||scopes.includes(x.scope)));return C.project([...new Map(caches.flatMap(x=>x.rows).map(r=>[r.id,r])).values()],S.jobs,col).filter(x=>x.objectId===objectId);}
+  async function openExtension(view,id){
+    if(!allowed()||!object()||!S.local)throw Error('Выберите объект и дождитесь открытия табеля');
+    if(!extensionModule)extensionModule=await import(extensionURL);
+    return extensionModule.open(extensionAPI,view,id);
+  }
+  const extensionAPI=Object.freeze({
+    context:()=>({object:C.clone(object()),date:S.date,shift:S.shift,actor:extensionActor(),generation:S.generation,online:navigator.onLine}),
+    read:extensionRead,peek:extensionPeek,can:extensionPermission,
+    catalog:col=>C.clone(living(col)),
+    save:async(changes,label)=>{for(const ch of changes){if(!C.collections.includes(ch.collection))throw Error('Запись вне табеля');if(ch.data.objectId!==S.objectId)throw Error('Объект изменился');}return enqueue(changes,label);},
+    clean:ownData,
+    subscribe:fn=>{extensionListeners.add(fn);return()=>extensionListeners.delete(fn);},
+    release:()=>{extensionSubscriptions.forEach(off=>off());extensionSubscriptions.clear();},
+    draft:async(key,value)=>{const k='tabel-draft:'+S.objectId+':'+key;if(value===undefined)return(await local('cache','get',k))?.value;await local('cache','put',{key:k,value});},
+    entry:id=>entryForm(id),crew:id=>crewForm(id),material:id=>materialForm(id),history,
+    queue:()=>C.clone(S.jobs),resolve:id=>conflictForm(id),
+    line:()=>C.clone({shift:state.shift||null,trucks:state.trucks||[],statuses:state.truckStatus||{},logs:state.logs||[],audit:state.audit||[],archive:state.archive||[]}),
+    lineHistory:async(objectId,day)=>{
+      if(!allowed())throw Error('Нет доступа');C.date(day);const key='tabel-line-audit:'+objectId+':'+day,generation=S.generation;
+      const cached=await local('cache','get',key);if(generation!==S.generation)throw Error('Учётная запись изменилась');
+      if(!navigator.onLine)return {audit:cached?.rows||[],confirmed:false,note:'Офлайн: журнал прибытий взят из сохранённого кэша'};
+      try{
+        const start=Date.parse(day+'T00:00:00+03:00'),end=start+86400000;
+        let query=wsRef.collection('audit').where('timestamp','>=',start).where('timestamp','<',end);if(query.limit)query=query.limit(3000);
+        const snap=await query.get({source:'server'});if(generation!==S.generation)throw Error('Учётная запись изменилась');
+        const all=snap.docs.map(d=>({...d.data(),id:d.id})),rows=all.filter(x=>x.objectId===objectId);await local('cache','put',{key,rows});
+        return {audit:rows,confirmed:all.length<3000,note:all.length>=3000?'Достигнут предел 3000 событий за день. История неполная.':''};
+      }catch(e){return {audit:cached?.rows||[],confirmed:false,note:'Не удалось прочитать журнал за день: '+e.message};}
+    },
+    showError:error,toast,
+    navigate:async date=>{S.date=C.date(date);await period();S.lastHtml='';render();}
+  });
   listen(host,'click',e=>{if(!allowed())return;const b=e.target.closest('[data-action]');if(!b)return;const {action,id,col,view,group}=b.dataset;
-    const actions={view:()=>{if(view==='object'&&!objectSummaryEnabled())return;const previous=S.view;S.view=view;if(previous==='object'&&view!=='object')stopObjectView();if(view==='object')objectPeriod().catch(error);render();},'object-day':()=>{S.date=b.dataset.date;S.shift=b.dataset.shift;S.view='day';stopObjectView();period().catch(error);render();},'add-person':()=>addForm('person',group),'add-equipment':()=>addForm('equipment'),entry:()=>entryForm(id),crew:()=>crewForm(id),'add-crew':()=>addCrew(id),'hours-preset':()=>inlineButton(id,b.dataset.value),'hours-step':()=>inlineButton(id,undefined,b.dataset.delta),'workers-value':()=>workersValue(b),'workers-apply':applyWorkers,copy:copyForm,'catalog-group':()=>{S.catalogGroup=group;render();},catalog:()=>catalogForm(col,id,group),material:()=>materialForm(id),retry:replay,conflict:()=>conflictForm(id),export:()=>exportCsv(false),'export-materials':()=>exportCsv(true),history};
+    const actions={'tabel-open':()=>openExtension(view),'tabel-multiday':()=>openExtension('multiday',id),view:()=>{if(view==='object'&&!objectSummaryEnabled())return;const previous=S.view;S.view=view;if(previous==='object'&&view!=='object')stopObjectView();if(view==='object')objectPeriod().catch(error);render();},'object-day':()=>{S.date=b.dataset.date;S.shift=b.dataset.shift;S.view='day';stopObjectView();period().catch(error);render();},'add-person':()=>addForm('person',group),'add-equipment':()=>addForm('equipment'),entry:()=>entryForm(id),crew:()=>crewForm(id),'add-crew':()=>addCrew(id),'hours-preset':()=>inlineButton(id,b.dataset.value),'hours-step':()=>inlineButton(id,undefined,b.dataset.delta),'workers-value':()=>workersValue(b),'workers-apply':applyWorkers,copy:copyForm,'catalog-group':()=>{S.catalogGroup=group;render();},catalog:()=>catalogForm(col,id,group),material:()=>materialForm(id),retry:replay,conflict:()=>conflictForm(id),export:()=>exportCsv(false),'export-materials':()=>exportCsv(true),history};
     const generation=S.generation;try{track(Promise.resolve(actions[action]?.()).catch(e=>{if(generation===S.generation)error(e);}));}catch(e){error(e);}
   });
   listen(host,'change',e=>{const t=e.target;if(t.matches('.ts-inline-hours')){saveInlineInput(t);return;}if(t.id==='ts-workers-hours'){S.bulkValue=t.value;return;}if(t.id==='ts-object')S.objectId=t.value;else if(t.id==='ts-date'){if(!t.value)return;S.date=t.type==='month'?t.value+'-01':t.value;}else if(t.id==='ts-shift')S.shift=t.value;else return;S.bulkWorkers=false;S.bulkRows=[];S.bulkValue='12';t.blur();period().catch(error);if(S.view==='object')objectPeriod().catch(error);render();});
@@ -524,7 +611,7 @@
   listen(host,'keydown',e=>{if(!e.target.matches('.ts-inline-hours'))return;if(e.key==='Enter'){e.preventDefault();saveInlineInput(e.target);e.target.blur();}else if(e.key==='Escape'){e.preventDefault();const draft=inlineDrafts.get(e.target.dataset.id);if(draft){const value=commonHours(draft.records);e.target.value=value.mixed?'':C.fmt(value.minutes);draft.dirty=false;}e.target.blur();}});
   listen(host,'pointerdown',e=>{if(e.target.closest('[data-action^="hours-"]')&&document.activeElement?.matches('.ts-inline-hours'))e.preventDefault();});
   listen(window,'review-flags-changed',()=>{if(!objectSummaryEnabled()&&S.view==='object'){S.view='month';stopObjectView();}render();});
-  window.Timesheet={session,render,reset,whenIdle,dispose};
+  window.Timesheet={session,render,reset,whenIdle,dispose,open:openExtension};
   const previousRender=window.renderAll,renderWrapper=function(){previousRender.apply(this,arguments);session();render();};window.renderAll=renderWrapper;
   const previousStop=window.stopSync,stopWrapper=function(){reset();return previousStop.apply(this,arguments);};window.stopSync=stopWrapper;
   const unsubscribeAuth=auth.onAuthStateChanged(()=>{if(disposed)return;reset();session();});

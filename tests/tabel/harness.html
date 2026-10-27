@@ -1,0 +1,10 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>Табель — локальная QA-песочница</title><body><div id="tab-timesheet" class="tab-content active"></div><script src="../timesheet/fixture.js"></script><script>
+// Test-only memory server with real browser IndexedDB; never included in the app.
+state.objects[0].startDate='2026-10-11';
+state.trucks=[];state.logs=[];state.audit=[];state.archive=[];state.truckStatus={};
+const persisted=localStorage.getItem('tabel-qa-server');if(persisted)__rows=new Map(JSON.parse(persisted));
+const originalTransaction=db.runTransaction;db.runTransaction=async fn=>{const result=await originalTransaction(fn);localStorage.setItem('tabel-qa-server',JSON.stringify([...__rows]));return result;};
+// Support the bridge's composite equality/range queries in this QA server.
+__query=function(collection,filters,cap){if(filters&&typeof filters[0]==='string')filters=[[filters[0],'==',filters[1]]];let docs=[...__rows.keys()].filter(k=>k.startsWith(collection+'/')&&k.split('/').length===collection.split('/').length+1).map(__snapshot);for(const [key,op,value]of filters||[])docs=docs.filter(s=>op==='=='?s.data()[key]===value:op==='>='?s.data()[key]>=value:s.data()[key]<value);return {docs:docs.slice(0,cap||Infinity),metadata:{fromCache:!navigator.onLine,hasPendingWrites:false}};};
+__collection=function(path,filters=[],cap){return {doc:id=>({path:path+'/'+id,get:async()=>__snapshot(path+'/'+id)}),where:(key,op,value)=>__collection(path,[...filters,[key,op,value]],cap),limit:n=>__collection(path,filters,n),get:async()=>__query(path,filters,cap),onSnapshot:(_,cb)=>{const sub={path,filter:filters,cb};__subscriptions.push(sub);queueMicrotask(()=>{if(__subscriptions.includes(sub))cb(__query(path,filters,cap));});return()=>{__subscriptions=__subscriptions.filter(x=>x!==sub);};}};};
+</script><script src="../../test-app/src/features/timesheet-core.js"></script><script src="../../test-app/src/features/timesheet-app.js"></script></body></html>

@@ -1,0 +1,35 @@
+const fs=require('node:fs'),assert=require('node:assert/strict'),{spawn}=require('node:child_process');
+const firebase=require('../timesheet/node_modules/firebase/compat/app');require('../timesheet/node_modules/firebase/compat/firestore');
+const {initializeTestEnvironment,assertFails}=require('../timesheet/node_modules/@firebase/rules-unit-testing');
+const C=require('../../test-app/src/features/timesheet-core.js');
+const port=8092,project='demo-tabel-isolated',apps=[];let env,log='';
+const child=spawn('java',['-jar',process.env.FIRESTORE_EMULATOR_JAR||'../firestore-emulator.jar','--host','127.0.0.1','--port',String(port),'--project_id',project]);child.stdout.on('data',d=>log+=d);child.stderr.on('data',d=>log+=d);
+function client(uid){const app=firebase.initializeApp({projectId:project,apiKey:'demo'},uid);apps.push(app);const db=app.firestore();db.useEmulator('127.0.0.1',port,{mockUserToken:{sub:uid,email:uid+'@example.com'}});return {db,ws:db.collection('workspaces').doc('main_workspace'),actor:{uid,name:uid},run:fn=>db.runTransaction(fn)};}
+let seq=0;const op=(a,changes)=>({id:'qa-'+(++seq),uid:a.actor.uid,label:'QA',scope:'obj|2026-10',createdAt:Date.now(),status:'queued',changes});
+const send=(a,changes)=>{const operation=Array.isArray(changes)?op(a,changes):changes;return C.commitOperation(a.db,a.ws,operation,a.actor,a.run);};
+const change=(collection,id,data,baseRevision=0)=>({collection,id,data,baseRevision,before:null});
+(async()=>{try{
+ for(let i=0;i<150&&!log.includes('Dev App Server is now running');i++)await new Promise(r=>setTimeout(r,100));if(!log.includes('Dev App Server is now running'))throw Error(log);
+ env=await initializeTestEnvironment({projectId:project,firestore:{host:'127.0.0.1',port,rules:fs.readFileSync(process.env.TABEL_RULES_PATH||'test-app/tabel/firestore.sandbox.rules','utf8')}});
+ const D=await import('../../test-app/tabel/domain.mjs'),config=D.defaults('obj','2026-10-11');config.acl.roles.editor={'table.view':true,'table.edit':true,'shift.view':true,'shift.edit':true,'equipment.edit':true,'people.edit':true,'materials.view':true,'materials.edit':true,'plans.view':true,'plans.edit':true,'request.view':true,'request.edit':true};config.acl.roles.viewer={'table.view':true};
+ await env.withSecurityRulesDisabled(async ctx=>{const db=ctx.firestore();await db.doc('settings/permissions').set({editor:{tabs:['timesheet'],actions:['timesheet_edit']},viewer:{tabs:['timesheet'],actions:[]},outsider:{tabs:['line'],actions:['timesheet_edit']}});for(const [uid,role,status]of [['admin','admin','active'],['one','editor','active'],['two','editor','active'],['viewer','viewer','active'],['outsider','outsider','active'],['disabled','admin','disabled']])await db.doc('users/'+uid).set({role,status});});
+ const admin=client('admin'),one=client('one'),two=client('two'),viewer=client('viewer'),outsider=client('outsider'),disabled=client('disabled');
+ await send(admin,[change('timesheetObjects','obj',config)]);
+ const sheet={objectId:'obj',schemaVersion:1,deleted:false,name:'Лист',type:'blank',rowCount:100,colCount:26,cells:{A1:{raw:'12'}},columnWidths:{},rowHeights:{}};
+ const first=op(one,[change('timesheetSheets','s1',sheet)]);await send(one,first);await send(one,first);assert.equal((await one.ws.collection('timesheetChanges').get()).size,2);
+ console.log('PASS sandbox rules compile, administrator config, delegated sheet creation, idempotent receipt');
+ const race=await Promise.allSettled([send(one,[change('timesheetSheets','s1',{...sheet,cells:{A1:{raw:'13'}}},1)]),send(two,[change('timesheetSheets','s1',{...sheet,cells:{A1:{raw:'14'}}},1)])]);assert.equal(race.filter(x=>x.status==='fulfilled').length,1);assert.equal(race.find(x=>x.status==='rejected').reason.code,'conflict');
+ console.log('PASS two authenticated clients: exactly one accepted sheet revision, both values retained in conflict');
+ await assertFails(send(viewer,[change('timesheetSheets','view-write',sheet)]));await assertFails(outsider.ws.collection('timesheetSheets').doc('s1').get());await assertFails(disabled.ws.collection('timesheetSheets').doc('s1').get());
+ await assertFails(send(one,[change('timesheetSheets','objB',{...sheet,objectId:'objB'})]));
+ console.log('PASS server denies viewer writes, no-tab/disabled reads and cross-object writes');
+ const current=(await admin.ws.collection('timesheetObjects').doc('obj').get()).data(),clean={...current};for(const k of ['revision','lastOpId','updatedBy','updatedName','updatedAt'])delete clean[k];
+ await assertFails(send(one,[change('timesheetObjects','obj',{...clean,acl:{roles:{editor:{'permissions.edit':true}},users:{}}},current.revision)]));
+ await send(one,[change('timesheetObjects','obj',{...clean,request:{...clean.request,note:'Новый план'}},current.revision)]);
+ console.log('PASS request edit is independent of settings; role cannot grant itself permissions');
+ const value={objectId:'obj',schemaVersion:1,deleted:false,date:'2026-10-11',shift:'day',scope:'obj|2026-10',kind:'work',entityId:'work1',unit:'м²',quantity:120,direction:''};await send(one,[change('timesheetValues','work1',value)]);
+ await assertFails(one.ws.collection('timesheetValues').doc('work1').update({quantity:800,revision:2}));await assertFails(admin.ws.collection('timesheetValues').doc('work1').delete());await assertFails(admin.ws.collection('timesheetChanges').doc(first.id).update({label:'Подмена'}));
+ console.log('PASS actual work values, no direct write bypass, immutable audit, soft-delete boundary');
+ await env.withSecurityRulesDisabled(async ctx=>ctx.firestore().doc('users/one').update({status:'disabled'}));await assertFails(send(one,[change('timesheetSheets','queued-after-revoke',sheet)]));
+ console.log('PASS revoked account blocks previously prepared queued operation on server');
+}catch(e){console.error(e);console.error(log.slice(-3000));process.exitCode=1;}finally{for(const a of apps)await a.delete();await env?.cleanup();child.kill();}})();

@@ -6,7 +6,9 @@
   else root.TimesheetCore = api;
 })(typeof globalThis === 'object' ? globalThis : this, function() {
   'use strict';
-  const collections = ['timesheetPeople', 'timesheetEquipment', 'timesheetEntries', 'timesheetMaterials'];
+  const baseCollections = ['timesheetPeople', 'timesheetEquipment', 'timesheetEntries', 'timesheetMaterials'];
+  const extensionCollections = ['timesheetObjects','timesheetSheets','timesheetDays','timesheetValues'];
+  const collections = [...baseCollections,...extensionCollections];
   const units = ['т', 'м³', 'шт', 'л', 'кг', 'м²', 'м.п.'];
   const clone = value => JSON.parse(JSON.stringify(value));
   function fail(message, code = 'invalid') { const e = new Error(message); e.code = code; throw e; }
@@ -39,7 +41,28 @@
     if (!data || typeof data !== 'object') fail('Пустая запись');
     text(id, 'Идентификатор', 1400); if (id.includes('/')) fail('Некорректный идентификатор');
     if (typeof data.deleted !== 'boolean') fail('Некорректное состояние записи');
-    if (collection === 'timesheetPeople') {
+    if (extensionCollections.includes(collection)) {
+      text(data.objectId,'Объект',160);
+      if(data.schemaVersion!==1)fail('Неизвестная версия схемы табеля');
+      if(JSON.stringify(data).length>240000)fail('Запись слишком большая. Разделите лист.');
+      if(collection==='timesheetObjects'){
+        if(id!==encodeURIComponent(data.objectId))fail('Настройки принадлежат другому объекту');
+        date(data.startDate);if(data.endDate){date(data.endDate);if(data.endDate<data.startDate)fail('Дата окончания раньше начала');}
+        if(!['all','week'].includes(data.period)||!['blank','template','ask'].includes(data.newSheet)||data.volumeSource!=='manual'||!['roster','hours'].includes(data.countEquipment))fail('Некорректные настройки');
+        if(!Array.isArray(data.works)||!Array.isArray(data.materials)||!Array.isArray(data.allowedSheetTypes)||!data.allowedSheetTypes.length||data.allowedSheetTypes.some(x=>!['blank','template'].includes(x)))fail('Проверьте виды работ, материалов и листов');
+        for(const list of [data.works,data.materials]){if(list.length>100||new Set(list.map(x=>x.id)).size!==list.length)fail('Повторяются виды работ или материалов');for(const item of list){text(item.id,'Ключ');text(item.name,'Название');text(item.unit,'Единица');if(item.plan!==undefined&&(!Number.isFinite(item.plan)||item.plan<0))fail('Некорректный план');}}
+        if(!data.request||!Array.isArray(data.request.equipment)||!Array.isArray(data.request.people)||!data.request.lunch)fail('Некорректная заявка');date(data.request.date);
+        if(!data.acl||!data.acl.roles||!data.acl.users)fail('Проверьте права');
+        for(const group of [data.acl.roles,data.acl.users])for(const grants of Object.values(group)){if(!grants||typeof grants!=='object'||Object.values(grants).some(x=>typeof x!=='boolean'))fail('Права должны быть логическими значениями');}
+      }else if(collection==='timesheetSheets'){
+        text(data.name,'Название листа',80);if(!['blank','template'].includes(data.type)||!Number.isInteger(data.rowCount)||data.rowCount<1||data.rowCount>1000||!Number.isInteger(data.colCount)||data.colCount<1||data.colCount>100||!data.cells||typeof data.cells!=='object'||Array.isArray(data.cells)||Object.keys(data.cells).length>5000)fail('Проверьте размер листа');
+        for(const [key,cell] of Object.entries(data.cells)){if((!data.linked&&!/^[A-Z]+[1-9]\d*$/.test(key))||typeof cell.raw!=='string'||cell.raw.length>2000)fail('Некорректная ячейка');for(const k of ['background','color'])if(cell[k]&&!/^#[0-9a-f]{6}$/i.test(cell[k]))fail('Некорректный цвет');if(cell.align&&!['left','center','right'].includes(cell.align))fail('Некорректное выравнивание');}
+      }else{
+        date(data.date);if(!['day','night'].includes(data.shift)||data.scope!==scope(data.objectId,data.date))fail('Некорректный период');
+        if(collection==='timesheetValues'){if(!['material','work'].includes(data.kind))fail('Неизвестный показатель');text(data.entityId,'Показатель');if(!Number.isFinite(data.quantity)||data.quantity<0||data.quantity>100000000)fail('Некорректный объём');text(data.unit,'Единица');text(data.direction||'','Направление',160,true);}
+        else if(typeof data.started!=='boolean')fail('Некорректное состояние дня');
+      }
+    } else if (collection === 'timesheetPeople') {
       text(data.name,'ФИО');
       if (!['worker','itr','operator'].includes(data.group)) fail('Выберите группу');
     } else if (collection === 'timesheetEquipment') {
@@ -143,6 +166,6 @@
       return '"'+s.replace(/"/g,'""')+'"';
     }).join(';')).join('\r\n');
   }
-  return {collections,units,clone,text,date,hours,quantity,fmt,scope,entryId,validate,validateOperation,project,commitOperation,csv};
+  return {collections,baseCollections,extensionCollections,units,clone,text,date,hours,quantity,fmt,scope,entryId,validate,validateOperation,project,commitOperation,csv};
 });
 
