@@ -118,7 +118,33 @@ service cloud.firestore {
         && request.resource.data.get('createdByEmail', '')
           == request.auth.token.get('email', '');
     }
-\n    // TEST ONLY. Coin adjustments are append-only and must come from an active admin.\n    function validCoinAdjustment() {\n      let data = request.resource.data;\n      let targetUid = data.get('targetUid', '');\n      return data.get('eventType', '') != 'game_coin_adjustment' || (\n        admin()\n        && targetUid is string\n        && exists(/databases/$(database)/documents/users/$(targetUid))\n        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('status', '') == 'active'\n        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('email', '') == data.get('targetEmail', '')\n        && data.keys().hasOnly(['eventType','amount','targetUid','targetEmail','targetName','reason','timestamp','userEmail','userName','createdByEmail','createdByUid','text','timeStr'])\n        && data.get('amount', 0) is int\n        && data.amount > 0 && data.amount <= 10000\n        && data.get('targetEmail', '') is string\n        && data.get('targetName', '') is string\n        && data.get('reason', '') is string\n        && data.reason.size() >= 3 && data.reason.size() <= 160\n        && data.get('createdByUid', '') == request.auth.uid\n        && data.get('createdByEmail', '') == request.auth.token.get('email', '')\n        && data.get('userEmail', '') == request.auth.token.get('email', '')\n        && data.get('timestamp', 0) is number\n        && data.get('text', '') is string\n        && data.get('timeStr', '') is string\n      );\n    }\n
+
+    // TEST ONLY. Coin adjustments are append-only and must come from an active admin.
+    function validCoinAdjustment() {
+      let data = request.resource.data;
+      let targetUid = data.get('targetUid', '');
+      return data.get('eventType', '') != 'game_coin_adjustment' || (
+        admin()
+        && targetUid is string
+        && exists(/databases/$(database)/documents/users/$(targetUid))
+        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('status', '') == 'active'
+        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('email', '') == data.get('targetEmail', '')
+        && data.keys().hasOnly(['eventType','amount','targetUid','targetEmail','targetName','reason','timestamp','userEmail','userName','createdByEmail','createdByUid','text','timeStr'])
+        && data.get('amount', 0) is int
+        && data.amount > 0 && data.amount <= 10000
+        && data.get('targetEmail', '') is string
+        && data.get('targetName', '') is string
+        && data.get('reason', '') is string
+        && data.reason.size() >= 3 && data.reason.size() <= 160
+        && data.get('createdByUid', '') == request.auth.uid
+        && data.get('createdByEmail', '') == request.auth.token.get('email', '')
+        && data.get('userEmail', '') == request.auth.token.get('email', '')
+        && data.get('timestamp', 0) is number
+        && data.get('text', '') is string
+        && data.get('timeStr', '') is string
+      );
+    }
+
     match /users/{uid} {
       allow get: if signedIn()
         && (request.auth.uid == uid || active());
