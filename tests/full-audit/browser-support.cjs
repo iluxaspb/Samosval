@@ -4,10 +4,11 @@ const fs = require('node:fs'), path = require('node:path'), http = require('node
 const assert = require('node:assert/strict');
 const {createHash} = require('node:crypto');
 const PROJECT = 'demo-samosval-browser-audit';
+const production = process.env.AUDIT_PRODUCTION === '1';
 const DEMO_CONFIG = Object.freeze({projectId: PROJECT, apiKey: 'local-demo-not-a-credential',
   appId: 'local-demo-app', authDomain: '127.0.0.1', storageBucket: PROJECT + '.invalid'});
 const FIRESTORE_PROBE_FIXTURE = Object.freeze({
-  asset:'test-app/vendor/firebase-firestore-compat-10.8.0.js',
+  asset:(production?'app':'test-app')+'/vendor/firebase-firestore-compat-10.8.0.js',
   originalSha256:'1b122566975332a8b7059e1b435df73122b6e4947b312360b518936be219b6fc',
   path:'/Samosval/audit-connectivity-probe.gif'
 });
@@ -16,7 +17,7 @@ const FIRESTORE_PROBE_FIXTURE = Object.freeze({
 const PROBE_GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7','base64');
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8',
   '.css':'text/css; charset=utf-8','.webmanifest':'application/manifest+json',
-  '.png':'image/png','.ttf':'font/ttf','.json':'application/json'};
+  '.png':'image/png','.svg':'image/svg+xml','.ttf':'font/ttf','.json':'application/json'};
 
 async function readWithRulesDisabled(environment, read) {
   // RulesTestEnvironment.withSecurityRulesDisabled resolves void, not the
@@ -56,12 +57,12 @@ function allowedUrl(raw, origin, firestorePort) {
 
 function rewriteDemoSource(source, isCore = false) {
   // Keep production source/build files untouched. Only deployment identifiers change.
-  let result = source.replaceAll('samosval-offline', PROJECT);
+  let result = source.replaceAll(production?'samosval-test':'samosval-offline', PROJECT);
   if (isCore) {
     const pattern = /const firebaseConfig\s*=\s*\{[\s\S]*?\};/g;
     assert.equal([...result.matchAll(pattern)].length, 1, 'Expected exactly one Firebase config in built core');
     result = result.replace(pattern, 'const firebaseConfig = ' + JSON.stringify(DEMO_CONFIG) + ';');
-    assert(result.includes("const TEST_FIREBASE_PROJECT_ID = '" + PROJECT + "'"), 'Demo project guard missing');
+    assert(result.includes("const "+(production?'PRODUCTION':'TEST')+"_FIREBASE_PROJECT_ID = '" + PROJECT + "'"), 'Demo project guard missing');
   }
   return result;
 }
@@ -85,11 +86,11 @@ function createLocalServer(root, firestorePort, requestLog) {
   root = fs.realpathSync(root);
   const servedBytes = file => {
     const bytes = fs.readFileSync(file), relative = path.relative(root,file).split(path.sep).join('/');
-    if (relative === 'index-test.html') return Buffer.from(rewriteDemoSource(bytes.toString(),bytes.includes('const firebaseConfig')));
+    if (relative === (production?'index.html':'index-test.html')) return Buffer.from(rewriteDemoSource(bytes.toString(),bytes.includes('const firebaseConfig')));
     if (relative === FIRESTORE_PROBE_FIXTURE.asset) return rewriteConnectivityProbe(bytes);
-    if ((relative.startsWith('test-app/build/') || relative.startsWith('test-app/src/')) && relative.endsWith('.js'))
+    if ((relative.startsWith('test-app/build/') || relative.startsWith('test-app/src/') || (production && relative.startsWith('app/build/'))) && relative.endsWith('.js'))
       return Buffer.from(rewriteDemoSource(bytes.toString(),relative.endsWith('/core.js')));
-    if (relative === 'sw-test.js') {
+    if (relative === (production?'sw.js':'sw-test.js')) {
       // The production worker verifies every response hash. Preserve that check
       // against the exact demo response bytes; do not disable integrity checking.
       const worker = bytes.toString(), pattern = /^const RECORDS = (\[.*\]);$/m;
@@ -129,7 +130,7 @@ function createLocalServer(root, firestorePort, requestLog) {
       const file = path.resolve(root, relative);
       if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()
           || !fs.realpathSync(file).startsWith(root + path.sep)
-          || !/^(?:index-test\.html|manifest-test\.webmanifest|sw-test\.js|test-app\/(?:build|vendor|icons|src)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
+          || !/^(?:index(?:-test)?\.html|manifest(?:-test\.webmanifest|\.json)|sw(?:-test)?\.js|icon\.svg|(?:test-app|app)\/(?:build|vendor|icons|src)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
         res.writeHead(404); res.end(); return;
       }
       res.setHeader('Content-Type', types[path.extname(file)] || 'application/octet-stream');

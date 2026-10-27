@@ -96,7 +96,8 @@ async function launch(profile, uid, mobile, offline = false, initiallySignedIn =
   });
   await activeContext.setOffline(offline);
   page = await activeContext.newPage();
-  await page.goto(origin + '/Samosval/index-test.html', {waitUntil:'load',timeout:30000});
+  await page.goto(origin + '/Samosval/'+(process.env.AUDIT_PRODUCTION?'index.html':'index-test.html'), {waitUntil:'load',timeout:30000});
+  if(process.env.AUDIT_PRODUCTION)assert.equal(await page.locator('#nav-timesheet,#tab-timesheet,script[id^="timesheet"]').count(),0,'Timesheet must be absent');
   await wait(() => window.__auditFixture?.ready === true);
   assert.equal(await page.evaluate(() => firebase.app().options.projectId), PROJECT);
 }
@@ -455,7 +456,7 @@ async function responsiveCase(mobile) {
     assert.deepEqual(await page.evaluate(()=>{const rates=window.__gameCoinsCore.rewardsAt(appConfig);return {load:rates.load,arrive:rates.arrive,ttn:rates.ttn};}),{load:2,arrive:3,ttn:4});
     assert.equal(await page.evaluate(() => appConfig.testReviewFlags.arcade_enabled), true); await evidence('settings-reloaded');
   });
-  await step('timesheet-crew-hours-material-repeat-month-and-history', async () => {
+  if(!process.env.AUDIT_PRODUCTION) await step('timesheet-crew-hours-material-repeat-month-and-history', async () => {
     await nav('timesheet'); await wait(() => document.querySelector('.ts-sync')?.textContent.includes('Данные подтверждены'));
     await page.locator('#tab-timesheet [data-action="add-equipment"]').click();
     await page.locator('.ts-dialog select[name="machine"]').selectOption('m1');
@@ -547,15 +548,15 @@ async function responsiveCase(mobile) {
   });
   await step('pwa-cold-offline-close-reopen-and-reconnect-exactly-once', async () => {
     await nav('line'); await chooseTruck('qa-offline');
-    await wait(() => TestPWA.snapshot().shellReady && TestPWA.snapshot().persistent && navigator.serviceWorker.controller);
+    await wait(() => (window.AppPWA||window.TestPWA).snapshot().shellReady && (window.AppPWA||window.TestPWA).snapshot().persistent && navigator.serviceWorker.controller);
     const cdp = await activeContext.newCDPSession(page), manifest = await cdp.send('Page.getAppManifest');
-    assert.deepEqual(manifest.errors, []); assert(manifest.url.endsWith('/manifest-test.webmanifest'));
+    assert.deepEqual(manifest.errors, []); assert(manifest.url.endsWith(process.env.AUDIT_PRODUCTION?'/manifest.json':'/manifest-test.webmanifest'));
     const prior = (await readRows('logs')).length;
     await closeContext(); await launch(profile, 'qa-active', mobile, true); await ready();
     await wait(() => state.shift?.isActive && state.truckStatus['qa-offline']?.onLine);
     assert.equal(await page.evaluate(() => navigator.onLine), false);
-    const exported = await page.evaluate(() => TestPWA.inlineHtml(document.documentElement.outerHTML));
-    assert(!/<script[^>]+src="[^\"]*test-app\//.test(exported),'Offline HTML export must inline local scripts');
+    const exported = await page.evaluate(() => (window.AppPWA||window.TestPWA).inlineHtml(document.documentElement.outerHTML));
+    assert(!/<script[^>]+src="[^\"]*(?:test-app|app)\//.test(exported),'Offline HTML export must inline local scripts');
     assert(exported.includes('const firebaseConfig'),'Offline export must include the application core');
     for(const script of exported.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)){
       if(!/\bsrc\s*=/.test(script[1]))new (require('node:vm').Script)(script[2]);
@@ -631,8 +632,8 @@ async function coinLedgerCase() {
 async function main() {
   assert(Number.isInteger(port) && port > 1024 && port < 65536, 'Invalid local emulator port');
   assert(PROJECT.startsWith('demo-'));
-  report.build=JSON.parse(fs.readFileSync(path.join(root,'test-app/build-manifest.json'),'utf8')).version;
-  report.release=fs.readFileSync(path.join(root,'index-test.html'),'utf8').match(/class="version-text">([^<]+)</)[1];
+  report.build=JSON.parse(fs.readFileSync(path.join(root,(process.env.AUDIT_PRODUCTION?'app':'test-app')+'/build-manifest.json'),'utf8')).version;
+  report.release=fs.readFileSync(path.join(root,process.env.AUDIT_PRODUCTION?'index.html':'index-test.html'),'utf8').match(/class="version-text">([^<]+)</)[1];
   const jar = process.env.FIRESTORE_EMULATOR_JAR; assert(jar && fs.existsSync(jar), 'Set FIRESTORE_EMULATOR_JAR to an installed local Firestore emulator JAR');
   ({chromium} = require('playwright')); sdk = require('firebase/firestore');
   const {initializeTestEnvironment} = require('@firebase/rules-unit-testing');

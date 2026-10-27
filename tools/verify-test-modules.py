@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+protected = {p:(ROOT/p).read_bytes() for p in ['index.html','sw.js','manifest.json']}
 spec = importlib.util.spec_from_file_location('builder', ROOT / 'tools/build-test.py')
 b = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(b)
@@ -43,7 +44,7 @@ def marker(m):
 expected = pattern.sub(marker,baseline)
 actual = (b.SOURCE / 'shell.html').read_text().replace('3.4.12','3.4.11')
 assert actual == expected, 'HTML/handler layout changed'
-for file in ['index.html','sw.js','manifest.json','firestore-v3.rules','firestore-coins-test.rules']:
+for file in ['firestore-v3.rules','firestore-coins-test.rules']:
     original = subprocess.check_output(['git','show',data['baseline_commit']+':'+file],cwd=ROOT)
     assert original == (ROOT/file).read_bytes(), 'Out-of-scope change: '+file
 
@@ -57,4 +58,5 @@ outputs = [ROOT/'index-test.html',ROOT/'sw-test.js',b.APP/'build-manifest.json']
 saved = [p.read_bytes() for p in outputs]
 b.build()
 assert saved == [p.read_bytes() for p in outputs], 'Non-deterministic build'
+assert all(data == (ROOT/p).read_bytes() for p,data in protected.items()), 'TEST builder changed production'
 print('PASS: 29 blocks, 13 patches, exact logic/CSS/markup/order, scoped files, JS syntax, hashes, deterministic rebuild')
