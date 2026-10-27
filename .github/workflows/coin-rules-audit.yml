@@ -34,8 +34,21 @@ jobs:
           export FIRESTORE_EMULATOR_JAR=$(find "$HOME/.cache/firebase/emulators" -name 'cloud-firestore-emulator*.jar' -print -quit)
           node tests/coins/standalone.cjs
           node tests/full-audit/browser-run.cjs
+      - name: Installed PWA upgrade and data preservation
+        if: ${{ !cancelled() }}
+        env:
+          NODE_PATH: /tmp/coin-qa/node_modules
+        run: |
+          python3 -m pip install playwright==1.57.0
+          git fetch --depth=1 origin bd0e906e15a6cafb8b3dd7fd390d0fbc584218a7
+          mkdir -p "$RUNNER_TEMP/samosval-old"
+          git archive FETCH_HEAD | tar -x -C "$RUNNER_TEMP/samosval-old"
+          BROWSER_PATH=$(node -p "require('playwright').chromium.executablePath()")
+          python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --chromium "$BROWSER_PATH"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: standalone-browser-evidence
-          path: tests/full-audit/results/browser
+          path: |
+            tests/full-audit/results/browser
+            test-results/
