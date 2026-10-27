@@ -9,7 +9,7 @@ function coreFrom(script) {
   vm.runInNewContext(script.slice(0, boundary) + '})();', context);
   return context.window.__gameCoinsCore;
 }
-const testSource = fs.readFileSync('test-app/src/features/game-coins-v2.js', 'utf8');
+const testSource = require('../../tools/read-test-html.cjs')().match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];
 const productionHtml = fs.readFileSync('index.html', 'utf8');
 const productionSource = productionHtml.match(/<script\s+id="game-coins-v2"[^>]*>([\s\S]*?)<\/script>/)?.[1];
 assert(productionSource, 'Production game module must exist');
@@ -73,12 +73,12 @@ const cancelPending = event('cancel-pending', 1100, [{ collection: 'truckStatus'
 sameCase('cancelling bound pending TTN removes its single award only', [pendingTicket, bindPending, cancelPending], 5);
 
 const historicalPhoto = { id: 'photo-kept', eventType: 'game_photo', amount: 1, photoId: 'kept', userEmail: 'worker@example.test', timestamp: 50 };
-// Historical photo points are retained only in TEST; camera/upload functionality is absent.
+// The approved 3.4.11 baseline no longer counts historical photo events.
 historicalPhoto.id = 'photo_' + historicalPhoto.photoId;
-assert.equal(score(testCore, [historicalPhoto, oldLoad]), 2, 'Removing camera must preserve already earned photo points');
+assert.equal(score(testCore, [historicalPhoto, oldLoad]), 1, 'Preserve the approved baseline treatment of historical photo events');
 assert(!/capturePhoto|openCamera|PhotoFiles|ObjectPhotos|data-photo/.test(testSource), 'Coin settings must not restore removed photo controls');
 
-const configSource = fs.readFileSync('test-app/src/core/06-sync.js', 'utf8');
+const configSource = require('../../tools/read-test-html.cjs')();
 assert(configSource.includes('gameRewardSchedule:'), 'TEST must preserve the shared reward schedule from app config');
 assert(testSource.includes('appConfigRef'), 'TEST settings must use its own configured database reference');
-console.log('PASS TEST/production reward parity: defaults, frozen rates, TTN, idempotence, undo/redo, zero reward and historical photo points');
+console.log('PASS TEST/production reward parity: defaults, frozen rates, TTN, idempotence, undo/redo, zero reward and baseline photo-event handling');

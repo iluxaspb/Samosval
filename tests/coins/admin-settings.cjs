@@ -28,6 +28,7 @@ function setup(script){
  ctx.appConfigRef={id:'appConfig'};
  ctx.db={runTransaction:async fn=>{const pending=[];const result=await fn({get:async ref=>{assert.equal(ref,ctx.appConfigRef);if(denyRead)throw Error('fixture denied');if(afterRead)afterRead();return {exists:true,data:()=>clone(policy)};},set:(ref,data,options)=>{assert.equal(ref,ctx.appConfigRef);assert.deepEqual(options,{merge:true});pending.push(clone(data));}});for(const data of pending){policy={...policy,...data};writes++;}return result;}};
  ctx.refs={audit:{where:()=>({onSnapshot:(options,next)=>{next({docs:[],metadata:{fromCache:false,hasPendingWrites:false}});return ()=>{};}})}};
+ ctx.refs.coinTransactions={where:()=>ctx.refs.coinTransactions,onSnapshot:(options,next)=>{next({docs:[]});return ()=>{};}};
  vm.createContext(ctx);vm.runInContext(script,ctx);ctx.window.__gameConfigChanged();
  return {ctx,el:id=>body.querySelector('#'+id),policy:()=>clone(policy),writes:()=>writes,denyRead:v=>denyRead=v,afterRead:f=>afterRead=f,set:(kind,value)=>{const input=body.querySelector('#game-reward-'+kind);input.value=String(value);for(const f of input.events.input||[])f();},save:()=>body.querySelector('#game-rewards-save').onclick()};
 }
@@ -52,4 +53,4 @@ async function check(label,script){
  f.afterRead(()=>{ctx.currentUid='other';});await f.save();assert.equal(f.writes(),2,label+' account switched during read blocked');
  console.log('PASS '+label+': defaults, admin save, persisted reload, unchanged fields, append-only rates, no-op, dirty form, validation, zero, offline/failure, role and identity gates');
 }
-(async()=>{const prod=fs.readFileSync('index.html','utf8').match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];await check('production',prod);await check('TEST',fs.readFileSync('test-app/src/features/game-coins-v2.js','utf8'));})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{const prod=fs.readFileSync('index.html','utf8').match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];await check('production',prod);const test=require('../../tools/read-test-html.cjs')().match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];await check('TEST',test);})().catch(e=>{console.error(e);process.exitCode=1;});

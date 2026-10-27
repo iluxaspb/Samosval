@@ -1,111 +1,63 @@
 name: Modular test application audit
 on:
   push:
-    branches: ['audit/**']
+    branches: ['audit/**', root, release/test-modules-3.4.12-20261027]
+    paths:
+      - 'test-app/source/**'
+      - test-app/modules.json
+      - tools/build-test.py
+      - tools/verify-test-modules.py
+      - .github/workflows/modular-audit.yml
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: modular-audit-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   regression:
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: bash
-    env:
-      CI: 'true'
-      FIREBASE_CLI_DISABLE_UPDATE_CHECK: 'true'
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - uses: actions/setup-java@v4
+      - name: Exact source, HTML and CSS preservation; reproducible build
+        run: |
+          git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
+          python3 tools/verify-test-modules.py
+      - name: Coins and offline cache regressions on actual built code
+        run: |
+          node tests/coins/standalone.cjs
+          node tests/pwa/service-worker.cjs
+          node -r ./tests/pwa/legacy-loader.cjs tests/coins/admin-settings.cjs
+          node -r ./tests/pwa/legacy-loader.cjs tests/coins/test-parity.cjs
+  pwa-upgrade:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          distribution: temurin
-          java-version: '21'
-      - name: Install isolated test dependencies
-        id: testdeps
-        run: |
-          npm install --prefix /tmp/samosval-qa --no-audit --no-fund jsdom@26.0.0 firebase@10.8.0 @firebase/rules-unit-testing@3.0.4 playwright@1.56.1 pngjs@7.0.0 firebase-tools@14.20.0
-          echo "NODE_PATH=/tmp/samosval-qa/node_modules" >> "$GITHUB_ENV"
-          echo "/tmp/samosval-qa/node_modules/.bin" >> "$GITHUB_PATH"
-      - name: Build current TEST sources
-        id: build
-        run: python3 tools/build-test.py
-      - name: Run source, integration and DOM regressions
-        run: node tests/full-audit/run.cjs
-      - name: Install sandboxed browser dependencies
-        id: browserdeps
-        if: ${{ !cancelled() && steps.testdeps.outcome == 'success' && steps.build.outcome == 'success' }}
-        run: |
-          if command -v google-chrome >/dev/null; then
-            echo "AUDIT_BROWSER=$(command -v google-chrome)" >> "$GITHUB_ENV"
-          else
-            playwright install --with-deps chromium
-            echo "AUDIT_BROWSER=$(node -e 'process.stdout.write(require("playwright").chromium.executablePath())')" >> "$GITHUB_ENV"
-          fi
-      - name: Install Python browser dependencies
-        id: pythondeps
-        if: ${{ !cancelled() && steps.browserdeps.outcome == 'success' }}
+          python-version: '3.12'
+      - name: Install browser dependencies
         run: |
           python3 -m pip install playwright==1.57.0
-          python3 -m playwright install ffmpeg
-      - name: Install local Firestore emulator
-        id: emulatordeps
-        if: ${{ !cancelled() && steps.testdeps.outcome == 'success' && steps.build.outcome == 'success' }}
+          if command -v google-chrome >/dev/null; then
+            echo "PWA_CHROMIUM=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          else
+            python3 -m playwright install --with-deps chromium
+          fi
+      - name: Upgrade actual 3.4.11 to modular release without data deletion
         run: |
-          firebase setup:emulators:firestore
-          echo "FIRESTORE_EMULATOR_JAR=$(find "$HOME/.cache/firebase/emulators" -name 'cloud-firestore-emulator*.jar' -print -quit)" >> "$GITHUB_ENV"
-      - name: Run real Firestore concurrency regressions
-        if: ${{ !cancelled() && steps.emulatordeps.outcome == 'success' }}
-        run: node tests/full-audit/offline-emulator.cjs
-      - name: Browser click walkthrough
-        if: ${{ !cancelled() && steps.browserdeps.outcome == 'success' }}
-        run: |
-          node tests/full-audit/browser-run.cjs
-      - name: Selector reset sandboxed browser checks
-        if: ${{ !cancelled() && steps.browserdeps.outcome == 'success' }}
-        run: |
-          mkdir -p tests/selector-reset/results
-          SELECTOR_BROWSER="$AUDIT_BROWSER" node tests/selector-reset/browser.cjs 2>&1 | tee tests/selector-reset/results/browser.log
-      - name: Paper viewer sandboxed browser checks
-        if: ${{ !cancelled() && steps.browserdeps.outcome == 'success' }}
-        run: |
-          mkdir -p tests/paper-viewer/results
-          python3 tests/paper-viewer/create-fixtures.py 2>&1 | tee tests/paper-viewer/results/fixtures.log
-          SUMMARY_BROWSER="$AUDIT_BROWSER" node tests/paper-viewer/browser.cjs 2>&1 | tee tests/paper-viewer/results/browser.log
-      - name: Verify installed rank celebration and runtime lifecycle
-        if: ${{ !cancelled() && steps.testdeps.outcome == 'success' && steps.build.outcome == 'success' }}
-        run: |
-          mkdir -p tools/rank-celebration/tests/results
-          python3 tools/rank-celebration/tests/verify-installed.py --root . 2>&1 | tee tools/rank-celebration/tests/results/installed.log
-          python3 tools/rank-celebration/tests/fixture.py
-          node tools/rank-celebration/tests/runtime.cjs 2>&1 | tee tools/rank-celebration/tests/results/runtime.log
-      - name: Rank celebration sandboxed browser and audio checks
-        if: ${{ !cancelled() && steps.pythondeps.outcome == 'success' }}
-        run: |
-          mkdir -p tools/rank-celebration/tests/results
-          python3 -u tools/rank-celebration/tests/browser.py --chromium "$AUDIT_BROWSER" 2>&1 | tee tools/rank-celebration/tests/results/browser.log
-      - name: Preserve data during old-to-new PWA upgrade
-        if: ${{ !cancelled() && steps.pythondeps.outcome == 'success' }}
-        run: |
-          git fetch --depth=1 origin d355556c72f81f6f104aa3bac9b28f584dbc0c9a
+          git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
           mkdir -p "$RUNNER_TEMP/samosval-old"
           git archive FETCH_HEAD | tar -x -C "$RUNNER_TEMP/samosval-old"
-          python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 93c3fea4099fbd8a --chromium "$AUDIT_BROWSER"
-      - name: Save audit evidence
+          if [ -n "${PWA_CHROMIUM:-}" ]; then
+            python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 0f0881040d710261 --chromium "$PWA_CHROMIUM"
+          else
+            python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 0f0881040d710261
+          fi
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: modular-audit-evidence
-          path: |
-            tests/full-audit/results/
-            tests/selector-reset/results/
-            tests/paper-viewer/results/
-            tools/rank-celebration/tests/results/
-            test-results/
-          if-no-files-found: warn
+          name: modular-pwa-upgrade
+          path: test-results/

@@ -111,7 +111,7 @@ class Release:
         # Preserve that input, derive its runtime expectation from actual bytes,
         # and require the current release to agree with current HTML below.
         self.runtime_label = self.label
-        assert 'standalone' in self.manifest['channel']
+        assert any(mode in self.manifest['channel'] for mode in ['standalone', 'modular'])
         # Verify actual input artifacts before the local deployment-config rewrite.
         for record in self.manifest['assets']:
             assert self.digest(self.raw(record['url'])) == record['sha256'], record['url']
@@ -134,7 +134,7 @@ class Release:
         data = self.raw(name)
         if name.removeprefix('./') == 'index-test.html' or (name.removeprefix('./').startswith(('test-app/build/', 'test-app/src/')) and name.endswith('.js')):
             source = data.decode().replace('samosval-offline', PROJECT)
-            if name.endswith('/core.js') or name.endswith('index-test.html'):
+            if name.endswith('/core.js') or (name.endswith('index-test.html') and 'const firebaseConfig' in source):
                 source, count = re.subn(r'const firebaseConfig\s*=\s*\{[\s\S]*?\};',
                     'const firebaseConfig = ' + json.dumps(CONFIG) + ';', source)
                 assert count == 1, 'Expected one Firebase configuration'
