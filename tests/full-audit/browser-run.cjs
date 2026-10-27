@@ -180,6 +180,10 @@ async function chooseTruck(id) {
   await page.locator('#selectTrucksBtn').click();
   await page.locator('#selectorModal button[onclick="toggleLineTruck(\'' + id + '\')"]').click();
   await wait(id => !!state.truckStatus[id]?.onLine, id);
+  const until=Date.now()+15000;
+  while(!(await readRows('truckStatus')).some(row=>row.id===id&&row.onLine)){
+    assert(Date.now()<until,'Truck addition must reach Firestore');await delay(100);
+  }
   await page.locator('#selectorModal > .modal-content > button[onclick="closeSelectorModal()"]').click();
 }
 async function assertNoUnexpectedErrors() {
