@@ -29,9 +29,10 @@ for(const [label,text] of [['shell',shell],['generated HTML',html]]){
   assert(!photoRuntime.test(text),`${label} still invokes photo code`);
 }
 
+const standalone=/^test-[0-9.]+-standalone/.test(build.channel || '');
 const expectedBuildFiles=new Set(['pwa.js']);
 const activeBuildPrefix=`./test-app/build/${build.version}/`;
-for(const m of spec.modules){
+if(!standalone) for(const m of spec.modules){
   const content=m.sources.map(p=>read('test-app/src/'+p)).join('');
   const filename=m.name+(m.kind==='style'?'.css':'.js');
   expectedBuildFiles.add(filename);
@@ -53,9 +54,20 @@ for(const a of build.assets){
     assert(expectedBuildFiles.has(a.url.slice(activeBuildPrefix.length)),`unexpected module is precached: ${a.url}`);
   }
 }
-for(const filename of expectedBuildFiles)assert(assets.has(activeBuildPrefix+filename),`offline module missing: ${filename}`);
+if(!standalone) for(const filename of expectedBuildFiles)assert(assets.has(activeBuildPrefix+filename),`offline module missing: ${filename}`);
 for(const vendor of ['firebase-app-compat-10.8.0.js','firebase-auth-compat-10.8.0.js','firebase-firestore-compat-10.8.0.js','html2pdf-0.10.1.bundle.min.js']){
   assert(assets.has('./test-app/vendor/'+vendor),`required vendor removed from offline cache: ${vendor}`);
+}
+if(standalone){
+  const vm=require('node:vm');
+  assert.equal(html.match(/<meta name="test-app-build" content="([^"]+)"/)[1],build.version,'page build differs from manifest');
+  assert(assets.has('./index-test.html'),'standalone page missing from offline cache');
+  assert(!html.includes('./test-app/build/'),'standalone page loads obsolete generated modules');
+  for(const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)){
+    if(/\bsrc\s*=/.test(match[1]) || /application\/(json|ld\+json)/.test(match[1]))continue;
+    new vm.Script(match[2]);
+  }
+  for(const id of ['game-coins-v2','road-shop-v1'])assert(html.includes('id="'+id+'"'),'standalone feature missing: '+id);
 }
 const worker=read('sw-test.js');
 const precache=worker.match(/^const RECORDS = (.*);$/m);

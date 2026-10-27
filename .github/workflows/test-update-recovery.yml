@@ -1,10 +1,11 @@
 name: TEST update recovery checks
 on:
   push:
-    branches: [root, repair/test-update-recovery-20261026]
+    branches: [root, repair/test-update-recovery-20261026, repair/standalone-ci-20261027]
     paths:
       - update-test.html
       - tests/pwa/update-browser.py
+      - tests/photo-removal/build.cjs
       - .github/workflows/test-update-recovery.yml
   workflow_dispatch:
 permissions:
@@ -24,7 +25,7 @@ jobs:
       - name: Existing business and offline regressions
         run: |
           set -eu
-          for test in tests/coins/admin-settings.cjs tests/coins/test-parity.cjs tests/photo-removal/build.cjs tests/photo-removal/core.cjs tests/pwa/service-worker.cjs tests/shift-close/regression.cjs tests/shift-close/max-text.cjs tests/png-export/regression.cjs; do
+          for test in tests/coins/admin-settings.cjs tests/coins/test-parity.cjs tests/coins/standalone.cjs tests/photo-removal/build.cjs tests/photo-removal/core.cjs tests/pwa/service-worker.cjs tests/shift-close/regression.cjs tests/shift-close/max-text.cjs tests/png-export/regression.cjs; do
             node "$test"
           done
       - name: Fetch exact pre-update application
