@@ -1,11 +1,11 @@
 {
-  "version": "3db45ae88e817ddc",
+  "version": "036b7d550def0cc2",
   "baseline_commit": "a7e001ce2d33457f6252f9f527ea7f3dd4cdc258",
   "channel": "test-3.4.11-standalone-plus-timesheet",
   "assets": [
     {
       "url": "./index-test.html",
-      "sha256": "3db45ae88e817ddc79a02d45f891bd787754b9674d98164d7af88ca6c8a5b080"
+      "sha256": "036b7d550def0cc2cca9abbd4b04bdb482936fce9a21e2ed979922763f76f81c"
     },
     {
       "url": "./test-app/src/features/firebase-auditor.js",
