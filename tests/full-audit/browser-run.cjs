@@ -554,6 +554,12 @@ async function responsiveCase(mobile) {
     await closeContext(); await launch(profile, 'qa-active', mobile, true); await ready();
     await wait(() => state.shift?.isActive && state.truckStatus['qa-offline']?.onLine);
     assert.equal(await page.evaluate(() => navigator.onLine), false);
+    const exported = await page.evaluate(() => TestPWA.inlineHtml(document.documentElement.outerHTML));
+    assert(!/<script[^>]+src="[^\"]*test-app\//.test(exported),'Offline HTML export must inline local scripts');
+    assert(exported.includes('const firebaseConfig'),'Offline export must include the application core');
+    for(const script of exported.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)){
+      if(!/\bsrc\s*=/.test(script[1]))new (require('node:vm').Script)(script[2]);
+    }
     await nav('line'); await hold('qa-offline','arrive'); await wait(() => offlinePendingCount() === 1);
     await hold('qa-offline','load'); await wait(() => offlinePendingCount() === 2);
     await hold('qa-offline','ttn'); await wait(() => offlinePendingCount() === 3);

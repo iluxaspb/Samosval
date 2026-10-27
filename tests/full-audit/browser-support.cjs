@@ -85,7 +85,7 @@ function createLocalServer(root, firestorePort, requestLog) {
   root = fs.realpathSync(root);
   const servedBytes = file => {
     const bytes = fs.readFileSync(file), relative = path.relative(root,file).split(path.sep).join('/');
-    if (relative === 'index-test.html') return Buffer.from(rewriteDemoSource(bytes.toString(),true));
+    if (relative === 'index-test.html') return Buffer.from(rewriteDemoSource(bytes.toString(),bytes.includes('const firebaseConfig')));
     if (relative === FIRESTORE_PROBE_FIXTURE.asset) return rewriteConnectivityProbe(bytes);
     if ((relative.startsWith('test-app/build/') || relative.startsWith('test-app/src/')) && relative.endsWith('.js'))
       return Buffer.from(rewriteDemoSource(bytes.toString(),relative.endsWith('/core.js')));

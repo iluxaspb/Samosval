@@ -1,5 +1,5 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const html=fs.readFileSync('index-test.html','utf8');
+const html=require('../../tools/read-test-html.cjs')();
 const source=html.match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];
 const ctx={window:{},state:{objects:[]}};vm.createContext(ctx);
 vm.runInContext(source.slice(0,source.indexOf('  let records='))+'})();',ctx);

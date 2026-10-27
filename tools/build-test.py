@@ -1,57 +1,60 @@
 #!/usr/bin/env python3
-"""Deterministic, dependency-free build. Never reads or writes production files."""
+"""Build current TEST sources only. Classic script order/scope is preserved."""
+import hashlib
+import json
+import re
 from pathlib import Path
-import hashlib, json, re, argparse
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / 'test-app'
-def digest(data): return hashlib.sha256(data).hexdigest()
-def text(path): return path.read_text(encoding='utf-8')
+SOURCE = APP / 'source'
+sha = lambda b: hashlib.sha256(b).hexdigest()
+
+def body(module):
+    if 'parts' in module:
+        result = []
+        for part in module['parts']:
+            if 'text' in part:
+                result.append(part['text'])
+            else:
+                code = (SOURCE / part['source']).read_text()
+                result.append(part['original_literal'] if sha(code.encode()) == part['sha256']
+                              else json.dumps(code, ensure_ascii=False))
+        return ''.join(result)
+    return ''.join((SOURCE / p).read_text() for p in module['sources'])
 
 def build():
-    # Do not let the retired modular builder overwrite the active production-derived TEST 3.4.7.
-    active_manifest = APP / 'build-manifest.json'
-    if active_manifest.exists() and json.loads(text(active_manifest)).get('channel') == 'test-3.4.7-standalone-plus-timesheet':
-        raise SystemExit('Legacy builder disabled: TEST 3.4.7 uses the standalone production-derived HTML and Timesheet modules.')
-    spec = json.loads(text(APP / 'modules.json'))
-    # Content-addressed paths prevent a cached page from mixing releases.
-    inputs = [APP / 'modules.json', Path(__file__)] + sorted((APP / 'src').rglob('*'))
-    inputs += sorted((APP / 'vendor').glob('*')) + sorted((APP / 'icons').glob('*'))
-    version = digest(b''.join(str(p.relative_to(ROOT)).encode()+p.read_bytes() for p in inputs if p.is_file()))[:16]
-    out = APP / 'build' / version
+    spec = json.loads((APP / 'modules.json').read_text())
+    inputs = [APP / 'modules.json', Path(__file__)] + sorted(p for p in SOURCE.rglob('*') if p.is_file())
+    build_id = sha(b''.join(str(p.relative_to(ROOT)).encode()+p.read_bytes() for p in inputs))[:16]
+    out = APP / 'build' / build_id
     out.mkdir(parents=True, exist_ok=True)
-    shell = text(APP / 'src/shell.html')
-    release = re.search(r"version:'([^']+)'", text(APP / 'src/features/release-history.js')).group(1)
-    assert 'Версия ' + release in shell, 'Shell version must match the current release history'
-    shell = shell.replace('</head>', '<meta name="test-app-build" content="'+version+'">\n<meta name="test-app-version" content="'+release+'">\n</head>')
+    html = (SOURCE / 'shell.html').read_text()
+    html = re.sub(r'(<meta name="test-app-build" content=")[^"]+',r'\g<1>'+build_id,html)
+    release = re.search(r'<meta name="test-app-version" content="([^"]+)"',html)[1]
     for module in spec['modules']:
-        ext = 'css' if module['kind'] == 'style' else 'js'
-        code = ''.join(text(APP / 'src' / p) for p in module['sources'])
-        filename = module['name'] + '.' + ext
-        (out / filename).write_text(code, encoding='utf-8')
-        url = './test-app/build/' + version + '/' + filename
-        attrs = module['attributes']
-        tag = ('<link rel="stylesheet"' + attrs + ' href="' + url + '">') if ext == 'css' else ('<script'+attrs+' src="'+url+'"></script>')
-        shell = shell.replace('<!-- TEST-MODULE:' + module['name'] + ' -->', tag)
-    assert '<!-- TEST-MODULE:' not in shell
-    vendor = json.loads(text(APP / 'vendor/sources.json'))
-    for item in vendor:
-        if item['url'].endswith('.js'):
-            shell = shell.replace(item['url'], './test-app/vendor/' + item['file'])
-    # PWA bridge is also versioned, and remains absent from the production page.
-    (out/'pwa.js').write_text(text(APP/'src/pwa.js'), encoding='utf-8')
-    shell = shell.replace('<!-- TEST-PWA -->','<script id="test-pwa" src="./test-app/build/'+version+'/pwa.js"></script>')
-    (ROOT/'index-test.html').write_text(shell, encoding='utf-8')
-    assets = [ROOT/'index-test.html',ROOT/'manifest-test.webmanifest'] + sorted(out.glob('*'))
-    # Keep legacy vendor files available to open clients, but only cache scripts used by this release.
-    assets += [p for p in sorted((APP/'vendor').glob('*'))
-               if p.suffix in ('.css','.ttf','.woff2')
-               or (p.suffix == '.js' and './test-app/vendor/' + p.name in shell)]
-    assets += sorted((APP/'icons').glob('*.png'))
-    records = [{'url':'./'+str(p.relative_to(ROOT)), 'sha256':digest(p.read_bytes())} for p in assets]
-    sw = text(APP/'src/service-worker.js').replace('__BUILD_VERSION__',version).replace('__PRECACHE_RECORDS__',json.dumps(records,ensure_ascii=False))
-    (ROOT/'sw-test.js').write_text(sw, encoding='utf-8')
-    (APP/'build-manifest.json').write_text(json.dumps({'version':version,'baseline_commit':spec['baseline_commit'],'assets':records},indent=2)+'\n')
-    print(json.dumps({'version':version,'html_bytes':len(shell.encode()),'precache_files':len(records),'precache_bytes':sum(p.stat().st_size for p in assets)}))
+        code, attrs = body(module), module['attributes']
+        if module['kind'] == 'style':
+            # Keep CSS at exactly the original cascade position and base URL.
+            tag = '<style'+attrs+'>'+code+'</style>'
+        else:
+            file = module['name']+'.js'
+            (out / file).write_text(code)
+            tag = '<script'+attrs+' src="./test-app/build/'+build_id+'/'+file+'"></script>'
+        html = html.replace('<!-- TEST-MODULE:'+module['name']+' -->',tag)
+    assert '<!-- TEST-MODULE:' not in html
+    (ROOT / 'index-test.html').write_text(html)
+    old = json.loads((APP / 'build-manifest.json').read_text())
+    assets = [ROOT / 'index-test.html']
+    assets += [ROOT / r['url'] for r in old['assets'] if r['url'] != './index-test.html' and not r['url'].startswith('./test-app/build/')]
+    assets += sorted(out.glob('*.js'))
+    records = [{'url':'./'+str(p.relative_to(ROOT)), 'sha256':sha(p.read_bytes())} for p in assets]
+    sw = (SOURCE / 'service-worker.js').read_text()
+    sw = re.sub(r"const VERSION = '[^']+';", "const VERSION = '"+build_id+"';",sw)
+    sw = re.sub(r'^const RECORDS = .*;$',lambda m:'const RECORDS = '+json.dumps(records,separators=(',',':'))+';',sw,flags=re.M)
+    (ROOT / 'sw-test.js').write_text(sw)
+    (APP / 'build-manifest.json').write_text(json.dumps({'version':build_id,'channel':'test-'+release+'-modular-plus-timesheet','baseline_commit':spec['baseline_commit'],'assets':records},indent=2)+'\n')
+    print(json.dumps({'release':release,'build':build_id,'html_bytes':len(html.encode()),'scripts':len(list(out.glob('*.js'))),'assets':len(records)}))
 
-if __name__ == '__main__': build()
+if __name__ == '__main__':
+    build()
