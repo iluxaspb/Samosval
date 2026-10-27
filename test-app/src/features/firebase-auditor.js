@@ -67,11 +67,15 @@
       const callbacks = args.slice();
       let cbIndex = callbacks.findIndex(v => typeof v === 'function');
       if (cbIndex >= 0) {
-        const next = callbacks[cbIndex];
-        callbacks[cbIndex] = function (snapshot) {
-          add('subscription-update', ref, 'ok', { fromCache: !!(snapshot && snapshot.metadata && snapshot.metadata.fromCache) });
-          return next.apply(this, arguments);
-        };
+        callbacks.forEach((callback, index) => {
+          if (typeof callback !== 'function') return;
+          callbacks[index] = function (value) {
+            const failed = index !== cbIndex;
+            add('subscription-update', ref, failed ? 'error:' + (value && value.code || 'rejected') : 'ok',
+              failed ? undefined : { fromCache: !!(value && value.metadata && value.metadata.fromCache) });
+            return callback.apply(this, arguments);
+          };
+        });
       } else if (callbacks[0] && typeof callbacks[0] === 'object') {
         const observer = callbacks[0];
         callbacks[0] = Object.assign({}, observer);
