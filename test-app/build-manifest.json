@@ -1,11 +1,11 @@
 {
-  "version": "01915a70c2b10014",
+  "version": "0f0881040d710261",
   "baseline_commit": "a7e001ce2d33457f6252f9f527ea7f3dd4cdc258",
-  "channel": "test-3.4.8-standalone-plus-timesheet",
+  "channel": "test-3.4.11-standalone-plus-timesheet",
   "assets": [
     {
       "url": "./index-test.html",
-      "sha256": "01915a70c2b10014c58e79fe4cccdd3228f8a20780418a8f9696490cbca62d38"
+      "sha256": "62b31848dcbf4fa2f8cec276a5afa13ef3172ba85ec8f4d53554f7c9d4608efe"
     },
     {
       "url": "./manifest-test.webmanifest",

@@ -85,8 +85,9 @@ function createLocalServer(root, firestorePort, requestLog) {
   root = fs.realpathSync(root);
   const servedBytes = file => {
     const bytes = fs.readFileSync(file), relative = path.relative(root,file).split(path.sep).join('/');
+    if (relative === 'index-test.html') return Buffer.from(rewriteDemoSource(bytes.toString(),true));
     if (relative === FIRESTORE_PROBE_FIXTURE.asset) return rewriteConnectivityProbe(bytes);
-    if (relative.startsWith('test-app/build/') && relative.endsWith('.js'))
+    if ((relative.startsWith('test-app/build/') || relative.startsWith('test-app/src/')) && relative.endsWith('.js'))
       return Buffer.from(rewriteDemoSource(bytes.toString(),relative.endsWith('/core.js')));
     if (relative === 'sw-test.js') {
       // The production worker verifies every response hash. Preserve that check
@@ -109,7 +110,7 @@ function createLocalServer(root, firestorePort, requestLog) {
       res.setHeader('Cache-Control', 'no-cache');
       // Worker requests can bypass Playwright routing. Enforce the same local-only
       // connect policy on the document AND every service-worker response.
-      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:" + firestorePort + "; worker-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'");
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:" + firestorePort + "; worker-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'");
       res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
@@ -128,7 +129,7 @@ function createLocalServer(root, firestorePort, requestLog) {
       const file = path.resolve(root, relative);
       if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()
           || !fs.realpathSync(file).startsWith(root + path.sep)
-          || !/^(?:index-test\.html|manifest-test\.webmanifest|sw-test\.js|test-app\/(?:build|vendor|icons)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
+          || !/^(?:index-test\.html|manifest-test\.webmanifest|sw-test\.js|test-app\/(?:build|vendor|icons|src)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
         res.writeHead(404); res.end(); return;
       }
       res.setHeader('Content-Type', types[path.extname(file)] || 'application/octet-stream');
@@ -142,6 +143,8 @@ function createLocalServer(root, firestorePort, requestLog) {
 // Serialized by Playwright before application scripts. Firebase Auth alone is a
 // deliberate UI fixture; Firestore is the real SDK with emulator mock-user tokens.
 function installBrowserFixture({port, uid, project, config, initiallySignedIn = false}) {
+  // Set an ordinary user preference so unsolicited joke overlays do not intercept test gestures.
+  if(location.protocol==='http:')localStorage.setItem(['samosval-road-jokes-v1',project,'main_workspace',uid].join(':'),JSON.stringify({mode:'never',seen:{},count:0}));
   window.__auditFixture = {ready:false, authCalls:[], blockedStorageCalls:0, errors:[], csp:[]};
   window.addEventListener('unhandledrejection', e => {
     const message=String(e.reason?.stack || e.reason); window.__auditFixture.errors.push(message);

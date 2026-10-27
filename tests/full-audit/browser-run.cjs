@@ -9,7 +9,7 @@ const output = path.join(__dirname, 'results', 'browser'); fs.mkdirSync(output, 
 const port = Number(process.env.AUDIT_FIRESTORE_PORT || 8099);
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'samosval-audit-browser-'));
 const report = {startedAt:new Date().toISOString(), status:'running', project:PROJECT,
-  rules:'firestore-timesheet-test.rules', browser:'Chromium with sandbox enabled',
+  rules:'firestore-coins-test.rules', browser:'Chromium with sandbox enabled',
   modes:['desktop 1280×900', 'mobile viewport 390×844 (Chromium emulation)'],
   fixture:{auth:'Explicit local UI stub; no Firebase Auth service contacted', firestore:'Real Firebase SDK and emulator mock-user tokens',
     sourceChanges:'HTTP responses only: demo project identifiers, inert Firebase configuration, pinned WebChannel diagnostic image URL to uncached same-origin endpoint, and matching worker integrity hashes; repository sources remain untouched',
@@ -50,7 +50,7 @@ async function step(name, action) {
   const entry = {case:currentCase,name,status:'running',startedAt:new Date().toISOString()}; report.steps.push(entry); persist();
   const start = Date.now();
   try { await action(); entry.status = 'passed'; console.log('PASS browser:', currentCase, name); }
-  catch (error) { entry.status = 'failed'; entry.error = error.stack || String(error); await evidence(name + '-failure'); throw error; }
+  catch (error) { entry.status = 'failed'; entry.error = error.stack || String(error); console.error('DIAGNOSTICS',JSON.stringify(await page.evaluate(()=>({status:state.truckStatus,failures:offlineUnreviewedFailures(),errors:window.__auditFixture.errors,body:document.body.innerText.slice(-2000)})).catch(()=>({})))); await evidence(name + '-failure'); throw error; }
   finally { entry.durationMs = Date.now() - start; persist(); }
 }
 
@@ -144,7 +144,10 @@ async function confirm(accept = true, expectedMessage, repeated = false) {
   if (expectedMessage) assert.match(await overlay.locator('.pcm-message').innerText(),expectedMessage);
   const current=await overlay.elementHandle(); assert(current);
   const button=overlay.locator(accept ? '.pcm-btn-confirm' : '.pcm-btn-cancel');
-  if (repeated) await button.dblclick(); else await button.click();
+  if (repeated) await button.dblclick(); else {
+    try {await button.click({timeout:5000});}
+    catch(error){if(accept||await current.evaluate(node=>node.isConnected))throw error;}
+  }
   // A legitimate successor prompt may appear immediately (optional backup →
   // final close). Wait for THIS dismissed instance, never every future modal.
   await page.waitForFunction(node=>!node.isConnected,current,{timeout:15000}); await current.dispose();
@@ -171,12 +174,19 @@ async function toggleCheckbox(id, checked) {
 }
 async function hold(truck, kind, milliseconds = 650) {
   const cls = {arrive:'btn-arrive',load:'btn-quick',ttn:'btn-ttn'}[kind];
-  await page.locator('.truck-card[data-truck-id="' + truck + '"] .action-row .' + cls).click({delay:milliseconds});
+  const button=page.locator('.truck-card[data-truck-id="' + truck + '"] .action-row .' + cls);
+  await button.hover();
+  await wait(()=>!isScrolling);
+  await button.click({delay:milliseconds});
 }
 async function chooseTruck(id) {
   await page.locator('#selectTrucksBtn').click();
   await page.locator('#selectorModal button[onclick="toggleLineTruck(\'' + id + '\')"]').click();
   await wait(id => !!state.truckStatus[id]?.onLine, id);
+  const until=Date.now()+15000;
+  while(!(await readRows('truckStatus')).some(row=>row.id===id&&row.onLine)){
+    assert(Date.now()<until,'Truck addition must reach Firestore');await delay(100);
+  }
   await page.locator('#selectorModal > .modal-content > button[onclick="closeSelectorModal()"]').click();
 }
 async function assertNoUnexpectedErrors() {
@@ -301,12 +311,12 @@ async function responsiveCase(mobile) {
     assert.match(await page.locator('#authError').innerText(), /Укажите Email/);
     await page.locator('#authEmail').fill('qa-active@example.test'); await page.locator('#authPassword').fill('wrong-fixture-password');
     await page.locator('#authOverlay button[onclick="handleLogin()"]').click();
-    await wait(() => document.getElementById('authError').textContent.includes('Неверный'));
+    await wait(() => document.getElementById('authError').textContent.includes('Пользователь не найден'));
     await login('qa-active'); await ready();
     await assertRemovedFeatures();
     assert.equal(await page.locator('#mainHeader .version-text').innerText(),report.release);
     assert.equal(await page.locator('#authPassword').inputValue(), '');
-    assert.equal(await page.evaluate(() => localStorage.getItem('dt_saved_pass')), null);
+    assert.equal(await page.evaluate(() => localStorage.getItem('dt_saved_pass_test347')), null);
   });
   await step('start-cancel-reopen-and-add-line', async () => {
     await page.locator('#startShiftBtn').click();
@@ -353,6 +363,7 @@ async function responsiveCase(mobile) {
     await evidence('report');
   });
   await step('close-cancel-double-close-archive-reopen-restore', async () => {
+    const earnedBeforeClose=await page.evaluate(()=>window.__gameEconomy.snapshot().earned);
     await page.locator('#closeShiftBtn').click();
     await confirm(false,/Перед закрытием смены создать резервную копию/);
     await confirm(false,/^Закрыть смену\?$/);
@@ -370,7 +381,9 @@ async function responsiveCase(mobile) {
     await confirm(true,/^Закрыть смену\?$/,true);
     await wait(() => !state.shift && state.archive.length === 1 && !closeShiftInFlight);
     assert.equal((await readRows('archive')).length, 1); assert.equal((await readRows('logs')).length, 0);
-    await nav('archive'); await page.locator('#archiveSearchToggle').click(); await page.locator('#archiveSearchInput').fill('учебный');
+    await wait(()=>window.__gameEconomy.snapshot().records.some(e=>e.history?.operations.some(o=>o.collection==='logs'&&o.before&&!o.after)));
+    assert.equal(await page.evaluate(()=>window.__gameEconomy.snapshot().earned),earnedBeforeClose,'Closing a shift must not change earned coins');
+    await nav('archive'); await page.locator('#archiveSearchInput').fill('учебный');
     await page.locator('.archive-shift-item').first().click(); await page.locator('#archiveModal.open').waitFor({state:'visible'});
     assert.match(await page.locator('#modalArchiveBody').innerText(), /20/);
     await page.locator('#archiveModal button[onclick="closeArchiveModal()"]').click();
@@ -379,26 +392,40 @@ async function responsiveCase(mobile) {
     assert.equal((await readRows('archive')).length, 1);
     await page.locator('#archiveRestoreBtn').dblclick();
     await cancelRepeatedPrompts(/^Восстановить смену/);
-    await wait(()=>!archiveRestoreInFlight);
+    await wait(()=>!document.querySelector('.pcm-overlay'));
     assert.equal((await readRows('archive')).length,1,'Rapid restore opener/cancellation must preserve archive');
     assert.equal((await readRows('shift')).length,0); assert.equal((await readRows('logs')).length,0);
     await page.locator('#archiveRestoreBtn').click(); await confirm(true,/^Восстановить смену/,true);
-    await wait(() => state.shift?.isActive && !state.shift.restoring && state.archive.length === 0 && getLogs().length === 1 && !archiveRestoreInFlight);
+    await wait(() => state.shift?.isActive && !state.shift.restoring && state.archive.length === 0 && getLogs().length === 1);
     assert.equal((await readRows('archive')).length, 0); assert.equal((await readRows('logs')).length, 1);
     assert.equal((await readRows('truckStatus')).length, 1);
     await nav('line'); await evidence('restored');
+  });
+  await step('coin-ledger-admin-award-and-durable-entry', async () => {
+    await page.locator('#game-wallet').click();
+    await page.locator('#game-ledger-toggle').click();
+    await page.locator('#game-grant-user option[value="qa-viewer"]').waitFor({state:'attached'});
+    await page.locator('#game-grant-user').selectOption('qa-viewer');
+    await page.locator('#game-grant-amount').fill('25');
+    await page.locator('#game-grant-reason').fill('Компенсация для проверки');
+    await page.locator('#game-grant-submit').click();
+    await wait(()=>document.querySelector('.game-ledger-admin [role="status"]')?.textContent.includes('Начислено'));
+    const rows=await readRows('coinTransactions');
+    assert.equal(rows.length,1);assert.equal(rows[0].amount,25);assert.equal(rows[0].targetUid,'qa-viewer');
+    assert(await page.locator('.game-ledger-table').innerText().then(t=>t.includes('Компенсация для проверки')));
+    await page.locator('#game-ranking .game-head button').click();
   });
   await step('settings-theme-preview-and-game-toggle-persistence', async () => {
     await page.locator('#mainHeader .gear-btn').click(); await page.locator('#settingsModal.open').waitFor({state:'visible'});
     await page.locator('#settingHoldLoad').fill('0.5'); await page.locator('#settingHoldLoad').press('Tab');
     await toggleCheckbox('hapticLoad',false);
-    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('dt_settings')).hapticLoad), false);
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('dt_settings_test347')).hapticLoad), false);
     assert(await page.locator('#test-pwa-settings').isVisible());
     await page.locator('#settingsModal').getByRole('button',{name:'🛍 Лавка дорожника',exact:true}).click();
     await page.locator('#road-shop-dialog[open]').waitFor({state:'visible'});
-    await page.locator('#road-shop-preview').selectOption('roadworks');
-    await wait(() => RoadShop.getAppliedTheme() === 'roadworks');
-    await page.locator('#road-shop-dialog [data-step="1"]').click(); assert.notEqual(await page.evaluate(() => RoadShop.getAppliedTheme()), 'roadworks');
+    await page.locator('#road-shop-preview').selectOption('road');
+    await wait(() => RoadShop.getAppliedTheme() === 'road');
+    await page.locator('#road-shop-dialog [data-step="1"]').click(); assert.notEqual(await page.evaluate(() => RoadShop.getAppliedTheme()), 'road');
     await page.locator('#road-shop-dialog .shop-close').click(); await wait(() => RoadShop.getAppliedTheme() === '');
     await page.locator('#mainHeader .gear-btn').click(); await page.locator('#settingsModal button[onclick="closeSettingsModal()"]').last().click();
     await nav('admin'); await page.locator('button[onclick="switchAdminTab(\'appsettings\', this)"]').click();
@@ -498,8 +525,8 @@ async function responsiveCase(mobile) {
     assert.equal(await page.locator('#archive-paper-wrapper .paper-table th').count(),42);
     const fullWidth=await page.locator('#archive-paper-wrapper .paper-table').evaluate(table=>table.scrollWidth);
     assert(fullWidth>2000,'Fixture must exceed viewport/A4 width');
-    const pending=page.waitForEvent('download',{timeout:65000}); await page.locator('#archiveSavePngBtn').click();
-    const download=await pending, filename=path.join(output,currentCase+'-archive-fullwidth.png');
+    const [download]=await Promise.all([page.waitForEvent('download',{timeout:65000}),page.locator('#archiveModal button[onclick="exportArchivePNG()"]').click()]);
+    const filename=path.join(output,currentCase+'-archive-fullwidth.png');
     assert.match(download.suggestedFilename(),/\.png$/); await download.saveAs(filename);
     const bytes=fs.readFileSync(filename), dimensions=pngDetails(bytes);
     assert(dimensions.width>2000 && dimensions.width<=8192 && dimensions.height>0,'PNG must preserve the wide sheet within canvas bounds');
@@ -557,6 +584,44 @@ async function runCase(name, task) {
   finally { try { await closeContext(); } catch (error) { entry.status='failed'; entry.cleanupError=error.stack; } persist(); }
 }
 
+async function coinLedgerCase() {
+  await launch(path.join(work,'coin-ledger'), 'qa-active', false, false, true); await ready();
+  await page.locator('#game-wallet').click(); await page.locator('#game-ledger-toggle').click();
+  await page.locator('#game-grant-user option[value="qa-viewer"]').waitFor({state:'attached'});
+  await page.locator('#game-grant-user').selectOption('qa-viewer');
+  await page.locator('#game-grant-amount').fill('25');
+  await page.locator('#game-grant-reason').fill('Компенсация проверки');
+  await page.locator('#game-grant-submit').click();
+  await wait(()=>document.querySelector('.game-ledger-admin [role="status"]')?.textContent.includes('Начислено'));
+  const awards=await readRows('coinTransactions');assert.equal(awards.length,1);assert.equal(awards[0].amount,25);
+  await evidence('award-recorded'); await closeContext();
+  for(let n=0;n<10;n++)await writeDoc('workspaces/main_workspace/audit/test-penalty-'+n,{
+    eventType:'game_penalty',amount:-3,targetEmail:'qa-viewer@example.test',targetName:'Наблюдатель',
+    timestamp:Date.now()+n,scope:{},description:'Проверка отрицательного остатка'
+  });
+  await launch(path.join(work,'coin-recipient'), 'qa-viewer', true, false, true); await ready();
+  await wait(()=>document.getElementById('game-wallet').textContent.includes('-5'));
+  const notice=page.locator('#game-penalty-notice button');if(await notice.count())await notice.click();
+  await page.locator('#game-wallet').click(); await page.locator('#game-ledger-toggle').click();
+  assert.equal(await page.locator('#game-grant-submit').count(),0);
+  assert((await page.locator('.game-ledger').innerText()).includes('-5'));
+  assert((await page.locator('.game-ledger-table').innerText()).includes('Компенсация проверки'));
+  await page.reload();await ready();await wait(()=>document.getElementById('game-wallet').textContent.includes('-5'));
+  await evidence('recipient-negative-balance');await assertNoUnexpectedErrors();
+  console.log('PASS browser: admin award, recipient ledger, negative balance, reload persistence');
+  await closeContext(); await seed();
+  await launch(path.join(work,'operator-coins'), 'qa-active', false, false, true); await ready();
+  await page.locator('#startShiftBtn').click();await page.locator('#existingObjectsList button').click();
+  await wait(()=>state.shift?.isActive&&!startShiftInFlight);await chooseTruck('qa-truck');
+  await writeDoc('settings/permissions',{lopater:{tabs:['line','report'],actions:['action_arrive','action_load','action_ttn','view_header']}},true);
+  await writeDoc('users/qa-active',{role:'lopater'},true);await wait(()=>currentUserRole==='lopater'&&hasPermission('action_load'));
+  await hold('qa-truck','arrive');await wait(()=>!!state.truckStatus['qa-truck'].arriveStatus&&offlinePendingCount()===0);
+  await hold('qa-truck','load');await wait(()=>getLogs().length===1&&offlinePendingCount()===0);
+  await wait(()=>window.__gameEconomy.snapshot().earned===1);
+  assert.match(await page.locator('#game-wallet').innerText(),/1/);
+  await evidence('operator-earned-coin');await assertNoUnexpectedErrors();
+  console.log('PASS browser: operator earns load coin through real Firestore rules and action queue');
+}
 async function main() {
   assert(Number.isInteger(port) && port > 1024 && port < 65536, 'Invalid local emulator port');
   assert(PROJECT.startsWith('demo-'));
@@ -580,6 +645,7 @@ async function main() {
   server.on('audit-error', error => report.pageErrors.push({case:currentCase,type:'server',message:error.stack}));
   await new Promise((resolve,reject) => { server.once('error',reject); server.listen(0,'127.0.0.1',resolve); });
   origin = 'http://127.0.0.1:' + server.address().port;
+  await runCase('coin-ledger', coinLedgerCase);
   await runCase('auth-gates', authenticationCases);
   if (!stopped) await runCase('desktop', () => responsiveCase(false));
   if (!stopped) await runCase('mobile', () => responsiveCase(true));
@@ -609,7 +675,7 @@ main().catch(error => { fatalError=error; console.error(error); }).finally(async
   try { await cleanup(); } catch (error) { fatalError = fatalError || error; report.cleanup.push(error.stack); }
   report.finishedAt = new Date().toISOString();
   if (fatalError) report.error = fatalError.stack;
-  report.status = fatalError || report.cases.length !== 3 || report.cases.some(c => c.status !== 'passed') || report.pageErrors.length || report.blockedRequests.length || report.cspViolations.length ? 'failed' : 'passed';
+  report.status = fatalError || report.cases.length !== 4 || report.cases.some(c => c.status !== 'passed') || report.pageErrors.length || report.blockedRequests.length || report.cspViolations.length ? 'failed' : 'passed';
   persist(); console.log('Browser acceptance:',report.status,'Evidence:',output);
   if (report.status !== 'passed') process.exitCode = 1;
 });

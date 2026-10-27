@@ -118,7 +118,8 @@
       const html = new TextDecoder().decode(bytes);
       const parsed = new DOMParser().parseFromString(html, 'text/html');
       label = parsed.querySelector('.version-text')?.textContent.trim() || 'Тестовая версия';
-      if (manifest.channel === 'test-3.4.8-standalone-plus-timesheet') {
+      if (/^test-\d+\.\d+\.\d+-standalone-plus-timesheet$/.test(manifest.channel || '')) {
+        if (manifest.channel !== 'test-3.4.8-standalone-plus-timesheet' && parsed.querySelector('meta[name="test-app-build"]')?.content !== manifest.version) throw Error('Страница и список файлов относятся к разным сборкам');
         if (!html.includes('id="global-interface-haptics"') || !html.includes('Исправлены лишние виброотклики') || !html.includes('src="./test-app/src/pwa.js"')) throw Error('В тестовой странице отсутствуют необходимые компоненты');
       } else if (!html.includes('./test-app/build/' + manifest.version + '/')) throw Error('Страница и модули относятся к разным сборкам');
       if (run !== generation) return;
