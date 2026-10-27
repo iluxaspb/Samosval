@@ -18,7 +18,7 @@ function harness({fail='',storage=new Map(),version=code}={}){
  const h=harness();h.storage.set('production-shell-v3',new Map([['protected','yes']]));
  await h.event('install');assert.equal(h.requests.length,records.length);assert.equal(h.claims.length,0);await h.event('activate');assert.equal(h.claims.length,1);assert(h.storage.has('production-shell-v3'));
  h.scope.fetch=async()=>{throw Error('offline')};
- const html=await h.request(base+'index-test.html?installed=1');assert(html.ok);assert((await html.text()).includes('test-app/src/features/timesheet-app.js'));
+ const html=await h.request(base+'index-test.html?installed=1');assert(html.ok);const shell=await html.text();assert(shell.includes('test-app/tabel/plugin.js'));assert(!shell.includes('id="nav-timesheet"'));assert(!shell.includes('test-app/src/features/timesheet-app.js'));
  for(const r of records)assert((await h.request(new URL(r.url,base).href)).ok);
  assert.equal(await h.request(base+'index.html'),undefined);assert.equal(await h.request(base),undefined);assert.equal(await h.request('https://firestore.googleapis.com/v1/projects/x'),undefined);assert.equal(await h.request(base+'index-test.html','POST'),undefined);
  console.log('PASS offline shell, every script/font/icon, query navigation; production/API/write requests untouched');

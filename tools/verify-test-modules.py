@@ -18,9 +18,14 @@ for old, module in zip(blocks,data['modules']):
     assert old[1] == module['kind'] and old[2] == module['attributes']
     code = b.body(module)
     if module['name'] == 'release-history':
-        code = re.sub(r"^    \{version:'3\.4\.12'.*\n",'',code,flags=re.M)
+        code = re.sub(r"^    \{version:'3\.4\.(?:12|14)'.*\n",'',code,flags=re.M)
     elif module['name'] == 'test-release':
-        code = code.replace('3.4.12','3.4.11').rstrip('\n')
+        code = code.replace('3.4.14','3.4.11').rstrip('\n')
+    elif module['name'] == 'core':
+        # Only the plugin manager/ctx contract may change; verify every byte outside it.
+        a, z = code.index('  // === ПЛАГИНЫ ==='), code.index('  // === АВТОРИЗАЦИЯ ===')
+        old_a, old_z = old[3].index('  // === ПЛАГИНЫ ==='), old[3].index('  // === АВТОРИЗАЦИЯ ===')
+        code = code[:a] + old[3][old_a:old_z] + code[z:]
     elif module['name'] == 'built-in-patches':
         # Serialized wrappers keep the same eval semantics. Compare decoded
         # patch bodies individually; the sole adapter restores HTML export.
@@ -41,7 +46,9 @@ def marker(m):
     if m[1]=='script' and re.search(r'\bsrc\s*=',m[2]): return m[0]
     return '<!-- TEST-MODULE:'+next(iterator)['name']+' -->'
 expected = pattern.sub(marker,baseline)
-actual = (b.SOURCE / 'shell.html').read_text().replace('3.4.12','3.4.11')
+expected = ''.join(line for line in expected.splitlines(True) if not any(x in line for x in ['href="./test-app/src/styles/timesheet-css.css"','id="tab-timesheet"','id="nav-timesheet"','id="timesheet-core"','id="timesheet-app"']))
+expected = expected.replace('<!-- TEST-MODULE:core -->','<script id="tabel-plugin" src="./test-app/tabel/plugin.js"></script>\n<!-- TEST-MODULE:core -->')
+actual = (b.SOURCE / 'shell.html').read_text().replace('3.4.14','3.4.11')
 assert actual == expected, 'HTML/handler layout changed'
 for file in ['index.html','sw.js','manifest.json','firestore-v3.rules','firestore-coins-test.rules']:
     original = subprocess.check_output(['git','show',data['baseline_commit']+':'+file],cwd=ROOT)
@@ -57,4 +64,4 @@ outputs = [ROOT/'index-test.html',ROOT/'sw-test.js',b.APP/'build-manifest.json']
 saved = [p.read_bytes() for p in outputs]
 b.build()
 assert saved == [p.read_bytes() for p in outputs], 'Non-deterministic build'
-print('PASS: 29 blocks, 13 patches, exact logic/CSS/markup/order, scoped files, JS syntax, hashes, deterministic rebuild')
+print('PASS: 29 blocks, 13 patches, host logic/CSS/markup/order outside explicit plugin integration, scoped files, JS syntax, hashes, deterministic rebuild')

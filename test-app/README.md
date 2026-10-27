@@ -12,7 +12,7 @@ python3 tools/verify-test-modules.py
 `build-manifest.json` и `build/<hash>/` — результаты сборки. Рабочий `index.html`
 не участвует в этой сборке.
 
-Каталог `src/` содержит прежние исходники и три активных подключения:
-`pwa.js`, `features/timesheet-core.js`, `features/timesheet-app.js`
-и `styles/timesheet-css.css`. Прочие старые файлы `src/` не являются основой
-текущего приложения. Начинайте изменения с `source/README.md` и `modules.json`.
+Тестовый выпуск 3.4.14 подключает новый табель как поставляемый плагин через
+«Админка → Расширения». Исходники — [tabel/](tabel/README.md); старые активные
+`timesheet-*.js` и CSS удалены. В `src/` активен прежний `pwa.js`; прочие файлы
+каталога исторические. Production в тестовую сборку не входит.

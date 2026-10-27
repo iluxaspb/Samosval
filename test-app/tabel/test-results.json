@@ -1,0 +1,76 @@
+{
+  "moduleVersion": "1.1.0-test.1",
+  "environment": "Local synthetic data; Chromium mobile emulation, not a physical Android device",
+  "results": [
+    {
+      "name": "domain",
+      "status": "passed",
+      "durationMs": 188
+    },
+    {
+      "name": "new-ui",
+      "status": "passed",
+      "durationMs": 4451
+    },
+    {
+      "name": "plugin-service",
+      "status": "passed",
+      "durationMs": 1151
+    },
+    {
+      "name": "legacy-core",
+      "status": "passed",
+      "durationMs": 292
+    },
+    {
+      "name": "host-integrity-and-build",
+      "status": "passed",
+      "durationMs": 3616
+    },
+    {
+      "name": "coins",
+      "status": "passed",
+      "durationMs": 246
+    },
+    {
+      "name": "actual-pwa",
+      "status": "passed",
+      "durationMs": 297
+    },
+    {
+      "name": "legacy-emulator",
+      "status": "passed",
+      "durationMs": 11135
+    },
+    {
+      "name": "sandbox-emulator",
+      "status": "passed",
+      "durationMs": 9737
+    },
+    {
+      "name": "integrated-rule-proposal-not-applied",
+      "status": "passed",
+      "durationMs": 13651
+    },
+    {
+      "name": "chromium-mobile",
+      "status": "passed",
+      "durationMs": 21238
+    },
+    {
+      "name": "pwa-upgrade-real-worker-local-fixture",
+      "status": "passed",
+      "durationMs": 4162
+    },
+    {
+      "name": "protected-paths",
+      "status": "passed",
+      "durationMs": 9186
+    }
+  ],
+  "blocked": [
+    "Live test Firebase rules were not changed or read from deployed service",
+    "Live Firebase Rules deployment requires Firebase project administration access",
+    "Native Android share and keyboard geometry are not device-verified"
+  ]
+}
