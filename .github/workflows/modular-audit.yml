@@ -41,13 +41,21 @@ jobs:
       - name: Install browser dependencies
         run: |
           python3 -m pip install playwright==1.57.0
-          python3 -m playwright install --with-deps chromium
+          if command -v google-chrome >/dev/null; then
+            echo "PWA_CHROMIUM=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          else
+            python3 -m playwright install --with-deps chromium
+          fi
       - name: Upgrade actual 3.4.11 to modular release without data deletion
         run: |
           git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
           mkdir -p "$RUNNER_TEMP/samosval-old"
           git archive FETCH_HEAD | tar -x -C "$RUNNER_TEMP/samosval-old"
-          python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 0f0881040d710261
+          if [ -n "${PWA_CHROMIUM:-}" ]; then
+            python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 0f0881040d710261 --chromium "$PWA_CHROMIUM"
+          else
+            python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 0f0881040d710261
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
