@@ -5343,11 +5343,11 @@ A.subscribe(syncUI);window.addEventListener('review-flags-changed',syncUI);windo
   'use strict';
   const KEY='samosval-ui-haptics-enabled';
   const enabled=()=>{try{return localStorage.getItem(KEY)!=='0'}catch(_){return true}};
+  const controls='button,[role="button"],[role="tab"],[role="switch"],a[href],input[type="button"],input[type="submit"],input[type="checkbox"],input[type="radio"],input[type="range"],select,summary,.tab,.truck-card,[onclick],label.toggle-switch';
   const excluded=/^(приехал(?: на линию)?|погрузка|ттн)$/i;
   function isLegacyAction(el){
-    const action=el.closest('[onpointerdown*="startHold"],[ontouchstart*="startHold"],[onmousedown*="startHold"],.holding,.admin-holding');
-    if(action)return true;
-    const label=(el.innerText||el.textContent||'').trim().replace(/\\s+/g,' ');
+    if(el.closest('[onpointerdown*="startHold"],[ontouchstart*="startHold"],[onmousedown*="startHold"],.holding,.admin-holding'))return true;
+    const label=(el.innerText||el.textContent||el.getAttribute('aria-label')||'').trim().replace(/\s+/g,' ');
     return excluded.test(label);
   }
   function addControl(){
@@ -5364,14 +5364,25 @@ A.subscribe(syncUI);window.addEventListener('review-flags-changed',syncUI);windo
   const observer=new MutationObserver(()=>{if(document.getElementById('hapticTtn')&&!document.getElementById('globalUiHaptics'))addControl()});
   observer.observe(document.documentElement,{childList:true,subtree:true});addControl();
   let last=0;
-  document.addEventListener('click',event=>{
-    if(!enabled()||!navigator.vibrate||!event.isTrusted)return;
-    const target=event.target instanceof Element?event.target:null;
-    const el=target?.closest('button,[role="button"],[role="tab"],[role="switch"],a[href],input[type="button"],input[type="submit"],input[type="checkbox"],input[type="radio"],select,summary,.tab,.truck-card');
+  function controlFor(target){
+    if(!(target instanceof Element))return null;
+    return target.closest(controls);
+  }
+  function vibrateFor(event){
+    if(!enabled()||typeof navigator.vibrate!=='function'||!event.isTrusted)return;
+    if(event.type==='pointerdown'&&(!event.isPrimary||event.button!==0))return;
+    // Pointer gestures vibrate at pointerdown. Only keyboard/screen-reader clicks use click,
+    // so pointerdown+click never causes a duplicate pulse.
+    if(event.type==='click'&&event.detail!==0)return;
+    const el=controlFor(event.target);
     if(!el||el.disabled||el.getAttribute('aria-disabled')==='true'||isLegacyAction(el))return;
+    const nested=el.querySelector?.('input,button,[disabled]');
+    if(nested?.disabled)return;
     const now=Date.now();if(now-last<90)return;last=now;
     try{navigator.vibrate(15)}catch(_){}
-  },{capture:true,passive:true});
+  }
+  document.addEventListener('pointerdown',vibrateFor,{capture:true,passive:true});
+  document.addEventListener('click',vibrateFor,{capture:true,passive:true});
 })();
 </script>
 <!-- Test-only, stand-alone Timesheet module. The production HTML is not modified. -->
