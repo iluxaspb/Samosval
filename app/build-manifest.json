@@ -1,167 +1,107 @@
 {
-  "version": "b614d9b82dd354eb",
-  "release": "4.0",
-  "source_commit": "6620de8ae45284d4f5b0140114c13ce7f8239365",
+  "version": "94b297b31a1ef857",
+  "release": "3.4.13",
+  "source_commit": "8b0bd65b3c94d2d51e8e611bc9644800ddd58291",
   "assets": [
     {
       "url": "./index.html",
-      "sha256": "bbb1af7e75e2f5c2990ee70c96b5ae90f9ba3011277c8c9552b046612f3a1a83"
+      "sha256": "48041acaaf79afb1c9594c8cb452a29a885eeba0d60e7600e99886f658d3b785"
     },
     {
       "url": "./manifest.json",
-      "sha256": "557423f43a40b10e8df78664c834881f7140e0ec457a43c65642ab2923f044d1"
+      "sha256": "9e025678a228ddd287d82a07e45521039ce182513543ab6def574501a5202275"
     },
     {
       "url": "./icon.svg",
       "sha256": "b1e61c32259a7eae65befc51d5d8d108ccc61be55a2bf4cbc2c846db83b7a378"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/archive-test-layout-20261025.css",
-      "sha256": "16239d85763a6babfcea71e9d2e1185010882a0b5280484cb2c218cd92cdfaa6"
+      "url": "./app/build/94b297b31a1ef857/built-in-patches.js",
+      "sha256": "643d8296fa21b99701b7b021c3bb973307688d9d7f68f3437b7a4cd3e9cd8b7c"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/base.css",
-      "sha256": "a226d548a9d7087969603fe791a98592db50f933e906ac0229a040b29a59e586"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/built-in-features.js",
-      "sha256": "35fbe1cda9a7332d005beb049615e49370c4348800fd8647b4ab5ec583802d31"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/closed-shift-duplicates.js",
+      "url": "./app/build/94b297b31a1ef857/closed-shift-duplicates.js",
       "sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/confirmation-adapter.js",
+      "url": "./app/build/94b297b31a1ef857/confirm-bridge.js",
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/core.js",
-      "sha256": "ad30d010fa4a0a6d5b0ea638bfae08eef7dca84eab100ddafe2b6a94f8f33efc"
+      "url": "./app/build/94b297b31a1ef857/core.js",
+      "sha256": "2931fc4ccb7217f3d9ab1860bef51e3c5faa23ca2ff0e39a26c6e921848ec938"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/game-coins-style.css",
-      "sha256": "e7cb2b4093d28a8f7cee3acc1bc8197b7e320b5a023f2c285e9b3e8d0166bbd0"
+      "url": "./app/build/94b297b31a1ef857/gai-report-toggle.js",
+      "sha256": "584a1b9bfb8c3edd8229fe73be5db55788dc251c182b545c27a4cac1b9c1455a"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/game-coins-v2.js",
-      "sha256": "a3112c91eff7fbbe3f5690655881778e25b1082461778d50c95d3ae4d3091f15"
+      "url": "./app/build/94b297b31a1ef857/game-coins-v2.js",
+      "sha256": "38e64cf8f9434b7e8ca6c31210038f37749f2eb46bda7a7b3bcd7a367b80cae4"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/geo-photo-script.js",
-      "sha256": "57657b2f6f721937079cf22e03c07dc43f3f87ebfe45a02126d8f0873042d4e9"
+      "url": "./app/build/94b297b31a1ef857/global-interface-haptics.js",
+      "sha256": "cb9695c568c866a5403268629d6b07629b0a2444de1ced98b088e027963b0d7f"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/geo-photo-style.css",
-      "sha256": "ba7f911c82400a593433bf3c3da268ee5856a02dc5c7baff9c799701f0ec8f7b"
+      "url": "./app/build/94b297b31a1ef857/history-recorder.js",
+      "sha256": "80d18f6ece45b79b028012aa3e66e8e826b71105e30a6c38052ae4c134c6b2fb"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/history-recorder.js",
-      "sha256": "962245b295e1a166d9a565192274e5faa4d42df85e86c3ab2ff0324a69b057e6"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/line-card-layers.js",
+      "url": "./app/build/94b297b31a1ef857/line-card-layers.js",
       "sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/local-photos-style.css",
-      "sha256": "f851a5967d3f436f284a0cd69c7219424a4274397964257cb08f2783d93f7c70"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/local-photos-ui.js",
-      "sha256": "7156ede41fd12306c4fa96af675ed6a5ea608a3f0944d1fd4996a4fb9a56bfdc"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/max-plate-notifications.js",
-      "sha256": "dfd4a74ba3510cbe193b3ca19a2fb0f1fbcd06459bb1e698d82024f5e48eaa81"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/object-photos-service.js",
-      "sha256": "ee4a21e3b58fdcd624b15f0043b4de68a7070c1397f3cb9e7aba8bf83f639c03"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/object-photos-style.css",
-      "sha256": "2bca9280cb342c58b6a15b8bad80aba1cba7f19fb62bfe1d130e645a034dd274"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/object-photos-ui.js",
-      "sha256": "92baaa04cec4b33606d268b6f21d2e36e1f8619c852706272835f209ee8315c7"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/offline-feedback.js",
+      "url": "./app/build/94b297b31a1ef857/offline-feedback.js",
       "sha256": "94b6082bc2d2939da2214787ad258b870c426ef0475220b7dd364d3959498db7"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/offline-load-solo-style.css",
-      "sha256": "5bb961c257c4b2ee387cc37fe8b6ffbfdaa16f85a61755a9e06637da159a5b72"
+      "url": "./app/build/94b297b31a1ef857/paper-viewer.js",
+      "sha256": "452edec9e65c7a48929221af761992e589ad21c69af4126d02d180f37257e8fc"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/photo-files.js",
-      "sha256": "6cb6df21319dd711f1523be6dbc2112b5185adc0aa4f47fa3ef72f563940b94c"
+      "url": "./app/build/94b297b31a1ef857/pwa.js",
+      "sha256": "258b30070231d87150672ba23c8f206ecd6e3cff3f4e16fec368fd57fdcc9fa9"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/pwa.js",
-      "sha256": "43b2f0be251d6eea2b295070df835cb3094f052d1a77d211e12883d8682cad73"
+      "url": "./app/build/94b297b31a1ef857/release-history.js",
+      "sha256": "6f5915760a1d51f3134698d8ae39f72c17019304ec0ca125e628f30c2d99c9f5"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/release-history.js",
-      "sha256": "4a3317f6bb69122f545ecf9e91f42ac5f7d51d2d0f3e8a0ab4523e3a1a564605"
+      "url": "./app/build/94b297b31a1ef857/reset-settings.js",
+      "sha256": "f0111176964314364c8d0fde3f8b79ac6e8f31f7cee2362e80fd1822e00ca3d7"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/road-arcade-core.js",
+      "url": "./app/build/94b297b31a1ef857/road-arcade-core.js",
       "sha256": "10da96381e9f6662cf571a05a08839a9cc369440a289de656ba4ce1e1bfaee3f"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/road-arcade-runtime.js",
-      "sha256": "cac8c82ca0c215c2cf4ed8094cc89149458be7c27d0d52e037b64317b3f76e80"
+      "url": "./app/build/94b297b31a1ef857/road-arcade-runtime.js",
+      "sha256": "991ddcb72f33961973fbf8de908de81c0b03dfc5fea8e019b30e53889edccc82"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/road-arcade-style.css",
-      "sha256": "07d479db20ededc54ecd6a8bc2769b528ebeda20bad4037f7b47ff63d0261ee2"
+      "url": "./app/build/94b297b31a1ef857/road-arcade-ui.js",
+      "sha256": "6437eef1903c213b858c416a8b069da405396e71860777a5fd7b42124e50efba"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/road-arcade-ui.js",
-      "sha256": "e017a9adb44f2b84ea0e3ab864c97580497b47ebf47ccfd1d3c3538261c4fde5"
+      "url": "./app/build/94b297b31a1ef857/road-jokes-v1.js",
+      "sha256": "8034c5a9d0f83742e7007c57e9ed2cc6927054f4666bb5daef88f1fdf0b506ea"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/road-jokes-style.css",
-      "sha256": "8d5f0225bbadcb005ed8b35c42da8522d10c6c2325cdd083cdaa7355bd89dd55"
+      "url": "./app/build/94b297b31a1ef857/road-season-effects-v1.js",
+      "sha256": "280137ae4c6e677516c0d5171b7ec822f8d11150bc26e25afe81a220ec53bd00"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/road-jokes-v1.js",
-      "sha256": "a76c09f983b0c98a75cbddfac41aa32f2b96c06cf9bcc17a628042078bb20f2d"
+      "url": "./app/build/94b297b31a1ef857/road-shop-v1.js",
+      "sha256": "6331cb853a83b2a025650ce9272e20f46cc796a4c4ce17b100b1a7b652a94ff2"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/road-season-effects-style.css",
-      "sha256": "1316108b882c07cc196303c3411877ecc6adad7152cf9187033d0e333f86e34e"
+      "url": "./app/build/94b297b31a1ef857/test-release.js",
+      "sha256": "c35f045392c7426cfef50d171186f8d1d23ffbd6e950839f563cb164a0303553"
     },
     {
-      "url": "./app/build/b614d9b82dd354eb/road-season-effects-v1.js",
-      "sha256": "84b2611e7e5555ea586558632f04e813633317041237b906fd439ee8274034ee"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/road-shop-style.css",
-      "sha256": "03556c119e329120dab1ee04b4dfcc394b8dfe079bade748131a1d554f5ef88a"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/road-shop-v1.js",
-      "sha256": "cd0620342fa047eea4cd2bde4e7b1fcd0967fc373f5d76cc3db93810b427bb68"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/summary-hold.js",
-      "sha256": "51c7baa1026486b2c817b9b505c77ac3d977a74cfe48a6788d11e1186fa1cba7"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/summary-viewer.js",
-      "sha256": "9f82ca990a8ecac5c003fc3d3488114e886598643583438070df1d9657f2ccff"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/test-analytics-compact-20261025.css",
-      "sha256": "7007e9498438bbd81eb63a96471eb34b502dfd11cf649eef40f0552713fdef76"
-    },
-    {
-      "url": "./app/build/b614d9b82dd354eb/trip-analytics.js",
-      "sha256": "98d90f9a4ce3323a80882b38cbd94c3af4361cd06633354326a5b77889b08e19"
+      "url": "./app/build/94b297b31a1ef857/trip-analytics.js",
+      "sha256": "1782f14ac8deb2a5794574e9ce56bc51aacbf8ab48050a114b4e63ab3c745dc1"
     },
     {
       "url": "./app/vendor/caveat-0.ttf",
@@ -188,20 +128,8 @@
       "sha256": "1b122566975332a8b7059e1b435df73122b6e4947b312360b518936be219b6fc"
     },
     {
-      "url": "./app/vendor/firebase-storage-compat-10.8.0.js",
-      "sha256": "a93a20f09fd70fda9434c45abb0e386005148f843f31111488c9912c107dd7ba"
-    },
-    {
       "url": "./app/vendor/html2pdf-0.10.1.bundle.min.js",
       "sha256": "85e6ee9ce246e3ae4424313f7e46a5ed860a28d757811de8dc9c43f306049d65"
-    },
-    {
-      "url": "./app/icons/icon-192.png",
-      "sha256": "cb63c9b1cab9bfe3b4946d03b2f46772083c76ad03938e4f24581cd4480cedc4"
-    },
-    {
-      "url": "./app/icons/icon-512.png",
-      "sha256": "4e57fcca475e0141b5242f471600fe4cc9e527be267e8337b927b3e2e99d9e64"
     }
   ]
 }
