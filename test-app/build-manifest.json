@@ -9,7 +9,7 @@
     },
     {
       "url": "./manifest-test.webmanifest",
-      "sha256": "988ba7e5dc3e3d632b757cff04bb5a4023ae4ea133c8f6bd63aebaf5c836e589"
+      "sha256": "379149c95d8fcf01caa5c2a10e03c934ac29548e60f6e06c6105a3c97137ae27"
     },
     {
       "url": "./test-app/src/features/timesheet-core.js",

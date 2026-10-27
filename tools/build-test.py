@@ -9,6 +9,10 @@ def digest(data): return hashlib.sha256(data).hexdigest()
 def text(path): return path.read_text(encoding='utf-8')
 
 def build():
+    # Do not let the retired modular builder overwrite the active production-derived TEST 3.4.7.
+    active_manifest = APP / 'build-manifest.json'
+    if active_manifest.exists() and json.loads(text(active_manifest)).get('channel') == 'test-3.4.7-standalone-plus-timesheet':
+        raise SystemExit('Legacy builder disabled: TEST 3.4.7 uses the standalone production-derived HTML and Timesheet modules.')
     spec = json.loads(text(APP / 'modules.json'))
     # Content-addressed paths prevent a cached page from mixing releases.
     inputs = [APP / 'modules.json', Path(__file__)] + sorted((APP / 'src').rglob('*'))
