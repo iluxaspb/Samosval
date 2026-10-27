@@ -4807,7 +4807,7 @@ body.game-coin-feedback #toast{visibility:hidden}
     const identity=permissionsLoaded&&currentUserStatus==='active'?String(currentUid||''):'';
     if(identity!==owner){
       cancelCoinFeedback();cancelRankCelebration();rankSnapshotConfirmed=false;rankGuideOpen=false;
-      rewardDirty=false;rewardMessage='';unsubscribe?.();unsubscribe=null;unsubscribeAdjustments?.();unsubscribeAdjustments=null;adjustmentListenerKey='';coinAdjustmentRows=[];grantTargets=[];grantTargetsLoaded=false;grantTarget='';grantAmount='';grantReason='';grantOperationId='';owner=identity;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
+      rewardDirty=false;rewardMessage='';unsubscribe?.();unsubscribe=null;unsubscribeAdjustments?.();unsubscribeAdjustments=null;adjustmentListenerKey='';coinAdjustmentRows=[];grantTargets=[];grantTargetsLoaded=false;grantTarget='';grantAmount='';grantReason='';grantOperationId='';owner=identity;ledgerUser='all';ledgerOpen=false;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
     }
     if(identity&&!unsubscribe){
       const session=owner;
@@ -5237,7 +5237,7 @@ async function loadPlayers(current,token){
  }));
 }
 function sync(){
- const next=active()?currentUid:'';if(next!==owner){unsub?.();winsUnsub?.();unsub=null;winsUnsub=null;ownPending=null;owner=next;ledgerUser='all';ledgerOpen=false;grantOperationId='';generation++;head=C.initialHead();players={};recent=[];ready=false;error='';fetching.clear();emit();}
+ const next=active()?currentUid:'';if(next!==owner){unsub?.();winsUnsub?.();unsub=null;winsUnsub=null;ownPending=null;owner=next;generation++;head=C.initialHead();players={};recent=[];ready=false;error='';fetching.clear();emit();}
  if(owner&&!unsub){const token=generation;unsub=refs.audit.orderBy('gameRound','desc').limit(80).onSnapshot({includeMetadataChanges:true},snap=>{
   if(token!==generation)return;const rows=snap.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()})).filter(validRound).sort((a,b)=>b.gameRound-a.gameRound);
   if(rows[0]&&rows[0].gameRound>=head.gameRound)head=rows[0];for(const row of rows)acceptPlayer(row);
