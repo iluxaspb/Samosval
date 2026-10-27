@@ -1,6 +1,6 @@
 --- a/firestore-timesheet-test.rules
 +++ b/firestore-timesheet-test.rules
-@@ -182,8 +182,98 @@
+@@ -182,8 +182,114 @@
        // The application subscribes to these shared collections.
        // Non-admin writes are granted separately below.
        match /{collection}/{id} {
@@ -13,9 +13,11 @@
 +    function tabelTab() { return active() && (admin() || 'timesheet' in get(/databases/$(database)/documents/settings/permissions).data.get(account().role,{}).get('tabs',[])); }
 +    function tabelHostEdit() { return admin() || 'timesheet_edit' in get(/databases/$(database)/documents/settings/permissions).data.get(account().role,{}).get('actions',[]); }
 +    function tabelConfig(objectId) { return get(/databases/$(database)/documents/workspaces/main_workspace/timesheetObjects/$(objectId)).data; }
++    // Caller already enforces tabelTab()/ledgerRead()/ledgerEdit(). Avoid repeating
++    // account + role checks for every field: Firestore has an expression budget.
 +    function tabelGrant(objectId,key) {
-+      return tabelTab() && (admin() || tabelConfig(objectId).acl.roles.get(account().role,{}).get(key,false) == true
-+        || tabelConfig(objectId).acl.users.get(request.auth.uid,{}).get(key,false) == true);
++      return admin() || tabelConfig(objectId).acl.roles.get(account().role,{}).get(key,false) == true
++        || tabelConfig(objectId).acl.users.get(request.auth.uid,{}).get(key,false) == true;
 +    }
 +    function tabelReadArea(d,c) {
 +      return c == 'timesheetObjects' ? tabelTab() :
@@ -98,10 +100,24 @@
 +      function tabelLegacyWrite(d,area) {
 +        return !exists(/databases/$(database)/documents/workspaces/main_workspace/timesheetObjects/$(d.objectId))
 +          || tabelGrant(d.objectId,area+'.edit');
++      }
++      // Evaluate both equipment/person and shift grants from one ACL snapshot.
++      // ledgerEdit() at every call site has already enforced active + main tab.
++      function tabelEntryPermissions(d) {
++        let acl = tabelConfig(d.objectId).acl;
++        let role = acl.roles.get(account().role,{});
++        let user = acl.users.get(request.auth.uid,{});
++        let area = d.kind == 'person' ? 'people.edit' : 'equipment.edit';
++        return (role.get('shift.edit',false) == true || user.get('shift.edit',false) == true)
++          && (role.get(area,false) == true || user.get(area,false) == true);
++      }
++      function tabelEntryWrite(d) {
++        return !exists(/databases/$(database)/documents/workspaces/main_workspace/timesheetObjects/$(d.objectId))
++          || admin() || tabelEntryPermissions(d);
        }
  
        // Field ledger: enabled only on the separate samosval-offline test project.
-@@ -192,7 +282,7 @@
+@@ -192,7 +298,7 @@
        }
        function ledgerEdit() { return ledgerRead() && can('timesheet_edit'); }
        function ledgerManage() { return ledgerRead() && can('timesheet_manage'); }
@@ -110,7 +126,7 @@
        function sameChange(c, collection, id) {
          return c.collection == collection && c.id == id && c.after == request.resource.data;
        }
-@@ -278,15 +368,15 @@
+@@ -278,15 +384,15 @@
          allow update: if ledgerManage() && ledgerEquipment() && ledgerEnvelope('timesheetEquipment',id) && ledgerRevision();
        }
        match /timesheetEntries/{id} {
@@ -118,8 +134,8 @@
 -        allow create: if ledgerEdit() && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && request.resource.data.revision == 1;
 -        allow update: if ledgerEdit() && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && ledgerRevision()
 +        allow read: if ledgerRead() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/timesheetEntries/$(id)) || tabelLegacyView(resource.data,'shift'));
-+        allow create: if ledgerEdit() && tabelLegacyWrite(request.resource.data,'shift') && tabelLegacyWrite(request.resource.data,request.resource.data.kind == 'person' ? 'people' : 'equipment') && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && request.resource.data.revision == 1;
-+        allow update: if ledgerEdit() && tabelLegacyWrite(request.resource.data,'shift') && tabelLegacyWrite(request.resource.data,request.resource.data.kind == 'person' ? 'people' : 'equipment') && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && ledgerRevision()
++        allow create: if ledgerEdit() && tabelEntryWrite(request.resource.data) && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && request.resource.data.revision == 1;
++        allow update: if ledgerEdit() && tabelEntryWrite(request.resource.data) && ledgerEntry(id) && ledgerEnvelope('timesheetEntries',id) && ledgerRevision()
            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','group','ownership','contractor','objectName','minutes','idleMinutes','status','equipmentId','note','deleted','revision','lastOpId','updatedBy','updatedName','updatedAt']);
        }
        match /timesheetMaterials/{id} {

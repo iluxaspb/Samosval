@@ -9,9 +9,11 @@ service cloud.firestore {
     function tab() { return active() && (admin() || 'timesheet' in get(/databases/$(database)/documents/settings/permissions).data.get(account().role,{}).get('tabs',[])); }
     function hostEdit() { return admin() || 'timesheet_edit' in get(/databases/$(database)/documents/settings/permissions).data.get(account().role,{}).get('actions',[]); }
     function config(objectId) { return get(/databases/$(database)/documents/workspaces/main_workspace/timesheetObjects/$(objectId)).data; }
+    // Caller already enforces tab()/ledgerRead()/ledgerEdit(). Avoid repeating
+    // account + role checks for every field: Firestore has an expression budget.
     function grant(objectId,key) {
-      return tab() && (admin() || config(objectId).acl.roles.get(account().role,{}).get(key,false) == true
-        || config(objectId).acl.users.get(request.auth.uid,{}).get(key,false) == true);
+      return admin() || config(objectId).acl.roles.get(account().role,{}).get(key,false) == true
+        || config(objectId).acl.users.get(request.auth.uid,{}).get(key,false) == true;
     }
     function readArea(d,c) {
       return c == 'timesheetObjects' ? tab() :
