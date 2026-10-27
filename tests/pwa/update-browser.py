@@ -132,7 +132,7 @@ class Release:
 
     def asset(self, name):
         data = self.raw(name)
-        if name.removeprefix('./') == 'index-test.html' or (name.removeprefix('./').startswith(('test-app/build/', 'test-app/src/')) and name.endswith('.js')):
+        if name.removeprefix('./') == 'index-test.html' or (name.removeprefix('./').startswith(('test-app/build/', 'test-app/src/', 'test-app/tabel/')) and name.endswith(('.js','.mjs'))):
             source = data.decode().replace('samosval-offline', PROJECT)
             if name.endswith('/core.js') or (name.endswith('index-test.html') and 'const firebaseConfig' in source):
                 source, count = re.subn(r'const firebaseConfig\s*=\s*\{[\s\S]*?\};',
@@ -168,7 +168,7 @@ def make_server(old, new, phase, report):
                 name = path.removeprefix('/Samosval/')
                 allowed = (name in {'index-test.html', 'update-test.html', 'sw-test.js',
                                    'manifest-test.webmanifest', 'test-app/build-manifest.json'}
-                           or name.startswith(('test-app/build/', 'test-app/src/', 'test-app/vendor/', 'test-app/icons/', 'assets/')))
+                           or name.startswith(('test-app/build/', 'test-app/src/', 'test-app/vendor/', 'test-app/icons/', 'test-app/tabel/', 'assets/')))
                 if not allowed or '..' in Path(name).parts:
                     self.send_error(404); return
                 if name == 'update-test.html':

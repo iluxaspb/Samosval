@@ -20,4 +20,8 @@
 
 ## Неизменённые участки
 
-`index.html`, production app/worker/manifest, `.github/**`, общие rules, логика рейсов, кнопок, очереди и синхронизации «Линии» сохранены. Guard сравнивает 835 защищённых исходных файлов с baseline `8b0bd65`. Настройки защиты веток, CODEOWNERS и права GitHub не менялись.
+`index.html`, production app/worker/manifest, `.github/**`, общие rules, логика рейсов, кнопок, очереди и синхронизации «Линии» сохранены. Guard сравнивает 834 защищённых исходных файлов с baseline `8b0bd65`. Настройки защиты веток, CODEOWNERS и права GitHub не менялись.
+
+## Уточнение проверки обновления
+
+Локальный HTTP-fixture `tests/pwa/update-browser.py` дополнен путём `test-app/tabel/` и переписыванием тестового projectId для JS/ES modules этого каталога. Прежний список возвращал 404 новым precache-ресурсам. CSP, sandbox Chromium, запрет внешней сети и все assertions сохранены. Сборочный hash теперь учитывает только runtime HTML/JS/CSS, а не README, чтобы правка документации не меняла пакет.

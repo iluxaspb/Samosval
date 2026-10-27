@@ -11,13 +11,13 @@ ALLOWED_FILES = {
  'test-app/source/core/04-subscriptions.js','test-app/source/shell.html',
  'test-app/source/features/test-release.js','test-app/source/features/release-history.js',
  'test-app/README.md','test-app/source/README.md','tests/timesheet/core.cjs','tests/timesheet/emulator.cjs',
- 'tests/timesheet/package.json','tests/pwa/service-worker.cjs',
+ 'tests/timesheet/package.json','tests/pwa/service-worker.cjs','tests/pwa/update-browser.py',
  'test-app/src/features/timesheet-app.js','test-app/src/features/timesheet-core.js','test-app/src/styles/timesheet-css.css',
  'assets/timesheet.js','assets/timesheet-core.js','assets/timesheet.css'
 } # Explicitly authorized TEST plugin integration only.
 
 build = json.loads((ROOT/'test-app/build-manifest.json').read_text())['version']
-ALLOWED_DIRS = ('test-app/tabel/', 'tests/tabel/', 'test-app/build/'+build+'/')
+ALLOWED_DIRS = ('test-app/build/21e3174b72f1f963/', 'test-app/tabel/', 'tests/tabel/', 'test-app/build/'+build+'/')
 files = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', BASE], cwd=ROOT).decode().splitlines()
 protected = []
 for name in files:

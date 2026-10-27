@@ -72,5 +72,14 @@
     "Live test Firebase rules were not changed or read from deployed service",
     "Live Firebase Rules deployment requires Firebase project administration access",
     "Native Android share and keyboard geometry are not device-verified"
-  ]
+  ],
+  "additionalVerification": {
+    "deterministicBuildAfterFinalDocs": "passed",
+    "actualPwaAfterRebuild": "passed",
+    "localWorkerUpgradeAfterRebuild": "passed",
+    "hardenedUpgradeFixtureSelfTest": "passed; local allowlist extended only for plugin assets; sandbox/CSP/network restrictions unchanged",
+    "protectedFileCount": 834,
+    "publishedBuildBeforeCIRepair": "21e3174b72f1f963",
+    "currentBuild": "a56f826f30325346"
+  }
 }
