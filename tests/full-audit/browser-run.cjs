@@ -9,7 +9,7 @@ const output = path.join(__dirname, 'results', 'browser'); fs.mkdirSync(output, 
 const port = Number(process.env.AUDIT_FIRESTORE_PORT || 8099);
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'samosval-audit-browser-'));
 const report = {startedAt:new Date().toISOString(), status:'running', project:PROJECT,
-  rules:'firestore-timesheet-test.rules', browser:'Chromium with sandbox enabled',
+  rules:'firestore-coins-test.rules', browser:'Chromium with sandbox enabled',
   modes:['desktop 1280×900', 'mobile viewport 390×844 (Chromium emulation)'],
   fixture:{auth:'Explicit local UI stub; no Firebase Auth service contacted', firestore:'Real Firebase SDK and emulator mock-user tokens',
     sourceChanges:'HTTP responses only: demo project identifiers, inert Firebase configuration, pinned WebChannel diagnostic image URL to uncached same-origin endpoint, and matching worker integrity hashes; repository sources remain untouched',
