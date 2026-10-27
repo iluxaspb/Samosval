@@ -132,7 +132,7 @@ class Release:
 
     def asset(self, name):
         data = self.raw(name)
-        if name.removeprefix('./') == 'index-test.html' or (name.removeprefix('./').startswith('test-app/build/') and name.endswith('.js')):
+        if name.removeprefix('./') == 'index-test.html' or (name.removeprefix('./').startswith(('test-app/build/', 'test-app/src/')) and name.endswith('.js')):
             source = data.decode().replace('samosval-offline', PROJECT)
             if name.endswith('/core.js') or name.endswith('index-test.html'):
                 source, count = re.subn(r'const firebaseConfig\s*=\s*\{[\s\S]*?\};',
