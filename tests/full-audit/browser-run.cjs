@@ -301,7 +301,7 @@ async function responsiveCase(mobile) {
     assert.match(await page.locator('#authError').innerText(), /Укажите Email/);
     await page.locator('#authEmail').fill('qa-active@example.test'); await page.locator('#authPassword').fill('wrong-fixture-password');
     await page.locator('#authOverlay button[onclick="handleLogin()"]').click();
-    await wait(() => document.getElementById('authError').textContent.includes('Неверный'));
+    await wait(() => document.getElementById('authError').textContent.includes('Пользователь не найден'));
     await login('qa-active'); await ready();
     await assertRemovedFeatures();
     assert.equal(await page.locator('#mainHeader .version-text').innerText(),report.release);
