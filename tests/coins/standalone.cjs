@@ -23,3 +23,12 @@ assert.equal(coins([paid]),5);
 const adminLoad=JSON.parse(JSON.stringify(load));adminLoad.userEmail='admin@example.com';adminLoad.history.operations[0].after.createdByEmail='admin@example.com';
 assert.equal(coins([adminLoad]),1,'Roles use the same accrual rate');
 console.log('PASS exact standalone coin calculator: operator, administrator, policy, archival cleanup, cancellation, deduplication, ledger totals');
+
+const shop=html.match(/<script id="road-shop-v1">([\s\S]*?)<\/script>/)[1];
+const available=shop.match(/const available=(.*);/)[1];
+const cash={window:{},currentUid:'operator',bonus:()=>0,adjustments:()=>0,snapshot:()=>({adjustments:[]})};
+vm.createContext(cash);vm.runInContext('available='+available,cash);
+assert.equal(cash.available(-3,0,'lopater','active'),-3);
+assert.equal(cash.available(10,25,'lopater','active'),-15);
+assert.equal(cash.available(30,25,'lopater','active'),5);
+console.log('PASS signed wallet balance: penalties and spending retain negative amounts');

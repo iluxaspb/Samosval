@@ -3967,7 +3967,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
-    {version:'3.4.11',title:'Журнал движений монет и награды',items:['Исправлено снятие монет при очистке рейсов после сохранения смены в архив. Настоящая отмена продолжает снимать начисление.','Добавлен личный журнал доходов и расходов монет с временем, источником и суммой.','Активный администратор видит движения всех пользователей и может начислить выбранному пользователю монеты с обязательной причиной.','Начисления сохраняются отдельными записями, участвуют в доступном балансе и не меняют рейтинг; повтор транзакции не начисляет награду дважды.',"Добавлен локальный аудитор Firebase: вызовы, результаты, подписки и переподключения фиксируются без записи в Firestore; журнал можно выгрузить в CSV/JSON из консоли администратора. Это диагностика операций приложения, а не точный биллинговый счётчик."]},
+    {version:'3.4.11',title:'Журнал движений монет и награды',items:['Отрицательный баланс отображается со знаком минус в кошельке, журнале и магазине, а не заменяется нулём.','Исправлено снятие монет при очистке рейсов после сохранения смены в архив. Настоящая отмена продолжает снимать начисление.','Добавлен личный журнал доходов и расходов монет с временем, источником и суммой.','Активный администратор видит движения всех пользователей и может начислить выбранному пользователю монеты с обязательной причиной.','Начисления сохраняются отдельными записями, участвуют в доступном балансе и не меняют рейтинг; повтор транзакции не начисляет награду дважды.',"Добавлен локальный аудитор Firebase: вызовы, результаты, подписки и переподключения фиксируются без записи в Firestore; журнал можно выгрузить в CSV/JSON из консоли администратора. Это диагностика операций приложения, а не точный биллинговый счётчик."]},
     {version:'3.4.9',title:'Аниме-тема и читаемые поля ввода',items:['Добавлена оригинальная аниме-тема «Аниме-рейс» за 350 монет: персонаж изображён на карточке самосвала и кнопке «Погрузка».','Поля ввода, списки и их текст имеют контрастное оформление во всех темах, включая состояние фокуса.','Сохранены покупки, темы, работа начислений и существующие действия интерфейса.']},
     {version:'3.4.8',title:'Исправлены лишние виброотклики',items:['Убраны ложные виброотклики от фона окна настроек и контейнеров с обработчиком onclick.','Общий отклик срабатывает только на конкретных кнопках, вкладках и других явно заданных элементах управления.','Прокрутка и касания по фону модального окна не вызывают вибрацию; прокрутка внутри карточки самосвала также не вибрирует.','Настройки уровня и включения вибрации сохранены. Вибрация «Приехал», «Погрузка» и «ТТН» не изменена.']},
     {version:'3.4.7',title:'Единый просмотр листов и обновление интерфейса',items:['Сводка и архив используют единый полноэкранный просмотр листа: перетаскивание, масштабирование двумя пальцами, кнопки масштаба и «Лист целиком».','Иконка 📄 в правом нижнем углу переключает обычный и ГАИ-лист после удержания 800 мс. Короткое нажатие не переключает отчёт.','Метка дубликата показана красной латинской D. Это только отображение: сохранённые данные и правила определения дубликата не меняются.','Поздравление с новым рангом расположено по центру экрана; звук салюта учитывает настройку игровых звуков.','Поиск техники очищается при каждом открытии выбора самосвалов. Сброс встроен в основную функцию открытия и не зависит от включения патча.']},
@@ -4459,7 +4459,7 @@ body.game-coin-feedback #toast{visibility:hidden}
     if(!enabled()){if(modal.open)modal.close();cancelCoinFeedback();cancelRankCelebration({keepPreview:canAdmin()});return;}
     if(appConfig?.testReviewFlags?.game_effects===false)cancelCoinFeedback();
     const overall=calculate(records);const me=overall.find(r=>r.user===key(currentEmail)),coins=me?.coins||0;
-    const spent=window.RoadShop?.spent(records,currentUid)||0,balance=window.RoadShop?window.RoadShop.available(coins,spent,currentUserRole,currentUserStatus):Math.max(0,coins-spent);
+    const spent=window.RoadShop?.spent(records,currentUid)||0,balance=window.RoadShop?window.RoadShop.available(coins,spent,currentUserRole,currentUserStatus):coins-spent;
     if(visualOwner!==currentUid){visualOwner=currentUid;visualBalance=null;}
     if(ready&&(!window.RoadArcade||window.RoadArcade.status().hydrated)){if(visualBalance!==null&&balance<visualBalance)window.__gameMoneyFlow?.(balance-visualBalance);visualBalance=balance;}
     const objects=objectOptions(records);if(!rankingObject)rankingObject=state.shift?.objectId?'id:'+state.shift.objectId:objects[0]?.key||'';
@@ -4807,7 +4807,7 @@ body.game-coin-feedback #toast{visibility:hidden}
     const identity=permissionsLoaded&&currentUserStatus==='active'?String(currentUid||''):'';
     if(identity!==owner){
       cancelCoinFeedback();cancelRankCelebration();rankSnapshotConfirmed=false;rankGuideOpen=false;
-      rewardDirty=false;rewardMessage='';unsubscribe?.();unsubscribe=null;unsubscribeAdjustments?.();unsubscribeAdjustments=null;adjustmentListenerKey='';coinAdjustmentRows=[];owner=identity;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
+      rewardDirty=false;rewardMessage='';unsubscribe?.();unsubscribe=null;unsubscribeAdjustments?.();unsubscribeAdjustments=null;adjustmentListenerKey='';coinAdjustmentRows=[];grantTargets=[];grantTargetsLoaded=false;grantTarget='';grantAmount='';grantReason='';grantOperationId='';owner=identity;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
     }
     if(identity&&!unsubscribe){
       const session=owner;
@@ -4920,7 +4920,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   // Fixed testing allowance, not a recurring credit: durable purchases consume it.
   const bonus=(role,status)=>role==='admin'&&status==='active'?10000:0;
   const adjustments=(rows,uid)=>rows.filter(r=>r.eventType==='game_coin_adjustment'&&r.targetUid===uid&&Number.isSafeInteger(r.amount)&&r.amount>0).reduce((sum,r)=>sum+r.amount,0);
-  const available=(earned,paid,role,status)=>Math.max(0,earned+bonus(role,status)+(window.RoadArcade?.delta(currentUid)||0)+adjustments(snapshot().adjustments||[],currentUid)-paid);
+  const available=(earned,paid,role,status)=>earned+bonus(role,status)+(window.RoadArcade?.delta(currentUid)||0)+adjustments(snapshot().adjustments||[],currentUid)-paid;
   const canOpen=()=>canUse(currentUserRole,currentUserStatus,permissionsLoaded)&&window.__gameEconomy?.snapshot().enabled===true;
   let owner='',preview=null,selected='',filter='all',busy=false,message='',renderKey='',applied='';
   const style=document.createElement('style');style.id='road-theme-active';document.head.append(style);
