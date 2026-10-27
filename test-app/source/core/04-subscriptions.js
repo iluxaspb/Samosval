@@ -120,14 +120,38 @@
   }
 
   // === ПЛАГИНЫ ===
+  let pluginDisposers = [];
+  function getPluginRecords() {
+    const bundled = firebaseConfig.projectId === 'samosval-offline' ? (window.SamosvalBundledPlugins || []) : [];
+    const ids = new Set(bundled.map(p => p.id));
+    return [...bundled.map(p => ({...p, ...(state.plugins.find(x => x.id === p.id) || {}), bundled: true})),
+      ...state.plugins.filter(p => !ids.has(p.id))];
+  }
   function initPlugins() {
+    const activePlugin = Object.keys(pluginTabs).find(id => pluginTabs[id].container.classList.contains('active'));
+    pluginDisposers.splice(0).forEach(dispose => { try { Promise.resolve(dispose()).catch(console.error); } catch(e) { console.error(e); } });
     document.getElementById('plugin-tabs-container').innerHTML = '';
     document.querySelectorAll('.dynamic-nav-btn').forEach(el => el.remove());
     pluginTabs = {}; pluginPdfButtons = [];
-    const enabled = state.plugins.filter(p => { if (!p.enabled) return false; if (!p.allowedRoles || p.allowedRoles.length === 0) return true; return p.allowedRoles.includes(currentUserRole); });
+    const enabled = getPluginRecords().filter(p => { if (p.removed || !p.enabled) return false; if (!p.allowedRoles || p.allowedRoles.length === 0) return true; return p.allowedRoles.includes(currentUserRole); });
     enabled.forEach(p => {
       try {
         const ctx = {
+          onDispose: fn => { if (typeof fn === 'function') pluginDisposers.push(fn); },
+          ledgerHost: {
+            workspace: wsRef,
+            session: () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
+              uid: currentUid, name: getUserName(), role: currentUserRole, status: currentUserStatus,
+              tabAccess: permissionsLoaded && currentUserStatus === 'active' && hasTabAccess('timesheet')
+                && (!p.allowedRoles || !p.allowedRoles.length || p.allowedRoles.includes(currentUserRole)),
+              manage: hasPermission('timesheet_manage'),
+              permissions: {view: hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit')}}),
+            data: () => ({objects: state.objects, shift: state.shift, trucks: state.trucks,
+              statuses: state.truckStatus, logs: state.logs, audit: state.audit, archive: state.archive}),
+            transaction: fn => (window.__historyRawTransaction || db.runTransaction.bind(db))(fn),
+            serverTimestamp: () => firebase.firestore.FieldValue.serverTimestamp(),
+            leave: () => switchTab('line', document.getElementById('nav-line'))
+          },
           db: db, refs: refs, state: state, user: { email: currentEmail, role: currentUserRole, name: getUserName() },
           showToast: showToastEl, addAudit: addAudit, escapeHtml: escapeHtml, renderRussianPlate: renderRussianPlate,
           registerTab: (id, name, icon, renderFn) => {
@@ -148,6 +172,10 @@
       } catch (e) { console.error(`Ошибка в плагине "${p.name}":`, e); showToastEl(`⚠️ Ошибка в "${p.name}": ${e.message}`, true); }
     });
     renderPluginPdfButtons();
+    if (activePlugin) {
+      const next = pluginTabs[activePlugin] ? activePlugin : 'line';
+      switchTab(next, document.getElementById('nav-' + next));
+    }
   }
   function renderPluginPdfButtons() {
     const c = document.getElementById('pluginPdfButtonsContainer'); if (!c) return;
@@ -164,15 +192,17 @@
   }
   function renderPluginsList() {
     const c = document.getElementById('pluginsListContainer'); if (!c) return;
-    if (!state.plugins.length) { c.innerHTML = '<div class="empty-state">Нет добавленных расширений</div>'; return; }
-    c.innerHTML = state.plugins.map(p => {
+    const records = getPluginRecords().filter(p => !p.removed);
+    const restore = getPluginRecords().filter(p => p.bundled && p.removed).map(p => `<button class="btn btn-secondary" onclick="togglePluginStatus('${p.id}',true)">Восстановить ${escapeHtml(p.name)}</button>`).join('');
+    if (!records.length) { c.innerHTML = '<div class="empty-state">Нет добавленных расширений</div>'+restore; return; }
+    c.innerHTML = records.map(p => {
       let rolesText = (p.allowedRoles || []).map(r => ROLES[r]?.label || r).join(', ') || 'Все роли';
-      return `<div class="user-row" style="border-color: ${p.enabled ? 'var(--success)' : 'var(--border)'};"><div class="user-row-top"><div style="font-size: 16px; font-weight: bold;">${escapeHtml(p.icon || '🧩')} ${escapeHtml(p.name)}</div><label class="toggle-switch" style="transform: scale(0.8); margin: 0;"><input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="togglePluginStatus('${p.id}', this.checked)"><span class="toggle-slider"></span></label></div><div style="font-size: 11px; color: var(--muted); margin-bottom: 8px;">Доступ: ${rolesText}</div><div class="user-row-bottom" style="justify-content: flex-end;"><button class="btn-edit" onclick="openPluginModal('${p.id}')">✏️ Код</button><button class="btn-del" onclick="deletePlugin('${p.id}')">Удалить</button></div></div>`;
-    }).join('');
+      return `<div class="user-row" style="border-color: ${p.enabled ? 'var(--success)' : 'var(--border)'};"><div class="user-row-top"><div style="font-size: 16px; font-weight: bold;">${escapeHtml(p.icon || '🧩')} ${escapeHtml(p.name)}${p.bundled ? ' · '+escapeHtml(p.version || '') : ''}</div><label class="toggle-switch" style="transform: scale(0.8); margin: 0;"><input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="togglePluginStatus('${p.id}', this.checked)"><span class="toggle-slider"></span></label></div><div style="font-size: 11px; color: var(--muted); margin-bottom: 8px;">Доступ: ${rolesText}</div><div class="user-row-bottom" style="justify-content: flex-end;"><button class="btn-edit" onclick="openPluginModal('${p.id}')">✏️ Код</button><button class="btn-del" onclick="deletePlugin('${p.id}')">Удалить</button></div></div>`;
+    }).join('')+restore;
   }
   function openPluginModal(id) {
     if (!canAdmin()) return;
-    const p = id ? state.plugins.find(x => x.id === id) : null;
+    const p = id ? getPluginRecords().find(x => x.id === id) : null;
     document.getElementById('editPluginId').value = id || '';
     document.getElementById('pluginName').value = p ? p.name : '';
     document.getElementById('pluginIcon').value = p ? p.icon : '🧩';
@@ -197,11 +227,11 @@
     const code = document.getElementById('pluginCode').value;
     const allowedRoles = Array.from(document.querySelectorAll('#pluginRolesContainer input:checked')).map(chk => chk.value);
     if (!name) { showError('Введите название'); return; }
-    try { if (id) await tfAwait(refs.plugins.doc(id).update({ name, icon, code, allowedRoles })); else await tfAwait(refs.plugins.add({ name, icon, code, allowedRoles, enabled: true, createdAt: Date.now() })); closePluginModal(); showToastEl('✅ Расширение сохранено', false); }
+    try { if (id) await tfAwait(refs.plugins.doc(id).set({ name, icon, code, allowedRoles }, {merge:true})); else await tfAwait(refs.plugins.add({ name, icon, code, allowedRoles, enabled: true, createdAt: Date.now() })); closePluginModal(); showToastEl('✅ Расширение сохранено', false); }
     catch(e) { showError(e.message); }
   }
-  async function togglePluginStatus(id, enabled) { if (!canAdmin()) return; try { await tfAwait(refs.plugins.doc(id).update({ enabled })); } catch(e) { showError(e.message); } }
-  async function deletePlugin(id) { if (!canAdmin() || !(await appConfirm('Удалить расширение?'))) return; try { await tfAwait(refs.plugins.doc(id).delete()); } catch(e) { showError(e.message); } }
+  async function togglePluginStatus(id, enabled) { if (!canAdmin()) return; try { await tfAwait(refs.plugins.doc(id).set({ enabled, removed:false }, {merge:true})); } catch(e) { showError(e.message); } }
+  async function deletePlugin(id) { if (!canAdmin() || !(await appConfirm('Удалить расширение?'))) return; try { if (getPluginRecords().find(p => p.id === id)?.bundled) await tfAwait(refs.plugins.doc(id).set({ enabled:false, removed:true }, {merge:true})); else await tfAwait(refs.plugins.doc(id).delete()); } catch(e) { showError(e.message); } }
 
   // === АВТОРИЗАЦИЯ ===
   auth.onAuthStateChanged(async user => {

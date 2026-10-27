@@ -1,0 +1,25 @@
+// Real workers/cache/IndexedDB; minimal local HTML, no Firebase/Auth/network service.
+const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),crypto=require('node:crypto'),assert=require('node:assert/strict');
+const {chromium}=require(process.env.TABEL_PLAYWRIGHT_MODULE||(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES+'/playwright'));
+const root=path.resolve(__dirname,'../..'),oldRoot=process.env.TABEL_OLD_DIR||path.resolve(root,'../pwa-before-plugin');
+const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+const sites=[oldRoot,root].map(dir=>{const manifest=JSON.parse(fs.readFileSync(path.join(dir,'test-app/build-manifest.json'))),html=Buffer.from(`<!doctype html><meta name="fixture-version" content="${manifest.version}"><title>Local PWA upgrade fixture</title><script>navigator.serviceWorker.register('./sw-test.js');</script>`),records=manifest.assets.map(r=>r.url==='./index-test.html'?{...r,sha256:sha(html)}:r);return{dir,manifest,html,worker:fs.readFileSync(path.join(dir,'sw-test.js'),'utf8').replace(/^const RECORDS = .*;$/m,'const RECORDS = '+JSON.stringify(records)+';')};});
+let phase=0,browser;const errors=[];
+const server=http.createServer((req,res)=>{const site=sites[phase],name=decodeURIComponent(new URL(req.url,'http://local/').pathname).slice(1);try{const data=name==='index-test.html'?site.html:name==='sw-test.js'?site.worker:fs.readFileSync(path.join(site.dir,name));const ext=path.extname(name);res.writeHead(200,{'Content-Type':['.js','.mjs'].includes(ext)?'text/javascript':ext==='.html'?'text/html':ext==='.css'?'text/css':ext==='.json'?'application/json':'application/octet-stream','Cache-Control':'no-store'});res.end(data);}catch{res.writeHead(404);res.end();}});
+const poll=async fn=>{for(let i=0;i<200;i++){if(await fn())return;await new Promise(r=>setTimeout(r,50));}throw Error('PWA upgrade timed out');};
+(async()=>{try{
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+ browser=await chromium.launch({headless:true,...(process.env.TABEL_BROWSER_EXECUTABLE?{executablePath:process.env.TABEL_BROWSER_EXECUTABLE}:{}),args:['--no-sandbox']});const context=await browser.newContext();await context.route('**/*',route=>route.request().url().startsWith(base+'/')?route.continue():route.abort());
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(base+'/index-test.html');await page.evaluate(async()=>{await navigator.serviceWorker.ready;});await poll(()=>page.evaluate(()=>!!navigator.serviceWorker.controller));
+ const payload={id:'saved-before-plugin',value:'Не удалять старую очередь'};
+ await page.evaluate(async data=>{localStorage.setItem('legacy-line-queue',JSON.stringify(data));await new Promise((resolve,reject)=>{const r=indexedDB.open('dt_timesheet_v1_samosval-offline_main_workspace_qa',1);r.onupgradeneeded=()=>r.result.createObjectStore('jobs',{keyPath:'id'});r.onsuccess=()=>{const tx=r.result.transaction('jobs','readwrite');tx.objectStore('jobs').put(data);tx.oncomplete=()=>{r.result.close();resolve();};tx.onerror=()=>reject(tx.error);};});},payload);
+ phase=1;await page.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();await r.update();});await poll(()=>page.evaluate(async()=>!!(await navigator.serviceWorker.getRegistration()).waiting));
+ assert.equal(await page.locator('meta[name=fixture-version]').getAttribute('content'),sites[0].manifest.version);
+ const nextWorker=context.serviceWorkers().at(-1);await page.close();
+ await poll(()=>nextWorker.evaluate(async old=>!(await caches.keys()).includes('samosval-test-shell-'+old),sites[0].manifest.version));
+ const fresh=await context.newPage();await fresh.goto(base+'/index-test.html');assert.equal(await fresh.locator('meta[name=fixture-version]').getAttribute('content'),sites[1].manifest.version);
+ await context.setOffline(true);await fresh.reload();assert.equal(await fresh.locator('meta[name=fixture-version]').getAttribute('content'),sites[1].manifest.version);
+ const saved=await fresh.evaluate(async()=>({line:JSON.parse(localStorage.getItem('legacy-line-queue')),job:await new Promise((resolve,reject)=>{const r=indexedDB.open('dt_timesheet_v1_samosval-offline_main_workspace_qa',1);r.onsuccess=()=>{const db=r.result,tx=db.transaction('jobs'),get=tx.objectStore('jobs').get('saved-before-plugin');get.onsuccess=()=>resolve(get.result);tx.oncomplete=()=>db.close();get.onerror=()=>reject(get.error);};})}));assert.deepEqual(saved,{line:payload,job:payload});
+ const resources=await fresh.evaluate(async urls=>Promise.all(urls.map(async url=>(await fetch(url)).ok)),sites[1].manifest.assets.map(r=>r.url));assert(resources.every(Boolean));assert.deepEqual(errors,[]);
+ console.log('PASS actual previous→plugin worker activation, cold offline reload, all '+resources.length+' resources, legacy Line and ledger queues retained');
+}catch(e){console.error(e);process.exitCode=1;}finally{await browser?.close();server.close();}})();

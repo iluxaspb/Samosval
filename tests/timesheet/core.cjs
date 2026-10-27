@@ -1,4 +1,4 @@
-const assert=require('node:assert/strict'),C=require('../../test-app/src/features/timesheet-core.js');
+const assert=require('node:assert/strict'),C=require('../../test-app/tabel/storage-core.mjs').default;
 assert.equal(C.hours('7,5'),450);assert.equal(C.hours(''),null);assert.equal(C.hours('0'),0);assert.equal(C.hours('24'),1440);
 for(const x of ['-1','25','12oops','Infinity','0x10','1e2'])assert.throws(()=>C.hours(x));
 assert.equal(C.quantity('80,125'),80.125);assert.throws(()=>C.quantity('0'));
@@ -16,5 +16,5 @@ assert.equal(C.project([],[{...queued,status:'conflict'}],'timesheetEntries').le
 assert(C.csv([['=HYPERLINK("bad")','+123','Имя; Фамилия','a"b']]).includes('"\'=HYPERLINK'));
 const fs=require('fs'),vm=require('vm'),html=require('../../tools/read-test-html.cjs')();for(const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi))new vm.Script(m[1]);
 for(const m of html.matchAll(/try \{ \(0, eval\)\(("(?:[^"\\]|\\.)*")\);/g))new vm.Script(JSON.parse(m[1]));
-assert(html.includes("TEST_FIREBASE_PROJECT_ID = 'samosval-offline'"));assert(html.includes('id="nav-timesheet"'));assert(html.includes('id="tab-timesheet"'));
+assert(html.includes("TEST_FIREBASE_PROJECT_ID = 'samosval-offline'"));assert(!html.includes('id="nav-timesheet"'));assert(!html.includes('id="tab-timesheet"'));assert(html.includes('id="tabel-plugin"'));
 console.log('PASS validation, hours, independent shifts, 3-person totals, idempotent projection, CSV escaping, test HTML and embedded patch syntax');
