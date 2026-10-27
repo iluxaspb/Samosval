@@ -50,7 +50,7 @@ async function step(name, action) {
   const entry = {case:currentCase,name,status:'running',startedAt:new Date().toISOString()}; report.steps.push(entry); persist();
   const start = Date.now();
   try { await action(); entry.status = 'passed'; console.log('PASS browser:', currentCase, name); }
-  catch (error) { entry.status = 'failed'; entry.error = error.stack || String(error); await evidence(name + '-failure'); throw error; }
+  catch (error) { entry.status = 'failed'; entry.error = error.stack || String(error); console.error('DIAGNOSTICS',JSON.stringify(await page.evaluate(()=>({status:state.truckStatus,errors:window.__auditFixture.errors,body:document.body.innerText.slice(-2000)})).catch(()=>({})))); await evidence(name + '-failure'); throw error; }
   finally { entry.durationMs = Date.now() - start; persist(); }
 }
 
@@ -171,7 +171,10 @@ async function toggleCheckbox(id, checked) {
 }
 async function hold(truck, kind, milliseconds = 650) {
   const cls = {arrive:'btn-arrive',load:'btn-quick',ttn:'btn-ttn'}[kind];
-  await page.locator('.truck-card[data-truck-id="' + truck + '"] .action-row .' + cls).click({delay:milliseconds});
+  const button=page.locator('.truck-card[data-truck-id="' + truck + '"] .action-row .' + cls);
+  await button.scrollIntoViewIfNeeded();
+  await wait(()=>!isScrolling);
+  await button.click({delay:milliseconds});
 }
 async function chooseTruck(id) {
   await page.locator('#selectTrucksBtn').click();
