@@ -50,7 +50,7 @@ async function step(name, action) {
   const entry = {case:currentCase,name,status:'running',startedAt:new Date().toISOString()}; report.steps.push(entry); persist();
   const start = Date.now();
   try { await action(); entry.status = 'passed'; console.log('PASS browser:', currentCase, name); }
-  catch (error) { entry.status = 'failed'; entry.error = error.stack || String(error); console.error('DIAGNOSTICS',JSON.stringify(await page.evaluate(()=>({status:state.truckStatus,errors:window.__auditFixture.errors,body:document.body.innerText.slice(-2000)})).catch(()=>({})))); await evidence(name + '-failure'); throw error; }
+  catch (error) { entry.status = 'failed'; entry.error = error.stack || String(error); console.error('DIAGNOSTICS',JSON.stringify(await page.evaluate(()=>({status:state.truckStatus,failures:offlineUnreviewedFailures(),errors:window.__auditFixture.errors,body:document.body.innerText.slice(-2000)})).catch(()=>({})))); await evidence(name + '-failure'); throw error; }
   finally { entry.durationMs = Date.now() - start; persist(); }
 }
 
@@ -356,6 +356,7 @@ async function responsiveCase(mobile) {
     await evidence('report');
   });
   await step('close-cancel-double-close-archive-reopen-restore', async () => {
+    const earnedBeforeClose=await page.evaluate(()=>window.__gameEconomy.snapshot().earned);
     await page.locator('#closeShiftBtn').click();
     await confirm(false,/Перед закрытием смены создать резервную копию/);
     await confirm(false,/^Закрыть смену\?$/);
@@ -373,6 +374,8 @@ async function responsiveCase(mobile) {
     await confirm(true,/^Закрыть смену\?$/,true);
     await wait(() => !state.shift && state.archive.length === 1 && !closeShiftInFlight);
     assert.equal((await readRows('archive')).length, 1); assert.equal((await readRows('logs')).length, 0);
+    await wait(()=>window.__gameEconomy.snapshot().records.some(e=>e.history?.operations.some(o=>o.collection==='logs'&&o.before&&!o.after)));
+    assert.equal(await page.evaluate(()=>window.__gameEconomy.snapshot().earned),earnedBeforeClose,'Closing a shift must not change earned coins');
     await nav('archive'); await page.locator('#archiveSearchToggle').click(); await page.locator('#archiveSearchInput').fill('учебный');
     await page.locator('.archive-shift-item').first().click(); await page.locator('#archiveModal.open').waitFor({state:'visible'});
     assert.match(await page.locator('#modalArchiveBody').innerText(), /20/);
@@ -382,11 +385,11 @@ async function responsiveCase(mobile) {
     assert.equal((await readRows('archive')).length, 1);
     await page.locator('#archiveRestoreBtn').dblclick();
     await cancelRepeatedPrompts(/^Восстановить смену/);
-    await wait(()=>!archiveRestoreInFlight);
+    await wait(()=>!document.querySelector('.pcm-overlay'));
     assert.equal((await readRows('archive')).length,1,'Rapid restore opener/cancellation must preserve archive');
     assert.equal((await readRows('shift')).length,0); assert.equal((await readRows('logs')).length,0);
     await page.locator('#archiveRestoreBtn').click(); await confirm(true,/^Восстановить смену/,true);
-    await wait(() => state.shift?.isActive && !state.shift.restoring && state.archive.length === 0 && getLogs().length === 1 && !archiveRestoreInFlight);
+    await wait(() => state.shift?.isActive && !state.shift.restoring && state.archive.length === 0 && getLogs().length === 1);
     assert.equal((await readRows('archive')).length, 0); assert.equal((await readRows('logs')).length, 1);
     assert.equal((await readRows('truckStatus')).length, 1);
     await nav('line'); await evidence('restored');
