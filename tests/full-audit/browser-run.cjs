@@ -606,6 +606,18 @@ async function coinLedgerCase() {
   await page.reload();await ready();await wait(()=>document.getElementById('game-wallet').textContent.includes('-5'));
   await evidence('recipient-negative-balance');await assertNoUnexpectedErrors();
   console.log('PASS browser: admin award, recipient ledger, negative balance, reload persistence');
+  await closeContext(); await seed();
+  await launch(path.join(work,'operator-coins'), 'qa-active', false, false, true); await ready();
+  await page.locator('#startShiftBtn').click();await page.locator('#existingObjectsList button').click();
+  await wait(()=>state.shift?.isActive&&!startShiftInFlight);await chooseTruck('qa-truck');
+  await writeDoc('settings/permissions',{lopater:{tabs:['line','report'],actions:['action_arrive','action_load','action_ttn','view_header']}},true);
+  await writeDoc('users/qa-active',{role:'lopater'},true);await wait(()=>currentUserRole==='lopater'&&hasPermission('action_load'));
+  await hold('qa-truck','arrive');await wait(()=>!!state.truckStatus['qa-truck'].arriveStatus&&offlinePendingCount()===0);
+  await hold('qa-truck','load');await wait(()=>getLogs().length===1&&offlinePendingCount()===0);
+  await wait(()=>window.__gameEconomy.snapshot().earned===1);
+  assert.match(await page.locator('#game-wallet').innerText(),/1/);
+  await evidence('operator-earned-coin');await assertNoUnexpectedErrors();
+  console.log('PASS browser: operator earns load coin through real Firestore rules and action queue');
 }
 async function main() {
   assert(Number.isInteger(port) && port > 1024 && port < 65536, 'Invalid local emulator port');
