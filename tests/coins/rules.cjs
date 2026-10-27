@@ -5,8 +5,9 @@ const {doc, setDoc, getDoc, getDocs, collection, query, where, updateDoc, delete
   const env = await initializeTestEnvironment({projectId:'demo-coin-rules', firestore:{host:'127.0.0.1',port:8080,rules:fs.readFileSync('firestore-coins-test.rules','utf8')}});
   try {
     await env.withSecurityRulesDisabled(async c => {
+      const seedDb=c.firestore();
       for (const [uid,role,status] of [['admin','admin','active'],['operator','lopater','active'],['other','lopater','active'],['disabled','lopater','disabled']])
-        await setDoc(doc(c.firestore(),'users',uid),{email:uid+'@example.com',role,status});
+        await setDoc(doc(seedDb,'users',uid),{email:uid+'@example.com',role,status});
     });
     const db = uid => env.authenticatedContext(uid,{email:uid+'@example.com'}).firestore();
     const admin=db('admin'), operator=db('operator'), other=db('other');
