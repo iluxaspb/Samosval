@@ -30,7 +30,7 @@ jobs:
           done
       - name: Fetch exact pre-update application
         run: |
-          git fetch --depth=1 origin d355556c72f81f6f104aa3bac9b28f584dbc0c9a
+          git fetch --depth=1 origin bd0e906e15a6cafb8b3dd7fd390d0fbc584218a7
           mkdir -p "$RUNNER_TEMP/samosval-old"
           git archive FETCH_HEAD | tar -x -C "$RUNNER_TEMP/samosval-old"
       - name: Install browser test dependencies
