@@ -30,3 +30,11 @@ TIMESHEET_RULES_PATH=test-app/tabel/proposals/firestore.integrated-emulator.rule
 Прочитать действующий ruleset тестового проекта, сохранить его ID и полный текст; перенести только проверенный табельный diff на эту базу; повторить эмулятор. Сначала test/compile, затем deploy только Firestore rules и только project `samosval-offline`. Проверить фактический активный ruleset и сохранение/чтение через клиента. Для отката повторно опубликовать точный предыдущий ruleset. Не удалять данные/IndexedDB и не менять production.
 
 SHA-256 подготовленного кандидата: `c0323524eb2245dcba0fdbaaf03a10cd8430281a9ff20cf890b38336785b701e`.
+
+## Прочитанная серверная база
+
+Firebase Console открылась с действующим сохранённым входом Google. ID выбранного проекта подтверждён URL: `samosval-offline`, database `(default)`. CLI 15.34.1 установлена, её отдельный вход не завершён; сохранённый браузерный вход и CLI не отождествляются. Плагин Firebase не установлен.
+
+Опубликованный ruleset отличается от репозитория: другой owner UID, добавлены coinTransactions/validCoinAdjustment, прежних ledger-правил на сервере нет. Резервная копия — `firestore.live-before-20261027.rules`. Новый кандидат строится поверх неё: `firestore.live-integrated.rules`, diff — `firebase-live-integration.patch`, контрольные суммы/статус — `firebase-live-deployment.json`. Весь префикс до рабочего collection fallback и суффикс от match trucks сохранены побайтно, включая владельца и монеты. В общем fallback добавлены только исключения коллекций табеля; запрет обхода coinTransactions сохранён.
+
+На этой фактической базе повторены оба эмуляторных набора (табель и legacy), все завершились успешно. Перед публикацией в Console дополнительно проверить сохранность монет и отсутствие смены server revision.

@@ -1,0 +1,11 @@
+{
+  "projectId": "samosval-offline",
+  "database": "(default)",
+  "source": "Firebase Console authenticated UI copy, active starred Today 10:12 AM",
+  "readAt": "2026-10-27T21:22:04.338639+03:00",
+  "url": "https://console.firebase.google.com/project/samosval-offline/firestore/databases/-default-/security/rules",
+  "beforeSha256": "e073000015c65828676523437b2aa601dffa3803f6cbda5c51e364ba2f26c422",
+  "proposedSha256": "6671496d0a6c259355b19f2a732e4b40b294a066b05744e2c2e60fddb719308c",
+  "status": "prepared-not-published",
+  "preserved": "Exact live prefix (identity/users/settings/coins helper) and suffix (trucks/Line/trips/audit/coinTransactions/notifications)"
+}
