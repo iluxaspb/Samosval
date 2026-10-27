@@ -85,6 +85,7 @@ function createLocalServer(root, firestorePort, requestLog) {
   root = fs.realpathSync(root);
   const servedBytes = file => {
     const bytes = fs.readFileSync(file), relative = path.relative(root,file).split(path.sep).join('/');
+    if (relative === 'index-test.html') return Buffer.from(rewriteDemoSource(bytes.toString(),true));
     if (relative === FIRESTORE_PROBE_FIXTURE.asset) return rewriteConnectivityProbe(bytes);
     if (relative.startsWith('test-app/build/') && relative.endsWith('.js'))
       return Buffer.from(rewriteDemoSource(bytes.toString(),relative.endsWith('/core.js')));
@@ -128,7 +129,7 @@ function createLocalServer(root, firestorePort, requestLog) {
       const file = path.resolve(root, relative);
       if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()
           || !fs.realpathSync(file).startsWith(root + path.sep)
-          || !/^(?:index-test\.html|manifest-test\.webmanifest|sw-test\.js|test-app\/(?:build|vendor|icons)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
+          || !/^(?:index-test\.html|manifest-test\.webmanifest|sw-test\.js|test-app\/(?:build|vendor|icons|src)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
         res.writeHead(404); res.end(); return;
       }
       res.setHeader('Content-Type', types[path.extname(file)] || 'application/octet-stream');
