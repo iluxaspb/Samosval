@@ -653,7 +653,7 @@ main().catch(error => { fatalError=error; console.error(error); }).finally(async
   try { await cleanup(); } catch (error) { fatalError = fatalError || error; report.cleanup.push(error.stack); }
   report.finishedAt = new Date().toISOString();
   if (fatalError) report.error = fatalError.stack;
-  report.status = fatalError || report.cases.length !== 3 || report.cases.some(c => c.status !== 'passed') || report.pageErrors.length || report.blockedRequests.length || report.cspViolations.length ? 'failed' : 'passed';
+  report.status = fatalError || report.cases.length !== 4 || report.cases.some(c => c.status !== 'passed') || report.pageErrors.length || report.blockedRequests.length || report.cspViolations.length ? 'failed' : 'passed';
   persist(); console.log('Browser acceptance:',report.status,'Evidence:',output);
   if (report.status !== 'passed') process.exitCode = 1;
 });
