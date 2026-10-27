@@ -25,12 +25,14 @@ jobs:
       - name: Existing business and offline regressions
         run: |
           set -eu
-          for test in tests/coins/admin-settings.cjs tests/coins/test-parity.cjs tests/coins/standalone.cjs tests/photo-removal/build.cjs tests/photo-removal/core.cjs tests/pwa/service-worker.cjs tests/shift-close/regression.cjs tests/shift-close/max-text.cjs tests/png-export/regression.cjs; do
+          git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
+          python3 tools/verify-test-modules.py
+          for test in tests/coins/admin-settings.cjs tests/coins/test-parity.cjs tests/coins/standalone.cjs tests/photo-removal/core.cjs tests/pwa/service-worker.cjs tests/shift-close/regression.cjs tests/shift-close/max-text.cjs tests/png-export/regression.cjs; do
             node "$test"
           done
       - name: Fetch exact pre-update application
         run: |
-          git fetch --depth=1 origin bd0e906e15a6cafb8b3dd7fd390d0fbc584218a7
+          git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
           mkdir -p "$RUNNER_TEMP/samosval-old"
           git archive FETCH_HEAD | tar -x -C "$RUNNER_TEMP/samosval-old"
       - name: Install browser test dependencies
@@ -38,7 +40,7 @@ jobs:
           python -m pip install playwright==1.57.0
           python -m playwright install --with-deps chromium
       - name: Actual browser old-to-new upgrade without live Firebase
-        run: python -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old"
+        run: python -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 0f0881040d710261
       - name: Verify files served by live GitHub Pages
         env:
           CHECK_UPDATER: ${{ github.ref_name == 'root' && '1' || '0' }}
