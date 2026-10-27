@@ -372,7 +372,7 @@
   </style>
 <link rel="stylesheet" href="./test-app/src/styles/timesheet-css.css">
   <style>.version-text { color: #e11d48 !important; }</style>
-  <meta name="test-app-version" content="3.4.7">
+  <meta name="test-app-version" content="3.4.8">
   <meta name="test-app-build" content="4d678e2d991bf9f0">
 </head>
 <body>
@@ -416,7 +416,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.4.7</span>
+        <span class="version-text">Версия 3.4.8</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -3965,7 +3965,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
 <script>
 (function(){
   const releases=[
-    {version:'3.4.7',title:'Тестовая версия — виброотклик интерфейса',items:['Вибрация срабатывает на короткое нажатие интерактивного элемента; при прокрутке не срабатывает.','Добавлена настройка уровня вибрации: слабый, средний и сильный.','Вибрация кнопок «Приехал», «Погрузка» и «ТТН» сохранена без изменений.','Переключатель «Вибрация интерфейса» сохраняет настройку на устройстве.']},
+    {version:'3.4.8',title:'Исправлены лишние виброотклики',items:['Убраны ложные виброотклики от фона окна настроек и контейнеров с обработчиком onclick.','Общий отклик срабатывает только на конкретных кнопках, вкладках и других явно заданных элементах управления.','Прокрутка и касания по фону модального окна не вызывают вибрацию; прокрутка внутри карточки самосвала также не вибрирует.','Настройки уровня и включения вибрации сохранены. Вибрация «Приехал», «Погрузка» и «ТТН» не изменена.']},
     {version:'3.4.7',title:'Единый просмотр листов и обновление интерфейса',items:['Сводка и архив используют единый полноэкранный просмотр листа: перетаскивание, масштабирование двумя пальцами, кнопки масштаба и «Лист целиком».','Иконка 📄 в правом нижнем углу переключает обычный и ГАИ-лист после удержания 800 мс. Короткое нажатие не переключает отчёт.','Метка дубликата показана красной латинской D. Это только отображение: сохранённые данные и правила определения дубликата не меняются.','Поздравление с новым рангом расположено по центру экрана; звук салюта учитывает настройку игровых звуков.','Поиск техники очищается при каждом открытии выбора самосвалов. Сброс встроен в основную функцию открытия и не зависит от включения патча.']},
     {version:'3.4.6',title:'Просмотр архивного листа в полный экран',items:['Лист архива открывается поверх программы как в сводке: перетаскивание, увеличение, уменьшение, масштабирование двумя пальцами и подгонка целиком.','Кнопка переключения обычного листа и ГАИ — только значок 📄 в правом нижнем углу без подписи.','Рисование отключено в обеих версиях. Данные, сортировка рейсов, архивные PNG и автоматические отметки ТТН сохранены.']},
     {version:'3.4.5',title:'Ручное рисование на листах отключено',items:['Убраны кнопки «Рисовать» и «Очистить» на листах сводки, ГАИ и в архиве.','Отключены обработчики рисования и прозрачные слои поверх листов.','Просмотр, масштабирование, отметки ТТН, архив и экспорт PNG сохранены. Историю версий видит только активный администратор.']},
@@ -5346,7 +5346,7 @@ A.subscribe(syncUI);window.addEventListener('review-flags-changed',syncUI);windo
   const enabled=()=>{try{return localStorage.getItem(KEY)!=='0'}catch(_){return true}};
   const level=()=>{try{const value=localStorage.getItem(LEVEL_KEY);return value==='weak'||value==='strong'?value:'medium'}catch(_){return 'medium'}};
   const duration=()=>({weak:8,medium:15,strong:28})[level()];
-  const controls='button,[role="button"],[role="tab"],[role="switch"],a[href],input[type="button"],input[type="submit"],input[type="checkbox"],input[type="radio"],input[type="range"],select,summary,.tab,.truck-card,[onclick],label.toggle-switch';
+  const controls='button,[role="button"],[role="tab"],[role="switch"],a[href],input[type="button"],input[type="submit"],input[type="checkbox"],input[type="radio"],input[type="range"],select,summary,.truck-card[data-truck-id],label.toggle-switch';
   const excluded=/^(приехал(?: на линию)?|погрузка|ттн)$/i;
   function controlFor(target){return target instanceof Element?target.closest(controls):null}
   function isLegacyAction(el){
@@ -5408,7 +5408,7 @@ A.subscribe(syncUI);window.addEventListener('review-flags-changed',syncUI);windo
 })();
 </script>
 <!-- Test-only, stand-alone Timesheet module. The production HTML is not modified. -->
-<script>window.TEST_APP_RELEASE={version:'3.4.7',label:'3.4.7'};window.__testGetShift=()=>state.shift;</script>
+<script>window.TEST_APP_RELEASE={version:'3.4.8',label:'3.4.8'};window.__testGetShift=()=>state.shift;</script>
 <script id="timesheet-core" src="./test-app/src/features/timesheet-core.js"></script>
 <script id="timesheet-app" src="./test-app/src/features/timesheet-app.js"></script>
 <script id="test-pwa" src="./test-app/src/pwa.js"></script>
