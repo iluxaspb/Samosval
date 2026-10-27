@@ -321,7 +321,7 @@ async function responsiveCase(mobile) {
     assert.equal(await page.evaluate(() => state.shift), null);
     await page.locator('#startShiftBtn').click();
     await page.locator('#existingObjectsList button').dblclick();
-    await wait(() => state.shift?.isActive);
+    await wait(() => state.shift?.isActive && !startShiftInFlight);
     assert.equal((await readRows('shift')).length, 1);
     await chooseTruck('qa-truck');
     assert.equal((await readRows('truckStatus')).length, 1);
@@ -380,7 +380,7 @@ async function responsiveCase(mobile) {
     assert.equal((await readRows('archive')).length, 1); assert.equal((await readRows('logs')).length, 0);
     await wait(()=>window.__gameEconomy.snapshot().records.some(e=>e.history?.operations.some(o=>o.collection==='logs'&&o.before&&!o.after)));
     assert.equal(await page.evaluate(()=>window.__gameEconomy.snapshot().earned),earnedBeforeClose,'Closing a shift must not change earned coins');
-    await nav('archive'); await page.locator('#archiveSearchToggle').click(); await page.locator('#archiveSearchInput').fill('учебный');
+    await nav('archive'); await page.locator('#archiveSearchInput').fill('учебный');
     await page.locator('.archive-shift-item').first().click(); await page.locator('#archiveModal.open').waitFor({state:'visible'});
     assert.match(await page.locator('#modalArchiveBody').innerText(), /20/);
     await page.locator('#archiveModal button[onclick="closeArchiveModal()"]').click();
