@@ -5337,7 +5337,8 @@ A.subscribe(syncUI);window.addEventListener('review-flags-changed',syncUI);windo
 
 </script>
 
-<!-- Global interface haptics; legacy truck action haptics <script id="global-interface-haptics">
+<!-- Global interface haptics; legacy truck action haptics remain unchanged. -->
+<script id="global-interface-haptics">
 (()=>{
   'use strict';
   const KEY='samosval-ui-haptics-enabled';
@@ -5404,8 +5405,6 @@ A.subscribe(syncUI);window.addEventListener('review-flags-changed',syncUI);windo
     if(!event.isTrusted||event.detail!==0||Date.now()-lastPointerPulse<350)return;
     const el=controlFor(event.target);if(allowed(el))pulse();
   },{capture:true,passive:true});
-})();
-</script>rue});
 })();
 </script>
 <!-- Test-only, stand-alone Timesheet module. The production HTML is not modified. -->
