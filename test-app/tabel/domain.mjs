@@ -1,5 +1,5 @@
 /* Isolated ledger domain. No Firebase, DOM, eval, or Line writes. */
-export const VERSION = '1.1.0-test.1';
+export const VERSION = '1.1.0-test.2';
 export const ACTIONS = ['table','settings','request','shift','people','equipment','materials','plans','report','history','permissions'];
 export const clone = x => JSON.parse(JSON.stringify(x));
 export const isoToday = () => new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow'}).format(new Date());
