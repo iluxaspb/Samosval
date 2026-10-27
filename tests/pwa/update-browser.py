@@ -132,7 +132,7 @@ class Release:
 
     def asset(self, name):
         data = self.raw(name)
-        if name.removeprefix('./') == 'index-test.html' or (name.removeprefix('./').startswith('test-app/build/') and name.endswith('.js')):
+        if name.removeprefix('./') == 'index-test.html' or (name.removeprefix('./').startswith(('test-app/build/', 'test-app/src/')) and name.endswith('.js')):
             source = data.decode().replace('samosval-offline', PROJECT)
             if name.endswith('/core.js') or name.endswith('index-test.html'):
                 source, count = re.subn(r'const firebaseConfig\s*=\s*\{[\s\S]*?\};',
@@ -357,7 +357,7 @@ def main():
 
         ctx = context()
         page = ctx.new_page(); page.goto(base + 'index-test.html'); app_ready(page)
-        wait_for_page_state(page, '() => !!navigator.serviceWorker.controller && window.TestPWA.snapshot().shellReady', timeout=45000)
+        wait_for_page_state(page, '() => !!navigator.serviceWorker.controller && window.TestPWA.snapshot().activeVersion === '+json.dumps(old.build), timeout=45000)
         old_release_checks(page)
         journal_key = f'samosval_offline_v1_{PROJECT}_main_workspace_qa-update'
         queue = [{'id':f'op-{i}', 'shiftId':'qa-shift', 'truckId':'qa-truck',
