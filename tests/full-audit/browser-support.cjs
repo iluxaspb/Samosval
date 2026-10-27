@@ -87,7 +87,7 @@ function createLocalServer(root, firestorePort, requestLog) {
     const bytes = fs.readFileSync(file), relative = path.relative(root,file).split(path.sep).join('/');
     if (relative === 'index-test.html') return Buffer.from(rewriteDemoSource(bytes.toString(),true));
     if (relative === FIRESTORE_PROBE_FIXTURE.asset) return rewriteConnectivityProbe(bytes);
-    if (relative.startsWith('test-app/build/') && relative.endsWith('.js'))
+    if ((relative.startsWith('test-app/build/') || relative.startsWith('test-app/src/')) && relative.endsWith('.js'))
       return Buffer.from(rewriteDemoSource(bytes.toString(),relative.endsWith('/core.js')));
     if (relative === 'sw-test.js') {
       // The production worker verifies every response hash. Preserve that check
