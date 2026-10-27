@@ -525,8 +525,8 @@ async function responsiveCase(mobile) {
     assert.equal(await page.locator('#archive-paper-wrapper .paper-table th').count(),42);
     const fullWidth=await page.locator('#archive-paper-wrapper .paper-table').evaluate(table=>table.scrollWidth);
     assert(fullWidth>2000,'Fixture must exceed viewport/A4 width');
-    const pending=page.waitForEvent('download',{timeout:65000}); await page.locator('#archiveSavePngBtn').click();
-    const download=await pending, filename=path.join(output,currentCase+'-archive-fullwidth.png');
+    const [download]=await Promise.all([page.waitForEvent('download',{timeout:65000}),page.locator('#archiveModal button[onclick="exportArchivePNG()"]').click()]);
+    const filename=path.join(output,currentCase+'-archive-fullwidth.png');
     assert.match(download.suggestedFilename(),/\.png$/); await download.saveAs(filename);
     const bytes=fs.readFileSync(filename), dimensions=pngDetails(bytes);
     assert(dimensions.width>2000 && dimensions.width<=8192 && dimensions.height>0,'PNG must preserve the wide sheet within canvas bounds');
