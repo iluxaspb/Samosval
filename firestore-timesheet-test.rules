@@ -118,7 +118,7 @@ service cloud.firestore {
         && request.resource.data.get('createdByEmail', '')
           == request.auth.token.get('email', '');
     }
-
+\n    // TEST ONLY. Coin adjustments are append-only and must come from an active admin.\n    function validCoinAdjustment() {\n      let data = request.resource.data;\n      let targetUid = data.get('targetUid', '');\n      return data.get('eventType', '') != 'game_coin_adjustment' || (\n        admin()\n        && targetUid is string\n        && exists(/databases/$(database)/documents/users/$(targetUid))\n        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('status', '') == 'active'\n        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('email', '') == data.get('targetEmail', '')\n        && data.keys().hasOnly(['eventType','amount','targetUid','targetEmail','targetName','reason','timestamp','userEmail','userName','createdByEmail','createdByUid','text','timeStr'])\n        && data.get('amount', 0) is int\n        && data.amount > 0 && data.amount <= 10000\n        && data.get('targetEmail', '') is string\n        && data.get('targetName', '') is string\n        && data.get('reason', '') is string\n        && data.reason.size() >= 3 && data.reason.size() <= 160\n        && data.get('createdByUid', '') == request.auth.uid\n        && data.get('createdByEmail', '') == request.auth.token.get('email', '')\n        && data.get('userEmail', '') == request.auth.token.get('email', '')\n        && data.get('timestamp', 0) is number\n        && data.get('text', '') is string\n        && data.get('timeStr', '') is string\n      );\n    }\n
     match /users/{uid} {
       allow get: if signedIn()
         && (request.auth.uid == uid || active());
@@ -387,7 +387,8 @@ service cloud.firestore {
             == request.auth.token.get('email', '')
           && request.resource.data.text is string
           && request.resource.data.timestamp is number
-          && (request.resource.data.get('eventType', '') != 'history' || validHistoryCreate());
+          && (request.resource.data.get('eventType', '') != 'history' || validHistoryCreate())
+          && validCoinAdjustment();
       }
 
       match /notifications/{id} {
