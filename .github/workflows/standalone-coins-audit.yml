@@ -1,0 +1,39 @@
+name: Standalone coin release audit
+on:
+  push:
+    branches: ['audit/test-3.4.10-prepublish-20261027']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-page:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check actual checked-in page and precache
+        run: |
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert/strict'),crypto=require('crypto');
+          const html=fs.readFileSync('index-test.html','utf8');
+          let count=0;
+          for(const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)){
+            if(/\bsrc\s*=/.test(m[1])||/application\/(json|ld\+json)/.test(m[1]))continue;
+            new vm.Script(m[2]);count++;
+          }
+          const worker=fs.readFileSync('sw-test.js','utf8');
+          new vm.Script(worker);
+          const records=JSON.parse(worker.match(/^const RECORDS = (\[.*\]);$/m)[1]);
+          for(const r of records)assert.equal(crypto.createHash('sha256').update(fs.readFileSync(r.url)).digest('hex'),r.sha256,r.url);
+          const source=html.match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];
+          const context={window:{},state:{objects:[]}};
+          vm.runInNewContext(source.slice(0,source.indexOf('  let records='))+'})();',context);
+          const calculate=context.window.__gameCoinsCore.calculate;
+          const rows=['worker@example.test','admin@example.test'].map((email,i)=>({id:'h'+i,eventType:'history',timestamp:100+i,userEmail:email,history:{undone:false,operations:[{collection:'logs',id:'l'+i,before:null,after:{clientOperationId:'op'+i,createdByEmail:email,shiftId:'s'}}]}}));
+          for(const email of ['worker@example.test','admin@example.test'])assert.equal(calculate(rows).find(r=>r.user===email).coins,1);
+          assert.equal(calculate([...rows,...rows]).reduce((sum,r)=>sum+r.coins,0),2,'duplicate snapshots must not duplicate awards');
+          console.log('PASS checked-in HTML scripts:',count,'precache assets:',records.length,'operator/admin accrual and deduplication');
+          NODE

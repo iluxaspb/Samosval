@@ -1,0 +1,317 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owner() {
+      return signedIn()
+        && request.auth.uid == '8NMAKIjVmmaaj7A1zfqAv2bRUZN2';
+    }
+
+    function account() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function active() {
+      return signedIn() && (owner() || account().get('status', '') == 'active');
+    }
+
+    function admin() {
+      return signedIn() && (owner() || (
+        account().get('status', '') == 'active'
+        && account().get('role', '') == 'admin'
+      ));
+    }
+
+    function roleActions() {
+      return get(/databases/$(database)/documents/settings/permissions)
+        .data.get(account().get('role', ''), {}).get('actions', []);
+    }
+
+    function can(action) {
+      return signedIn() && (owner() || (
+        account().get('status', '') == 'active'
+        && (account().get('role', '') == 'admin' || action in roleActions())
+      ));
+    }
+
+    function loadingAllowed() {
+      return can('action_load');
+    }
+
+    function nextCycleRevision() {
+      return request.resource.data.get('cycleRevision', 0)
+        == resource.data.get('cycleRevision', 0) + 1;
+    }
+
+    function validLoadCreate(logId) {
+      let truckId = request.resource.data.truckId;
+      let before = get(/databases/$(database)/documents/workspaces/main_workspace/truckStatus/$(truckId)).data;
+      let after = getAfter(/databases/$(database)/documents/workspaces/main_workspace/truckStatus/$(truckId)).data;
+      return before.get('arriveStatus', null) != null
+        && before.shiftId == request.resource.data.shiftId
+        && request.resource.data.arrivalTimestamp == before.arriveTimestamp
+        && after.get('arriveStatus', null) == null
+        && after.get('lastLoadLogId', '') == logId
+        && after.lastLoadTimestamp == request.resource.data.timestamp
+        && after.get('cycleRevision', 0) == before.get('cycleRevision', 0) + 1;
+    }
+
+    function validLoadingStatus(truckId) {
+      let logId = request.resource.data.get('lastLoadLogId', 'missing');
+      let log = getAfter(/databases/$(database)/documents/workspaces/main_workspace/logs/$(logId)).data;
+      return resource.data.get('arriveStatus', null) != null
+        && request.resource.data.get('arriveStatus', null) == null
+        && nextCycleRevision()
+        && log.truckId == truckId
+        && log.shiftId == resource.data.shiftId
+        && log.timestamp == request.resource.data.lastLoadTimestamp
+        && log.createdByEmail == request.auth.token.get('email', '');
+    }
+
+    function validHistoryOperation(op) {
+      let path = op.collection in ['users', 'settings', 'registration_requests']
+        ? /databases/$(database)/documents/$(op.collection)/$(op.id)
+        : /databases/$(database)/documents/workspaces/main_workspace/$(op.collection)/$(op.id);
+      return op.before != op.after
+        && op.before == (exists(path) ? get(path).data : null)
+        && op.after == (existsAfter(path) ? getAfter(path).data : null);
+    }
+
+    function validHistoryCreate() {
+      let ops = request.resource.data.history.operations;
+      return request.resource.data.history.userUid == request.auth.uid
+        && request.resource.data.history.userEmail == request.auth.token.get('email', '')
+        && request.resource.data.history.undone == false
+        && ops is list && ops.size() > 0 && ops.size() <= 4
+        && validHistoryOperation(ops[0])
+        && (ops.size() < 2 || validHistoryOperation(ops[1]))
+        && (ops.size() < 3 || validHistoryOperation(ops[2]))
+        && (ops.size() < 4 || validHistoryOperation(ops[3]));
+    }
+
+    function ownLoadUndo() {
+      let logId = resource.data.get('lastLoadLogId', 'missing');
+      return can('undo_action')
+        && get(/databases/$(database)/documents/workspaces/main_workspace/logs/$(logId)).data.createdByEmail
+          == request.auth.token.get('email', '');
+    }
+
+    function changedOnly(fields) {
+      return request.resource.data.diff(resource.data)
+        .affectedKeys().hasOnly(fields);
+    }
+
+    function ownRecord() {
+      return signedIn()
+        && resource.data.get('createdByEmail', '')
+          == request.auth.token.get('email', '');
+    }
+
+    function ownNewRecord() {
+      return signedIn()
+        && request.resource.data.get('createdByEmail', '')
+          == request.auth.token.get('email', '');
+    }
+
+    function validCoinAdjustment() {
+      let data = request.resource.data;
+      let targetUid = data.get('targetUid', '');
+      return admin()
+        && data.get('eventType', '') == 'game_coin_adjustment'
+        && targetUid is string
+        && exists(/databases/$(database)/documents/users/$(targetUid))
+        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('status', '') == 'active'
+        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('email', '') == data.get('targetEmail', '')
+        && data.keys().hasOnly(['eventType','amount','targetUid','targetEmail','targetName','reason','timestamp','userEmail','userName','createdByEmail','createdByUid','text','timeStr'])
+        && data.get('amount', 0) is int
+        && data.amount > 0 && data.amount <= 10000
+        && data.get('targetEmail', '') is string
+        && data.get('targetName', '') is string
+        && data.get('reason', '') is string
+        && data.reason.size() >= 3 && data.reason.size() <= 160
+        && data.get('createdByUid', '') == request.auth.uid
+        && data.get('createdByEmail', '') == request.auth.token.get('email', '')
+        && data.get('userEmail', '') == request.auth.token.get('email', '')
+        && data.get('timestamp', 0) is number
+        && data.get('text', '') is string
+        && data.get('timeStr', '') is string;
+    }
+
+
+    match /users/{uid} {
+      allow get: if signedIn()
+        && (request.auth.uid == uid || active());
+      allow list: if active();
+
+      allow create: if admin() || (
+        signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'email', 'nickname', 'role', 'status', 'createdAt'
+        ])
+        && request.resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.role == 'viewer'
+        && request.resource.data.status == 'pending'
+      );
+
+      allow update: if admin() || (
+        signedIn() && request.auth.uid == uid
+        && changedOnly(['nickname'])
+      );
+      allow delete: if admin();
+    }
+
+    match /settings/permissions {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    // The existing client uses this document for MAX notifications.
+    match /settings/appConfig {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    match /settings/undoRedoStacks {
+      allow read, write: if admin();
+    }
+
+    match /registration_requests/{uid} {
+      allow get: if admin() || (signedIn() && request.auth.uid == uid);
+      allow list: if admin();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'nickname', 'status', 'createdAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt is number
+        && getAfter(/databases/$(database)/documents/users/$(uid)).data.status == 'pending'
+        && getAfter(/databases/$(database)/documents/users/$(uid)).data.role == 'viewer';
+      allow update, delete: if admin();
+    }
+
+    match /backups/{document=**} {
+      allow read, write: if admin();
+    }
+
+    match /workspaces/main_workspace {
+      // The application subscribes to these shared collections.
+      // Non-admin writes are granted separately below.
+      match /{collection}/{id} {
+        allow read: if collection != 'coinTransactions' && active();
+        allow write: if collection != 'coinTransactions' && admin();
+      }
+
+      match /trucks/{id} {
+        allow write: if can('manage_trucks') || can('import_backup');
+      }
+
+      match /objects/{id} {
+        allow create: if can('manage_objects') || can('start_shift')
+          || can('import_backup');
+        allow update, delete: if can('manage_objects') || can('import_backup');
+      }
+
+      match /shift/{id} {
+        allow create: if can('start_shift') || can('archive_edit');
+        allow update: if can('edit_line') || can('close_shift')
+          || can('archive_edit');
+        allow delete: if can('close_shift') || can('archive_edit');
+      }
+
+      match /truckStatus/{id} {
+        allow create: if can('edit_line') || can('archive_edit');
+
+        allow update: if (
+          loadingAllowed()
+          && changedOnly([
+            'lastLoadTimestamp', 'lastLoadBy',
+            'arriveStatus', 'arriveTimestamp', 'arriveBy',
+            'loadedAfterArrive', 'ttnStatus', 'ttnBy', 'ttnLogId',
+            'cycleRevision', 'lastLoadLogId', 'ttnRevision'
+          ])
+          && ((nextCycleRevision() && (can('undo_any') || ownLoadUndo())) || validLoadingStatus(id))
+        ) || (
+          can('action_arrive')
+          && changedOnly([
+            'arriveStatus', 'arriveTimestamp',
+            'arriveBy', 'loadedAfterArrive', 'cycleRevision'
+          ])
+          && nextCycleRevision()
+        ) || (
+          can('action_ttn')
+          && changedOnly(['ttnStatus', 'ttnBy', 'ttnLogId', 'ttnRevision'])
+          && request.resource.data.get('ttnRevision', 0) == resource.data.get('ttnRevision', 0) + 1
+        ) || can('edit_line') || can('archive_edit');
+
+        allow delete: if can('edit_line') || can('close_shift')
+          || can('archive_edit') || can('manage_trucks');
+      }
+
+      match /logs/{id} {
+        allow create: if (
+          loadingAllowed() && ownNewRecord() && validLoadCreate(id)
+        ) || can('archive_edit');
+
+        allow update: if can('edit_logs');
+        allow delete: if can('edit_logs') || can('close_shift')
+          || can('archive_edit')
+          || (can('undo_action') && ownRecord());
+      }
+
+      match /archive/{id} {
+        allow create: if can('close_shift') || can('import_backup');
+        allow update: if can('archive_edit') || can('import_backup');
+        allow delete: if can('archive_delete') || can('archive_edit');
+      }
+
+      match /trash/{id} {
+        allow write: if can('archive_delete');
+      }
+
+      match /audit/{id} {
+        allow update: if resource.data.get('eventType','') == 'history'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['history'])
+          && request.resource.data.history.diff(resource.data.history).affectedKeys().hasOnly(['undone'])
+          && request.resource.data.history.undone is bool
+          && request.resource.data.history.undone != resource.data.history.undone
+          && ((request.resource.data.history.undone == true
+              && (can('history_undo_any') || (can('history_undo_own') && ownRecord())))
+            || (request.resource.data.history.undone == false
+              && (can('history_redo_any') || (can('history_redo_own') && ownRecord()))));
+
+        allow create: if active() && ownNewRecord()
+          && request.resource.data.get('userEmail', '')
+            == request.auth.token.get('email', '')
+          && request.resource.data.text is string
+          && request.resource.data.timestamp is number
+          && (request.resource.data.get('eventType', '') != 'history' || validHistoryCreate());
+      }
+
+      match /coinTransactions/{id} {
+        allow get, list: if active() && (admin() || resource.data.get('targetUid', '') == request.auth.uid);
+        allow create: if validCoinAdjustment();
+        allow update, delete: if false;
+      }
+
+      match /notifications/{id} {
+        allow create: if active() && ownNewRecord() && (
+          can('action_arrive') || can('action_load')
+          || can('action_ttn') || can('edit_line')
+          || can('start_shift') || can('close_shift')
+        );
+
+        allow delete: if can('close_shift') || can('undo_any')
+          || (can('undo_action') && ownRecord());
+      }
+    }
+  }
+}

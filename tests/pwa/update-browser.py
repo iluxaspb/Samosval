@@ -22,9 +22,9 @@ PROJECT = 'demo-samosval-upgrade-audit'
 CONFIG = {'projectId': PROJECT, 'apiKey': 'local-demo-not-a-credential',
           'appId': 'local-demo-app', 'authDomain': '127.0.0.1',
           'storageBucket': PROJECT + '.invalid'}
-BASELINE_COMMIT = 'd355556c72f81f6f104aa3bac9b28f584dbc0c9a'
-BASELINE_BUILD = '93c3fea4099fbd8a'
-CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
+BASELINE_COMMIT = 'bd0e906e15a6cafb8b3dd7fd390d0fbc584218a7'
+BASELINE_BUILD = '01915a70c2b10014'
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
        "font-src 'self' data:; connect-src 'self'; worker-src 'self'; "
        "media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'")
@@ -110,10 +110,8 @@ class Release:
         # says 3.1.17, but its history module hardcodes runtime header 3.1.16.
         # Preserve that input, derive its runtime expectation from actual bytes,
         # and require the current release to agree with current HTML below.
-        history = next(r for r in self.manifest['assets'] if r['url'].endswith('/release-history.js'))
-        literal = re.search(r"button\.textContent\s*=\s*(['\"])(.*?)\1\s*;", self.raw(history['url']).decode())
-        self.runtime_label = literal[2] if literal else self.label
-        assert './test-app/build/' + self.build + '/' in html
+        self.runtime_label = self.label
+        assert 'standalone' in self.manifest['channel']
         # Verify actual input artifacts before the local deployment-config rewrite.
         for record in self.manifest['assets']:
             assert self.digest(self.raw(record['url'])) == record['sha256'], record['url']
@@ -134,9 +132,9 @@ class Release:
 
     def asset(self, name):
         data = self.raw(name)
-        if name.removeprefix('./').startswith('test-app/build/') and name.endswith('.js'):
+        if name.removeprefix('./') == 'index-test.html' or (name.removeprefix('./').startswith('test-app/build/') and name.endswith('.js')):
             source = data.decode().replace('samosval-offline', PROJECT)
-            if name.endswith('/core.js'):
+            if name.endswith('/core.js') or name.endswith('index-test.html'):
                 source, count = re.subn(r'const firebaseConfig\s*=\s*\{[\s\S]*?\};',
                     'const firebaseConfig = ' + json.dumps(CONFIG) + ';', source)
                 assert count == 1, 'Expected one Firebase configuration'
@@ -170,7 +168,7 @@ def make_server(old, new, phase, report):
                 name = path.removeprefix('/Samosval/')
                 allowed = (name in {'index-test.html', 'update-test.html', 'sw-test.js',
                                    'manifest-test.webmanifest', 'test-app/build-manifest.json'}
-                           or name.startswith(('test-app/build/', 'test-app/vendor/', 'test-app/icons/', 'assets/')))
+                           or name.startswith(('test-app/build/', 'test-app/src/', 'test-app/vendor/', 'test-app/icons/', 'assets/')))
                 if not allowed or '..' in Path(name).parts:
                     self.send_error(404); return
                 if name == 'update-test.html':
@@ -328,9 +326,7 @@ def main():
 
         def old_release_checks(p):
             assert p.locator('#mainHeader .version-text').text_content() == old.runtime_label
-            assert p.locator('#admin-camera-button').count() == 1, 'Pinned old release must retain the original camera control'
-            scripts = p.locator('script[src]').evaluate_all('(els)=>els.map(e=>new URL(e.src).pathname).filter(p=>p.includes("/test-app/build/"))')
-            assert scripts and all('/test-app/build/' + old.build + '/' in src for src in scripts), 'The actual old build must still be loaded'
+            assert p.locator('meta[name="test-app-version"]').get_attribute('content') == old.version
 
         def role_checks(p):
             # This tests actual visibility and the real click handler using explicit

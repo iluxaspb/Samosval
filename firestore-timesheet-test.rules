@@ -119,32 +119,6 @@ service cloud.firestore {
           == request.auth.token.get('email', '');
     }
 
-    // TEST ONLY: append-only awards are private to the recipient and administrators.
-    function validCoinAdjustment() {
-      let data = request.resource.data;
-      let targetUid = data.get('targetUid', '');
-      return admin()
-        && data.get('eventType', '') == 'game_coin_adjustment'
-        && targetUid is string
-        && exists(/databases/$(database)/documents/users/$(targetUid))
-        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('status', '') == 'active'
-        && get(/databases/$(database)/documents/users/$(targetUid)).data.get('email', '') == data.get('targetEmail', '')
-        && data.keys().hasOnly(['eventType','amount','targetUid','targetEmail','targetName','reason','timestamp','userEmail','userName','createdByEmail','createdByUid','text','timeStr'])
-        && data.get('amount', 0) is int
-        && data.amount > 0 && data.amount <= 10000
-        && data.get('targetEmail', '') is string
-        && data.get('targetName', '') is string
-        && data.get('reason', '') is string
-        && data.reason.size() >= 3 && data.reason.size() <= 160
-        && data.get('createdByUid', '') == request.auth.uid
-        && data.get('createdByEmail', '') == request.auth.token.get('email', '')
-        && data.get('userEmail', '') == request.auth.token.get('email', '')
-        && data.get('timestamp', 0) is number
-        && data.get('text', '') is string
-        && data.get('timeStr', '') is string;
-    }
-
-
     match /users/{uid} {
       allow get: if signedIn()
         && (request.auth.uid == uid || active());
@@ -208,8 +182,8 @@ service cloud.firestore {
       // The application subscribes to these shared collections.
       // Non-admin writes are granted separately below.
       match /{collection}/{id} {
-        allow read: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetChanges','coinTransactions']) && active();
-        allow write: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetChanges','coinTransactions']) && admin();
+        allow read: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetChanges']) && active();
+        allow write: if !(collection in ['timesheetPeople','timesheetEquipment','timesheetEntries','timesheetMaterials','timesheetChanges']) && admin();
       }
 
       // Field ledger: enabled only on the separate samosval-offline test project.
@@ -414,13 +388,6 @@ service cloud.firestore {
           && request.resource.data.text is string
           && request.resource.data.timestamp is number
           && (request.resource.data.get('eventType', '') != 'history' || validHistoryCreate());
-      }
-
-      // TEST ONLY: coin awards can be read only by the recipient or an administrator.
-      match /coinTransactions/{id} {
-        allow get, list: if active() && (admin() || resource.data.get('targetUid', '') == request.auth.uid);
-        allow create: if validCoinAdjustment();
-        allow update, delete: if false;
       }
 
       match /notifications/{id} {
