@@ -144,7 +144,7 @@ function createLocalServer(root, firestorePort, requestLog) {
 // deliberate UI fixture; Firestore is the real SDK with emulator mock-user tokens.
 function installBrowserFixture({port, uid, project, config, initiallySignedIn = false}) {
   // Set an ordinary user preference so unsolicited joke overlays do not intercept test gestures.
-  localStorage.setItem(['samosval-road-jokes-v1',project,'main_workspace',uid].join(':'),JSON.stringify({mode:'never',seen:{},count:0}));
+  if(location.protocol==='http:')localStorage.setItem(['samosval-road-jokes-v1',project,'main_workspace',uid].join(':'),JSON.stringify({mode:'never',seen:{},count:0}));
   window.__auditFixture = {ready:false, authCalls:[], blockedStorageCalls:0, errors:[], csp:[]};
   window.addEventListener('unhandledrejection', e => {
     const message=String(e.reason?.stack || e.reason); window.__auditFixture.errors.push(message);
