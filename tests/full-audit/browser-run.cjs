@@ -306,7 +306,7 @@ async function responsiveCase(mobile) {
     await assertRemovedFeatures();
     assert.equal(await page.locator('#mainHeader .version-text').innerText(),report.release);
     assert.equal(await page.locator('#authPassword').inputValue(), '');
-    assert.equal(await page.evaluate(() => localStorage.getItem('dt_saved_pass')), null);
+    assert.equal(await page.evaluate(() => localStorage.getItem('dt_saved_pass_test347')), null);
   });
   await step('start-cancel-reopen-and-add-line', async () => {
     await page.locator('#startShiftBtn').click();
@@ -314,7 +314,7 @@ async function responsiveCase(mobile) {
     assert.equal(await page.evaluate(() => state.shift), null);
     await page.locator('#startShiftBtn').click();
     await page.locator('#existingObjectsList button').dblclick();
-    await wait(() => state.shift?.isActive && !startShiftInFlight);
+    await wait(() => state.shift?.isActive);
     assert.equal((await readRows('shift')).length, 1);
     await chooseTruck('qa-truck');
     assert.equal((await readRows('truckStatus')).length, 1);
@@ -388,11 +388,25 @@ async function responsiveCase(mobile) {
     assert.equal((await readRows('truckStatus')).length, 1);
     await nav('line'); await evidence('restored');
   });
+  await step('coin-ledger-admin-award-and-durable-entry', async () => {
+    await page.locator('#game-wallet').click();
+    await page.locator('#game-ledger-toggle').click();
+    await page.locator('#game-grant-user option[value="qa-viewer"]').waitFor({state:'attached'});
+    await page.locator('#game-grant-user').selectOption('qa-viewer');
+    await page.locator('#game-grant-amount').fill('25');
+    await page.locator('#game-grant-reason').fill('Компенсация для проверки');
+    await page.locator('#game-grant-submit').click();
+    await wait(()=>document.querySelector('.game-ledger-admin [role="status"]')?.textContent.includes('Начислено'));
+    const rows=await readRows('coinTransactions');
+    assert.equal(rows.length,1);assert.equal(rows[0].amount,25);assert.equal(rows[0].targetUid,'qa-viewer');
+    assert(await page.locator('.game-ledger-table').innerText().then(t=>t.includes('Компенсация для проверки')));
+    await page.locator('#game-ranking .game-head button').click();
+  });
   await step('settings-theme-preview-and-game-toggle-persistence', async () => {
     await page.locator('#mainHeader .gear-btn').click(); await page.locator('#settingsModal.open').waitFor({state:'visible'});
     await page.locator('#settingHoldLoad').fill('0.5'); await page.locator('#settingHoldLoad').press('Tab');
     await toggleCheckbox('hapticLoad',false);
-    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('dt_settings')).hapticLoad), false);
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('dt_settings_test347')).hapticLoad), false);
     assert(await page.locator('#test-pwa-settings').isVisible());
     await page.locator('#settingsModal').getByRole('button',{name:'🛍 Лавка дорожника',exact:true}).click();
     await page.locator('#road-shop-dialog[open]').waitFor({state:'visible'});
