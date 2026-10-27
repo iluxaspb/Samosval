@@ -1020,6 +1020,7 @@ const firebaseConfig = {
     trucks: wsRef.collection('trucks'), objects: wsRef.collection('objects'), logs: wsRef.collection('logs'),
     truckStatus: wsRef.collection('truckStatus'), shift: wsRef.collection('shift').doc('current'),
     archive: wsRef.collection('archive'), trash: wsRef.collection('trash'), audit: wsRef.collection('audit'),
+    coinTransactions: wsRef.collection('coinTransactions'),
     notifications: wsRef.collection('notifications'), plugins: wsRef.collection('plugins'),
     patches: wsRef.collection('patches')
   };
@@ -4335,7 +4336,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   }
   window.__gameCoinsCore={calculate,rank,scopeFor,scopedRecords,rewardsAt,rewardSnapshot,recordedRewards,rewardSchedule,rewardDefaults,rewardLimit};
 
-  let records=[],unsubscribe=null,owner='',ready=false,error='',board=[],configReady=false,lastView='',rankingScope='shift',rankingObject='',rankGuideOpen=false,visualBalance=null,visualOwner='',ledgerOpen=false,ledgerUser='all',ledgerLimit=50,grantTargets=[],grantTargetsLoaded=false,grantTargetsLoading=false,grantBusy=false,grantMessage='',grantAmount='',grantReason='',grantOperationId='';
+  let records=[],unsubscribe=null,unsubscribeAdjustments=null,adjustmentListenerKey='',coinAdjustmentRows=[],owner='',ready=false,error='',board=[],configReady=false,lastView='',rankingScope='shift',rankingObject='',rankGuideOpen=false,visualBalance=null,visualOwner='',ledgerOpen=false,ledgerUser='all',ledgerLimit=50,grantTargets=[],grantTargetsLoaded=false,grantTargetsLoading=false,grantBusy=false,grantMessage='',grantAmount='',grantReason='',grantOperationId='';
   const enabled=()=>configReady&&permissionsLoaded&&currentUserStatus==='active'&&!!currentUid&&appConfig?.testReviewFlags?.game_mode!==false;
   const wallet=document.createElement('button');wallet.id='game-wallet';wallet.hidden=true;wallet.type='button';wallet.setAttribute('aria-label','Монеты и рейтинг пользователей');document.querySelector('#mainHeader .top-row')?.insertBefore(wallet,document.querySelector('#mainHeader .gear-btn'));
   const modal=document.createElement('dialog');modal.id='game-ranking';modal.setAttribute('aria-labelledby','game-title');document.body.append(modal);
@@ -4401,9 +4402,8 @@ body.game-coin-feedback #toast{visibility:hidden}
         if(Number.isSafeInteger(e.cost)&&e.cost>0)out.push({id:'arcade-cost:'+e.id,uid:e.userUid||'',email:e.userEmail||'',name:e.userName||e.userEmail||'',at:e.timestamp||0,amount:-e.cost,description:(e.text||'Мини-игра')+' · ставка'});
         if(Number.isSafeInteger(e.payout)&&e.payout>0)out.push({id:'arcade-payout:'+e.id,uid:e.userUid||'',email:e.userEmail||'',name:e.userName||e.userEmail||'',at:e.timestamp||0,amount:e.payout,description:(e.text||'Мини-игра')+' · выплата'});
       }
-      if(e.eventType==='game_coin_adjustment'&&Number.isSafeInteger(e.amount)&&e.amount>0)
-        out.push({id:'grant:'+e.id,uid:e.targetUid||'',email:e.targetEmail||'',name:e.targetName||e.targetEmail||'',at:e.timestamp||0,amount:e.amount,description:'Награда администратора: '+(e.reason||'без причины')});
-    }
+      }
+    for(const e of coinAdjustmentRows){if(e.eventType==='game_coin_adjustment'&&Number.isSafeInteger(e.amount)&&e.amount>0)out.push({id:'grant:'+e.id,uid:e.targetUid||'',email:e.targetEmail||'',name:e.targetName||e.targetEmail||'',at:e.timestamp||0,amount:e.amount,description:'Награда администратора: '+(e.reason||'без причины')});}
     return out.sort((a,b)=>(b.at||0)-(a.at||0)||String(a.id).localeCompare(String(b.id)));
   }
   function renderCoinLedger(rows,balance,esc){
@@ -4430,7 +4430,7 @@ body.game-coin-feedback #toast{visibility:hidden}
     if(!Number.isSafeInteger(amount)||amount<1||amount>10000){grantMessage='Введите целое число от 1 до 10 000.';paint();return;}
     if(reason.length<3||reason.length>160){grantMessage='Укажите причину (от 3 до 160 символов).';paint();return;}
     if(!navigator.onLine){grantMessage='Для начисления нужна связь с сервером.';paint();return;}
-    const actor=currentUid,operationId=grantOperationId||(crypto.randomUUID?crypto.randomUUID():Date.now()+'_'+Math.random().toString(36).slice(2));grantOperationId=operationId;const ref=refs.audit.doc('coin_grant_'+encodeURIComponent(target.id)+'_'+operationId);
+    const actor=currentUid,operationId=grantOperationId||(crypto.randomUUID?crypto.randomUUID():Date.now()+'_'+Math.random().toString(36).slice(2));grantOperationId=operationId;const ref=refs.coinTransactions.doc('coin_grant_'+encodeURIComponent(target.id)+'_'+operationId);
     grantBusy=true;grantMessage='Сохраняем начисление…';grantAmount=String(amount);grantReason=reason;paint();
     try{
       await db.runTransaction(async tx=>{
@@ -4801,18 +4801,25 @@ body.game-coin-feedback #toast{visibility:hidden}
     const identity=permissionsLoaded&&currentUserStatus==='active'?String(currentUid||''):'';
     if(identity!==owner){
       cancelCoinFeedback();cancelRankCelebration();rankSnapshotConfirmed=false;rankGuideOpen=false;
-      rewardDirty=false;rewardMessage='';unsubscribe?.();unsubscribe=null;owner=identity;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
+      rewardDirty=false;rewardMessage='';unsubscribe?.();unsubscribe=null;unsubscribeAdjustments?.();unsubscribeAdjustments=null;adjustmentListenerKey='';coinAdjustmentRows=[];owner=identity;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
     }
     if(identity&&!unsubscribe){
       const session=owner;
-      unsubscribe=refs.audit.where('eventType','in',['history','game_penalty','game_purchase','game_arcade','game_coin_adjustment']).onSnapshot({includeMetadataChanges:true},s=>{if(owner!==session)return;records=s.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()}));ready=true;error='';rankSnapshotConfirmed=!s.metadata.fromCache&&!s.metadata.hasPendingWrites;notifyPenalties(records);paint();observeRankProgress();},e=>{if(owner!==session)return;rankSnapshotConfirmed=false;cancelRankCelebration();error='Не удалось загрузить рейтинг. Проверьте подключение и доступ к истории.';ready=false;paint();console.warn('[game coins]',e);});
+      unsubscribe=refs.audit.where('eventType','in',['history','game_penalty','game_purchase','game_arcade']).onSnapshot({includeMetadataChanges:true},s=>{if(owner!==session)return;records=s.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()}));ready=true;error='';rankSnapshotConfirmed=!s.metadata.fromCache&&!s.metadata.hasPendingWrites;notifyPenalties(records);paint();observeRankProgress();},e=>{if(owner!==session)return;rankSnapshotConfirmed=false;cancelRankCelebration();error='Не удалось загрузить рейтинг. Проверьте подключение и доступ к истории.';ready=false;paint();console.warn('[game coins]',e);});
+    }
+    const adjustmentKey=identity+'|'+(canAdmin()?'admin':'own');
+    if(adjustmentListenerKey!==adjustmentKey){unsubscribeAdjustments?.();unsubscribeAdjustments=null;adjustmentListenerKey=adjustmentKey;coinAdjustmentRows=[];}
+    if(identity&&!unsubscribeAdjustments){
+      const session=owner;
+      const query=canAdmin()?refs.coinTransactions:refs.coinTransactions.where('targetUid','==',identity);
+      unsubscribeAdjustments=query.onSnapshot({includeMetadataChanges:true},s=>{if(owner!==session)return;coinAdjustmentRows=s.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()}));paint();},e=>{if(owner!==session)return;console.warn('[coin ledger]',e);grantMessage='Не удалось загрузить движения монет.';paint();});
     }
     paint();
   }
   window.__gameConfigChanged=()=>{configReady=true;sync();observeRankProgress();};
   window.__gameAccessChanged=sync;
   let economyRows=null,economyEmail='',economyEarned=0;
-  window.__gameEconomy={snapshot:()=>{if(economyRows!==records||economyEmail!==currentEmail){economyRows=records;economyEmail=currentEmail;economyEarned=calculate(records).find(r=>r.user===key(currentEmail))?.coins||0;}return {enabled:enabled(),ready:ready&&rankSnapshotConfirmed,records,earned:economyEarned};}};
+  window.__gameEconomy={snapshot:()=>{if(economyRows!==records||economyEmail!==currentEmail){economyRows=records;economyEmail=currentEmail;economyEarned=calculate(records).find(r=>r.user===key(currentEmail))?.coins||0;}return {enabled:enabled(),ready:ready&&rankSnapshotConfirmed,records,adjustments:coinAdjustmentRows,earned:economyEarned};}};
   // One durable penalty per original action, shared by both undo routes.
   window.__gamePenaltyKey=(type,truck,s,logId,fallback)=>type==='load'&&logId?'load:'+logId:type==='arrive'?'arrive:'+truck+':'+s.shiftId+':'+s.cycleRevision:type==='ttn'?'ttn:'+truck+':'+s.shiftId+':'+s.ttnRevision:'history:'+fallback;
   window.__gameHistoryPenaltyKey=h=>{
@@ -4907,7 +4914,7 @@ body.game-coin-feedback #toast{visibility:hidden}
   // Fixed testing allowance, not a recurring credit: durable purchases consume it.
   const bonus=(role,status)=>role==='admin'&&status==='active'?10000:0;
   const adjustments=(rows,uid)=>rows.filter(r=>r.eventType==='game_coin_adjustment'&&r.targetUid===uid&&Number.isSafeInteger(r.amount)&&r.amount>0).reduce((sum,r)=>sum+r.amount,0);
-  const available=(earned,paid,role,status)=>Math.max(0,earned+bonus(role,status)+(window.RoadArcade?.delta(currentUid)||0)+adjustments(snapshot().records,currentUid)-paid);
+  const available=(earned,paid,role,status)=>Math.max(0,earned+bonus(role,status)+(window.RoadArcade?.delta(currentUid)||0)+adjustments(snapshot().adjustments||[],currentUid)-paid);
   const canOpen=()=>canUse(currentUserRole,currentUserStatus,permissionsLoaded)&&window.__gameEconomy?.snapshot().enabled===true;
   let owner='',preview=null,selected='',filter='all',busy=false,message='',renderKey='',applied='';
   const style=document.createElement('style');style.id='road-theme-active';document.head.append(style);
