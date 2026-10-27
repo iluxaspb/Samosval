@@ -574,6 +574,32 @@ async function runCase(name, task) {
   finally { try { await closeContext(); } catch (error) { entry.status='failed'; entry.cleanupError=error.stack; } persist(); }
 }
 
+async function coinLedgerCase() {
+  await launch(path.join(work,'coin-ledger'), 'qa-active', false, false, true); await ready();
+  await page.locator('#game-wallet').click(); await page.locator('#game-ledger-toggle').click();
+  await page.locator('#game-grant-user option[value="qa-viewer"]').waitFor({state:'attached'});
+  await page.locator('#game-grant-user').selectOption('qa-viewer');
+  await page.locator('#game-grant-amount').fill('25');
+  await page.locator('#game-grant-reason').fill('Компенсация проверки');
+  await page.locator('#game-grant-submit').click();
+  await wait(()=>document.querySelector('.game-ledger-admin [role="status"]')?.textContent.includes('Начислено'));
+  const awards=await readRows('coinTransactions');assert.equal(awards.length,1);assert.equal(awards[0].amount,25);
+  await evidence('award-recorded'); await closeContext();
+  for(let n=0;n<10;n++)await writeDoc('workspaces/main_workspace/audit/test-penalty-'+n,{
+    eventType:'game_penalty',amount:-3,targetEmail:'qa-viewer@example.test',targetName:'Наблюдатель',
+    timestamp:Date.now()+n,scope:{},description:'Проверка отрицательного остатка'
+  });
+  await launch(path.join(work,'coin-recipient'), 'qa-viewer', true, false, true); await ready();
+  await wait(()=>document.getElementById('game-wallet').textContent.includes('-5'));
+  const notice=page.locator('#game-penalty-notice button');if(await notice.count())await notice.click();
+  await page.locator('#game-wallet').click(); await page.locator('#game-ledger-toggle').click();
+  assert.equal(await page.locator('#game-grant-submit').count(),0);
+  assert((await page.locator('.game-ledger').innerText()).includes('-5'));
+  assert((await page.locator('.game-ledger-table').innerText()).includes('Компенсация проверки'));
+  await page.reload();await ready();await wait(()=>document.getElementById('game-wallet').textContent.includes('-5'));
+  await evidence('recipient-negative-balance');await assertNoUnexpectedErrors();
+  console.log('PASS browser: admin award, recipient ledger, negative balance, reload persistence');
+}
 async function main() {
   assert(Number.isInteger(port) && port > 1024 && port < 65536, 'Invalid local emulator port');
   assert(PROJECT.startsWith('demo-'));
@@ -597,6 +623,7 @@ async function main() {
   server.on('audit-error', error => report.pageErrors.push({case:currentCase,type:'server',message:error.stack}));
   await new Promise((resolve,reject) => { server.once('error',reject); server.listen(0,'127.0.0.1',resolve); });
   origin = 'http://127.0.0.1:' + server.address().port;
+  await runCase('coin-ledger', coinLedgerCase);
   await runCase('auth-gates', authenticationCases);
   if (!stopped) await runCase('desktop', () => responsiveCase(false));
   if (!stopped) await runCase('mobile', () => responsiveCase(true));
