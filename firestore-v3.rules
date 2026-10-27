@@ -282,5 +282,19 @@ service cloud.firestore {
           || (can('undo_action') && ownRecord());
       }
     }
+    match /coinTransactions/{id} {
+      allow read: if admin() || (active() && resource.data.targetUid == request.auth.uid);
+      allow create: if admin() && request.resource.data.eventType == 'game_coin_adjustment'
+        && request.resource.data.amount is int
+        && request.resource.data.amount > 0 && request.resource.data.amount <= 10000
+        && request.resource.data.targetUid is string
+        && request.resource.data.targetEmail is string
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 3
+        && request.resource.data.reason.size() <= 160;
+      allow update, delete: if false;
+    }
+
   }
 }
+
