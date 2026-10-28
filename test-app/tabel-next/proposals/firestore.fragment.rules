@@ -1,0 +1,75 @@
+// DRAFT. Insert only into match /workspaces/main_workspace after reviewing the live rules.
+// Requires existing active(), admin(), account(), can(action) helpers. Never deploy this file alone.
+function nextRead() {
+  return active() && (admin() || 'timesheet' in get(/databases/$(database)/documents/settings/permissions).data.get(account().get('role', ''), {}).get('tabs', []));
+}
+function nextGrant(objectId, area, mode) {
+  let configId = objectId + '~config';
+  let acl = get(/databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(configId)).data.data.get('acl', {});
+  return acl.get('user:' + request.auth.uid, {}).get(area + '.' + mode, false)
+    || acl.get('role:' + account().get('role', ''), {}).get(area + '.' + mode, false);
+}
+function nextAccess(d, mode) {
+  return nextRead() && (admin() || ((mode == 'view' || can('timesheet_edit')) &&
+    ((d.key.matches('.*/config') && (nextGrant(d.objectId, 'settings', mode) ||
+      (mode == 'view' && (nextGrant(d.objectId, 'request', mode) || nextGrant(d.objectId, 'table', mode) || nextGrant(d.objectId, 'shift', mode))))) ||
+     (d.key.matches('.*/day:.*') && (nextGrant(d.objectId, 'shift', mode) || nextGrant(d.objectId, 'table', mode))) ||
+     (d.key.matches('.*/sheet:.*') && nextGrant(d.objectId, 'table', mode)))
+  ));
+}
+function nextId(d, id) {
+  return d.objectId.matches('[A-Za-z0-9_-]+') && (
+    (d.key == d.objectId + '/config' && id == d.objectId + '~config') ||
+    (d.key == d.objectId + '/day:' + d.data.get('date','') + ':' + d.data.get('shift','') &&
+     id == d.objectId + '~day~' + d.data.get('date','') + '~' + d.data.get('shift','') &&
+     d.data.get('date','').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') && d.data.shift in ['day','night'] &&
+     d.data.equipment is list && d.data.equipment.size() <= 250 && d.data.people is list && d.data.people.size() <= 500 &&
+     d.data.values is map && d.data.closed is bool) ||
+    (d.key.matches(d.objectId + '/sheet:[A-Za-z0-9_-]+') && id == d.objectId + '~sheet~' + d.key.split(':')[1] &&
+     d.data.cells is map && d.data.rows is int && d.data.rows > 0 && d.data.rows <= 1000 &&
+     d.data.cols is int && d.data.cols > 0 && d.data.cols <= 100)
+  );
+}
+function nextEnvelope(id) {
+  let d = request.resource.data;
+  let op = getAfter(/databases/$(database)/documents/workspaces/main_workspace/tabelNextOperations/$(d.operationId)).data;
+  let path = /databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(id);
+  return d.keys().hasOnly(['recordId','key','objectId','revision','data','author','authorName','time','operationId'])
+    && d.recordId == id && d.data is map && nextId(d,id)
+    && d.author == request.auth.uid && d.authorName is string && d.time is number
+    && d.revision is int && d.revision > 0 && d.operationId is string
+    && op.after == d && op.author == request.auth.uid
+    && op.before == (exists(path) ? get(path).data : {'revision':0,'data':null});
+}
+function nextRequestOnly() {
+  return request.resource.data.key.matches('.*/config')
+    && request.resource.data.data.diff(resource.data.data).affectedKeys().hasOnly(['request'])
+    && nextRead() && can('timesheet_edit') && nextGrant(resource.data.objectId,'request','edit');
+}
+function nextAclProtected() {
+  return admin() || !request.resource.data.key.matches('.*/config')
+    || request.resource.data.data.get('acl', {}) == resource.data.data.get('acl', {});
+}
+match /tabelNextRecords/{recordId} {
+  allow get: if nextRead() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(recordId)) || admin() || nextAccess(resource.data, 'view'));
+  allow list: if nextRead() && (admin() || nextAccess(resource.data, 'view'));
+  allow create: if nextAccess(request.resource.data, 'edit') && nextEnvelope(recordId)
+    && request.resource.data.revision == 1 && (admin() || request.resource.data.data.get('acl', {}) == {});
+  allow update: if (nextAccess(request.resource.data, 'edit') || nextRequestOnly()) && nextEnvelope(recordId)
+    && request.resource.data.revision == resource.data.revision + 1
+    && request.resource.data.key == resource.data.key
+    && request.resource.data.objectId == resource.data.objectId && nextAclProtected();
+  allow delete: if false;
+}
+match /tabelNextOperations/{operationId} {
+  allow get: if nextRead() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/tabelNextOperations/$(operationId)) || admin() || nextAccess(resource.data.after, 'view'));
+  allow list: if nextRead() && (admin() || nextAccess(resource.data.after, 'view'));
+  allow create: if request.resource.data.author == request.auth.uid
+    && request.resource.data.after.operationId == operationId
+    && (nextAccess(request.resource.data.after, 'edit') ||
+      (nextRead() && can('timesheet_edit') && request.resource.data.after.key.matches('.*/config') &&
+       nextGrant(request.resource.data.after.objectId,'request','edit') &&
+       request.resource.data.after.data.diff(request.resource.data.before.data).affectedKeys().hasOnly(['request'])))
+    && getAfter(/databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(request.resource.data.after.recordId)).data == request.resource.data.after;
+  allow update, delete: if false;
+}

@@ -1,0 +1,80 @@
+<!doctype html><meta charset="UTF-8" /><meta
+  name="viewport"
+  content="width=device-width,initial-scale=1"
+/><title>Табель новый — локальная проверка</title
+><button id="open">Открыть новый табель</button>
+<div id="container" class="active"></div>
+<script type="module">
+  import { mount } from "../../test-app/tabel-next/app.mjs";
+  import { config } from "../../test-app/tabel-next/domain.mjs";
+  const objects = [
+    { id: "site-a", name: "Тестовый объект А", startDate: "2026-10-10" },
+    { id: "site-b", name: "Тестовый объект Б", startDate: "2026-10-25" },
+  ];
+  window.remoteCalls = 0;
+  window.remote = new Map(
+    JSON.parse(localStorage.getItem("qa-server") || "[]"),
+  );
+  window.failNetwork = false;
+  const listeners = [];
+  const ref = (path) => ({
+      path,
+      get: async () => {
+        window.remoteCalls++;
+        if (window.failNetwork) throw Error("Сеть недоступна");
+        return snapshot(path);
+      },
+    }),
+    snapshot = (path) => ({
+      exists: remote.has(path),
+      data: () => structuredClone(remote.get(path)),
+    });
+  const actor = {
+    uid: "admin-qa",
+    name: "Проверяющий",
+    role: "admin",
+    status: "active",
+    projectId: "samosval-offline",
+    workspaceId: "qa",
+    tabAccess: true,
+    permissions: { view: true, edit: true },
+  };
+  window.host = {
+    session: () => actor,
+    workspace: {
+      collection: (name) => ({ doc: (id) => ref(name + "/" + id) }),
+    },
+    data: () => ({
+      objects,
+      shift: { objectId: "site-a" },
+      trucks: [],
+      audit: [],
+    }),
+    transaction: async (fn) => {
+      window.remoteCalls++;
+      if (window.failNetwork) throw Error("Сеть недоступна");
+      const pending = [];
+      const result = await fn({
+        get: async (r) => snapshot(r.path),
+        set: (r, data) => pending.push([r.path, structuredClone(data)]),
+      });
+      pending.forEach(([path, data]) => remote.set(path, data));
+      localStorage.setItem("qa-server", JSON.stringify([...remote]));
+      return result;
+    },
+    createObject: async (name, startDate) => {
+      const o = { id: crypto.randomUUID(), name, startDate };
+      objects.push(o);
+      return o;
+    },
+    leave: () => {
+      window.left = true;
+    },
+  };
+  const ctx = { ledgerHost: host };
+  window.app = await mount(ctx, document.querySelector("#container"), {
+    remoteEnabled: !new URLSearchParams(location.search).has("local"),
+  });
+  document.querySelector("#open").onclick = () => app.show();
+  window.ready = true;
+</script>
