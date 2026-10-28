@@ -171,9 +171,9 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     target.textContent =
       (s.remote
         ? navigator.onLine
-          ? "Сеть"
+          ? jobs.some(j => j.status === "queued") ? "Ожидает отправки в Firebase" : s.store.error ? "Ошибка Firebase" : "Firebase: очередь пуста"
           : "Офлайн"
-        : "Локальный режим: правила сервера не подключены") +
+        : "На устройстве: синхронизация Firebase не включена") +
       " · локально " +
       jobs.filter((j) => j.status === "queued").length +
       " · конфликты " +
@@ -184,32 +184,30 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   async function loadObject() {
     if (!s.object || !s.remote) return;
     await s.store.pull(s.key("config"));
-    const c = s.config();
-    const max = c.end && c.end < D.today() ? c.end : D.today();
-    for (const d of D.days(c.start, max)) {
-      for (const shift of ["day", "night"]) {
-        if (s.store.error) break;
-        await s.store.pull(s.key(D.dayKey(d, shift)));
-      }
-      if (s.store.error) break;
-    }
+    await s.store.pullObject(s.object.id);
+    await s.store.pullHistory(s.object.id);
   }
   s.select = async (id) => {
     s.unwatch?.();
     s.grid?.dispose();
     s.object = (host.data().objects || []).find((o) => o.id === id) || s.object;
     s.generation++;
+    if (account().permissions.edit) await s.store.prepareSync();
     await s.store.pull("_catalog/config");
     await s.store.pull("_defaults/config");
-    await host.prepare?.(s.store, s.object);
     await loadObject();
+    await host.prepare?.(s.store, s.object);
+    if (account().permissions.edit) await s.store.prepareSync();
     await render(s);
     watch();
+    void s.store.flush();
   };
+  if (account().permissions.edit) await s.store.prepareSync();
   await s.store.pull("_catalog/config");
   await s.store.pull("_defaults/config");
-  await host.prepare?.(s.store, s.object);
   await loadObject();
+  await host.prepare?.(s.store, s.object);
+  if (account().permissions.edit) await s.store.prepareSync();
   await render(s);
   if (host.errors?.length) error(host.errors.join("\n"));
   void s.store.flush();
@@ -227,10 +225,11 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       async (records) => {
         if (s.object.id !== token) return;
         await s.store.accept(records);
+        if (s.view === "history") await s.store.pullHistory(token);
         const active = document.activeElement;
         if (
           !document.querySelector("dialog.tn") &&
-          !s.root.contains(active) &&
+          !(s.root.contains(active) && active?.matches("input,textarea,select,[contenteditable=true]")) &&
           !s.root.hidden
         )
           await render(s);
@@ -292,8 +291,9 @@ async function render(s) {
     s.select(e.target.value).catch(error);
   s.root.querySelectorAll("[data-view]").forEach(
     (b) =>
-      (b.onclick = () => {
+      (b.onclick = async () => {
         s.view = b.dataset.view;
+        if (s.view === "history" && s.object) await s.store.pullHistory(s.object.id);
         render(s).catch(error);
       }),
   );
@@ -301,7 +301,10 @@ async function render(s) {
     await s.store.flush();
     if (s.object) {
       await s.store.pull(s.key("config"));
-      for (const r of s.store.list(s.key("day:"))) await s.store.pull(r.key);
+      await s.store.pull("_catalog/config");
+      await s.store.pull("_defaults/config");
+      await s.store.pullObject(s.object.id);
+    await s.store.pullHistory(s.object.id);
     }
     await render(s);
   };

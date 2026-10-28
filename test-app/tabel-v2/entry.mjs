@@ -74,6 +74,8 @@ export async function open(host, settingsOnly = false, {requestFirst = false} = 
     requestObjectId: requestObject?.id,
     workspace: host.workspace,
     catalog,
+    transaction: host.transaction,
+    documentId: host.documentId,
     errors,
     prepare: (store, object) => migrate(host, store, object, catalog),
     createObject: host.createObject,
@@ -83,7 +85,15 @@ export async function open(host, settingsOnly = false, {requestFirst = false} = 
       container.remove();
     },
   };
-  const runtime = await mount({ ledgerHost, refs: host.refs }, container);
+  let remoteEnabled = false;
+  if (host.transaction) {
+    try {
+      const policy = await host.workspace.collection("tabelNextMeta").doc("config").get();
+      remoteEnabled = policy.exists && policy.data().enabled === true && policy.data().schema === 1;
+      if (!remoteEnabled) errors.push("Firebase Табеля 2 ещё не включён: сначала опубликуйте правила доступа и настройку синхронизации. Данные сохранены на устройстве.");
+    } catch (e) { errors.push("Не удалось проверить подключение Firebase: " + e.message); }
+  }
+  const runtime = await mount({ ledgerHost, refs: host.refs }, container, {remoteEnabled});
   let timer;
   opened = {
     async dispose() {

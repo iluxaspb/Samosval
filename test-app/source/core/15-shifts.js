@@ -80,7 +80,7 @@
       phase='перенос материала в Табель 2';
       if(archived){
         const module=await import(new URL('./test-app/tabel-v2/material-transfer.mjs',document.baseURI).href);
-        await module.transferClosedLine({objects:state.objects,session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,name:getUserName(),active:currentUserStatus==='active',edit:hasPermission('timesheet_edit')})},shift,archived);
+        await module.transferClosedLine({workspace:wsRef,transaction:fn=>db.runTransaction(fn),documentId:()=>firebase.firestore.FieldPath.documentId(),objects:state.objects,session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,name:getUserName(),active:currentUserStatus==='active',edit:hasPermission('timesheet_edit')})},shift,archived);
       }
       phase='очистка сохранённых рейсов';
       await cleanupOldShiftData(shiftId);

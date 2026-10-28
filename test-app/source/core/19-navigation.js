@@ -39,6 +39,8 @@
         objectId: state.shift && state.shift.objectId});
       const module = await import(new URL('./test-app/tabel-v2/entry.mjs', document.baseURI).href);
       await module.open({session, workspace: wsRef, refs,
+        transaction:fn=>db.runTransaction(fn),
+        documentId:()=>firebase.firestore.FieldPath.documentId(),
         get shift(){return state.shift;}, get objects(){return state.objects;},
         snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,archive:state.archive}),
         createObject:async(name,startDate)=>{

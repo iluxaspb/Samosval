@@ -84,7 +84,7 @@ function fixture(options={}) {
   const nodes=new Map();
   const node=id=>{if(!nodes.has(id))nodes.set(id,{textContent:id,disabled:false,value:'',style:{},classList:{remove(){},add(){}}});return nodes.get(id);};
   const makeContext=()=>{
-    const ctx={db,refs,currentUserRole:options.role||'admin',currentUid:'operator',currentEmail:'operator@example.test',currentUserStatus:'active',WORKSPACE_ID:'test',
+    const ctx={db,refs,wsRef:{collection:name=>new Collection(name)},currentUserRole:options.role||'admin',currentUid:'operator',currentEmail:'operator@example.test',currentUserStatus:'active',WORKSPACE_ID:'test',
       state:{shift:null,logs:[],truckStatus:{},archive:[],objects:[]},viewingArchiveId:null,window:{},
       requireEdit:()=>true,hasPermission:()=>true,hasTabAccess:()=>true,offlinePendingCount:()=>options.pending||0,
       document:{getElementById:node},appConfirm:async()=>{confirms++;if(options.onConfirm)await options.onConfirm(env);return options.confirm!==false;},

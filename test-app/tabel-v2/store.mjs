@@ -91,9 +91,9 @@ export class Store {
       .map(([key, v]) => ({ key, ...copy(v) }));
   }
   async save(key, data, base, label) {
-    if (new TextEncoder().encode(JSON.stringify(data)).length > 700000)
+    if (new TextEncoder().encode(JSON.stringify(data)).length > 350000)
       throw Error(
-        "Запись превышает 700 КБ. Разделите свободную таблицу на несколько листов.",
+        "Запись превышает 350 КБ. Уменьшите объём данных записи.",
       );
     return this.serialize(async () => {
       const current = this.get(key);
@@ -136,6 +136,45 @@ export class Store {
       await this.persist();
       return true;
     });
+  }
+  // Queue snapshots from the local-only releases before accepting server data.
+  // An existing server revision becomes a visible conflict, never a silent overwrite.
+  async prepareSync() {
+    if (!this.remote) return;
+    await this.serialize(async () => {
+      let changed = false;
+      for (const [key, row] of Object.entries(this.state.records)) {
+        try { recordIdFor(key); } catch { continue; }
+        if (!row.data || row.revision || this.state.jobs.some(j => j.key === key)) continue;
+        const job = {id: uid(), key, data: copy(row.data),
+          before: {revision: 0, data: null}, status: "queued",
+          label: "Перенос локального табеля на сервер", author: this.actor(), time: Date.now()};
+        this.state.jobs.push(job);
+        row.localId = job.id;
+        changed = true;
+      }
+      if (changed) await this.persist();
+    });
+  }
+  async pullHistory(objectId) {
+    if (!this.remote?.history) return;
+    try {
+      const rows = await this.remote.history(objectId);
+      await this.serialize(async () => {
+        const known = new Set(this.state.history.map(h => h.id));
+        for (const h of rows) if (!known.has(h.id)) this.state.history.push(h);
+        this.state.history.sort((a,b) => a.time - b.time);
+        await this.persist();
+      });
+    } catch (e) { this.error = e.message; this.emit(); }
+  }
+  async pullObject(objectId) {
+    if (!this.remote) return;
+    try {
+      await this.accept(await this.remote.list(objectId));
+      this.error = "";
+      this.emit();
+    } catch (e) { this.error = e.message; this.emit(); }
   }
   async accept(records) {
     await this.serialize(async () => {
@@ -278,24 +317,50 @@ export function firestoreRemote(host, guard) {
       const s = await ref(key).get({ source: "server" });
       return s.exists ? s.data() : { revision: 0, data: null };
     },
+    async list(objectId) {
+      const field = host.documentId?.() || globalThis.firebase.firestore.FieldPath.documentId();
+      const prefix = objectId + "~";
+      const base = collection.orderBy(field).startAt(prefix).endAt(prefix + "\uf8ff");
+      const rows = [];
+      let cursor = null;
+      for (;;) {
+        const query = (cursor ? base.startAfter(cursor) : base).limit(200);
+        const snapshot = await query.get({source: "server"});
+        rows.push(...snapshot.docs.map(d => [d.data().key, d.data()]));
+        if (snapshot.docs.length < 200) return rows;
+        cursor = snapshot.docs.at(-1);
+      }
+    },
     watch(objectId, from, to, onData, onError) {
-      const field = globalThis.firebase?.firestore?.FieldPath.documentId();
-      if (!field || !collection.orderBy) return () => {};
-      const prefix = objectId + "~day~";
-      const query = collection
-        .orderBy(field)
-        .startAt(prefix + from)
-        .endAt(prefix + to + "\uf8ff")
-        .limit(750);
-      return query.onSnapshot((snapshot) => {
-        if (!snapshot.metadata.fromCache)
-          onData(snapshot.docs.map((d) => [d.data().key, d.data()]));
-      }, onError);
+      const field = host.documentId?.() || globalThis.firebase.firestore.FieldPath.documentId();
+      // Include configuration, all past/future shifts, tombstones and independent sheets.
+      const prefix = objectId + "~";
+      const stop = collection.orderBy(field).startAt(prefix).endAt(prefix + "\uf8ff")
+        .onSnapshot(snapshot => {
+          if (!snapshot.metadata.fromCache)
+            onData(snapshot.docs.map(d => [d.data().key, d.data()]));
+        }, onError);
+      const globals = ["_catalog/config", "_defaults/config"].map(key => ref(key).onSnapshot(snapshot => {
+        if (!snapshot.metadata.fromCache && snapshot.exists) onData([[key, snapshot.data()]]);
+      }, onError));
+      return () => { stop(); globals.forEach(fn => fn()); };
+    },
+    async history(objectId) {
+      const snapshot = await receipts.where("objectId", "==", objectId).get({source: "server"});
+      return snapshot.docs.map(d => {
+        const row = d.data();
+        return {id:d.id, key:row.key, before:row.before, after:row.after, data:row.after.data,
+          label:row.label || "Изменение табеля", time:row.time,
+          author:{uid:row.author,name:row.after.authorName}, confirmed:row.time};
+      });
     },
     async commit(job) {
       guard(job);
+      if (new TextEncoder().encode(JSON.stringify(job.data)).length > 350000)
+        throw Error("Запись превышает 350 КБ; локальная версия сохранена");
       return host
         .transaction(async (tx) => {
+          guard(job);
           const receipt = await tx.get(receipts.doc(job.id));
           if (receipt.exists) return receipt.data().after;
           const s = await tx.get(ref(job.key)),
@@ -316,6 +381,7 @@ export function firestoreRemote(host, guard) {
           tx.set(ref(job.key), after);
           tx.set(receipts.doc(job.id), {
             key: job.key,
+            label: job.label || "Изменение табеля",
             objectId: after.objectId,
             before: current,
             after,

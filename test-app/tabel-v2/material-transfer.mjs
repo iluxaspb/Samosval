@@ -1,6 +1,6 @@
 import * as D from './table-domain.mjs';
 import {lineCalendarDate} from './domain.mjs';
-import {Store} from './store.mjs';
+import {Store,firestoreRemote} from './store.mjs';
 import {migrate,normalizedObject} from './migration.mjs';
 import {dialog,field,input} from './messages.mjs';
 
@@ -61,14 +61,29 @@ export async function transferClosedLine(host,shift,archive) {
   const object=(host.objects || []).find(o=>o.id===shift.objectId);
   if(!object) throw Error('Не найден объект смены для переноса материала');
   const period=sourcePeriod(shift);
-  const store=await new Store(initial.projectId+'_'+initial.workspaceId+'_'+initial.uid,null,()=>({uid:guard().uid,name:guard().name})).open();
+  let remote=null;
+  if(host.transaction) {
+    const policy=await host.workspace.collection('tabelNextMeta').doc('config').get();
+    if(policy.exists && policy.data().enabled===true && policy.data().schema===1)
+      remote=firestoreRemote(host,guard);
+  }
+  const store=await new Store(initial.projectId+'_'+initial.workspaceId+'_'+initial.uid,remote,()=>({uid:guard().uid,name:guard().name})).open();
+  const confirm=async()=>{
+    if(!remote)return;
+    await store.flush();
+    if(store.error || store.state.jobs.length)throw Error('Материал пока не подтверждён сервером: '+(store.error || 'есть очередь или конфликт')+'. Исходные рейсы сохранены.');
+  };
   try {
+    await store.prepareSync();
+    await store.pullObject(object.id);
     await migrate(host,store,normalizedObject(object),{equipment:[],people:[]});
+    await store.prepareSync();
     const configKey=object.id+'/config',base=store.get(configKey),c=base.data || D.config(normalizedObject(object));
     const dayKey=object.id+'/'+D.dayKey(period.date,period.shift);
     const existing=store.get(dayKey).data?.lineImports?.[shift.id];
     if(existing) {
       if(existing.volume!==Number(archive.totalVolume)) throw Error('Перенесённый объём отличается от архива');
+      await confirm();
       return;
     }
     let material=String(c.currentMaterial || '').trim();
@@ -86,5 +101,6 @@ export async function transferClosedLine(host,shift,archive) {
     const next=applyVolume(day,shift.id,row,archive.totalVolume);
     guard();
     if(!await store.save(dayKey,next,before,'Материал с Линии: '+material+' → '+direction)) throw Error('Конфликт переноса материала; обе версии сохранены');
+    await confirm();
   } finally {await store.close();}
 }
