@@ -9,8 +9,8 @@ const modules=JSON.parse(fs.readFileSync(path.join(root,'test-app/modules.json')
 assert.doesNotThrow(()=>new Function(source),'test-only motion script syntax');
 const settingsModule=modules.modules.find(m=>m.name==='settings-hub');
 assert(settingsModule.sources.includes('features/line-motion-test.js'),'physics runs in the hashed offline settings module');
-assert(source.includes("if(!old||old.version!=='1.0.0')return;"),'only upgrade existing motion patch');
-assert(source.includes("if(window.__lineSoftMotionV1?.version!=='1.1.0-test')"),'upgrade version is verified');
+assert(source.includes("['1.0.0','1.1.0-test'].includes(old.version)"),'only upgrade existing motion patch');
+assert(source.includes("if(window.__lineSoftMotionV1?.version!=='1.2.0-test')"),'upgrade version is verified');
 assert(source.includes("localStorage.getItem(KEY) !== 'off'"),'user-disabled animation remains disabled');
 assert(!hub.includes('extendCalmTempo'),'obsolete slider shim must not overwrite new controls');
 // Extract functions from shipped script; test the actual arithmetic, independently of Firebase.
@@ -39,5 +39,6 @@ assert(Math.min(...soft)<-3,'medium spring rebounds');
 assert(Math.min(...strong)<-12,'strong spring visibly rebounds');
 assert(Math.min(...strong)>=-28.01,'strong rebound stays within 28px');
 assert(source.includes('previewAnimations.forEach(a=>a.cancel());previewAnimations=[];'),'preview restarts');
-assert(source.includes('preview.clientWidth'),'preview bounds follow its container');
+assert(source.includes('soft-preview-track'),'preview uses a vertical motion track');
+assert(source.includes('springFrames(0,distance)'),'preview moves only along Y');
 console.log('MOTION_3425_OK','slow=7.2x','fast=0.7x','spring_min='+Math.min(...strong).toFixed(1)+'px');
