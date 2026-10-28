@@ -1,4 +1,4 @@
-/* TEST-ONLY v3.4.25: upgrade existing Firebase line-motion patch locally.
+/* TEST-ONLY v3.4.26: upgrade existing Firebase line-motion patch locally.
  * Do not activate an admin-disabled patch; do not modify Firebase or production.
  */
 (function upgradeInstalledLineMotion(){
@@ -7,14 +7,14 @@ let upgrading=false;
 function upgrade(){
   if(upgrading)return;
   const old=window.__lineSoftMotionV1;
-  if(!old||old.version!=='1.0.0')return;
+  if(!old||!['1.0.0','1.1.0-test'].includes(old.version))return;
   upgrading=true;
   try {
     old.destroy();
 /* Линия: движение и настройки v1.0.0. Тип патча: «Замена функции».
  * Тестовая замена: активируется только поверх установленного патча v1.0.0.
  * Сортировка, кнопки, данные рейсов и права остаются в исходном renderLine.
- * Новые настройки: темп, пружина, длительность вибрации на этом устройстве.
+ * Новые настройки: темп, амплитуда и скорость пружины, вибрация на этом устройстве.
  * Полное отключение: выключить этот патч в админке и перезагрузить страницу.
  * Только анимация: выключатель «Мягкое движение карточек» в шестерёнке.
  */
@@ -32,11 +32,12 @@ function upgrade(){
   const running = new Map();
   let enabled = true, scrollFrame = 0, lastGesture = -Infinity;
   const PREFS = 'samosval:line-soft-motion:preferences:v1';
-  const defaults = {pace:1, spring:35};
+  const defaults = {pace:1, spring:35, springSpeed:50};
   let prefs = {...defaults};
   try { const p=JSON.parse(localStorage.getItem(PREFS)||'{}');
     prefs.pace = Math.min(7.2,Math.max(.7,Number(p.pace)||1));
     prefs.spring = Number.isFinite(p.spring) ? Math.min(100,Math.max(0,p.spring)) : 35;
+    prefs.springSpeed = Number.isFinite(p.springSpeed) ? Math.min(100,Math.max(0,p.springSpeed)) : 50;
     for (const key of ['Arrive','Load','Ttn']) if (Number.isFinite(p['vib'+key])) prefs['vib'+key]=Math.min(80,Math.max(0,p['vib'+key]));
   } catch (_) {}
   function savePrefs() { try { localStorage.setItem(PREFS,JSON.stringify(prefs)); } catch (_) {} }
@@ -85,45 +86,58 @@ function upgrade(){
       running.delete(card); animation.cancel(); clearCard(card);
     }, () => {});
   }
-  // A shared spring clock keeps adjacent cards together; overshoot <= 2 px.
-  // One shared spring clock: zero is smooth landing, maximum shows a visible, bounded rebound.
+  // Independent amplitude and frequency: 0% = no rebound, 100% = up to 28px.
+  // The main flight timing is still controlled only by the existing "Темп" slider.
   function springFrames(dx, dy) {
     const frames=[], distance=Math.hypot(dx,dy);
     const strength=Math.min(1,Math.max(0,prefs.spring/100));
-    const damping=.96-.58*strength, omega=10+5*strength;
-    const oscillation=Math.sqrt(1-damping*damping);
-    const maxBounce=Math.min(28,distance*.25);
+    const speed=Math.min(1,Math.max(0,(Number.isFinite(prefs.springSpeed)?prefs.springSpeed:50)/100));
+    const damping=.76, omega=8+8*speed, d=Math.sqrt(1-damping*damping);
+    const raw=t=>Math.exp(-damping*omega*t)*
+      (Math.cos(omega*d*t)+damping/d*Math.sin(omega*d*t));
+    // Normalize the negative lobe so changing frequency doesn't silently reduce amplitude.
+    const minRaw=Math.min(...Array.from({length:241},(_,i)=>raw(i/240)));
+    const maxBounce=Math.min(28,distance*.25)*strength;
     for(let i=0;i<=60;i++){
       const t=i/60;
+      const value=raw(t);
       let residual;
       if(strength===0) residual=Math.pow(1-t,3);
-      else {
-        residual=Math.exp(-damping*omega*t) *
-          (Math.cos(omega*oscillation*t)+(damping/oscillation)*Math.sin(omega*oscillation*t));
-        if(residual<0) {
-          residual=-maxBounce*Math.tanh(-residual*distance/Math.max(1,maxBounce))/Math.max(1,distance);
-        }
-      }
+      else if(value<0) residual=-maxBounce*(value/minRaw)/Math.max(1,distance);
+      else residual=value;
       if(i===60) residual=0;
       frames.push({transform:`translate3d(${dx*residual}px,${dy*residual}px,0)`,offset:t});
     }
     return frames;
   }
+  // Follow the ARRIVING card's animated position on every frame, not its final
+  // layout slot. The sticky header/status ticker and bottom navigation stay clear.
   function followArrival(card, duration) {
-    if (performance.now() - lastGesture < 800) return;
-    const header = document.getElementById('mainHeader');
-    const headerBottom = Math.max(0, header?.getBoundingClientRect().bottom || 0);
-    const start = window.scrollY;
-    const max = Math.max(0, document.documentElement.scrollHeight - innerHeight);
-    const target = Math.max(0, Math.min(max, start + card.getBoundingClientRect().top - headerBottom - 16));
-    if (Math.abs(target-start) < 2) return;
-    const started = performance.now();
-    const tick = now => {
-      const t = Math.min(1, (now-started)/duration), p = 1-Math.pow(1-t, 3);
-      window.scrollTo({top:start+(target-start)*p,behavior:'instant'});
-      scrollFrame = t < 1 ? requestAnimationFrame(tick) : 0;
+    const started=performance.now();
+    const tick=now=>{
+      if(!enabled||!card.isConnected||document.hidden||reduce.matches){scrollFrame=0;return;}
+      const header=document.getElementById('mainHeader');
+      const nav=document.getElementById('bottomNav');
+      const safeTop=Math.max(0,header?.getBoundingClientRect().bottom||0)+16;
+      const navTop=nav?.getBoundingClientRect().top;
+      const safeBottom=Math.max(safeTop+Math.min(card.offsetHeight,100),
+        Math.min(innerHeight-12,Number.isFinite(navTop)?navTop-14:innerHeight-14));
+      const rect=card.getBoundingClientRect();
+      const elapsed=now-started;
+      let correction=0;
+      if(rect.top<safeTop-2) correction=rect.top-safeTop;
+      else if(rect.bottom>safeBottom+2) correction=rect.bottom-safeBottom;
+      else if(elapsed>duration*.88 && rect.top>safeTop+8)
+        correction=Math.min(28,Math.max(3,(rect.top-safeTop)*.18));
+      if(correction){
+        const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
+        const target=Math.max(0,Math.min(max,window.scrollY+correction));
+        if(Math.abs(target-window.scrollY)>.8)window.scrollTo({top:target,behavior:'instant'});
+      }
+      if(elapsed<duration+180) scrollFrame=requestAnimationFrame(tick);
+      else scrollFrame=0;
     };
-    scrollFrame = requestAnimationFrame(tick);
+    scrollFrame=requestAnimationFrame(tick);
   }
   const fresh = hint => hint && Date.now()-hint.time >= 0 && Date.now()-hint.time < 5500;
   function render() {
@@ -217,7 +231,7 @@ function upgrade(){
   setClasses(); mountSetting();
   const restoreSettings = installSettings();
   window.__lineSoftMotionV1 = {
-    version:'1.1.0-test', setEnabled,
+    version:'1.2.0-test', setEnabled,
     get enabled() { return enabled; },
     destroy() {
       stop(); enabled = false; setClasses(); css.remove();
@@ -231,7 +245,7 @@ function upgrade(){
       delete window.__lineSoftMotionV1;
     }
   };
-  console.info('[Линия · мягкая пружина v1.1.0-test] Патч обновлён в тестовой версии');
+  console.info('[Линия · мягкая пружина v1.2.0-test] Раздельные пружина и скорость, сопровождение прибытия');
 
   function installSettings() {
     const modal=document.getElementById('settingsModal'), body=modal?.querySelector('.modal-body');
@@ -264,6 +278,31 @@ function upgrade(){
       #settingsModal .soft-section .settings-row {border:0;margin:4px 0;padding:8px 0}
       #settingsModal.soft-settings .soft-original-haptic {display:none!important}
     `;
+    style.textContent+=`
+      #settingsModal .soft-preview,#settingsCategoryModal .soft-preview{
+        display:block!important;width:100%;padding:12px!important;overflow:hidden!important;
+      }
+      #settingsModal .soft-preview-track,#settingsCategoryModal .soft-preview-track{
+        position:relative;height:250px;min-width:0;width:100%;overflow:hidden;
+        border:1px solid var(--border,#334155);border-radius:12px;
+        background:linear-gradient(180deg,rgba(56,189,248,.08),transparent 45%,rgba(56,189,248,.05));
+      }
+      #settingsModal .soft-preview-demo-card,#settingsCategoryModal .soft-preview-demo-card{
+        position:absolute;top:38px;left:16px;right:16px;z-index:1;
+        box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:2px;
+        height:66px;min-width:0;padding:9px 12px;border-radius:10px;
+        border:2px solid #38bdf8;background:var(--card,#1e293b);color:var(--text,#f8fafc);
+        box-shadow:0 4px 14px #0004;will-change:transform;
+      }
+      #settingsModal .soft-preview-demo-card strong,#settingsCategoryModal .soft-preview-demo-card strong{font-size:13px}
+      #settingsModal .soft-preview-demo-card small,#settingsCategoryModal .soft-preview-demo-card small{font-size:11px;color:var(--muted,#94a3b8)}
+      #settingsModal .soft-preview-marker,#settingsCategoryModal .soft-preview-marker{
+        position:absolute;right:10px;font-size:10px;font-weight:700;
+        color:var(--muted,#94a3b8);pointer-events:none;
+      }
+      #settingsModal .soft-preview-marker-top,#settingsCategoryModal .soft-preview-marker-top{top:7px}
+      #settingsModal .soft-preview-marker-bottom,#settingsCategoryModal .soft-preview-marker-bottom{bottom:7px}
+    `;
     document.head.append(style);modal.classList.add('soft-settings');
     function section(title,note) {
       const s=document.createElement('section');s.className='soft-section';
@@ -274,7 +313,7 @@ function upgrade(){
     const work=section('Смена','Время ходки общее для всех. Менять его может администратор при наличии связи.');
     const hold=section('Удержание кнопок','Сколько держать кнопку до действия. 0 секунд — действие сразу. Сохраняется на этом устройстве.');
     const haptic=section('Виброотдача','Длительность отклика после действия. 0 мс — выключено. Поддержка зависит от устройства и браузера.');
-    const motion=section('Движение карточек','Настройте темп и мягкость завершения. Изменения видны в примере ниже.');
+    const motion=section('Движение карточек','Темп движения, амплитуда и скорость пружины настраиваются отдельно. Кнопка ниже покажет движение снизу вверх.');
     function move(el,parent) {
       if (!el || el.parentElement===parent) return;
       const marker=document.createComment('soft-settings-original');
@@ -354,23 +393,36 @@ function upgrade(){
       n=>paceForSlider(n).toFixed(1).replace('.',',')+'× · '+(n<60?'Спокойный':n>80?'Быстрый':'Обычный'),
       'Спокойнее · до 7,2×','Быстрее · 0,7×',
       value=>{prefs.pace=paceForSlider(value);savePrefs();});
-    newRange(motion,'soft-motion-spring','Пружина',prefs.spring,0,100,5,n=>n===0?'Без отскока':n<35?'Лёгкая':n<70?'Мягкая':'Выраженная','Без отскока','Сильный отскок',value=>{prefs.spring=value;savePrefs();});
-    const preview=document.createElement('div');preview.className='soft-preview';preview.setAttribute('aria-hidden','true');preview.innerHTML='<span></span><span></span><span></span>';motion.append(preview);
-    const previewButton=document.createElement('button');previewButton.type='button';previewButton.className='soft-preview-button';previewButton.textContent='Посмотреть движение';motion.append(previewButton);
-    // Preview never sends samples beyond its clipped window and restarts on every tap.
+    newRange(motion,'soft-motion-spring','Амплитуда пружины',prefs.spring,0,100,5,
+      n=>n===0?'Без отскока':n<35?'Маленькая':n<70?'Средняя':'Большая',
+      'Без отскока','Большая',value=>{prefs.spring=value;savePrefs();});
+    newRange(motion,'soft-motion-spring-speed','Скорость пружины',prefs.springSpeed,0,100,5,
+      n=>n<34?'Медленно':n>66?'Быстро':'Обычно',
+      'Медленнее','Быстрее',value=>{prefs.springSpeed=value;savePrefs();});
+    // A single, vertical demonstration lane: truck moves from bottom to the top.
+    // Other trucks are not drawn here, so nothing crosses or overlaps sideways.
+    const preview=document.createElement('div');preview.className='soft-preview';
+    preview.setAttribute('aria-label','Пример движения карточки снизу вверх');
+    preview.innerHTML='<div class="soft-preview-track">'+
+      '<div class="soft-preview-marker soft-preview-marker-top">Финиш ↑</div>'+
+      '<div class="soft-preview-demo-card"><strong>🚛 Самосвал</strong><small>Приехал на линию</small></div>'+
+      '<div class="soft-preview-marker soft-preview-marker-bottom">Старт ↑</div></div>';
+    motion.append(preview);
+    const previewButton=document.createElement('button');previewButton.type='button';
+    previewButton.className='soft-preview-button';previewButton.textContent='Посмотреть движение';
+    motion.append(previewButton);
     let previewAnimations=[];
     previewButton.onclick=()=>{
       if(reduce.matches){previewButton.textContent='Уменьшение движения включено на устройстве';return;}
       previewAnimations.forEach(a=>a.cancel());previewAnimations=[];
-      const cards=[...preview.querySelectorAll('span')];
-      if(!cards.length)return;
-      const travel=Math.max(4,Math.min(24,(preview.clientWidth-186)/2+8));
-      const duration=560*prefs.pace;
-      cards.forEach((el,i)=>{
-        const dx=[travel,-travel*.55,-travel][i],dy=[8,-8,6][i];
-        if(typeof el.animate==='function')
-          previewAnimations.push(el.animate(springFrames(dx,dy),{duration,easing:'linear',fill:'none'}));
-      });
+      const truck=preview.querySelector('.soft-preview-demo-card');
+      const track=preview.querySelector('.soft-preview-track');
+      if(!truck||!track||typeof truck.animate!=='function')return;
+      // Top is reserved for the full 28px spring rebound; bottom is also padded.
+      const distance=Math.max(20,track.clientHeight-truck.offsetHeight-88);
+      previewAnimations.push(truck.animate(springFrames(0,distance),{
+        duration:560*prefs.pace,easing:'linear',fill:'none'
+      }));
     };
     const observer=new MutationObserver(()=>{if(modal.classList.contains('open'))layout();});
     // Only new groups matter; value/text changes must not trigger a loop.
@@ -395,7 +447,7 @@ function upgrade(){
   }
 })();
 
-    if(window.__lineSoftMotionV1?.version!=='1.1.0-test')
+    if(window.__lineSoftMotionV1?.version!=='1.2.0-test')
       console.warn('[test motion] Updated motion module was not installed');
   } catch(error) { console.error('[test motion] Motion upgrade failed',error); }
   finally { upgrading=false; }
