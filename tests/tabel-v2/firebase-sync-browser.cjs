@@ -11,8 +11,8 @@ const server=spawn('python3',['-m','http.server','8804','--bind','127.0.0.1'],{s
  await env.clearFirestore();
  await env.withSecurityRulesDisabled(async c=>{
   const db=c.firestore();
-  for(const [id,role,status] of [['admin','admin','active'],['editor','operator','active'],['viewer','viewer','active'],['reader','reader','active'],['disabled','operator','disabled']]) await setDoc(doc(db,'users',id),{role,status});
-  await setDoc(doc(db,'settings/permissions'),{operator:{tabs:['timesheet'],actions:['timesheet_edit']},viewer:{tabs:[],actions:[]},reader:{tabs:['timesheet'],actions:[]}});
+  for(const [id,role,status] of [['admin','admin','active'],['editor','foreman','active'],['viewer','viewer','active'],['reader','reader','active'],['disabled','operator','disabled']]) await setDoc(doc(db,'users',id),{role,status});
+  await setDoc(doc(db,'settings/permissions'),{foreman:{tabs:['timesheet'],actions:['timesheet_edit']},operator:{tabs:['timesheet'],actions:['timesheet_edit']},viewer:{tabs:[],actions:[]},reader:{tabs:['timesheet'],actions:[]}});
  });
  const db=uid=>env.authenticatedContext(uid).firestore(),path='workspaces/main_workspace/tabelNextRecords/site~config';
  await assertFails(getDoc(doc(db('viewer'),path)));
@@ -28,7 +28,7 @@ const server=spawn('python3',['-m','http.server','8804','--bind','127.0.0.1'],{s
    firebase.initializeApp({projectId:'demo-tabel-next',apiKey:'emulator',appId:'emulator'});
    const db=firebase.firestore();db.useEmulator('127.0.0.1',8080,{mockUserToken:{sub:uid,email:uid+'@example.test'}});
    const {Store,firestoreRemote}=await import('../../test-app/tabel-v2/store.mjs');
-   window.remote=firestoreRemote({workspace:db.collection('workspaces').doc('main_workspace'),transaction:fn=>db.runTransaction(fn),session:()=>({uid,name:uid})},()=>{});
+   window.remote=firestoreRemote({workspace:db.collection('workspaces').doc('main_workspace'),transaction:fn=>db.runTransaction(fn),session:()=>({uid,name:uid,role:uid==='admin'?'admin':'foreman',status:'active',tabAccess:true})},()=>{});
    window.store=await new Store('emulator-device',remote,()=>({uid,name:uid})).open();
    clearInterval(store.timer);
   },uid);return p;

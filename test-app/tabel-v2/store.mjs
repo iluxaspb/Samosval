@@ -1,3 +1,4 @@
+import {sheetManager,sheetVisible} from './sheet-access.mjs';
 import { copy, uid } from "./table-domain.mjs";
 // All local snapshots and pending operations are committed in one IndexedDB transaction.
 export class Store {
@@ -328,12 +329,27 @@ export function firestoreRemote(host, guard) {
   const collection = host.workspace.collection("tabelNextRecords"),
     receipts = host.workspace.collection("tabelNextOperations");
   const ref = (key) => collection.doc(recordIdFor(key));
+  const actor=()=>{const a=host.session();return {...a,status:a.status||(a.active?'active':''),tabAccess:a.tabAccess??a.view};};
+  const dayQuery=objectId=>collection.where('objectId','==',objectId).where('key','>=',objectId+'/day:').where('key','<',objectId+'/day;');
+  const sheetIds=config=>Object.keys(config.sheetAccess||{}).filter(id=>sheetVisible(actor(),config,id));
+
   return {
     async read(key) {
       const s = await ref(key).get({ source: "server" });
       return s.exists ? s.data() : { revision: 0, data: null };
     },
     async list(objectId) {
+      if(!sheetManager(actor())){
+        const config=await this.read(objectId+'/config'),rows=[[objectId+'/config',config]];
+        const keys=sheetIds(config.data||{}).map(id=>objectId+'/sheet:'+id);
+        if(sheetVisible(actor(),config.data,'linked')){
+          if(!keys.includes(objectId+'/sheet:linked'))keys.push(objectId+'/sheet:linked');
+          const snap=await dayQuery(objectId).get({source:'server'});rows.push(...snap.docs.map(d=>[d.data().key,d.data()]));
+        }
+        for(const key of keys){const row=await this.read(key);if(row.data)rows.push([key,row]);}
+        return rows;
+      }
+
       const field = host.documentId?.() || globalThis.firebase.firestore.FieldPath.documentId();
       const prefix = objectId + "~";
       const base = collection.orderBy(field).startAt(prefix).endAt(prefix + "\uf8ff");
@@ -348,6 +364,21 @@ export function firestoreRemote(host, guard) {
       }
     },
     watch(objectId, from, to, onData, onError) {
+      if(!sheetManager(actor())){
+        let children=[],closed=false,signature='';
+        const stop=ref(objectId+'/config').onSnapshot(snapshot=>{
+          if(snapshot.metadata.fromCache||closed)return;
+          const config=snapshot.exists?snapshot.data():{revision:0,data:null};onData([[objectId+'/config',config]]);
+          const ids=sheetIds(config.data||{}),linked=sheetVisible(actor(),config.data,'linked');
+          if(linked&&!ids.includes('linked'))ids.push('linked');
+          const next=JSON.stringify([ids,linked]);if(next===signature)return;signature=next;
+          children.forEach(stop=>stop());children=[];
+          for(const id of ids)children.push(ref(objectId+'/sheet:'+id).onSnapshot(snap=>{if(!snap.metadata.fromCache&&snap.exists)onData([[objectId+'/sheet:'+id,snap.data()]]);},onError));
+          if(linked)children.push(dayQuery(objectId).onSnapshot(snap=>{if(!snap.metadata.fromCache)onData(snap.docs.map(d=>[d.data().key,d.data()]));},onError));
+        },onError);
+        return ()=>{closed=true;stop();children.forEach(stop=>stop());};
+      }
+
       const field = host.documentId?.() || globalThis.firebase.firestore.FieldPath.documentId();
       // Include configuration, all past/future shifts, tombstones and independent sheets.
       const prefix = objectId + "~";
@@ -362,6 +393,7 @@ export function firestoreRemote(host, guard) {
       return () => { stop(); globals.forEach(fn => fn()); };
     },
     async history(objectId) {
+      if(!sheetManager(actor()))return [];
       const snapshot = await receipts.where("objectId", "==", objectId).get({source: "server"});
       return snapshot.docs.map(d => {
         const row = d.data();

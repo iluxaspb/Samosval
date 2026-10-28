@@ -1089,3 +1089,11 @@ dialog.tn [type=submit] {background:var(--primary,#096c78)!important;color:#fff!
 dialog.tn .tn-numberpad button {border-radius:10px;}
 @keyframes tn-dialog-enter {from {opacity:0;transform:scale(.94);}to {opacity:1;transform:scale(1);}}
 @media(prefers-reduced-motion:reduce){dialog.tn[open]{animation:none;}}
+
+/* 3.4.41: readable grid, fill preview and operator history. */
+.tn .tn-grid th,.tn .tn-grid td{border-right-color:#000!important;border-bottom-color:#000!important;}
+.tn .tn-grid{border-top:1px solid #000;border-left:1px solid #000;}
+.tn .tn-grid .tn-fill-target{box-shadow:inset 0 0 0 2px #188038!important;background-image:linear-gradient(#18803830,#18803830)!important;}
+.tn-fill-preview{position:fixed;top:80px;right:12px;z-index:50;pointer-events:none;padding:4px 8px;background:var(--tn-card);color:var(--tn-text);border:2px solid #188038;border-radius:8px;}
+.tn-history-row{padding:10px 0;border-bottom:1px solid var(--tn-border);overflow-wrap:anywhere;}
+.tn-history-row p{margin:5px 0;}

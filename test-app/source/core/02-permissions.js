@@ -6,6 +6,7 @@
     if(currentUserStatus!=='active')return false;
     if (currentUserRole === 'admin') return true;
     if (!permissionsLoaded) return tabName === 'line';
+    if(tabName==='timesheet'&&currentUserRole==='foreman')return true;
     if (!permissionsConfig[currentUserRole]) return false;
     return Array.isArray(permissionsConfig[currentUserRole].tabs) && permissionsConfig[currentUserRole].tabs.includes(tabName);
   }
@@ -16,7 +17,7 @@
   // === SECURITY: обновляем классы perm-blocked для кнопок ===
   function updateNavUI() {
     ALL_TABS.forEach(tab => {
-      const btn = document.getElementById('nav-' + tab);
+      const btn = document.getElementById(tab==='timesheet'?'nav-tabel-v2':'nav-' + tab);
       if (btn) {
         const allowed = tab === 'admin' ? canAdmin() : hasTabAccess(tab);
         btn.style.display = allowed ? '' : 'none';

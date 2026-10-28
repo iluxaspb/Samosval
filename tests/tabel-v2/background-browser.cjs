@@ -1,0 +1,26 @@
+const assert=require('node:assert/strict'),fs=require('fs'),{spawn}=require('child_process'),{createRequire}=require('module');
+const qa=createRequire(process.env.TABEL_SYNC_QA+'/package.json'),{initializeTestEnvironment}=qa('@firebase/rules-unit-testing'),{doc,setDoc,getDoc}=qa('firebase/firestore');
+const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES+'/playwright');
+const server=spawn('python3',['-m','http.server','8812','--bind','127.0.0.1'],{stdio:'ignore'});
+(async()=>{let browser,env;try{
+ env=await initializeTestEnvironment({projectId:'demo-tabel-next',firestore:{host:'127.0.0.1',port:8080,rules:fs.readFileSync('firestore-tabel-next-test.rules','utf8')}});await env.clearFirestore();
+ await env.withSecurityRulesDisabled(async c=>{const db=c.firestore();await setDoc(doc(db,'users/admin'),{role:'admin',status:'active'});await setDoc(doc(db,'workspaces/main_workspace/tabelNextMeta/config'),{enabled:true,schema:1});});
+ browser=await chromium.launch({executablePath:'/tmp/tabel-chromium',args:['--no-sandbox']});const context=await browser.newContext(),p=await context.newPage();
+ await p.goto('http://127.0.0.1:8812/tests/tabel-v2/harness.html');await p.waitForFunction(()=>ready);
+ for(const name of ['app','firestore'])await p.addScriptTag({content:fs.readFileSync(process.env.TABEL_SYNC_QA+'/node_modules/firebase/firebase-'+name+'-compat.js','utf8')});
+ await p.evaluate(async()=>{firebase.initializeApp({projectId:'demo-tabel-next',apiKey:'emulator',appId:'emulator'});const db=firebase.firestore();db.useEmulator('127.0.0.1',8080,{mockUserToken:{sub:'admin'}});session.uid='admin';session.workspaceId='main_workspace';host.workspace=db.collection('workspaces').doc('main_workspace');host.transaction=fn=>db.runTransaction(fn);host.documentId=()=>firebase.firestore.FieldPath.documentId();window.entry=await import('../../test-app/tabel-v2/entry.mjs');await entry.background(host);window.Queue=(await import('../../test-app/tabel-v2/store.mjs')).Store;window.queue=await new Queue('samosval-offline_main_workspace_admin',null,()=>({uid:'admin',name:'QA'})).open();});
+ assert.equal(await p.locator('.tn-app').isVisible(),false);
+ await p.waitForFunction(()=>document.querySelector('[data-status]').textContent.includes('Firebase подключён'));
+ await context.setOffline(true);
+ await p.evaluate(()=>queue.save('site-a/day:2026-10-15:day',{date:'2026-10-15',shift:'day',equipment:[{id:'mill',name:'Фреза W205',hours:12}],people:[],values:{}},queue.get('site-a/day:2026-10-15:day'),'Фоновая очередь'));
+ await context.setOffline(false);await p.evaluate(()=>dispatchEvent(new Event('online')));
+ await p.waitForFunction(()=>queue.get('site-a/day:2026-10-15:day').revision>0&&queue.state.jobs.length===0,{timeout:15000});
+ await env.withSecurityRulesDisabled(async c=>{const db=c.firestore();const d=await getDoc(doc(db,'workspaces/main_workspace/tabelNextRecords/site-a~day~2026-10-15~day'));assert.equal(d.data().data.equipment[0].hours,12);});
+ await p.evaluate(()=>entry.open(host));await p.locator('[data-action=exit]').click();
+ await context.setOffline(true);await p.evaluate(()=>queue.save('site-a/day:2026-10-15:day',{...queue.get('site-a/day:2026-10-15:day').data,equipment:[{id:'mill',name:'Фреза W205',hours:14}]},queue.get('site-a/day:2026-10-15:day'),'После закрытия'));
+ await context.setOffline(false);await p.evaluate(()=>dispatchEvent(new Event('online')));
+ await p.waitForFunction(()=>queue.get('site-a/day:2026-10-15:day').revision>0&&queue.state.jobs.length===0,{timeout:15000});
+ await env.withSecurityRulesDisabled(async c=>{const db=c.firestore();const d=await getDoc(doc(db,'workspaces/main_workspace/tabelNextRecords/site-a~day~2026-10-15~day'));assert.equal(d.data().data.equipment[0].hours,14);});
+ assert.equal(await p.locator('.tn-app').isVisible(),false);await p.evaluate(()=>queue.close());
+ console.log('PASS background Firebase: hidden startup uploads offline queue after reconnect; closing timesheet retains sending on Line; server values 12 then 14 confirmed.');
+ }finally{await browser?.close();await env?.cleanup();server.kill()}})().catch(e=>{console.error(e.stack||e);process.exitCode=1});

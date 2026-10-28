@@ -14,13 +14,17 @@ export async function mount(s, host) {
     startRow = 0;
   const c = s.config(),
     allDays = s.days();
+  s.gridUndo ||= {};
+  const stacks = id => s.gridUndo[s.object.id+'/'+id] ||= {undo:[],redo:[]};
+  let activeStack=false;
+  const saveStacks=()=>{if(!activeStack)return;const st=stacks(sheetId);st.undo=undo;st.redo=redo;};
   let period = "all",
     week = "",
     scale = 0.7;
   const simple = () => sheetId === "linked" && s.config().tableMode !== "full";
   let visibleDays = [],
     linkedRows = [];
-  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
+  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("↶", "undo", 'aria-label="Отменить действие" title="Отменить действие"')}${btn("↷", "redo", 'aria-label="Повторить действие" title="Повторить действие"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
 
   const table = host.querySelector("table"),
     scroll = host.querySelector(".tn-grid-scroll"),
@@ -38,12 +42,14 @@ export async function mount(s, host) {
   });
   async function load(id) {
     await chain;
+    saveStacks();
     sheetId = id;
+    if(!s.sheetVisible(sheetId))sheetId=visibleIds()[0]||null;
+    if(!sheetId){host.innerHTML='<p>Нет доступных листов. Доступ назначает прораб или администратор.</p>';return;}
     // Server snapshots arrive through the object subscription; open cached sheet immediately.
     base = s.store.get(key());
     sheet = base.data || blank();
-    undo = [];
-    redo = [];
+    ({undo,redo}=stacks(sheetId));activeStack=true;
     startRow = 0;
     selected = end = "A1";
     const draft = s.store.get(s.key("draft:grid:" + id)).data;
@@ -54,17 +60,18 @@ export async function mount(s, host) {
     tabs();
     if (draft) edit.value = draft.raw;
   }
+  function visibleIds(){return ['linked',...s.store.list(s.key('sheet:')).filter(r=>r.data&&!r.data.deleted&&r.key!==s.key('sheet:linked')).map(r=>r.key.slice(s.key('sheet:').length))].filter(s.sheetVisible);}
   function tabs() {
     host.querySelector(".tn-sheets").innerHTML =
-      btn(
+      (s.sheetVisible("linked")?btn(
         "Табель",
         "sheet",
         `data-id="linked" aria-pressed="${sheetId === "linked"}"`,
-      ) +
+      ):'') +
       s.store
         .list(s.key("sheet:"))
         .filter(
-          (r) => r.data && !r.data.deleted && r.key !== s.key("sheet:linked"),
+          (r) => r.data && !r.data.deleted && r.key !== s.key("sheet:linked") && s.sheetVisible(r.key.slice(s.key("sheet:").length)),
         )
         .map((r) =>
           btn(
@@ -74,13 +81,15 @@ export async function mount(s, host) {
           ),
         )
         .join("") +
-      (sheetId !== "linked"
+      (sheetId !== "linked" && s.sheetManager()
         ? btn(
             "⋯ Лист",
             "sheet-options",
             'aria-label="Переименовать или удалить лист"',
           )
-        : "");
+        : "") + (s.sheetManager()?btn("＋ Лист", "new-sheet")+btn("Доступ к листу", "sheet-access"):"");
+    host.querySelector("[data-action=new-sheet]")?.addEventListener("click",newSheet);
+    host.querySelector("[data-action=sheet-access]")?.addEventListener("click",sheetAccess);
     host
       .querySelectorAll("[data-action=sheet]")
       .forEach((b) => (b.onclick = () => load(b.dataset.id).catch(error)));
@@ -186,6 +195,8 @@ export async function mount(s, host) {
       .join(";");
   }
   function draw() {
+    saveStacks();
+    for(const [action,stack] of [["undo",undo],["redo",redo]])host.querySelector(`[data-action=${action}]`).disabled=!stack.length;
     const previousScroll={top:scroll.scrollTop,left:scroll.scrollLeft};
     host.classList.toggle("tn-simple-table", simple());
     host.querySelector(".tn-formula").hidden = simple();
@@ -360,10 +371,11 @@ export async function mount(s, host) {
   }
   async function persist(next, label) {
     s.require("table", "edit");
-    undo.push(D.copy(sheet));
+    const before=D.copy(sheet);
+    await s.save(key(), next, base, label, "table");
+    undo.push({sheetBefore:before,sheetAfter:D.copy(next)});
     if (undo.length > 30) undo.shift();
     redo = [];
-    await s.save(key(), next, base, label, "table");
     base = s.store.get(key());
     sheet = D.copy(next);
     draw();
@@ -455,6 +467,7 @@ export async function mount(s, host) {
     } finally {
       if (applied.length) {
         undo.push({ fact: applied });
+        if(undo.length>30)undo.shift();
         redo = [];
         draw();
       }
@@ -594,18 +607,22 @@ export async function mount(s, host) {
     }
     if (e.target.closest(".tn-fill")) {
       e.preventDefault();
-      const seed = selected;
-      const finish = (event) => {
-        table.removeEventListener("pointerup", finish);
-        const td = document
-          .elementFromPoint(event.clientX, event.clientY)
-          ?.closest("[data-cell]");
-        if (td) {
-          end = td.dataset.cell;
-          queue(() => fill(seed, end));
-        }
+      const seed=selected,previousEnd=end,handle=e.target.closest('.tn-fill');
+      s.gridDragging=true;
+      handle.setPointerCapture(e.pointerId);
+      const preview=document.createElement('output');preview.className='tn-fill-preview';host.querySelector('.tn-grid-tools').append(preview);
+      const move=event=>{
+        const td=document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-cell]');
+        if(!td||!table.contains(td))return;
+        try{const keys=new Set(D.range(seed,td.dataset.cell));end=td.dataset.cell;
+          table.querySelectorAll('[data-cell]').forEach(cell=>cell.classList.toggle('tn-fill-target',keys.has(cell.dataset.cell)));
+          preview.textContent=seed+':'+end+' · ячеек: '+keys.size;
+        }catch{}
       };
-      table.addEventListener("pointerup", finish, { once: true });
+      const cleanup=()=>{s.gridDragging=false;preview.remove();table.querySelectorAll('.tn-fill-target').forEach(td=>td.classList.remove('tn-fill-target'));handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',finish);handle.removeEventListener('pointercancel',cancel);};
+      const finish=event=>{move(event);const target=end;cleanup();mark();queue(()=>fill(seed,target));};
+      const cancel=()=>{cleanup();end=previousEnd;mark();};
+      handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',cancel);
       return;
     }
     const td = e.target.closest("[data-cell]");
@@ -841,11 +858,13 @@ export async function mount(s, host) {
       draw();
       return;
     }
-    await s.save(key(), target, base, "Отмена / повтор", "table");
-    to.push(D.copy(sheet));
+    const current=s.store.get(key());
+    if(JSON.stringify(current.data)!==JSON.stringify(target.sheetAfter))throw Error("После вашей правки лист изменился. Отмена остановлена, чтобы сохранить чужие изменения.");
+    await s.save(key(), target.sheetBefore, current, "Отмена / повтор", "table");
+    to.push({sheetBefore:D.copy(target.sheetAfter),sheetAfter:D.copy(target.sheetBefore)});
     from.pop();
     base = s.store.get(key());
-    sheet = D.copy(target);
+    sheet = D.copy(target.sheetBefore);
     draw();
   }
   async function grow(axis) {
@@ -859,7 +878,13 @@ export async function mount(s, host) {
       throw Error("Лимит облегчённого листа: 100 столбцов × 1000 строк");
     await persist(next, "Размер листа");
   }
+  async function sheetAccess(){
+    if(!s.sheetManager())throw Error("Доступ настраивает прораб или администратор");
+    const config=s.config(),access=config.sheetAccess?.[sheetId]||{},users=(await s.host.users?.())||[];
+    dialog("Кто видит лист «"+(sheetId==='linked'?'Табель':sheet.name)+"»",'<p>Для серверной защиты доступа должны быть опубликованы правила Firebase из выпуска 3.4.41.</p><p>Администратор и прораб видят все листы. Остальным доступ нужно разрешить отдельно.</p>'+[...['master','lopater','viewer'].map(role=>`<label class="tn-check"><input type="checkbox" name="role" value="${role}" ${access.roles?.[role]?'checked':''}>${{master:'Мастера',lopater:'Лопатеры',viewer:'Наблюдатели'}[role]}</label>`),...users.filter(u=>u.status==='active'&&!['admin','foreman'].includes(u.role)).map(u=>`<label class="tn-check"><input type="checkbox" name="user" value="${esc(u.id||u.uid)}" ${access.users?.[u.id||u.uid]?'checked':''}>${esc(u.nickname||u.name||u.email||u.id)}</label>`)].join(''),async f=>{const base=s.store.get(s.key("config")),next=D.copy(s.config());next.sheetAccess||={};next.sheetAccess[sheetId]={roles:Object.fromEntries(f.getAll("role").map(r=>[r,true])),users:Object.fromEntries(f.getAll("user").map(u=>[u,true]))};await s.saveConfig(next,base);tabs();});
+  }
   function sheetOptions() {
+    if(!s.sheetManager())throw Error("Управление листами доступно прорабу и администратору");
     if (sheetId === "linked") return;
     const el = dialog(
       sheet.name,
@@ -926,6 +951,7 @@ export async function mount(s, host) {
     });
   }
   function newSheet() {
+    if(!s.sheetManager())throw Error("Управление листами доступно прорабу и администратору");
     const defaultType = c.newSheet;
     if (defaultType === "ask") {
       dialog(
@@ -954,10 +980,13 @@ export async function mount(s, host) {
         };
       next.widths[0] = 200;
     }
+    const cb=s.store.get(s.key("config")),config=D.copy(s.config());config.sheetAccess||={};config.sheetAccess[id]={roles:{},users:{}};await s.saveConfig(config,cb);
     const key = s.key("sheet:" + id);
     await s.save(key, next, s.store.get(key), "Создание листа", "table");
     await load(id);
   }
+  host.querySelector("[data-action=undo]").onclick=()=>queue(()=>restore(undo,redo));
+  host.querySelector("[data-action=redo]").onclick=()=>queue(()=>restore(redo,undo));
   host.querySelector("[data-action=format]").onclick = format;
   host.querySelector("[data-action=menu]").onclick = menu;
   host.querySelector("[data-action=day]").onclick = () =>
@@ -1025,12 +1054,12 @@ export async function mount(s, host) {
   const position=s.gridPositions?.[s.object.id];
   if(position){period=position.period;week=position.week;scale=position.scale;}
   await load(position?.sheetId||"linked");
-  if(position){selected=position.selected;end=position.end;mark();scroll.scrollTop=position.top;scroll.scrollLeft=position.left;}
+  if(position&&sheetId){selected=position.selected;end=position.end;mark();scroll.scrollTop=position.top;scroll.scrollLeft=position.left;}
   return {
     snapshot(){return {sheetId,selected,end,period,week,scale,top:scroll.scrollTop,left:scroll.scrollLeft};},
     dispose() {
       disposed = true;
-      clearTimeout(hold);
+      clearTimeout(hold);saveStacks();
       globalThis.visualViewport?.removeEventListener("resize", viewport);
       globalThis.visualViewport?.removeEventListener("scroll", viewport);
     },

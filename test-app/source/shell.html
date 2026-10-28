@@ -15,7 +15,7 @@
 
   <!-- TEST-MODULE:style-04 -->
   <!-- TEST-MODULE:style-05 -->
-  <meta name="test-app-version" content="3.4.40">
+  <meta name="test-app-version" content="3.4.41">
   <meta name="test-app-build" content="0f0881040d710261">
 </head>
 <body>
@@ -59,7 +59,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.4.40</span>
+        <span class="version-text">Версия 3.4.41</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -69,7 +69,7 @@
       <div class="header-main-row" style="margin-top: 4px;">
         <div class="object-banner-compact">
           <span id="headerObject">Объект: Не выбран</span>
-          <button class="btn btn-secondary btn-small" onclick="openTabelV2(true)" title="Настройки объекта нового табеля">⚙</button>
+          <button class="tabel-object-gear" onclick="openTabelV2(true)" title="Настройки объекта нового табеля">⚙</button>
           <button class="btn btn-secondary btn-small" id="changeObjBtn" style="padding: 2px 6px; font-size: 10px; min-height: 22px; display:none;" onclick="openChangeObjectModal()">Изменить</button>
         </div>
         <div class="shift-title-compact" id="shiftDate">Смена не начата</div>
@@ -511,7 +511,7 @@
 <div id="toast" class="toast">Сохранено</div>
 
 <nav id="bottomNav">
-  <button class="nav-btn" id="nav-tabel-v2" onclick="openTabelV2(false)"><span class="nav-icon">▦</span><span class="nav-text">Табель 2</span></button>
+  <button class="nav-btn" id="nav-tabel-v2" onclick="openTabelV2(false)"><span class="nav-icon">▦</span><span class="nav-text">Табель</span></button>
   <button class="nav-btn active" id="nav-line" onclick="switchTab('line', this)"><span class="nav-icon">🚛</span><span class="nav-text">Линия</span></button>
   <button class="nav-btn" id="nav-report" onclick="switchTab('report', this)"><span class="nav-icon">📊</span><span class="nav-text">Сводка</span></button>
   <button class="nav-btn" id="nav-archive" onclick="switchTab('archive', this)"><span class="nav-icon">🗄</span><span class="nav-text">Архив</span></button>

@@ -3,6 +3,8 @@ import { arrivals } from "./line.mjs";
 import * as D from "./table-domain.mjs";
 import { Store, firestoreRemote } from "./store.mjs";
 import { esc, btn, input, field, dialog, message, error } from "./messages.mjs";
+import {sheetVisible,sheetManager} from './sheet-access.mjs';
+import {historyRows} from './history-view.mjs';
 const areas = [
   "request",
   "shift",
@@ -34,7 +36,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     object: null,
     shiftTab: "equipment",
     requestLocked: !!host.requestObjectId,
-    view: "request",
+    view: host.requestObjectId ? "request" : "shift",
     day: D.today(),
     shift: "day",
     generation: 0,
@@ -65,6 +67,9 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         : "shift";
     const c = s.store.get(job.key.split("/")[0] + "/config").data;
     const a = account();
+    const sheetId=job.key.includes('/sheet:')?job.key.split('/sheet:')[1]:job.key.includes('/day:')?'linked':null;
+    if(sheetId&&!sheetVisible(a,c,sheetId))throw Error('Нет доступа к листу');
+    if(!sheetManager(a)&&job.key.endsWith('/config')&&JSON.stringify(job.data.sheetAccess||{})!==JSON.stringify(job.before?.data?.sheetAccess||{}))throw Error('Доступ к листам настраивает прораб или администратор');
     if (!D.allowed(a, c, area, "edit"))
       throw Error("Нет права записи: " + area);
   };
@@ -129,11 +134,16 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     return c;
   };
   s.require = (area, mode = "view") => {
+    if(['shift','history','report'].includes(area) && !sheetVisible(account(),s.config(),'linked'))throw Error('Нет доступа к основному листу табеля. Обратитесь к прорабу или администратору.');
     if (!D.allowed(account(), s.config(), area, mode))
       throw Error("Нет права: " + area + "." + mode);
   };
+  s.sheetVisible=id=>sheetVisible(account(),s.config(),id);
+  s.sheetManager=()=>sheetManager(account());
   s.save = async (key, data, base, label, area = "shift") => {
     s.require(area, "edit");
+    const id=key.includes('/sheet:')?key.split('/sheet:')[1]:key.includes('/day:')?'linked':null;
+    if(id&&!s.sheetVisible(id))throw Error('Нет доступа к листу');
     const ok = await s.store.save(key, data, base, label);
     if (!ok)
       throw Error(
@@ -250,7 +260,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   async function refreshIncoming(){
     if(!s.incoming||s.root.hidden)return;
     const active=document.activeElement;
-    if(document.querySelector('dialog.tn[open]') || (s.view!=="table" && s.root.contains(active) && active?.matches('input:not([readonly]),textarea'))){
+    if(s.gridDragging || document.querySelector('dialog.tn[open]') || (s.view!=="table" && s.root.contains(active) && active?.matches('input:not([readonly]),textarea'))){
       clearTimeout(s.incomingTimer);s.incomingTimer=setTimeout(()=>refreshIncoming().catch(error),1000);return;
     }
     s.incoming=false;await render(s);
@@ -288,11 +298,13 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     settings: () => s.openSettings(),
     refresh(){s.incoming=true;return refreshIncoming();},
     notice(text){s.store.error=text;s.status();},
-    async connect(){if(s.store.closed)return;account();if(!s.remote){s.remote=firestoreRemote(host,guard);s.store.remote=s.remote;}await synchronize();},
-    show() {
+    async connect(){if(s.store.closed)return;account();if(!s.remote){s.remote=firestoreRemote(host,guard);s.store.remote=s.remote;}void s.store.flush();await synchronize();},
+    async show() {
       account();
       root.hidden = false;
-      s.status();
+      s.view="shift";s.day=D.today();
+      if(!s.object){const objects=host.data().objects||[];const id=localStorage.getItem(selectionKey);s.object=objects.find(o=>o.id===id)||objects[0]||null;await host.prepare?.(s.store,s.object);void synchronize();}
+      await render(s);
     },
     async dispose() {
       s.unwatch?.();
@@ -395,7 +407,7 @@ async function render(s) {
       await (await import("./catalog.mjs")).mount(s, main);
     if (s.view === "history") history(s, main);
   } catch (e) {
-    error(e);
+    main.innerHTML="<p>"+esc(e.message)+"</p>";
   }
 }
 function newObject(s) {
@@ -993,7 +1005,7 @@ function history(s, main) {
       .reverse()
       .map(
         (h) =>
-          `<details><summary>${esc(h.label)} · ${new Date(h.time).toLocaleString("ru-RU")} · ${esc(h.author?.name)}</summary><pre>${esc(JSON.stringify({ before: h.before?.data, after: h.data, resolution: h.resolution }, null, 2))}</pre></details>`,
+          historyRows(h,s.config()),
       )
       .join("");
 }

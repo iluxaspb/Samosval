@@ -354,4 +354,5 @@
       margin-bottom: 14px;
     }
 
-  
+
+.tabel-object-gear{box-sizing:border-box!important;width:22px!important;height:22px!important;min-width:22px!important;min-height:22px!important;flex:0 0 22px!important;border:1px solid var(--border);border-radius:50%!important;padding:0!important;margin:0!important;line-height:20px!important;font-size:13px!important;background:var(--card);color:var(--text);align-self:center;}

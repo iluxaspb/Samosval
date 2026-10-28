@@ -2,11 +2,12 @@ import { onlinePolicy } from "./online-policy.mjs";
 import { mount } from "./workspace.mjs";
 import { normalizedObject, migrate } from "./migration.mjs";
 import { esc, field, input, dialog } from "./messages.mjs";
-let opened = null;
-export async function open(
+let opened = null, opening=Promise.resolve();
+export function open(...args){const result=opening.then(()=>openInner(...args));opening=result.catch(()=>{});return result;}
+async function openInner(
   host,
   settingsOnly = false,
-  { requestFirst = false } = {},
+  { requestFirst = false, backgroundMode=false } = {},
 ) {
   const initial = host.session();
   if (
@@ -18,11 +19,11 @@ export async function open(
     throw Error("Нет доступа к табелю");
   if (settingsOnly && !initial.objectId)
     throw Error(
-      "Выберите объект для его настроек. Заявки доступны через «Табель 2».",
+      "Выберите объект для его настроек. Заявки доступны через «Табель».",
     );
   if (opened) {
-    await opened.dispose();
-    opened = null;
+    if(opened.uid===initial.uid && !requestFirst){if(!backgroundMode)await opened.show(settingsOnly);return opened;}
+    await opened.dispose(); opened = null;
   }
   let requestObject = null;
   if (requestFirst && !host.shift) {
@@ -37,7 +38,7 @@ export async function open(
     if (!requestObject) return null;
   }
   const container = document.createElement("div");
-  container.className = "active";
+  container.className = "active";container.hidden=backgroundMode;
   document.body.append(container);
   const errors = [];
   const read = async (name) => {
@@ -87,15 +88,14 @@ export async function open(
     requestObjectId: requestObject?.id || (settingsOnly ? initial.objectId : null),
     workspace: host.workspace,
     catalog,
+    users: () => host.users?.() || [],
     transaction: host.transaction,
     documentId: host.documentId,
     errors,
     prepare: (store, object) => migrate(host, store, object, catalog),
     createObject: host.createObject,
     leave: () => {
-      void opened?.dispose();
-      opened = null;
-      container.remove();
+      container.hidden = true;
     },
   };
   const runtime=await mount({ledgerHost,refs:host.refs},container,{remoteEnabled:false});
@@ -104,6 +104,9 @@ export async function open(
   connect();globalThis.addEventListener('online',connect);
   let timer;
   opened = {
+    uid:initial.uid,
+    async show(settings=false){container.hidden=false;await runtime.show();if(settings)runtime.settings();},
+    hide(){container.hidden=true;},
     async dispose() {
       disposed=true;globalThis.removeEventListener("online",connect);
       clearInterval(timer);
@@ -121,6 +124,9 @@ export async function open(
   if (settingsOnly) runtime.settings();
   return opened;
 }
+
+// Start the same durable queue even when the user stays on the Line after a reload.
+export async function background(host){if(opened)return;await open(host,false,{backgroundMode:true});}
 
 async function pickRequestObject(host) {
   return new Promise((resolve) => {

@@ -211,7 +211,24 @@ service cloud.firestore {
 
       // Табель 2: dedicated collections, revision checks and atomic operation receipts.
       // These matches MUST be excluded from the generic admin/active wildcard above.
-      function nextView() { return tabelTab(); }
+      function nextView() { return tabelTab() || (active() && account().get('role','') == 'foreman'); }
+      function nextManager() { return admin() || (active() && account().get('role','') == 'foreman'); }
+      function nextSheet(objectId, sheetId) {
+        let config = get(/databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(objectId + '~config')).data.data;
+        let acl = config.get('sheetAccess',{}).get(sheetId,{});
+        return acl.get('users',{}).get(request.auth.uid,false) == true
+          || acl.get('roles',{}).get(account().get('role',''),false) == true;
+      }
+      function nextRecordRead(d) {
+        return nextManager() || d.key == d.objectId + '/config'
+          || (d.key >= d.objectId + '/day:' && d.key < d.objectId + '/day;' && nextSheet(d.objectId,'linked'))
+          || (d.key.matches(d.objectId + '/sheet:[A-Za-z0-9_-]+') && nextSheet(d.objectId,d.key.split(':')[1]));
+      }
+      function nextRecordWrite(d,old) {
+        return nextManager() || (d.key == d.objectId + '/config'
+          ? old != null && d.data.get('sheetAccess',{}) == old.data.get('sheetAccess',{})
+          : nextRecordRead(d) && (old == null || (!d.data.diff(old.data).affectedKeys().hasAny(['name','deleted']))));
+      }
       function nextEdit() { return nextView() && tabelHostEdit(); }
       function nextEnvelope(d, id) {
         return d.keys().hasOnly(['recordId','key','objectId','revision','data','author','authorName','time','operationId'])
@@ -239,10 +256,11 @@ service cloud.firestore {
           && request.resource.data.enabled is bool && request.resource.data.schema == 1;
       }
       match /tabelNextRecords/{id} {
-        allow read: if nextView();
-        allow create: if nextEdit() && nextEnvelope(request.resource.data,id)
+        allow get: if nextView() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(id)) || nextRecordRead(resource.data));
+        allow list: if nextView() && nextRecordRead(resource.data);
+        allow create: if nextEdit() && nextRecordWrite(request.resource.data,null) && nextEnvelope(request.resource.data,id)
           && request.resource.data.revision == 1 && nextReceipt(request.resource.data,null);
-        allow update: if nextEdit() && nextEnvelope(request.resource.data,id)
+        allow update: if nextEdit() && nextRecordWrite(request.resource.data,resource.data) && nextEnvelope(request.resource.data,id)
           && request.resource.data.key == resource.data.key
           && request.resource.data.objectId == resource.data.objectId
           && request.resource.data.revision == resource.data.revision + 1
@@ -250,7 +268,8 @@ service cloud.firestore {
         // Deletions use revisioned data/tombstones, preserving audit and conflicts.
       }
       match /tabelNextOperations/{id} {
-        allow read: if nextView();
+        allow get: if nextView() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/tabelNextOperations/$(id)) || nextRecordRead(resource.data));
+        allow list: if nextView() && nextManager();
         allow create: if nextEdit()
           && request.resource.data.keys().hasOnly(['key','objectId','before','after','author','time','label'])
           && request.resource.data.author == request.auth.uid

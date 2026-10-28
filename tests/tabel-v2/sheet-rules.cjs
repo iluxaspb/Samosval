@@ -1,0 +1,28 @@
+const assert=require('node:assert/strict'),fs=require('fs'),{createRequire}=require('module');
+const qa=createRequire(process.env.TABEL_SYNC_QA+'/package.json');
+const {initializeTestEnvironment,assertSucceeds,assertFails}=qa('@firebase/rules-unit-testing');
+const {doc,setDoc,getDoc,collection,query,where,getDocs,runTransaction}=qa('firebase/firestore');
+(async()=>{const env=await initializeTestEnvironment({projectId:'demo-tabel-next',firestore:{host:'127.0.0.1',port:8080,rules:fs.readFileSync('firestore-tabel-next-test.rules','utf8')}});try{
+ await env.clearFirestore();const prefix='workspaces/main_workspace/tabelNextRecords/';
+ await env.withSecurityRulesDisabled(async c=>{const db=c.firestore();
+  for(const role of ['admin','foreman','master','lopater'])await setDoc(doc(db,'users/'+role),{role,status:'active'});
+  await setDoc(doc(db,'settings/permissions'),{master:{tabs:['timesheet'],actions:['timesheet_edit']},lopater:{tabs:['timesheet'],actions:['timesheet_edit']}});
+  const put=(id,key,data)=>setDoc(doc(db,prefix+id),{recordId:id,key,objectId:'site',revision:1,data,author:'admin',authorName:'Админ',time:1,operationId:'seed'});
+  await put('site~config','site/config',{sheetAccess:{one:{roles:{master:true}},two:{users:{lopater:true}}}});
+  await put('site~sheet~one','site/sheet:one',{name:'Один',cells:{}});await put('site~sheet~two','site/sheet:two',{name:'Два',cells:{}});await put('site~day~2026-10-15~day','site/day:2026-10-15:day',{date:'2026-10-15',hours:12});
+ });
+ const db=uid=>env.authenticatedContext(uid).firestore(),read=(uid,id)=>getDoc(doc(db(uid),prefix+id));
+ for(const role of ['admin','foreman'])for(const id of ['site~sheet~one','site~sheet~two','site~day~2026-10-15~day'])await assertSucceeds(read(role,id));
+ const commit=async(uid,key,data)=>{const database=db(uid),id=key.replace(/[/:]/g,'~'),record=doc(database,prefix+id),op=crypto.randomUUID();return runTransaction(database,async tx=>{const before=(await tx.get(record)).data();const after={...before,revision:before.revision+1,data,author:uid,authorName:uid,operationId:op,time:Date.now()};tx.set(record,after);tx.set(doc(database,'workspaces/main_workspace/tabelNextOperations/'+op),{key,objectId:'site',before,after,author:uid,time:after.time,label:'Права листа'});});};
+ await assertSucceeds(commit('master','site/sheet:one',{name:'Один',cells:{A1:{raw:'12'}}}));
+ await assertFails(commit('master','site/sheet:one',{name:'Переименован',cells:{}}));
+ await assertFails(commit('master','site/config',{sheetAccess:{one:{roles:{master:true,lopater:true}}}}));
+ await assertSucceeds(read('master','site~sheet~one'));await assertFails(read('master','site~sheet~two'));await assertFails(read('master','site~day~2026-10-15~day'));
+ await assertSucceeds(read('lopater','site~sheet~two'));await assertFails(read('lopater','site~sheet~one'));
+ await assertFails(getDocs(collection(db('master'),prefix.slice(0,-1))));
+ await env.withSecurityRulesDisabled(async c=>{const r=doc(c.firestore(),prefix+'site~config');await setDoc(r,{...(await getDoc(r)).data(),data:{sheetAccess:{linked:{roles:{master:true}}}}});});
+ await assertSucceeds(read('master','site~day~2026-10-15~day'));
+ const days=query(collection(db('master'),prefix.slice(0,-1)),where('objectId','==','site'),where('key','>=','site/day:'),where('key','<','site/day;'));
+ assert.equal((await assertSucceeds(getDocs(days))).size,1);
+ console.log('PASS Firestore sheet rules: admin/foreman all; role and user grants; unrelated sheets, day records and broad query denied; granted linked query allowed.');
+ }finally{await env.cleanup()}})().catch(e=>{console.error(e);process.exitCode=1});

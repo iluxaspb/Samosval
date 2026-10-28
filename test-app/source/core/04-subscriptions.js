@@ -121,11 +121,12 @@
 
   // === ПЛАГИНЫ ===
   let pluginDisposers = [];
+  function retiredTabelPlugin(p){return p.id==='builtin-tabel'||(/табель/i.test(p.name||'')&&/1\.1\.0-test\.3/.test((p.version||'')+' '+(p.code||'')));}
   function getPluginRecords() {
     const bundled = firebaseConfig.projectId === 'samosval-offline' ? (window.SamosvalBundledPlugins || []) : [];
     const ids = new Set(bundled.map(p => p.id));
     return [...bundled.map(p => ({...p, ...(state.plugins.find(x => x.id === p.id) || {}), bundled: true})),
-      ...state.plugins.filter(p => !ids.has(p.id))];
+      ...state.plugins.filter(p => !ids.has(p.id))].filter(p=>!retiredTabelPlugin(p));
   }
   function initPlugins() {
     const activePlugin = Object.keys(pluginTabs).find(id => pluginTabs[id].container.classList.contains('active'));
@@ -313,6 +314,7 @@
 
   function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
   function applyRoleUI() {
+    startTabelBackground();
     const versionAllowed = permissionsLoaded && canAdmin();
     if (versionAllowed) document.body.setAttribute('data-release-admin', '1'); else document.body.removeAttribute('data-release-admin');
     if (!versionAllowed) document.getElementById('releaseHistoryDialog')?.close();
