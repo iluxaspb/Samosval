@@ -34,10 +34,20 @@
     tabelV2Opening = true;
     try {
       const session = () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
-        uid: currentUid, active: currentUserStatus === 'active',
+        uid: currentUid, name: getUserName(), role: currentUserRole, active: currentUserStatus === 'active',
         view: permissionsLoaded && hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit'),
         objectId: state.shift && state.shift.objectId});
       const module = await import(new URL('./test-app/tabel-v2/entry.mjs', document.baseURI).href);
-      await module.open({session, workspace: wsRef, shift: state.shift, objects: state.objects}, settingsOnly);
+      await module.open({session, workspace: wsRef, refs,
+        get shift(){return state.shift;}, get objects(){return state.objects;},
+        snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,archive:state.archive}),
+        createObject:async(name,startDate)=>{
+          if(!hasPermission('manage_objects')||currentUserStatus!=='active')throw Error('Нет права создавать объекты');
+          name=String(name||'').trim();if(!name||name.length>180)throw Error('Введите название объекта');
+          const existing=state.objects.find(o=>o.name.toLowerCase()===name.toLowerCase());if(existing)return {...existing};
+          const ref=refs.objects.doc(),data={name,startDate,createdAt:Date.now(),createdBy:getUserName()};
+          await tfAwait(ref.set(data));return {id:ref.id,...data};
+        }
+      }, settingsOnly);
     } catch (error) { showError(error.message); } finally { tabelV2Opening = false; }
   }
