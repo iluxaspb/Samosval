@@ -133,22 +133,7 @@ for(const s of sections){
  modal.querySelector('#settingsCategoryArea').append(pane);panes.set(s.key,pane);
  b.addEventListener('click',()=>show(s,b));
 }
-// Тестовый патч движения хранит темп как множитель длительности: 0.7 — быстро, 1.4 — прежний максимум спокойствия.
-// Разрешаем 2.4 только слева. Старый патч обрезает сохранённый темп при старте,
-// поэтому восстанавливаем его через родной input-обработчик уже после установки патча.
-function extendCalmTempo(){
- const input=document.getElementById('soft-motion-pace');
- if(!input||!window.__lineSoftMotionV1)return;
- input.min='-0.4'; // значение шкалы = 2 - множитель длительности; максимум справа остаётся 1.3 (0.7×).
- if(input.dataset.testCalmExtended==='1')return;
- input.dataset.testCalmExtended='1';
- let saved=NaN;
- try{saved=Number(JSON.parse(localStorage.getItem('samosval:line-soft-motion:preferences:v1')||'{}').pace);}catch(_){}
- if(!Number.isFinite(saved)||saved<=1.4)return;
- const pace=Math.max(.7,Math.min(2.4,saved));
- input.value=String(Math.round((2-pace)*20)/20);
- input.dispatchEvent(new Event('input',{bubbles:true}));
-}
+// 3.4.25: the test-only motion upgrade owns slider bounds and preferences.
 function gather(){
  // Group optional motion-patch sections atomically so they do not leave
  // duplicated headings and orphan settings under «Другие настройки».
@@ -180,7 +165,6 @@ function gather(){
  for(const item of other.children)if(item.matches('.soft-section,.settings-row,.form-group')&&
    !item.querySelector('input,select,textarea,button,a'))item.hidden=true;
  tiles.get('other').hidden=![...other.children].some(item=>!item.hidden);
- extendCalmTempo();
 }
 function queueGather(){if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;gather();},0);}
 const observer=new MutationObserver(queueGather);observer.observe(original,{childList:true});gather();
