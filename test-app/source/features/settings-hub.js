@@ -41,6 +41,26 @@ border:1px solid var(--border);color:var(--text);background:var(--bg);cursor:poi
 #settingsModal.settings-hub .modal-content,#settingsCategoryModal .modal-content{
  background:var(--card,#1e293b);border:1px solid rgba(148,163,184,.3);
  border-radius:20px;box-shadow:0 22px 54px rgba(0,0,0,.48);width:min(540px,100%)}
+/* Главная шестерёнка: выраженная рамка и безопасные поля вокруг всех плашек и кнопки. */
+#settingsModal.settings-hub{padding:14px!important}
+#settingsModal.settings-hub .modal-content{
+ padding:0!important;max-height:90dvh;overflow:hidden;border-color:rgba(148,163,184,.55)!important}
+#settingsModal.settings-hub .modal-content>div:first-child{
+ padding:18px 20px!important;border-bottom:1px solid var(--border,#334155);flex-shrink:0}
+#settingsModal.settings-hub .settings-hub-intro{
+ margin:16px 18px 0!important;padding:0!important}
+#settingsModal.settings-hub .settings-tiles{
+ margin:12px 16px 14px!important;padding:2px;min-height:0;overflow-y:auto;overflow-x:hidden}
+#settingsModal.settings-hub .modal-content>button{
+ width:calc(100% - 36px)!important;margin:0 18px 18px!important;min-height:44px;flex-shrink:0}
+@media(max-width:380px){
+ #settingsModal.settings-hub{padding:12px!important}
+ #settingsModal.settings-hub .modal-content>div:first-child{padding:16px!important}
+ #settingsModal.settings-hub .settings-hub-intro{margin:14px 14px 0!important}
+ #settingsModal.settings-hub .settings-tiles{margin:10px 12px 12px!important}
+ #settingsModal.settings-hub .modal-content>button{
+  width:calc(100% - 28px)!important;margin:0 14px 14px!important}
+}
 #settingsModal .settings-tile{background:linear-gradient(145deg,var(--bg,#0f172a),rgba(51,65,85,.65));
  border:1px solid rgba(148,163,184,.24);border-radius:15px;min-height:107px}
 #settingsModal .settings-tile-icon{display:grid;place-items:center;width:34px;height:34px;
@@ -113,6 +133,22 @@ for(const s of sections){
  modal.querySelector('#settingsCategoryArea').append(pane);panes.set(s.key,pane);
  b.addEventListener('click',()=>show(s,b));
 }
+// Тестовый патч движения хранит темп как множитель длительности: 0.7 — быстро, 1.4 — прежний максимум спокойствия.
+// Разрешаем 2.4 только слева. Старый патч обрезает сохранённый темп при старте,
+// поэтому восстанавливаем его через родной input-обработчик уже после установки патча.
+function extendCalmTempo(){
+ const input=document.getElementById('soft-motion-pace');
+ if(!input||!window.__lineSoftMotionV1)return;
+ input.min='-0.4'; // значение шкалы = 2 - множитель длительности; максимум справа остаётся 1.3 (0.7×).
+ if(input.dataset.testCalmExtended==='1')return;
+ input.dataset.testCalmExtended='1';
+ let saved=NaN;
+ try{saved=Number(JSON.parse(localStorage.getItem('samosval:line-soft-motion:preferences:v1')||'{}').pace);}catch(_){}
+ if(!Number.isFinite(saved)||saved<=1.4)return;
+ const pace=Math.max(.7,Math.min(2.4,saved));
+ input.value=String(Math.round((2-pace)*20)/20);
+ input.dispatchEvent(new Event('input',{bubbles:true}));
+}
 function gather(){
  // Group optional motion-patch sections atomically so they do not leave
  // duplicated headings and orphan settings under «Другие настройки».
@@ -144,6 +180,7 @@ function gather(){
  for(const item of other.children)if(item.matches('.soft-section,.settings-row,.form-group')&&
    !item.querySelector('input,select,textarea,button,a'))item.hidden=true;
  tiles.get('other').hidden=![...other.children].some(item=>!item.hidden);
+ extendCalmTempo();
 }
 function queueGather(){if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;gather();},0);}
 const observer=new MutationObserver(queueGather);observer.observe(original,{childList:true});gather();
