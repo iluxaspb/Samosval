@@ -219,15 +219,19 @@
   }
   function renderArchiveSheet(snapshot, gai) {
     const logs=snapshot.logs.filter(log=>!!log.isGAI===gai);
+    // Deterministic chronological ordering, not server insertion order.
+    const orderedLogs=logs.slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) ||
+      String(a.id||'').localeCompare(String(b.id||'')));
     const active=snapshot.activeIds.filter(id=>snapshot.trucks.has(id) && !!snapshot.trucks.get(id).isGAI===gai);
-    const ids=[...new Set([...active,...logs.map(log=>log.truckId)])];
-    const first={}; logs.forEach(log=>{if(first[log.truckId]===undefined || log.timestamp<first[log.truckId])first[log.truckId]=log.timestamp;});
-    ids.sort((a,b)=>(first[a]||0)-(first[b]||0));
+    const ids=[...new Set([...active,...orderedLogs.map(log=>log.truckId)])];
+    const first={}; orderedLogs.forEach(log=>{if(first[log.truckId]===undefined)first[log.truckId]=Number(log.timestamp)||0;});
+    ids.sort((a,b)=>((first[a]===undefined)-(first[b]===undefined)) ||
+      ((first[a]||0)-(first[b]||0)) || String(a).localeCompare(String(b)));
     const max=Math.max(8,...ids.map(id=>logs.filter(log=>log.truckId===id).length));
     let head='<th>№</th><th style="text-align:left;">Самосвал</th>';
     for(let i=1;i<=max;i++)head+=`<th>Рейс ${i}</th>`;
     const rows=ids.map((id,index)=>{
-      const truck=snapshot.trucks.get(id), trips=logs.filter(log=>log.truckId===id).slice().reverse(), ttn=snapshot.ttn[id];
+      const truck=snapshot.trucks.get(id), trips=orderedLogs.filter(log=>log.truckId===id), ttn=snapshot.ttn[id];
       const duplicate=(typeof window.__closedShiftDupEnabled==='function' && window.__closedShiftDupEnabled()) ? (trips.length>0 && ttn!==true && ttn!=='pending') : (trips.length>0 && !ttn);
       const dup=duplicate?' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>':'';
       let cells='';
@@ -240,7 +244,7 @@
         } else if(!gai && i===trips.length && ttn==='pending')cells+='<td><div class="cell-content"><div class="hand-drawn-circle"></div></div></td>';
         else cells+='<td></td>';
       }
-      const volume=gai?'Рейсов: '+trips.length:trips.reduce((sum,log)=>sum+log.volume,0)+' м³';
+      const volume=gai?'Рейсов: '+trips.length:trips.reduce((sum,log)=>sum+log.volume,0)+' м³ / '+trips.length+' р';
       return `<tr><td style="font-weight:bold;">${index+1}</td><td class="truck-cell"><div class="paper-truck-brand">${esc(truck.brand)} <span class="paper-truck-volume">${volume}</span>${dup}</div>${truck.number?renderRussianPlate(truck.number):''}</td>${cells}</tr>`;
     }).join('');
     const total=gai?'Всего рейсов ГАИ: <b>'+logs.length+'</b>':'Общий объем: <b>'+logs.reduce((sum,log)=>sum+log.volume,0)+' м³</b>';
