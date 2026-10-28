@@ -202,7 +202,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     target.textContent =
       (s.remote
         ? navigator.onLine
-          ? jobs.some((j) => j.status === "queued")
+          ? s.store.uploadError ? "Ошибка отправки Firebase" : jobs.some((j) => j.status === "queued")
             ? "Ожидает отправки в Firebase"
             : s.store.error
               ? "Ошибка Firebase"
@@ -213,7 +213,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       jobs.filter((j) => j.status === "queued").length +
       " · конфликты " +
       jobs.filter((j) => j.status === "conflict").length +
-      (s.store.error ? " · сервер: " + s.store.error : "");
+      ((s.store.uploadError||s.store.error) ? " · сервер: " + (s.store.uploadError||s.store.error) : "") + (s.store.uploading?" · отправляется "+s.store.uploading.key:"");
   };
   s.store.listeners.add(s.status);
   async function loadObject() {
@@ -240,6 +240,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     if(account().permissions.edit)await s.store.prepareSync();
     const object=s.object?.id;
     await s.store.pull('_catalog/config');await s.store.pull('_defaults/config');
+    void s.store.flush();
     await loadObject();
     if(s.store.closed||s.object?.id!==object)return;
     watch();void s.store.flush();s.incoming=true;await refreshIncoming();

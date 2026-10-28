@@ -1,11 +1,11 @@
 {
-  "version": "0ece3031a27ddc02",
-  "channel": "test-3.4.36-modular-plus-timesheet",
+  "version": "af92668f91514a95",
+  "channel": "test-3.4.37-modular-plus-timesheet",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index-test.html",
-      "sha256": "d8776ff7b1e2d3139e3a4bef41370177d77ad6ee7ea747180e1f47c0e9cc2676"
+      "sha256": "f4913afd93f44388f2e2a7903abc4d8373da629baed989e75ead9c9e4ab554c0"
     },
     {
       "url": "./manifest-test.webmanifest",
@@ -109,7 +109,7 @@
     },
     {
       "url": "./test-app/tabel-v2/store.mjs",
-      "sha256": "5deb63ae388b5825f3397259716d62e05bfb84161835d933b388282dd5f60127"
+      "sha256": "7079077f8bfcb711d85e43ffb2a1e2f2e199ab3dedff156d26e5719df3ae1bb9"
     },
     {
       "url": "./test-app/tabel-v2/summary.mjs",
@@ -137,94 +137,94 @@
     },
     {
       "url": "./test-app/tabel-v2/workspace.mjs",
-      "sha256": "231d8ec90641e528a33319200ec89c66513e1a173f1e3cfe11837db9df695b58"
+      "sha256": "e6ee76f7e907fe32ec7af80f3ef9f8249b88d5747e8147df6f9220bfcf80d0c3"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/built-in-patches.js",
+      "url": "./test-app/build/af92668f91514a95/built-in-patches.js",
       "sha256": "e20cff31c41838c91dc8c96ccacff7ed6c1cde516de4aa9b40c3cbe6d9ad9dca"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/closed-shift-duplicates.js",
+      "url": "./test-app/build/af92668f91514a95/closed-shift-duplicates.js",
       "sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/confirm-bridge.js",
+      "url": "./test-app/build/af92668f91514a95/confirm-bridge.js",
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/core.js",
+      "url": "./test-app/build/af92668f91514a95/core.js",
       "sha256": "f790380837d53b9e2436a7d8c2e85e5230b7b891be2469e116c52e238de72eb0"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/gai-report-toggle.js",
+      "url": "./test-app/build/af92668f91514a95/gai-report-toggle.js",
       "sha256": "584a1b9bfb8c3edd8229fe73be5db55788dc251c182b545c27a4cac1b9c1455a"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/game-coins-v2.js",
+      "url": "./test-app/build/af92668f91514a95/game-coins-v2.js",
       "sha256": "38e64cf8f9434b7e8ca6c31210038f37749f2eb46bda7a7b3bcd7a367b80cae4"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/global-interface-haptics.js",
+      "url": "./test-app/build/af92668f91514a95/global-interface-haptics.js",
       "sha256": "cb9695c568c866a5403268629d6b07629b0a2444de1ced98b088e027963b0d7f"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/history-recorder.js",
+      "url": "./test-app/build/af92668f91514a95/history-recorder.js",
       "sha256": "80d18f6ece45b79b028012aa3e66e8e826b71105e30a6c38052ae4c134c6b2fb"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/line-card-layers.js",
+      "url": "./test-app/build/af92668f91514a95/line-card-layers.js",
       "sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/offline-feedback.js",
+      "url": "./test-app/build/af92668f91514a95/offline-feedback.js",
       "sha256": "94b6082bc2d2939da2214787ad258b870c426ef0475220b7dd364d3959498db7"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/paper-viewer.js",
+      "url": "./test-app/build/af92668f91514a95/paper-viewer.js",
       "sha256": "4ae0a1ebb39d64df2a41a284b8651ee2c698fe2472e843debc5aafc4b956a151"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/release-history.js",
-      "sha256": "94c97c7480149521d0b4fe4baf81e4a64cf677bb46cb1a53cc69640fc48c9a0d"
+      "url": "./test-app/build/af92668f91514a95/release-history.js",
+      "sha256": "f5e5ddc682f42e955b7151bc0c93ced72ecd4a010765558d0a49dd69dceec89f"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/reset-settings.js",
+      "url": "./test-app/build/af92668f91514a95/reset-settings.js",
       "sha256": "416078dbe3a699fe4d25a3eedc5a97edabe705732715aac90bfb13b09f5af335"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/road-arcade-core.js",
+      "url": "./test-app/build/af92668f91514a95/road-arcade-core.js",
       "sha256": "10da96381e9f6662cf571a05a08839a9cc369440a289de656ba4ce1e1bfaee3f"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/road-arcade-runtime.js",
+      "url": "./test-app/build/af92668f91514a95/road-arcade-runtime.js",
       "sha256": "991ddcb72f33961973fbf8de908de81c0b03dfc5fea8e019b30e53889edccc82"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/road-arcade-ui.js",
+      "url": "./test-app/build/af92668f91514a95/road-arcade-ui.js",
       "sha256": "6437eef1903c213b858c416a8b069da405396e71860777a5fd7b42124e50efba"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/road-jokes-v1.js",
+      "url": "./test-app/build/af92668f91514a95/road-jokes-v1.js",
       "sha256": "8034c5a9d0f83742e7007c57e9ed2cc6927054f4666bb5daef88f1fdf0b506ea"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/road-season-effects-v1.js",
+      "url": "./test-app/build/af92668f91514a95/road-season-effects-v1.js",
       "sha256": "280137ae4c6e677516c0d5171b7ec822f8d11150bc26e25afe81a220ec53bd00"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/road-shop-v1.js",
+      "url": "./test-app/build/af92668f91514a95/road-shop-v1.js",
       "sha256": "6331cb853a83b2a025650ce9272e20f46cc796a4c4ce17b100b1a7b652a94ff2"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/settings-hub.js",
+      "url": "./test-app/build/af92668f91514a95/settings-hub.js",
       "sha256": "23ed7100ec57cb522adaf9839fb39ceb73ba3cdb711dd44aad9ef4cff0561438"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/test-release.js",
-      "sha256": "d253e8c0f9044a0f14a5b2814865b33aa3891294a8cbd67d97655bf8df3f8bc8"
+      "url": "./test-app/build/af92668f91514a95/test-release.js",
+      "sha256": "50951fe66420a6f0b3d6f5495485cf10e6ce75cab14b957a94512c9cd98baa3d"
     },
     {
-      "url": "./test-app/build/0ece3031a27ddc02/trip-analytics.js",
+      "url": "./test-app/build/af92668f91514a95/trip-analytics.js",
       "sha256": "1782f14ac8deb2a5794574e9ce56bc51aacbf8ab48050a114b4e63ab3c745dc1"
     },
     {

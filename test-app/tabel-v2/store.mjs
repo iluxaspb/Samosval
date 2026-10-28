@@ -9,6 +9,7 @@ export class Store {
     this.state = { records: {}, jobs: [], history: [] };
     this.chain = Promise.resolve();
     this.error = "";
+    this.uploadError = "";
     this.closed = false;
   }
   async open() {
@@ -217,16 +218,20 @@ export class Store {
     this.busy = true;
     try {
       await this.serialize(async () => {
+        const blocked=new Set();
+        let failure="";
         for (const job of [...this.state.jobs]) {
           if (
-            job.status !== "queued" ||
+            blocked.has(job.key) || job.status !== "queued" ||
             this.state.jobs.some(
               (j) => j.key === job.key && j.status === "conflict",
             )
           )
             continue;
           try {
-            const result = await this.remote.commit(job);
+            this.uploading={key:job.key,started:Date.now()};this.emit();
+            let timer;
+            const result = await Promise.race([this.remote.commit(job),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Нет подтверждения Firebase за 25 секунд. Повтор будет с тем же ID операции.')),25000);})]).finally(()=>clearTimeout(timer));
             if (result.conflict) {
               job.status = "conflict";
               job.remote = result.current;
@@ -248,14 +253,18 @@ export class Store {
             await this.persist();
             this.error = "";
           } catch (e) {
-            this.error = e.message;
+            failure=job.key+': '+(e.code?e.code+' · ':'')+e.message;
+            this.uploadError=failure;this.error=failure;
+            blocked.add(job.key);
+            console.error('[Табель Firebase]',failure);
             this.emit();
-            break;
           }
         }
+        this.uploadError=failure;
       });
     } finally {
-      this.busy = false;
+      this.uploading=null;
+      this.busy = false;this.emit();
     }
   }
   async resolve(id, choice) {
