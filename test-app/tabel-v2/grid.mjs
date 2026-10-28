@@ -1,3 +1,4 @@
+import { numberInput } from "./number-input.mjs";
 import * as D from "./table-domain.mjs";
 import { esc, btn, input, field, dialog, error } from "./messages.mjs";
 export async function mount(s, host) {
@@ -62,7 +63,9 @@ export async function mount(s, host) {
       ) +
       s.store
         .list(s.key("sheet:"))
-        .filter((r) => r.data && !r.data.deleted && r.key !== s.key("sheet:linked"))
+        .filter(
+          (r) => r.data && !r.data.deleted && r.key !== s.key("sheet:linked"),
+        )
         .map((r) =>
           btn(
             esc(r.data.name),
@@ -71,12 +74,20 @@ export async function mount(s, host) {
           ),
         )
         .join("") +
-      btn("＋ Лист", "new-sheet", 'aria-label="Добавить лист"') + (sheetId !== "linked" ? btn("⋯ Лист","sheet-options",'aria-label="Переименовать или удалить лист"') : "");
+      (sheetId !== "linked"
+        ? btn(
+            "⋯ Лист",
+            "sheet-options",
+            'aria-label="Переименовать или удалить лист"',
+          )
+        : "");
     host
       .querySelectorAll("[data-action=sheet]")
       .forEach((b) => (b.onclick = () => load(b.dataset.id).catch(error)));
-    host.querySelector("[data-action=new-sheet]").onclick = () => newSheet();
-    host.querySelector("[data-action=sheet-options]")?.addEventListener("click",sheetOptions);
+
+    host
+      .querySelector("[data-action=sheet-options]")
+      ?.addEventListener("click", sheetOptions);
   }
   function dimensions() {
     if (sheetId === "linked") {
@@ -90,16 +101,20 @@ export async function mount(s, host) {
           const existing = allDays.filter((d) => d.date === date);
           return existing.length
             ? existing
-            : [
-                {
-                  date,
-                  shift: "day",
-                  equipment: [],
-                  people: [],
-                  values: {},
-                  placeholder: true,
-                },
-              ];
+            : s.store
+                  .list(s.key("day:" + date + ":"))
+                  .some((r) => r.data?.deleted)
+              ? []
+              : [
+                  {
+                    date,
+                    shift: "day",
+                    equipment: [],
+                    people: [],
+                    values: {},
+                    placeholder: true,
+                  },
+                ];
         })
         .filter((d) => period !== "week" || D.monday(d.date) === week);
       linkedRows = D.rows(config, allDays);
@@ -171,10 +186,11 @@ export async function mount(s, host) {
       .join(";");
   }
   function draw() {
-    host.classList.toggle("tn-simple-table",simple());
-    host.querySelector('.tn-formula').hidden=simple();
-    for(const action of ['format','menu']) host.querySelector(`[data-action=${action}]`).hidden=simple();
-    if(simple()) symbols.hidden=true;
+    host.classList.toggle("tn-simple-table", simple());
+    host.querySelector(".tn-formula").hidden = simple();
+    for (const action of ["format", "menu"])
+      host.querySelector(`[data-action=${action}]`).hidden = simple();
+    if (simple()) symbols.hidden = true;
     if (disposed) return;
     const dim = dimensions();
     host.querySelector("[data-period]").hidden = sheetId !== "linked";
@@ -197,13 +213,24 @@ export async function mount(s, host) {
     table.style.minWidth = "0";
     table.style.fontSize = 12 * scale + "px";
     table.innerHTML =
-      '<colgroup>' + (sheetId === "linked" ? "" : '<col style="width:32px">') +
+      "<colgroup>" +
+      (sheetId === "linked" ? "" : '<col style="width:32px">') +
       Array.from(
         { length: dim.cols },
         (_, col) =>
           `<col style="width:${(sheet.widths[widthKey(col)] || (sheetId === "linked" ? (col === 0 ? 145 : autoWidth(col)) : 80)) * scale}px">`,
       ).join("") +
-      '</colgroup>' + (sheetId === "linked" ? "" : '<thead><tr><th class="tn-corner"></th>' + Array.from({length:dim.cols},(_,col)=>`<th data-column="${col}">${D.colName(col)}<span class="tn-resize-col" data-resize-col="${col}"></span></th>`).join("")+"</tr></thead>") + "<tbody>" +
+      "</colgroup>" +
+      (sheetId === "linked"
+        ? ""
+        : '<thead><tr><th class="tn-corner"></th>' +
+          Array.from(
+            { length: dim.cols },
+            (_, col) =>
+              `<th data-column="${col}">${D.colName(col)}<span class="tn-resize-col" data-resize-col="${col}"></span></th>`,
+          ).join("") +
+          "</tr></thead>") +
+      "<tbody>" +
       (first
         ? `<tr><td colspan="${dim.cols + 1}">${btn("↑ Предыдущие 60 строк", "prev-rows")}</td></tr>`
         : "") +
@@ -212,9 +239,13 @@ export async function mount(s, host) {
           height =
             (sheet.heights[heightKey(r)] ||
               (sheetId === "linked" && r === 1 ? 36 : 27)) * scale;
-        if(sheetId === "linked" && r===0) return `<tr class="tn-address"><td data-cell="A1" colspan="${dim.cols}" style="background:#ff9900"><div>${esc(s.object.address || s.object.location || c.name)}</div></td></tr>`;
+        if (sheetId === "linked" && r === 0)
+          return `<tr class="tn-address"><td data-cell="A1" colspan="${dim.cols}" style="background:#ff9900"><div>${esc(s.object.address || s.object.location || c.name)}</div></td></tr>`;
         return (
-          `<tr style="height:${height}px">` + (sheetId === "linked" ? "" : `<th data-row="${r}">${r + 1}<span class="tn-resize-row" data-resize-row="${r}"></span></th>`) +
+          `<tr style="height:${height}px">` +
+          (sheetId === "linked"
+            ? ""
+            : `<th data-row="${r}">${r + 1}<span class="tn-resize-row" data-resize-row="${r}"></span></th>`) +
           Array.from({ length: dim.cols }, (_, col) => {
             const k = D.cell(r, col);
             let v =
@@ -249,12 +280,23 @@ export async function mount(s, host) {
         .forEach(
           (td) =>
             (td.style.top =
-              (table.querySelector(".tn-address")?.getBoundingClientRect().height || 27*scale) + "px"),
+              (table.querySelector(".tn-address")?.getBoundingClientRect()
+                .height || 27 * scale) + "px"),
         );
     }
     host.querySelector(".tn-object-totals")?.remove();
-    if(sheetId === "linked"){
-      const panel=document.createElement("details");panel.className="tn-object-totals";panel.innerHTML='<summary>Итоги работ и материалов за весь объект</summary>'+D.totals(s.config(),allDays).map(x=>`<p>${esc(x.name)}: <b>${D.fmt(x.quantity)}</b> ${esc(x.unit)}</p>`).join("");host.querySelector(".tn-sheets").before(panel);
+    if (sheetId === "linked") {
+      const panel = document.createElement("details");
+      panel.className = "tn-object-totals";
+      panel.innerHTML =
+        "<summary>Итоги работ и материалов за весь объект</summary>" +
+        D.totals(s.config(), allDays)
+          .map(
+            (x) =>
+              `<p>${esc(x.name)}: <b>${D.fmt(x.quantity)}</b> ${esc(x.unit)}</p>`,
+          )
+          .join("");
+      host.querySelector(".tn-sheets").before(panel);
     }
     mark();
     host
@@ -332,7 +374,7 @@ export async function mount(s, host) {
     const changes = new Map();
     for (const [k, rawValue] of updates) {
       const { row, day, p } = linkedAt(k);
-      if (!row || !day || row.section || p.c === 0 || (simple() && row.kind === "value"))
+      if (!row || !day || row.section || p.c === 0)
         throw Error(
           "Диапазон включает заголовок. Выберите только ячейки факта.",
         );
@@ -349,12 +391,34 @@ export async function mount(s, host) {
         };
         changes.set(key, item);
       }
-      if(row.kind!=="value" && !item.data[row.kind].some(e=>e.id===row.entity)) {
-        const config=s.config(),source=config[row.kind].find(e=>e.id===row.entity) || allDays.flatMap(d=>d[row.kind]).find(e=>e.id===row.entity);
-        if(!source)throw Error("Запись не найдена в справочнике");
-        const accepted=await confirmAdd(row.name,day.date);
-        if(!accepted)throw Error("Добавление в состав отменено. Часы не сохранены.");
-        item.data[row.kind].push({...D.copy(source),hours:null,crewHours:null,pumpHours:null});
+      if (
+        row.kind !== "value" &&
+        !item.data[row.kind].some((e) => e.id === row.entity)
+      ) {
+        const config = s.config(),
+          source =
+            config[row.kind].find((e) => e.id === row.entity) ||
+            allDays
+              .flatMap((d) => d[row.kind])
+              .find((e) => e.id === row.entity);
+        if (!source) throw Error("Запись не найдена в справочнике");
+        const accepted = await confirmAdd(row.name, day.date);
+        if (!accepted)
+          throw Error("Добавление в состав отменено. Часы не сохранены.");
+        item.data[row.kind].push({
+          ...D.copy(source),
+          hours: null,
+          crewHours: null,
+          pumpHours: null,
+        });
+      }
+      if (row.field === "pumpHours") {
+        const machine = item.data.equipment.find((e) => e.id === row.entity);
+        if (!machine.pump) {
+          if (!(await confirmEnable(row.name, day.date)))
+            throw Error("Включение помпы отменено. Значение не сохранено.");
+          machine.pump = true;
+        }
       }
       D.setValue(row, item.data, rawValue);
     }
@@ -433,31 +497,32 @@ export async function mount(s, host) {
     }
   };
   function openHours(k) {
-    const {row,day,p}=linkedAt(k);
-    if(!row || !day || row.section || p.c===0 || row.kind === "value") return;
-    try{s.require("table","edit");}catch(e){error(e);return;}
-    selected=end=k;mark();
-    let value=raw(k);
-    const el=dialog(row.name+" · "+D.display(day.date),`<output data-hours-value aria-live="polite">${esc(value || "0")}</output><div class="tn-quick-hours">${[10,11,12,13,14].map(n=>btn(n,"preset",`data-preset="${n}" ${n===12?'class="tn-twelve"':""}`)).join("")}</div><div class="tn-numberpad">${['7','8','9','4','5','6','1','2','3',',','0','⌫'].map(x=>btn(x,'digit',`data-digit="${x}"`)).join('')}</div>${btn('Очистить','clear-hours')}`,async()=>{await linkedWrite([[k,value]],"Часы: цифровой ввод");});
-    el.classList.add('tn-hours-dialog');
-    el.querySelector('[type=submit]').textContent='Enter · Сохранить';
-    let replace=true;
-    const update=()=>el.querySelector('[data-hours-value]').textContent=value || '0';
-    el.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{value=b.dataset.preset;replace=true;update();});
-    el.querySelectorAll('[data-digit]').forEach(b=>b.onclick=()=>{
-      const digit=b.dataset.digit;
-      if(digit==='⌫')value=value.slice(0,-1);
-      else{if(replace)value='';if(digit!==',' || !/[.,]/.test(value))value+=digit;}
-      replace=false;update();
-    });
-    el.querySelector('[data-action=clear-hours]').onclick=()=>{value='';replace=false;update();};
+    const { row, day, p } = linkedAt(k);
+    if (!row || !day || row.section || p.c === 0) return;
+    try {
+      s.require("table", "edit");
+    } catch (e) {
+      error(e);
+      return;
+    }
+    selected = end = k;
+    mark();
+    return numberInput(
+      row.name + " · " + D.display(day.date),
+      raw(k),
+      (value) => linkedWrite([[k, value]], "Цифровой ввод из таблицы"),
+      { presets: row.kind !== "value" },
+    );
   }
   table.onclick = (e) => {
     if (e.target.closest("[class*=tn-resize]") || e.target.closest(".tn-fill"))
       return;
     const td = e.target.closest("[data-cell]");
     if (td) {
-      if(simple()) {openHours(td.dataset.cell);return;}
+      if (simple()) {
+        openHours(td.dataset.cell);
+        return;
+      }
       selected = td.dataset.cell;
       end = selected;
       mark();
@@ -480,7 +545,7 @@ export async function mount(s, host) {
   };
   table.oncontextmenu = (e) => {
     e.preventDefault();
-    if(simple()) return;
+    if (simple()) return;
     const td = e.target.closest("[data-cell]");
     if (td) {
       selected = end = td.dataset.cell;
@@ -490,7 +555,7 @@ export async function mount(s, host) {
   };
   let hold, origin;
   table.addEventListener("pointerdown", (e) => {
-    if(simple()) return;
+    if (simple()) return;
     const target = e.target.closest("[data-resize-col],[data-resize-row]");
     if (target) {
       e.preventDefault();
@@ -792,13 +857,72 @@ export async function mount(s, host) {
       throw Error("Лимит облегчённого листа: 100 столбцов × 1000 строк");
     await persist(next, "Размер листа");
   }
-  function sheetOptions(){
-    if(sheetId === "linked")return;
-    const el=dialog(sheet.name,btn("Переименовать","rename-sheet")+btn("Удалить лист","delete-sheet"));
-    el.querySelector('[data-action=rename-sheet]').onclick=()=>{el.close();dialog("Название листа",input("name",sheet.name,'required maxlength="80"'),async f=>{const name=String(f.get("name")).trim();if(!name)throw Error("Введите название");await persist({...sheet,name},"Переименование листа");tabs();});};
-    el.querySelector('[data-action=delete-sheet]').onclick=()=>{el.close();dialog("Удалить лист «"+sheet.name+"»?","<p>Лист исчезнет из списка. Основной табель останется.</p>",async()=>{await s.save(key(),{...sheet,deleted:true},base,"Удаление листа", "table");await load("linked");});};
+  function sheetOptions() {
+    if (sheetId === "linked") return;
+    const el = dialog(
+      sheet.name,
+      btn("Переименовать", "rename-sheet") +
+        btn("Удалить лист", "delete-sheet"),
+    );
+    el.querySelector("[data-action=rename-sheet]").onclick = () => {
+      el.close();
+      dialog(
+        "Название листа",
+        input("name", sheet.name, 'required maxlength="80"'),
+        async (f) => {
+          const name = String(f.get("name")).trim();
+          if (!name) throw Error("Введите название");
+          await persist({ ...sheet, name }, "Переименование листа");
+          tabs();
+        },
+      );
+    };
+    el.querySelector("[data-action=delete-sheet]").onclick = () => {
+      el.close();
+      dialog(
+        "Удалить лист «" + sheet.name + "»?",
+        "<p>Лист исчезнет из списка. Основной табель останется.</p>",
+        async () => {
+          await s.save(
+            key(),
+            { ...sheet, deleted: true },
+            base,
+            "Удаление листа",
+            "table",
+          );
+          await load("linked");
+        },
+      );
+    };
   }
-  function confirmAdd(name,date){return new Promise(resolve=>{let accepted=false;const el=dialog("Нет в составе смены",`<p>${esc(name)} нет в составе смены на ${D.display(date)}. Добавить с введёнными часами?</p>`,async()=>{accepted=true;});el.querySelector('[type=submit]').textContent="Добавить";el.addEventListener('close',()=>resolve(accepted),{once:true});});}
+  function confirmEnable(name, date) {
+    return new Promise((resolve) => {
+      let accepted = false;
+      const el = dialog(
+        "Помпа выключена в этой смене",
+        `<p>${esc(name)} · ${D.display(date)}. Включить и сохранить введённое значение?</p>`,
+        async () => {
+          accepted = true;
+        },
+      );
+      el.querySelector("[type=submit]").textContent = "Включить";
+      el.addEventListener("close", () => resolve(accepted), { once: true });
+    });
+  }
+  function confirmAdd(name, date) {
+    return new Promise((resolve) => {
+      let accepted = false;
+      const el = dialog(
+        "Нет в составе смены",
+        `<p>${esc(name)} нет в составе смены на ${D.display(date)}. Добавить с введёнными часами?</p>`,
+        async () => {
+          accepted = true;
+        },
+      );
+      el.querySelector("[type=submit]").textContent = "Добавить";
+      el.addEventListener("close", () => resolve(accepted), { once: true });
+    });
+  }
   function newSheet() {
     const defaultType = c.newSheet;
     if (defaultType === "ask") {
@@ -907,4 +1031,3 @@ export async function mount(s, host) {
     idle: () => chain,
   };
 }
-

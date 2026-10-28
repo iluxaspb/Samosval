@@ -42,6 +42,10 @@ export function dialog(title, html, save) {
     }
   };
   el.showModal();
+  if (el.querySelector('input[inputmode="decimal"],input[inputmode="numeric"]'))
+    import("./number-input.mjs").then((m) => {
+      if (el.isConnected) m.bindNumericFields(el);
+    });
   return el;
 }
 export function message(title, text) {

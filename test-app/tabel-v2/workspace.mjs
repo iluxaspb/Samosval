@@ -76,8 +76,22 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   ).open();
   s.key = (suffix) => s.object.id + "/" + suffix;
   s.config = () => {
-    const stored=s.store.get(s.key("config")).data, defaults=s.store.get("_defaults/config").data;
-    const c = stored || (defaults ? {...D.config(s.object),equipment:D.copy(defaults.equipment||[]),people:D.copy(defaults.people||[]),request:{...D.config(s.object).request,...D.copy(defaults.request),date:D.add(D.today(),1)}} : D.config(s.object)),
+    const stored = s.store.get(s.key("config")).data,
+      defaults = s.store.get("_defaults/config").data;
+    const c =
+        stored ||
+        (defaults
+          ? {
+              ...D.config(s.object),
+              equipment: D.copy(defaults.equipment || []),
+              people: D.copy(defaults.people || []),
+              request: {
+                ...D.config(s.object).request,
+                ...D.copy(defaults.request),
+                date: D.add(D.today(), 1),
+              },
+            }
+          : D.config(s.object)),
       catalog = s.store.get("_catalog/config").data || {
         equipment: [],
         people: [],
@@ -98,8 +112,20 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         ),
       ).values(),
     ];
-    if (!c.equipment.some(D.isWater)) c.equipment.push({id:"builtin-water",name:"Поливомоечная",kind:"water",ownership:"own",pump:false});
-    c.equipment=c.equipment.filter(e=>!e.deleted).map(e=>({...e,pump:D.isWater(e) && e.ownership!=="hired" && !!e.pump}));
+    if (!c.equipment.some(D.isWater))
+      c.equipment.push({
+        id: "builtin-water",
+        name: "Поливомоечная",
+        kind: "water",
+        ownership: "own",
+        pump: false,
+      });
+    c.equipment = c.equipment
+      .filter((e) => !e.deleted)
+      .map((e) => ({
+        ...e,
+        pump: D.isWater(e) && e.ownership !== "hired" && !!e.pump,
+      }));
     return c;
   };
   s.require = (area, mode = "view") => {
@@ -118,7 +144,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   s.days = () =>
     s.store
       .list(s.key("day:"))
-      .filter((r) => r.data)
+      .filter((r) => r.data && !r.data.deleted)
       .map((r) => r.data)
       .sort(
         (a, b) =>
@@ -128,13 +154,13 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     s.save(s.key("config"), c, base, "Настройки / заявка", area);
   s.refresh = () => render(s);
   s.addEquipment = () => addEquipment(s);
-  s.addPerson = (group) => addPerson(s,group);
+  s.addPerson = (group) => addPerson(s, group);
   s.openSettings = () =>
     import("./settings-menu.mjs").then((m) => m.openSettings(s));
   s.addDefinition = (kind) =>
     import("./catalog.mjs").then((m) => m.addDefinition(s, kind));
   s.addDay = () => addDay(s);
-  s.composition = (group) => composition(s,group);
+  s.composition = (group) => composition(s, group);
   s.editValue = async (row, d, raw) => {
     const key = s.key(D.dayKey(d.date, d.shift)),
       base = s.store.get(key),
@@ -171,7 +197,11 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     target.textContent =
       (s.remote
         ? navigator.onLine
-          ? jobs.some(j => j.status === "queued") ? "Ожидает отправки в Firebase" : s.store.error ? "Ошибка Firebase" : "Firebase: очередь пуста"
+          ? jobs.some((j) => j.status === "queued")
+            ? "Ожидает отправки в Firebase"
+            : s.store.error
+              ? "Ошибка Firebase"
+              : "Firebase: очередь пуста"
           : "Офлайн"
         : "На устройстве: синхронизация Firebase не включена") +
       " · локально " +
@@ -229,7 +259,10 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         const active = document.activeElement;
         if (
           !document.querySelector("dialog.tn") &&
-          !(s.root.contains(active) && active?.matches("input,textarea,select,[contenteditable=true]")) &&
+          !(
+            s.root.contains(active) &&
+            active?.matches("input,textarea,select,[contenteditable=true]")
+          ) &&
           !s.root.hidden
         )
           await render(s);
@@ -267,8 +300,8 @@ async function render(s) {
   s.grid = null;
   const c = s.object ? s.config() : null;
   s.root.classList.toggle("tn-table", s.view === "table");
-  s.root.dataset.view=s.view;
-  s.root.innerHTML = `<header class="tn-header">${btn("‹", "exit", 'aria-label="На линию"')}<select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.host.data().objects || []), ...(s.object ? [s.object] : [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select><span class="tn-version">Табель 2</span>${btn("＋ Объект", "object",s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
+  s.root.dataset.view = s.view;
+  s.root.innerHTML = `<header class="tn-header">${btn("×", "exit", 'class="tn-exit" aria-label="Закрыть табель"')}<select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.host.data().objects || []), ...(s.object ? [s.object] : [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
     ["request", "Заявки"],
     ["shift", "Смена"],
     ["table", "Таблица"],
@@ -292,8 +325,10 @@ async function render(s) {
   s.root.querySelectorAll("[data-view]").forEach(
     (b) =>
       (b.onclick = async () => {
+        if (b.dataset.view === "shift") s.day = D.today();
         s.view = b.dataset.view;
-        if (s.view === "history" && s.object) await s.store.pullHistory(s.object.id);
+        if (s.view === "history" && s.object)
+          await s.store.pullHistory(s.object.id);
         render(s).catch(error);
       }),
   );
@@ -304,7 +339,7 @@ async function render(s) {
       await s.store.pull("_catalog/config");
       await s.store.pull("_defaults/config");
       await s.store.pullObject(s.object.id);
-    await s.store.pullHistory(s.object.id);
+      await s.store.pullHistory(s.object.id);
     }
     await render(s);
   };
@@ -382,71 +417,258 @@ function newObject(s) {
   );
 }
 function request(s, main) {
-  const base = s.store.get(s.key("config")), c = s.config();
-  main.innerHTML = `<form class="tn-request"><div class="tn-request-date">${field("Дата заявки",input("date",c.request.date,'type="date" required'))}${field("Смена",`<select name="shift"><option value="day">Дневная</option><option value="night" ${c.request.shift === "night" ? "selected" : ""}>Ночная</option></select>`)}</div><div class="tn-tools">${btn("＋ Добавить технику", "choose-equipment")}${btn("＋ ИТР", "add-itr")}</div><h3>Техника в заявке</h3>${R.selectedEquipment(c).map(e=>`<label class="tn-check"><input type="checkbox" name="equipment" value="${esc(e.id)}" checked>${esc(e.name)}</label>`).join("") || "<p>Добавьте нужную технику из справочника.</p>"}<section class="tn-trucks"><h3>Самосвалы</h3><div data-truck-groups></div>${btn("＋ Группа самосвалов","truck-group")}</section><h3>ИТР</h3>${c.people.filter(p=>p.group === "itr").map(p=>`<label class="tn-check"><input type="checkbox" name="people" value="${esc(p.id)}" ${c.request.people.includes(p.id) ? "checked" : ""}>${esc(p.name)}</label>`).join("")}${field("Ответственный ИТР",'<select name="responsibleId"></select>')}${field("Станция метро для развозки",input("metro",c.request.metro || "",'autocomplete="off" placeholder="Начните вводить название"'))}<div data-stations class="tn-stations" hidden></div>${field("Время подачи развозки",input("pickupTime",c.request.pickupTime || "07:00",'type="time"'))}${field("Примечание к заявке",input("note",c.request.note))}<button type="submit">Сохранить заявку</button></form><div class="tn-tools">${btn("Поделиться заявкой", "send-request")}${btn("Заказ обеда", "lunch")}${btn("Отправить отчёт", "report")}${btn("Начать / добавить смену", "add-day")}</div><p class="tn-hint">Рабочие учитываются в табеле. В заявке выбираются техника и ИТР.</p>`;
-  const form=main.querySelector("form"), select=form.elements.responsibleId;
-  const groupRoot=form.querySelector("[data-truck-groups]");
-  function addTruckGroup(g={count:1,mode:"local",trips:1}) {
-    const row=document.createElement("div");row.className="tn-truck-group";
-    row.innerHTML=field("Количество самосвалов",input("truckCount",g.count,'type="number" min="1" max="10000" required'))+field("Тип",`<select name="truckMode"><option value="local">По месту</option><option value="central" ${g.mode === "central" ? "selected" : ""}>Централизация</option></select>`)+`<div data-central>${field("Рейсы на каждый",input("truckTrips",g.trips || 1,'type="number" min="1" max="1000"'))}<output data-truck-total></output></div>`+btn("× Убрать","remove-group");
-    const update=()=>{const central=row.querySelector('[name=truckMode]').value==="central";row.querySelector('[data-central]').hidden=!central;row.querySelector('[name=truckTrips]').required=central;row.querySelector('[name=truckTrips]').disabled=!central;row.querySelector('[data-truck-total]').textContent=`${Number(row.querySelector('[name=truckCount]').value)*Number(row.querySelector('[name=truckTrips]').value)*40} тонн · 40 т/рейс`;};
-    row.oninput=update;row.onchange=update;row.querySelector('[data-action=remove-group]').onclick=()=>row.remove();groupRoot.append(row);update();
+  const base = s.store.get(s.key("config")),
+    c = s.config();
+  main.innerHTML = `<form class="tn-request"><div class="tn-request-date">${field("Дата заявки", input("date", c.request.date, 'type="date" required'))}${field("Смена", `<select name="shift"><option value="day">Дневная</option><option value="night" ${c.request.shift === "night" ? "selected" : ""}>Ночная</option></select>`)}</div><div class="tn-tools">${btn("＋ Добавить технику", "choose-equipment")}${btn("＋ ИТР", "add-itr")}</div><h3>Техника в заявке</h3>${
+    R.selectedEquipment(c)
+      .map(
+        (e) =>
+          `<label class="tn-check"><input type="checkbox" name="equipment" value="${esc(e.id)}" checked>${esc(e.name)}</label>`,
+      )
+      .join("") || "<p>Добавьте нужную технику из справочника.</p>"
+  }<section class="tn-trucks"><h3>Самосвалы</h3><div data-truck-groups></div>${btn("＋ Группа самосвалов", "truck-group")}</section><h3>ИТР</h3>${c.people
+    .filter((p) => p.group === "itr")
+    .map(
+      (p) =>
+        `<label class="tn-check"><input type="checkbox" name="people" value="${esc(p.id)}" ${c.request.people.includes(p.id) ? "checked" : ""}>${esc(p.name)}</label>`,
+    )
+    .join(
+      "",
+    )}${field("Ответственный ИТР", '<select name="responsibleId"></select>')}${field("Станция метро для развозки", input("metro", c.request.metro || "", 'autocomplete="off" placeholder="Начните вводить название"'))}<div data-stations class="tn-stations" hidden></div>${field("Время подачи развозки", input("pickupTime", c.request.pickupTime || "07:00", 'type="time"'))}${field("Примечание к заявке", input("note", c.request.note))}<button type="submit">Сохранить заявку</button></form><div class="tn-tools">${btn("Поделиться заявкой", "send-request")}${btn("Заказ обеда", "lunch")}${btn("Отправить отчёт", "report")}${btn("Начать / добавить смену", "add-day")}</div><p class="tn-hint">Рабочие учитываются в табеле. В заявке выбираются техника и ИТР.</p>`;
+  const form = main.querySelector("form"),
+    select = form.elements.responsibleId;
+  const groupRoot = form.querySelector("[data-truck-groups]");
+  function addTruckGroup(g = { count: 1, mode: "local", trips: 1 }) {
+    const row = document.createElement("div");
+    row.className = "tn-truck-group";
+    row.innerHTML =
+      field(
+        "Количество самосвалов",
+        input(
+          "truckCount",
+          g.count,
+          'type="number" min="1" max="10000" required',
+        ),
+      ) +
+      field(
+        "Тип",
+        `<select name="truckMode"><option value="local">По месту</option><option value="central" ${g.mode === "central" ? "selected" : ""}>Централизация</option></select>`,
+      ) +
+      `<div data-central>${field("Рейсы на каждый", input("truckTrips", g.trips || 1, 'type="number" min="1" max="1000"'))}<output data-truck-total></output></div>` +
+      btn("× Убрать", "remove-group");
+    const update = () => {
+      const central = row.querySelector("[name=truckMode]").value === "central";
+      row.querySelector("[data-central]").hidden = !central;
+      row.querySelector("[name=truckTrips]").required = central;
+      row.querySelector("[name=truckTrips]").disabled = !central;
+      row.querySelector("[data-truck-total]").textContent =
+        `${Number(row.querySelector("[name=truckCount]").value) * Number(row.querySelector("[name=truckTrips]").value) * 40} тонн · 40 т/рейс`;
+    };
+    row.oninput = update;
+    row.onchange = update;
+    row.querySelector("[data-action=remove-group]").onclick = () =>
+      row.remove();
+    groupRoot.append(row);
+    update();
   }
   (c.request.trucks || []).forEach(addTruckGroup);
-  bind(main,"truck-group",()=>addTruckGroup());
-  const updateResponsible=()=>{
-    const id=select.value || c.request.responsibleId;
-    const ids=new FormData(form).getAll("people");
-    const people=c.people.filter(p=>p.group === "itr" && ids.includes(p.id));
-    select.innerHTML='<option value="">Выберите ответственного</option>'+people.map(p=>`<option value="${esc(p.id)}" ${p.id===id || people.length===1 ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+  bind(main, "truck-group", () => addTruckGroup());
+  const updateResponsible = () => {
+    const id = select.value || c.request.responsibleId;
+    const ids = new FormData(form).getAll("people");
+    const people = c.people.filter(
+      (p) => p.group === "itr" && ids.includes(p.id),
+    );
+    select.innerHTML =
+      '<option value="">Выберите ответственного</option>' +
+      people
+        .map(
+          (p) =>
+            `<option value="${esc(p.id)}" ${p.id === id || people.length === 1 ? "selected" : ""}>${esc(p.name)}</option>`,
+        )
+        .join("");
   };
-  form.querySelectorAll('[name=people]').forEach(el=>el.onchange=updateResponsible);
+  form
+    .querySelectorAll("[name=people]")
+    .forEach((el) => (el.onchange = updateResponsible));
   updateResponsible();
-  const metro=form.elements.metro, results=main.querySelector("[data-stations]");
-  metro.oninput=()=>{
-    results.hidden=false;
-    results.innerHTML=R.searchStations(metro.value).map(name=>btn(esc(name),"station",`data-name="${esc(name)}"`)).join("") || "<p>Станция не найдена</p>";
-    results.querySelectorAll("button").forEach(b=>b.onclick=()=>{metro.value=b.dataset.name;results.hidden=true;});
+  const metro = form.elements.metro,
+    results = main.querySelector("[data-stations]");
+  metro.oninput = () => {
+    results.hidden = false;
+    results.innerHTML =
+      R.searchStations(metro.value)
+        .map((name) => btn(esc(name), "station", `data-name="${esc(name)}"`))
+        .join("") || "<p>Станция не найдена</p>";
+    results.querySelectorAll("button").forEach(
+      (b) =>
+        (b.onclick = () => {
+          metro.value = b.dataset.name;
+          results.hidden = true;
+        }),
+    );
   };
-  metro.onfocus=metro.oninput;
-  async function saveRequest(){
-    const f=new FormData(form), next=D.copy(c);
-    next.request={...next.request,equipment:f.getAll("equipment"),people:f.getAll("people"),responsibleId:f.get("responsibleId"),metro:String(f.get("metro")).trim(),pickupTime:f.get("pickupTime"),date:D.date(f.get("date")),shift:f.get("shift"),note:f.get("note")};
-    next.request.trucks=R.truckGroups([...groupRoot.children].map(row=>({count:row.querySelector('[name=truckCount]').value,mode:row.querySelector('[name=truckMode]').value,trips:row.querySelector('[name=truckTrips]').value})));
-    if(next.request.metro && !R.stations.includes(next.request.metro)) throw Error("Выберите станцию метро из списка");
-    await s.saveConfig(next,base,"request");
-    await s.store.save("_defaults/config",next,s.store.get("_defaults/config"),"Последний состав заявки");
+  metro.onfocus = metro.oninput;
+  async function saveRequest() {
+    const f = new FormData(form),
+      next = D.copy(c);
+    next.request = {
+      ...next.request,
+      equipment: f.getAll("equipment"),
+      people: f.getAll("people"),
+      responsibleId: f.get("responsibleId"),
+      metro: String(f.get("metro")).trim(),
+      pickupTime: f.get("pickupTime"),
+      date: D.date(f.get("date")),
+      shift: f.get("shift"),
+      note: f.get("note"),
+    };
+    next.request.trucks = R.truckGroups(
+      [...groupRoot.children].map((row) => ({
+        count: row.querySelector("[name=truckCount]").value,
+        mode: row.querySelector("[name=truckMode]").value,
+        trips: row.querySelector("[name=truckTrips]").value,
+      })),
+    );
+    if (next.request.metro && !R.stations.includes(next.request.metro))
+      throw Error("Выберите станцию метро из списка");
+    await s.saveConfig(next, base, "request");
+    await s.store.save(
+      "_defaults/config",
+      next,
+      s.store.get("_defaults/config"),
+      "Последний состав заявки",
+    );
     return next;
   }
-  form.onsubmit=async e=>{e.preventDefault();try{await saveRequest();await render(s);}catch(e){error(e);}};
-  bind(main,"choose-equipment",()=>{
-    const el=dialog("Техника из справочника",'<input data-search placeholder="Поиск техники">'+c.equipment.map(e=>`<label class="tn-check"><input type="checkbox" name="equipment" value="${esc(e.id)}" ${new FormData(form).getAll("equipment").includes(e.id) ? "checked" : ""}>${esc(e.name)}</label>`).join("")+btn("＋ Новая техника","new-equipment"),async f=>{
-      form.querySelectorAll('[name=equipment]').forEach(x=>x.remove());
-      for(const id of f.getAll("equipment")){const x=document.createElement("input");x.type="hidden";x.name="equipment";x.value=id;form.append(x);}
-      await saveRequest();await render(s);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await saveRequest();
+      await render(s);
+    } catch (e) {
+      error(e);
+    }
+  };
+  bind(main, "choose-equipment", () => {
+    const el = dialog(
+      "Техника из справочника",
+      '<input data-search placeholder="Поиск техники">' +
+        c.equipment
+          .map(
+            (e) =>
+              `<label class="tn-check"><input type="checkbox" name="equipment" value="${esc(e.id)}" ${new FormData(form).getAll("equipment").includes(e.id) ? "checked" : ""}>${esc(e.name)}</label>`,
+          )
+          .join("") +
+        btn("＋ Новая техника", "new-equipment"),
+      async (f) => {
+        form.querySelectorAll("[name=equipment]").forEach((x) => x.remove());
+        for (const id of f.getAll("equipment")) {
+          const x = document.createElement("input");
+          x.type = "hidden";
+          x.name = "equipment";
+          x.value = id;
+          form.append(x);
+        }
+        await saveRequest();
+        await render(s);
+      },
+    );
+    el.querySelector("[data-search]").oninput = (e) =>
+      el
+        .querySelectorAll(".tn-check")
+        .forEach(
+          (row) =>
+            (row.hidden = !row.textContent
+              .toLowerCase()
+              .includes(e.target.value.toLowerCase())),
+        );
+    bind(el, "new-equipment", () => {
+      el.close();
+      addEquipment(s);
     });
-    el.querySelector('[data-search]').oninput=e=>el.querySelectorAll('.tn-check').forEach(row=>row.hidden=!row.textContent.toLowerCase().includes(e.target.value.toLowerCase()));
-    bind(el,"new-equipment",()=>{el.close();addEquipment(s);});
   });
-  bind(main,"add-itr",()=>addPerson(s,"itr"));
-  bind(main,"add-day",s.addDay);
-  bind(main,"report",()=>dailyReport(s));
-  bind(main,"defaults",()=>dialog("Состав новых объектов","<p>Сохранить состав этой заявки для новых объектов?</p>",async()=>{await saveRequest();s.require("settings","edit");await s.store.save("_defaults/config",s.config(),s.store.get("_defaults/config"),"Шаблон нового объекта");}));
-  bind(main,"send-request",async()=>{
-    const next=await saveRequest();await render(s);
-    message("Заявка",`Заявка на ${D.display(next.request.date)}\nОбъект: ${next.name}\nСмена: ${next.request.shift === "night" ? "ночная" : "дневная"}\nТехника:\n${R.selectedEquipment(next).map(e=>"— "+e.name).join("\n") || "не выбрана"}${next.request.trucks?.length ? "\n"+R.trucksText(next.request.trucks) : ""}\nИТР:\n${R.selectedITR(next).map(p=>"— "+p.name).join("\n") || "не выбраны"}\nМетро: ${next.request.metro || "не выбрано"}\nРазвозка к: ${next.request.pickupTime || "не указано"}\n${next.request.note}`);
+  bind(main, "add-itr", () => addPerson(s, "itr"));
+  bind(main, "add-day", s.addDay);
+  bind(main, "report", () => dailyReport(s));
+  bind(main, "defaults", () =>
+    dialog(
+      "Состав новых объектов",
+      "<p>Сохранить состав этой заявки для новых объектов?</p>",
+      async () => {
+        await saveRequest();
+        s.require("settings", "edit");
+        await s.store.save(
+          "_defaults/config",
+          s.config(),
+          s.store.get("_defaults/config"),
+          "Шаблон нового объекта",
+        );
+      },
+    ),
+  );
+  bind(main, "send-request", async () => {
+    const next = await saveRequest();
+    await render(s);
+    message(
+      "Заявка",
+      `Заявка на ${D.display(next.request.date)}\nОбъект: ${next.name}\nСмена: ${next.request.shift === "night" ? "ночная" : "дневная"}\nТехника:\n${
+        R.selectedEquipment(next)
+          .map((e) => "— " + e.name)
+          .join("\n") || "не выбрана"
+      }${next.request.trucks?.length ? "\n" + R.trucksText(next.request.trucks) : ""}\nИТР:\n${
+        R.selectedITR(next)
+          .map((p) => "— " + p.name)
+          .join("\n") || "не выбраны"
+      }\nМетро: ${next.request.metro || "не выбрано"}\nРазвозка к: ${next.request.pickupTime || "не указано"}\n${next.request.note}`,
+    );
   });
-  bind(main,"lunch",async()=>{
-    const next=await saveRequest();await render(s);
-    const x=R.lunch(next,s.object);
-    const el=dialog("Заказ обеда",`<p>Адрес: ${esc(x.address)}</p><div data-lunch-rows></div>${field("Количество рабочих",input("workers",0,'type="number" inputmode="numeric" min="0" max="10000" step="1"'))}<label class="tn-check"><input name="mechanic" type="checkbox">Слесарь</label><label class="tn-check"><input name="spare" type="checkbox">Запасной обед</label><p>Всего: <b data-total></b></p><p>Ответственный: ${esc(x.person?.name || "не выбран")}</p><p>Телефон: ${esc(x.phone || "Добавьте номер в справочник ИТР")}</p>`,async f=>{
-      if(!x.person) throw Error("Выберите ответственного ИТР в заявке");
-      if(!x.phone) throw Error("Добавьте телефон ответственного в справочник ИТР");
-      message("Заказ обеда",R.lunchText(next,s.object,D.display(next.request.date),{mechanic:f.has("mechanic"),spare:f.has("spare"),workers:f.get("workers")}));
-    });
-    const update=()=>{const f=new FormData(el.querySelector("form")), result=R.lunch(next,s.object,{mechanic:f.has("mechanic"),spare:f.has("spare"),workers:f.get("workers")});el.querySelector('[data-lunch-rows]').innerHTML=result.rows.map(row=>`<p>${esc(row.name)} — ${row.count} чел.</p>`).join("");el.querySelector('[data-total]').textContent=result.total;};
-    el.querySelectorAll('input').forEach(i=>i.oninput=()=>{try{update();el.querySelector('[role=alert]').textContent='';}catch(e){error(e);}});update();
-    el.querySelector('[type=submit]').textContent="Подготовить текст";
+  bind(main, "lunch", async () => {
+    const next = await saveRequest();
+    await render(s);
+    const x = R.lunch(next, s.object);
+    const el = dialog(
+      "Заказ обеда",
+      `<p>Адрес: ${esc(x.address)}</p><div data-lunch-rows></div>${field("Количество рабочих", input("workers", 0, 'type="number" inputmode="numeric" min="0" max="10000" step="1"'))}<label class="tn-check"><input name="mechanic" type="checkbox">Слесарь</label><label class="tn-check"><input name="spare" type="checkbox">Запасной обед</label><p>Всего: <b data-total></b></p><p>Ответственный: ${esc(x.person?.name || "не выбран")}</p><p>Телефон: ${esc(x.phone || "Добавьте номер в справочник ИТР")}</p>`,
+      async (f) => {
+        if (!x.person) throw Error("Выберите ответственного ИТР в заявке");
+        if (!x.phone)
+          throw Error("Добавьте телефон ответственного в справочник ИТР");
+        message(
+          "Заказ обеда",
+          R.lunchText(next, s.object, D.display(next.request.date), {
+            mechanic: f.has("mechanic"),
+            spare: f.has("spare"),
+            workers: f.get("workers"),
+          }),
+        );
+      },
+    );
+    const update = () => {
+      const f = new FormData(el.querySelector("form")),
+        result = R.lunch(next, s.object, {
+          mechanic: f.has("mechanic"),
+          spare: f.has("spare"),
+          workers: f.get("workers"),
+        });
+      el.querySelector("[data-lunch-rows]").innerHTML = result.rows
+        .map((row) => `<p>${esc(row.name)} — ${row.count} чел.</p>`)
+        .join("");
+      el.querySelector("[data-total]").textContent = result.total;
+    };
+    el.querySelectorAll("input").forEach(
+      (i) =>
+        (i.oninput = () => {
+          try {
+            update();
+            el.querySelector("[role=alert]").textContent = "";
+          } catch (e) {
+            error(e);
+          }
+        }),
+    );
+    update();
+    el.querySelector("[type=submit]").textContent = "Подготовить текст";
   });
 }
 
@@ -468,7 +690,10 @@ function addEquipment(s) {
         "Подпись строки персонала",
         input("crewLabel", "", 'placeholder="Определится по названию"'),
       ) +
-      field("Тип техники",'<select name="kind"><option value="other">Другая техника</option><option value="water">Поливомоечная</option><option value="mill">Фреза</option><option value="brush">МТЗ-щётка</option></select>'),
+      field(
+        "Тип техники",
+        '<select name="kind"><option value="other">Другая техника</option><option value="water">Поливомоечная</option><option value="mill">Фреза</option><option value="brush">МТЗ-щётка</option></select>',
+      ),
     async (f) => {
       const c = s.config(),
         base = s.store.get(s.key("config"));
@@ -503,10 +728,11 @@ function addEquipment(s) {
 function addPerson(s, group = "worker") {
   dialog(
     "Добавить человека",
-    field("Телефон", input("phone", "", 'type="tel"')) + field("Фамилия и имя", input("name", "", "required")) +
+    field("Телефон", input("phone", "", 'type="tel"')) +
+      field("Фамилия и имя", input("name", "", "required")) +
       field(
         "Категория",
-        `<select name="group" disabled><option value="worker">Рабочий</option><option value="itr" ${group === 'itr' ? 'selected' : ''}>ИТР</option></select>`,
+        `<select name="group" disabled><option value="worker">Рабочий</option><option value="itr" ${group === "itr" ? "selected" : ""}>ИТР</option></select>`,
       ),
     async (f) => {
       const c = s.config(),
@@ -545,10 +771,10 @@ async function addDay(s) {
         key = s.key(D.dayKey(d, shift));
       await s.store.pull(key);
       const base = s.store.get(key);
-      if (!base.data)
+      if (!base.data || base.data.deleted)
         await s.save(
           key,
-          D.createDay(c, d, shift, D.previousDay(s.days(),d,shift)),
+          D.createDay(c, d, shift, D.previousDay(s.days(), d, shift)),
           base,
           "Создание смены " + d,
         );
@@ -567,7 +793,8 @@ async function addDay(s) {
   );
 }
 async function shift(s, main) {
-  const mod=await import("./shift-cards.mjs");await mod.mount(s,main);
+  const mod = await import("./shift-cards.mjs");
+  await mod.mount(s, main);
 }
 function composition(s, group) {
   const c = s.config(),
@@ -589,7 +816,10 @@ function composition(s, group) {
           crewHours: null,
           pumpHours: null,
           ...d.equipment.find((x) => x.id === e.id),
-          pump: D.isWater(e) && e.ownership === "own" && f.getAll("pump").includes(e.id),
+          pump:
+            D.isWater(e) &&
+            e.ownership === "own" &&
+            f.getAll("pump").includes(e.id),
         }));
       next.people = c.people
         .filter((p) => f.getAll("people").includes(p.id))
@@ -817,4 +1047,3 @@ async function dailyReport(s) {
     );
   });
 }
-
