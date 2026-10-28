@@ -1143,3 +1143,5 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 .tn-contractor {font-size:11px!important;white-space:normal!important;}
 
 .tn-grid td:has(.tn-grid-contractor) {line-height:1;}
+
+.tn-simple-table .tn-cell-tools {display:none!important;}

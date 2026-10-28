@@ -138,7 +138,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         pump: false,
       });
     c.equipment = c.equipment
-      .filter((e) => !e.deleted)
+      .filter((e) => !e.deleted && !(c.hiddenEquipmentIds || []).includes(e.id))
       .map((e) => ({
         ...e,
         pump: D.isWater(e) && e.ownership !== "hired" && !!e.pump,

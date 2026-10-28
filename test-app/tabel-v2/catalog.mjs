@@ -112,6 +112,16 @@ export async function mount(s, root) {
       )
       .join("") || "<p>Пока нет записей</p>"
   }</div><div class="tn-catalog-tabs">${sections.map(([id, label]) => btn(label, "catalog-tab", `data-tab="${id}" aria-pressed="${id === section}"`)).join("")}</div>`;
+  if (key === "equipment") {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Убрать старую щётку";
+    root.querySelector(".tn-tools").append(button);
+    button.onclick = () =>
+      import("./legacy-equipment.mjs")
+        .then((m) => m.cleanupBrush(s))
+        .catch(error);
+  }
   root.querySelectorAll("[data-tab]").forEach(
     (b) =>
       (b.onclick = () => {

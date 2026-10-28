@@ -100,7 +100,11 @@ export async function mount(s, root) {
   }
   const equipment = s.shiftTab === "equipment";
   const list = equipment
-    ? [...d.equipment].sort((a, b) => D.equipmentOrder(a) - D.equipmentOrder(b))
+    ? [
+        ...d.equipment.filter(
+          (e) => !(c.hiddenEquipmentIds || []).includes(e.id),
+        ),
+      ].sort((a, b) => D.equipmentOrder(a) - D.equipmentOrder(b))
     : d.people.filter((p) => p.group === s.shiftTab);
   if (!equipment) {
     content.innerHTML = `<div class="tn-people-table">${list.map((e) => `<div class="tn-person-row"><span>${esc(e.name)}</span>${btn(D.fmt(e.hours) || "—", "hours", `data-entity="${esc(e.id)}" data-field="hours" aria-label="${esc(e.name + " · Часы за смену")}"`)}</div>`).join("") || "<p>Состав не выбран.</p>"}</div>`;

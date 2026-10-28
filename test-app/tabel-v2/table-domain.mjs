@@ -103,7 +103,7 @@ export function createDay(c, d, shift = "day", previous = null) {
       previous?.equipment ||
       c.equipment.filter((e) => c.request.equipment.includes(e.id))
     )
-      .filter((e) => !e.deleted)
+      .filter((e) => !e.deleted && !(c.hiddenEquipmentIds || []).includes(e.id))
       .map((e) => ({
         ...copy(e),
         hours: null,
@@ -224,6 +224,7 @@ export function rows(c, shifts) {
       color: "#000000",
     });
   const equipment = (e) => {
+    if ((c.hiddenEquipmentIds || []).includes(e.id)) return;
     const color = equipmentColor(e);
     result.push({
       id:
@@ -382,7 +383,9 @@ export function plate(s) {
 }
 export function equipmentCount(shifts, line, c) {
   const equipment = shifts.flatMap((d) =>
-    d.equipment.filter((e) => c.countEquipment !== "hours" || e.hours > 0),
+    d.equipment
+      .filter((e) => !(c.hiddenEquipmentIds || []).includes(e.id))
+      .filter((e) => c.countEquipment !== "hours" || e.hours > 0),
   );
   const normalize = (e) => ({ ...e, number: e.plate || e.number });
   return countEquipment(
@@ -739,4 +742,9 @@ export function linkedFormulaDays(c, shifts, sheet, deleted = new Set()) {
 }
 
 export const contractorKey = (e) =>
-  e.ownership === "hired" ? String(e.contractorId || e.contractor || "").trim().replace(/\s+/g," ").toLocaleLowerCase() : null;
+  e.ownership === "hired"
+    ? String(e.contractorId || e.contractor || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLocaleLowerCase()
+    : null;

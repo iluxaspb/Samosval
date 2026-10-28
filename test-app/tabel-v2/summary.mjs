@@ -1,4 +1,4 @@
-import {sheetVisible} from './sheet-access.mjs';
+import { sheetVisible } from "./sheet-access.mjs";
 import { countEquipment, lineCalendarDate } from "./domain.mjs";
 import { arrivals } from "./line.mjs";
 let pending = null;
@@ -48,7 +48,20 @@ export async function updateHeader(host, element) {
           key.startsWith(objectId + "/day:") && r.data?.date === date,
       )
       .map(([, r]) => r.data);
-    if(!sheetVisible({...session,status:session.active?'active':'disabled',tabAccess:session.view},records[objectId+'/config']?.data,'linked')){element.hidden=true;return;}
+    if (
+      !sheetVisible(
+        {
+          ...session,
+          status: session.active ? "active" : "disabled",
+          tabAccess: session.view,
+        },
+        records[objectId + "/config"]?.data,
+        "linked",
+      )
+    ) {
+      element.hidden = true;
+      return;
+    }
     let equipment = days.flatMap((d) => d.equipment),
       people = days.flatMap((d) => d.people);
     if (!days.length) {
@@ -84,7 +97,14 @@ export async function updateHeader(host, element) {
       number: e.plate,
     }));
     const total = countEquipment(
-      equipment.map((e) => ({ ...e, number: e.plate || e.number })),
+      equipment
+        .filter(
+          (e) =>
+            !(
+              records[objectId + "/config"]?.data?.hiddenEquipmentIds || []
+            ).includes(e.id),
+        )
+        .map((e) => ({ ...e, number: e.plate || e.number })),
       line,
       snapshot.trucks || [],
     );
