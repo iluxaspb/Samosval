@@ -3,7 +3,7 @@
   'use strict';
   const eligible = /^https?:$/.test(location.protocol) && (location.pathname.endsWith('/index.html') || location.pathname.endsWith('/Samosval/'));
   // Read the script actually opened, not the latest manifest on the server. The meta fallback survives HTML export.
-  const buildVersion = document.currentScript?.src?.match(/\/test-app\/build\/([a-f0-9]{16})\/pwa\.js(?:[?#]|$)/)?.[1]
+  const buildVersion = document.currentScript?.src?.match(/\/app\/build\/([a-f0-9]{16})\/pwa\.js(?:[?#]|$)/)?.[1]
     || document.querySelector('meta[name="app-build"]')?.content || '';
   const releaseVersion = window.PROD_APP_RELEASE?.version || document.querySelector('meta[name="app-version"]')?.content || '';
   let registration, installPrompt, shellReady = false, registrationError = '', statusError = '', installed = false;
@@ -13,7 +13,7 @@
   const group = document.createElement('div');
   group.id = 'app-pwa-settings'; group.className = 'form-group';
   group.style.cssText = 'border-top:1px solid var(--border);padding-top:12px;margin-top:12px';
-  group.innerHTML = '<label>📲 Приложение на телефоне</label><p id="app-pwa-version" class="version-text" hidden style="font-size:12px;line-height:1.5;overflow-wrap:anywhere;text-decoration:none;cursor:default"></p><p id="app-pwa-state" role="status" style="font-size:13px;line-height:1.5"></p><button type="button" class="btn btn-primary btn-small" id="app-pwa-install">Установить приложение</button><button type="button" class="btn btn-secondary btn-small" id="app-pwa-check" style="margin-left:6px">🔄 Проверить и установить</button><a id="app-pwa-recovery-link" href="./update.html" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:10px;font-size:13px;color:var(--primary)">Не обновляется? Открыть страницу восстановления обновления ↗</a><p id="app-pwa-update-message" role="status" style="font-size:12px;line-height:1.5;margin:8px 0"></p><p style="font-size:12px;color:var(--muted);line-height:1.5">Перед работой без сети войдите и откройте нужную смену с интернетом. Прибытие, погрузка и ТТН сохраняются на устройстве. После возвращения сети открытое приложение отправит очередь с обычной проверкой повторов и конфликтов; если оно закрыто — при следующем запуске. Вход в новую учётную запись, серверные операции и общие мини-игры требуют связи.</p>';
+  group.innerHTML = '<label>📲 Приложение на телефоне</label><p id="app-pwa-version" class="version-text" hidden style="font-size:12px;line-height:1.5;overflow-wrap:anywhere;text-decoration:none;cursor:default"></p><p id="app-pwa-state" role="status" style="font-size:13px;line-height:1.5"></p><button type="button" class="btn btn-quick btn-small" id="app-pwa-install">Установить приложение</button><button type="button" class="btn btn-secondary btn-small" id="app-pwa-check" style="margin-left:6px">🔄 Проверить и установить</button><a id="app-pwa-recovery-link" href="./update.html" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:10px;font-size:13px;color:var(--primary)">Не обновляется? Открыть страницу восстановления обновления ↗</a><p id="app-pwa-update-message" role="status" style="font-size:12px;line-height:1.5;margin:8px 0"></p><p style="font-size:12px;color:var(--muted);line-height:1.5">Перед работой без сети войдите и откройте нужную смену с интернетом. Прибытие, погрузка и ТТН сохраняются на устройстве. После возвращения сети открытое приложение отправит очередь с обычной проверкой повторов и конфликтов; если оно закрыто — при следующем запуске. Вход в новую учётную запись, серверные операции и общие мини-игры требуют связи.</p>';
   document.querySelector('#settingsModal .modal-body')?.append(group);
   const status = group.querySelector('#app-pwa-state'), version = group.querySelector('#app-pwa-version'), install = group.querySelector('#app-pwa-install'), check = group.querySelector('#app-pwa-check');
   const updateMessage = group.querySelector('#app-pwa-update-message');
@@ -35,7 +35,7 @@
     version.textContent = releaseAdmin ? 'Открыта: '+(releaseVersion || 'версия не определена')+' · сборка '+(buildVersion || 'не определена')
       +'. Офлайн-копия: '+(s.activeVersion || 'не подтверждена')+'.'
       +(s.waiting?' Ожидает: '+(s.waitingVersion || 'проверка сборки')+'.':'') : '';
-    if (!eligible) status.textContent = 'Для установки откройте рабочую страницу на сайте через HTTPS.';
+    if (!eligible) status.textContent = 'Для установки откройте тестовую страницу на сайте через HTTPS.';
     else if (s.error) status.textContent = (s.shellReady?'Автономная копия сохранена. Не удалось проверить обновление: ':'Не удалось подготовить запуск без сети: ')+s.error+'. Подключитесь к интернету и нажмите «Проверить обновление».';
     else if (s.activeVersion && buildVersion && s.activeVersion !== buildVersion) status.textContent = 'Сохранена другая офлайн-сборка. Готовность открытой сборки для запуска без сети ещё не подтверждена.';
     else if (!s.shellReady) status.textContent = 'Сохраняем приложение для открытия без интернета…';
@@ -43,7 +43,7 @@
     else if (!s.signedIn || !s.accessReady) status.textContent = 'Приложение доступно без сети. Для работы сначала войдите с интернетом и дождитесь загрузки прав.';
     else if (!s.shiftReady) status.textContent = 'Приложение доступно без сети. Откройте рабочую смену с интернетом, чтобы продолжить её офлайн.';
     else status.textContent = 'Готово к работе без интернета: приложение и текущая смена сохранены на устройстве.';
-    if (s.updateReady && s.persistent) status.textContent += ' Обновление загружено: сохраните незавершённые формы, затем закройте все окна рабочей версии и откройте её снова. Очередь действий сохранится; не очищайте данные сайта.';
+    if (s.updateReady && s.persistent) status.textContent += ' Обновление загружено: сохраните незавершённые формы, затем закройте все окна тестовой версии и откройте её снова. Очередь действий сохранится; не очищайте данные сайта.';
     else if (s.updateReady) status.textContent += ' Обновление загружено. Перед закрытием сохраните формы и дождитесь подтверждения постоянного хранилища. Не очищайте данные сайта.';
     else if (s.waiting) status.textContent += ' Обновление ожидает, но целостность файлов ещё не подтверждена. Повторите проверку с интернетом; текущие данные не изменены.';
     if (s.installed) status.textContent += ' Приложение установлено.';
@@ -178,7 +178,7 @@
       }
       await new Promise(resolve => setTimeout(resolve,250));
     }
-    throw Error('Сборка загружена, но ещё ожидает активации. Закройте другие окна рабочей версии.');
+    throw Error('Сборка загружена, но ещё ожидает активации. Закройте другие окна тестовой версии.');
   }
   async function installPublishedUpdate() {
     if (manualUpdateBusy) return;
@@ -194,7 +194,7 @@
         return;
       }
       if (pendingActivity()) throw Error('Есть несинхронизированные рейсы или незавершённые записи. Дождитесь сохранения, затем повторите обновление.');
-      const question = 'На сайте есть новая рабочая сборка. Установить и перезапустить приложение? Сначала закройте несохранённые формы. Данные и очередь рейсов не удаляются.';
+      const question = 'На сайте есть новая тестовая сборка. Установить и перезапустить приложение? Сначала закройте несохранённые формы. Данные и очередь рейсов не удаляются.';
       const agreed = typeof appConfirm === 'function' ? await appConfirm(question) : window.confirm(question);
       if (!agreed) {message('Обновление отменено.');return;}
       if (pendingActivity()) throw Error('Появились незавершённые действия, перезапуск отменён.');

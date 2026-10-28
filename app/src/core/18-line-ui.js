@@ -1,6 +1,6 @@
   function renderLine() {
     let sc = document.getElementById('startShiftContainer'), ac = document.getElementById('activeShiftContainer'), cb = document.getElementById('changeObjBtn');
-    if (!state.shift) { sc.style.display = hasPermission('start_shift') ? 'block' : 'none'; ac.style.display = 'none'; cb.style.display = 'none'; return; }
+    if (!state.shift) { sc.style.display = (hasPermission('start_shift') || hasTabAccess('timesheet')) ? 'block' : 'none'; ac.style.display = 'none'; cb.style.display = 'none'; return; }
     sc.style.display = 'none'; ac.style.display = 'block'; cb.style.display = hasPermission('edit_line') ? 'inline-block' : 'none';
     let c = document.getElementById('trucksLineList'), oldP = {};
     c.querySelectorAll('.truck-card[data-truck-id]').forEach(x => oldP[x.dataset.truckId] = x.getBoundingClientRect().top);
@@ -35,6 +35,7 @@
     let logs = getLogs(); let stdLogs = logs.filter(l => !l.isGAI); let v = stdLogs.reduce((s,l)=>s+l.volume,0);
     document.getElementById('shiftDate').textContent = d; document.getElementById('headerObject').textContent = 'Объект: ' + o;
     document.getElementById('activeLineCount').textContent = act + ' маш.'; document.getElementById('totalTrips').textContent = stdLogs.length; document.getElementById('totalVolume').textContent = v + ' м³';
+    const tabelCounts=document.getElementById('tabelV2Counts');if(tabelCounts&&permissionsLoaded&&hasTabAccess('timesheet'))import(new URL('./app/tabel-v2/summary.mjs',document.baseURI).href).then(m=>m.updateHeader({session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,role:currentUserRole,active:currentUserStatus==='active',view:hasTabAccess('timesheet')}),snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,archive:state.archive})},tabelCounts)).catch(()=>{tabelCounts.hidden=true;});else if(tabelCounts)tabelCounts.hidden=true;
   }
 
   function tickTimers() {

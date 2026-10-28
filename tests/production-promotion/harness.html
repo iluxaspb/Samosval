@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>Табель 2 · проверка интерфейса</title>
+  <body>
+    <button id="open">Открыть табель без смены</button>
+    <div id="header-counts"></div>
+    <script type="module">
+      import * as entry from "../../app/tabel-v2/entry.mjs";
+      const equipment = [
+        { id: "mill", name: "Фреза W205", ownership: "own", kind: "mill" },
+        { id: "water", name: "Поливомойка", ownership: "own", kind: "water" },
+        { id: "hired", name: "Каток наёмный", ownership: "hired" },
+      ];
+      const people = [
+        { id: "w1", name: "Иван Петров", group: "worker" },
+        { id: "w2", name: "Олег Соколов", group: "worker" },
+        { id: "itr", name: "Иванов ИТР", group: "itr" },
+      ];
+      window.session = {
+        projectId: "samosval-test",
+        workspaceId: "full-ui-qa",
+        uid: "qa",
+        name: "QA",
+        role: "admin",
+        active: true,
+        view: true,
+        edit: true,
+        objectId: null,
+      };
+      window.objects = [
+        { id: "site-a", name: "Объект А", startDate: "2026-10-10" },
+        { id: "site-b", name: "Объект Б", startDate: "2026-10-10" },
+      ];
+      window.snapshot = {
+        shift: null,
+        trucks: [
+          { id: "t1", number: "А123ВС78" },
+          { id: "t2", number: "О234НМ78" },
+          { id: "gai", number: "Х111ХХ78", isGAI: true },
+        ],
+        statuses: {},
+        logs: [],
+        audit: [
+          {
+            objectId: "site-a",
+            date: "2026-10-28",
+            eventType: "arrive",
+            text: "Прибытие на линию",
+            truckId: "t1",
+          },
+          {
+            objectId: "site-a",
+            date: "2026-10-28",
+            eventType: "arrive",
+            text: "Прибытие на линию",
+            truckId: "t1",
+          },
+          {
+            objectId: "site-a",
+            date: "2026-10-28",
+            eventType: "arrive",
+            text: "Прибытие на линию",
+            truckId: "t2",
+          },
+          {
+            objectId: "site-a",
+            date: "2026-10-28",
+            eventType: "arrive",
+            text: "Прибытие на линию",
+            truckId: "gai",
+          },
+        ],
+        archive: [],
+      };
+      window.host = {
+        session: () => session,
+        get objects() {
+          return objects;
+        },
+        get shift() {
+          return snapshot.shift;
+        },
+        snapshot: () => snapshot,
+        workspace: {
+          collection: (name) => ({
+            get: async () => ({
+              docs: (name === "timesheetEquipment" ? equipment : people).map(
+                (x) => ({ id: x.id, data: () => x }),
+              ),
+            }),
+          }),
+        },
+        createObject: async (name, startDate) => {
+          const o = { id: crypto.randomUUID(), name, startDate };
+          objects.push(o);
+          return o;
+        },
+      };
+      window.openTabel = () => entry.open(host);
+      document.querySelector("#open").onclick = openTabel;
+      window.seedLegacy = () => {
+        const settings = {
+          equipment: [{ ...equipment[0], ownership: "owned" }],
+          workers: ["w1"],
+          itr: [],
+          material: "Гранулят",
+          destinations: ["Конус 1"],
+          works: [
+            { id: "work1", name: "Фрезерование 5 см", unit: "м²", plan: 10000 },
+          ],
+        };
+        const d = {
+          date: "2026-10-27",
+          kind: "night",
+          settings,
+          hours: { mill: { machineHours: 12, crewHours: 52 } },
+          workActual: { work1: 250 },
+          closed: false,
+        };
+        localStorage.setItem(
+          JSON.stringify([
+            "tabel-v2-draft",
+            1,
+            session.projectId,
+            session.workspaceId,
+            session.uid,
+            "site-a",
+          ]),
+          JSON.stringify({ settings, shifts: [["old", d]], usage: {} }),
+        );
+      };
+      window.ready = true;
+    </script>
+  </body>
+</html>
