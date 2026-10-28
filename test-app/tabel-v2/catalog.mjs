@@ -103,12 +103,25 @@ export async function mount(s, root) {
         rankChoices(list)
           .map(
             (x) =>
-              `<div class="tn-catalog-row">${esc(x.name)} <small>${esc(x.plate || x.number || x.unit || { worker: "Рабочий", itr: "ИТР" }[x.group] || "")}</small></div>`,
+              `<div class="tn-catalog-row">${esc(x.name)} ${key === "people" && x.group === "itr" ? btn(esc(x.phone || "Добавить телефон"),"phone",`data-person="${esc(x.id)}"`) : ""}<small>${esc(x.plate || x.number || x.unit || { worker: "Рабочий", itr: "ИТР" }[x.group] || "")}</small></div>`,
           )
           .join("") || "<p>Пока нет записей</p>"
       }`;
     })
     .join("")}`;
+  root.querySelectorAll("[data-person]").forEach(b=>b.onclick=()=>{
+    const person=c.people.find(p=>p.id===b.dataset.person);
+    if(!person) return;
+    dialog("Телефон ИТР: "+person.name,field("Телефон",input("phone",person.phone || "",'type="tel" required')),async f=>{
+      s.require("settings","edit");
+      const next=s.config(), before=s.store.get(s.key("config"));
+      next.people=next.people.map(p=>p.id===person.id ? {...p,phone:String(f.get("phone")).trim()} : p);
+      const key="_catalog/config", base=s.store.get(key), registry=base.data || {equipment:[],people:[]};
+      registry.people=[...registry.people.filter(p=>p.id!==person.id),{...person,phone:String(f.get("phone")).trim()}];
+      await s.store.save(key,registry,base,"Телефон ИТР");
+      await s.saveConfig(next,before);await s.refresh();
+    });
+  });
   root.querySelector("[data-search]").oninput = (e) =>
     root
       .querySelectorAll(".tn-catalog-row")

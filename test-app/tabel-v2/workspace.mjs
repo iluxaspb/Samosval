@@ -1,3 +1,4 @@
+import * as R from "./request-domain.mjs";
 import { arrivals } from "./line.mjs";
 import * as D from "./table-domain.mjs";
 import { Store, firestoreRemote } from "./store.mjs";
@@ -371,105 +372,63 @@ function newObject(s) {
   );
 }
 function request(s, main) {
-  const base = s.store.get(s.key("config")),
-    c = s.config();
-  main.innerHTML = `<form class="tn-request"><input data-search-request placeholder="Поиск техники или человека" aria-label="Поиск"><div class="tn-tools">${btn("＋ Техника в базу", "add-equipment")}${btn("＋ ИТР / рабочий", "add-person")}${btn("Состав по умолчанию", "defaults")}</div><h3>Техника из базы</h3>${c.equipment.map((e) => `<label class="tn-check"><input type="checkbox" name="equipment" value="${esc(e.id)}" ${c.request.equipment.includes(e.id) ? "checked" : ""}>${esc(e.name)} <small>${e.ownership === "hired" ? "наёмная" : "своя"}${e.pump ? " · помпа" : ""}</small></label>`).join("") || "<p>База пока пустая. Добавьте технику.</p>"}<h3>ИТР и рабочие</h3>${c.people.map((p) => `<label class="tn-check"><input type="checkbox" name="people" value="${esc(p.id)}" ${c.request.people.includes(p.id) ? "checked" : ""}>${esc(p.name)} · ${p.group === "itr" ? "ИТР" : "рабочий"}</label>`).join("")}${field("Примечание к заявке", input("note", c.request.note))}<button type="submit">Сохранить состав</button></form><div class="tn-tools">${btn("Отправить заявку", "send-request")}${btn("Заказ обеда", "lunch")}${btn("Отправить отчёт", "report")}${btn("Начать / добавить смену", "add-day")}</div><p class="tn-hint">Выбранный состав предлагается новым сменам. Изменение заявки не переписывает прошлые дни. Машинисты и водители учитываются без фамилий.</p>`;
-  const search = main.querySelector("[data-search-request]");
-  if (search)
-    search.oninput = () =>
-      main
-        .querySelectorAll(".tn-check")
-        .forEach(
-          (row) =>
-            (row.hidden = !row.textContent
-              .toLocaleLowerCase("ru")
-              .includes(search.value.toLocaleLowerCase("ru"))),
-        );
-  main.querySelector("form").onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const f = new FormData(e.target),
-        next = D.copy(c);
-      next.request.equipment = f.getAll("equipment");
-      next.request.people = f.getAll("people");
-      next.request.note = f.get("note");
-      await s.saveConfig(next, base, "request");
-      await render(s);
-    } catch (e) {
-      error(e);
-    }
+  const base = s.store.get(s.key("config")), c = s.config();
+  main.innerHTML = `<form class="tn-request">${field("Дата заявки",input("date",c.request.date,'type="date" required'))}${field("Смена",`<select name="shift"><option value="day">Дневная</option><option value="night" ${c.request.shift === "night" ? "selected" : ""}>Ночная</option></select>`)}<div class="tn-tools">${btn("＋ Добавить технику", "choose-equipment")}${btn("＋ ИТР", "add-itr")}${btn("Состав по умолчанию", "defaults")}</div><h3>Техника в заявке</h3>${R.selectedEquipment(c).map(e=>`<label class="tn-check"><input type="checkbox" name="equipment" value="${esc(e.id)}" checked>${esc(e.name)}</label>`).join("") || "<p>Добавьте нужную технику из справочника.</p>"}<h3>ИТР</h3>${c.people.filter(p=>p.group === "itr").map(p=>`<label class="tn-check"><input type="checkbox" name="people" value="${esc(p.id)}" ${c.request.people.includes(p.id) ? "checked" : ""}>${esc(p.name)}</label>`).join("")}${field("Ответственный ИТР",'<select name="responsibleId"></select>')}${field("Станция метро для развозки",input("metro",c.request.metro || "",'autocomplete="off" placeholder="Начните вводить название"'))}<div data-stations class="tn-stations" hidden></div>${field("Время подачи развозки",input("pickupTime",c.request.pickupTime || "",'type="time"'))}${field("Примечание к заявке",input("note",c.request.note))}<button type="submit">Сохранить заявку</button></form><div class="tn-tools">${btn("Поделиться заявкой", "send-request")}${btn("Заказ обеда", "lunch")}${btn("Отправить отчёт", "report")}${btn("Начать / добавить смену", "add-day")}</div><p class="tn-hint">Рабочие учитываются в табеле. В заявке выбираются техника и ИТР.</p>`;
+  const form=main.querySelector("form"), select=form.elements.responsibleId;
+  const updateResponsible=()=>{
+    const id=select.value || c.request.responsibleId;
+    const ids=new FormData(form).getAll("people");
+    const people=c.people.filter(p=>p.group === "itr" && ids.includes(p.id));
+    select.innerHTML='<option value="">Выберите ответственного</option>'+people.map(p=>`<option value="${esc(p.id)}" ${p.id===id || people.length===1 ? "selected" : ""}>${esc(p.name)}</option>`).join("");
   };
-  bind(main, "add-equipment", () => addEquipment(s));
-  bind(main, "add-person", () => addPerson(s));
-  bind(main, "add-day", s.addDay);
-  bind(main, "report", () => dailyReport(s));
-  bind(main, "defaults", () =>
-    dialog(
-      "Состав новых объектов",
-      "<p>Сохраняются текущая база, выбранный состав, виды работ и материалов. Данные смен и фамилии с часами не переносятся. Действует для новых объектов, созданных здесь. Шаблон общий для рабочей области.</p>",
-      async () => {
-        s.require("settings", "edit");
-        const key = "_defaults/config";
-        await s.store.save(
-          key,
-          s.config(),
-          s.store.get(key),
-          "Шаблон нового объекта",
-        );
-        await render(s);
-      },
-    ),
-  );
-  bind(main, "send-request", () => {
-    const el = dialog(
-      "Дата заявки",
-      `<div class="tn-tools">${btn("Завтра", "tomorrow")}${btn("Послезавтра", "after")}</div>${field("Дата", input("date", c.request.date, 'type="date" required'))}`,
-      async (f) => {
-        const d = D.date(f.get("date"));
-        message(
-          "Заявка",
-          `Заявка на ${D.display(d)}\nОбъект: ${c.name}\nТехника:\n${
-            c.equipment
-              .filter((e) => c.request.equipment.includes(e.id))
-              .map((e) => "— " + e.name)
-              .join("\n") || "не выбрана"
-          }\nЛюди:\n${
-            c.people
-              .filter((p) => c.request.people.includes(p.id))
-              .map((p) => "— " + p.name)
-              .join("\n") || "не выбраны"
-          }\n${c.request.note}`,
-        );
-      },
-    );
-    bind(
-      el,
-      "tomorrow",
-      () => (el.querySelector("[name=date]").value = D.add(D.today(), 1)),
-    );
-    bind(
-      el,
-      "after",
-      () => (el.querySelector("[name=date]").value = D.add(D.today(), 2)),
-    );
+  form.querySelectorAll('[name=people]').forEach(el=>el.onchange=updateResponsible);
+  updateResponsible();
+  const metro=form.elements.metro, results=main.querySelector("[data-stations]");
+  metro.oninput=()=>{
+    results.hidden=false;
+    results.innerHTML=R.searchStations(metro.value).map(name=>btn(esc(name),"station",`data-name="${esc(name)}"`)).join("") || "<p>Станция не найдена</p>";
+    results.querySelectorAll("button").forEach(b=>b.onclick=()=>{metro.value=b.dataset.name;results.hidden=true;});
+  };
+  metro.onfocus=metro.oninput;
+  async function saveRequest(){
+    const f=new FormData(form), next=D.copy(c);
+    next.request={...next.request,equipment:f.getAll("equipment"),people:f.getAll("people"),responsibleId:f.get("responsibleId"),metro:String(f.get("metro")).trim(),pickupTime:f.get("pickupTime"),date:D.date(f.get("date")),shift:f.get("shift"),note:f.get("note")};
+    if(next.request.metro && !R.stations.includes(next.request.metro)) throw Error("Выберите станцию метро из списка");
+    await s.saveConfig(next,base,"request");
+    return next;
+  }
+  form.onsubmit=async e=>{e.preventDefault();try{await saveRequest();await render(s);}catch(e){error(e);}};
+  bind(main,"choose-equipment",()=>{
+    const el=dialog("Техника из справочника",'<input data-search placeholder="Поиск техники">'+c.equipment.map(e=>`<label class="tn-check"><input type="checkbox" name="equipment" value="${esc(e.id)}" ${new FormData(form).getAll("equipment").includes(e.id) ? "checked" : ""}>${esc(e.name)}</label>`).join("")+btn("＋ Новая техника","new-equipment"),async f=>{
+      form.querySelectorAll('[name=equipment]').forEach(x=>x.remove());
+      for(const id of f.getAll("equipment")){const x=document.createElement("input");x.type="hidden";x.name="equipment";x.value=id;form.append(x);}
+      await saveRequest();await render(s);
+    });
+    el.querySelector('[data-search]').oninput=e=>el.querySelectorAll('.tn-check').forEach(row=>row.hidden=!row.textContent.toLowerCase().includes(e.target.value.toLowerCase()));
+    bind(el,"new-equipment",()=>{el.close();addEquipment(s);});
   });
-  bind(main, "lunch", () =>
-    dialog(
-      "Обед на " + D.display(D.add(D.today(), 1)),
-      field(
-        "Количество",
-        input("count", c.request.lunch, 'inputmode="numeric"'),
-      ) + field("Примечание", input("note", c.request.lunchNote)),
-      async (f) => {
-        D.numeric(f.get("count"));
-        message(
-          "Заказ обеда",
-          `Обед на ${D.display(D.add(D.today(), 1))}\nОбъект: ${c.name}\nКоличество: ${f.get("count") || "не заполнено"}\n${f.get("note")}`,
-        );
-      },
-    ),
-  );
+  bind(main,"add-itr",()=>addPerson(s,"itr"));
+  bind(main,"add-day",s.addDay);
+  bind(main,"report",()=>dailyReport(s));
+  bind(main,"defaults",()=>dialog("Состав новых объектов","<p>Сохранить состав этой заявки для новых объектов?</p>",async()=>{await saveRequest();s.require("settings","edit");await s.store.save("_defaults/config",s.config(),s.store.get("_defaults/config"),"Шаблон нового объекта");}));
+  bind(main,"send-request",async()=>{
+    const next=await saveRequest();await render(s);
+    message("Заявка",`Заявка на ${D.display(next.request.date)}\nОбъект: ${next.name}\nСмена: ${next.request.shift === "night" ? "ночная" : "дневная"}\nТехника:\n${R.selectedEquipment(next).map(e=>"— "+e.name).join("\n") || "не выбрана"}\nИТР:\n${R.selectedITR(next).map(p=>"— "+p.name).join("\n") || "не выбраны"}\nМетро: ${next.request.metro || "не выбрано"}\nРазвозка к: ${next.request.pickupTime || "не указано"}\n${next.request.note}`);
+  });
+  bind(main,"lunch",async()=>{
+    const next=await saveRequest();await render(s);
+    const x=R.lunch(next,s.object);
+    const el=dialog("Заказ обеда",`<p>Адрес: ${esc(x.address)}</p><div data-lunch-rows></div><label class="tn-check"><input name="mechanic" type="checkbox">Слесарь</label><label class="tn-check"><input name="spare" type="checkbox">Запасной обед</label><p>Всего: <b data-total></b></p><p>Ответственный: ${esc(x.person?.name || "не выбран")}</p><p>Телефон: ${esc(x.phone || "Добавьте номер в справочник ИТР")}</p>`,async f=>{
+      if(!x.person) throw Error("Выберите ответственного ИТР в заявке");
+      if(!x.phone) throw Error("Добавьте телефон ответственного в справочник ИТР");
+      message("Заказ обеда",R.lunchText(next,s.object,D.display(next.request.date),{mechanic:f.has("mechanic"),spare:f.has("spare")}));
+    });
+    const update=()=>{const f=new FormData(el.querySelector("form")), result=R.lunch(next,s.object,{mechanic:f.has("mechanic"),spare:f.has("spare")});el.querySelector('[data-lunch-rows]').innerHTML=result.rows.map(row=>`<p>${esc(row.name)} — ${row.count} чел.</p>`).join("");el.querySelector('[data-total]').textContent=result.total;};
+    el.querySelectorAll('[type=checkbox]').forEach(i=>i.onchange=update);update();
+    el.querySelector('[type=submit]').textContent="Подготовить текст";
+  });
 }
+
 function bind(root, action, fn) {
   root
     .querySelector("[data-action=" + action + "]")
@@ -513,18 +472,19 @@ function addEquipment(s) {
         "Добавление техники в базу",
       );
       c.equipment.push(e);
+      c.request.equipment.push(e.id);
       await s.saveConfig(c, base);
       await render(s);
     },
   );
 }
-function addPerson(s) {
+function addPerson(s, group = "worker") {
   dialog(
     "Добавить человека",
-    field("Фамилия и имя", input("name", "", "required")) +
+    field("Телефон", input("phone", "", 'type="tel"')) + field("Фамилия и имя", input("name", "", "required")) +
       field(
         "Категория",
-        '<select name="group"><option value="worker">Рабочий</option><option value="itr">ИТР</option></select>',
+        `<select name="group" ${group === 'itr' ? 'disabled' : ''}><option value="worker">Рабочий</option><option value="itr" ${group === 'itr' ? 'selected' : ''}>ИТР</option></select>`,
       ),
     async (f) => {
       const c = s.config(),
@@ -532,7 +492,8 @@ function addPerson(s) {
       const person = {
           id: D.uid(),
           name: String(f.get("name")).trim(),
-          group: f.get("group"),
+          group: group === "itr" ? "itr" : f.get("group"),
+          phone: String(f.get("phone") || "").trim(),
         },
         catalogKey = "_catalog/config",
         catalogBase = s.store.get(catalogKey),

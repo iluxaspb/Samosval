@@ -487,3 +487,5 @@ dialog.tn footer {
   padding: 4px;
   background: #e7f2f3;
 }
+
+.tn-stations {max-height:220px;overflow:auto;display:grid;gap:4px}.tn-stations[hidden]{display:none}.tn-stations button{text-align:left}
