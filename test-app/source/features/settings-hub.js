@@ -3,8 +3,8 @@
 const sections=[
  {key:'hold',icon:'⏱️',label:'Удержание кнопок',desc:'Погрузка, прибытие, ТТН и сброс',ids:['settingHoldLoad','settingHoldArrive','settingHoldTtn','settingHoldResetCycle']},
  {key:'cycle',icon:'🚛',label:'Время ходки',desc:'Общий интервал рейсов',ids:['settingCycleMinutes']},
- {key:'vibration',icon:'📳',label:'Вибрация',desc:'Кнопки, интерфейс, сила отклика',ids:['hapticArrive','hapticLoad','hapticTtn','globalUiHaptics','globalUiHapticsLevel']},
- {key:'motion',icon:'🎬',label:'Анимации',desc:'Скорость движения карточек',blocks:['speed-settings-block']},
+ {key:'vibration',icon:'📳',label:'Вибрация',desc:'Кнопки, интерфейс, сила отклика',ids:['hapticArrive','hapticLoad','hapticTtn','globalUiHaptics','globalUiHapticsLevel','soft-vib-Arrive','soft-vib-Load','soft-vib-Ttn']},
+ {key:'motion',icon:'🎬',label:'Анимации',desc:'Анимация карточек на «Линии»',ids:['soft-motion-pace','soft-motion-spring'],blocks:['speed-settings-block','soft-motion-setting']},
  {key:'navigation',icon:'🔀',label:'Порядок вкладок',desc:'Нижнее меню на устройстве',blocks:['nav-sort-block']},
  {key:'pwa',icon:'📱',label:'Приложение',desc:'Версия, установка и обновления',blocks:['test-pwa-settings']},
  {key:'other',icon:'🧩',label:'Другие настройки',desc:'Параметры расширений'}
@@ -38,6 +38,40 @@ border:1px solid var(--border);color:var(--text);background:var(--bg);cursor:poi
 #settingsCategoryModal .settings-pane>.settings-row>div:first-child {font-size:13px}
 #settingsCategoryModal .settings-pane>.form-group {margin:0 0 13px}
 #settingsCategoryModal .settings-back-bottom {width:100%;min-height:44px}
+#settingsModal.settings-hub .modal-content,#settingsCategoryModal .modal-content{
+ background:var(--card,#1e293b);border:1px solid rgba(148,163,184,.3);
+ border-radius:20px;box-shadow:0 22px 54px rgba(0,0,0,.48);width:min(540px,100%)}
+#settingsModal .settings-tile{background:linear-gradient(145deg,var(--bg,#0f172a),rgba(51,65,85,.65));
+ border:1px solid rgba(148,163,184,.24);border-radius:15px;min-height:107px}
+#settingsModal .settings-tile-icon{display:grid;place-items:center;width:34px;height:34px;
+ background:rgba(59,130,246,.15);border-radius:10px}
+#settingsCategoryModal .settings-subhead{padding-bottom:12px;border-bottom:1px solid var(--border)}
+#settingsCategoryModal .modal-content{padding:16px 18px}
+#settingsCategoryModal .settings-pane>.form-group,#settingsCategoryModal .settings-pane>.settings-row,
+#settingsCategoryModal .settings-pane>.soft-section{background:var(--bg,#0f172a);
+ border:1px solid var(--border,#334155);border-radius:12px;padding:12px;margin:0 0 10px}
+#settingsCategoryModal .soft-section[hidden],#settingsCategoryModal .settings-pane>[hidden]{display:none!important}
+#settingsCategoryModal .settings-pane input[type=range]{width:100%;accent-color:var(--primary)}
+#settingsCategoryModal #speed-settings-block{border:0!important;margin:0!important;padding:0!important}
+#settingsCategoryModal #speed-settings-block .speed-slider-row{background:var(--bg,#0f172a);
+ border:1px solid var(--border);border-radius:12px;padding:12px;margin:0 0 9px}
+#settingsCategoryModal #test-pwa-settings{margin:0!important;padding:0!important;border:0!important}
+#settingsCategoryModal #test-pwa-state{padding:12px;border:1px solid var(--border);
+ border-radius:12px;background:var(--bg);line-height:1.5}
+#settingsCategoryModal #test-pwa-settings>button{display:flex;width:100%;min-height:44px;
+ border-radius:12px;margin:0 0 9px!important;align-items:center;justify-content:center}
+#settingsCategoryModal #test-pwa-install{background:var(--primary,#3b82f6);color:#fff}
+#settingsCategoryModal #test-pwa-install[hidden]{display:none!important}
+#settingsCategoryModal #test-pwa-recovery-link{display:block;padding:11px 12px!important;
+ border:1px solid rgba(59,130,246,.4);border-radius:12px;background:rgba(59,130,246,.1);
+ color:#93c5fd!important;text-decoration:none;font-size:12px!important;line-height:1.5}
+#settingsCategoryModal #test-pwa-update-message:not(:empty){padding:10px 11px;
+ border:1px solid var(--border);border-radius:10px;background:var(--bg)}
+#settingsCategoryModal #test-pwa-settings>p:last-child{border-top:1px solid var(--border);
+ padding-top:12px;margin-top:14px;font-size:12px;line-height:1.6;color:var(--muted)}
+#settingsCategoryModal .settings-back-bottom{margin-top:10px;border-radius:12px}
+@media(max-width:380px){#settingsCategoryModal .modal-content{padding:12px}
+#settingsModal .settings-tile{min-height:100px;padding:10px}}
 @media(max-width:360px){#settingsModal .settings-tile{padding:10px;min-height:110px}}
 @media(prefers-reduced-motion:reduce){#settingsModal .settings-tile {transition:none}}
 `;
@@ -68,21 +102,36 @@ for(const s of sections){
  b.addEventListener('click',()=>show(s,b));
 }
 function gather(){
+ // Group optional motion-patch sections atomically so they do not leave
+ // duplicated headings and orphan settings under «Другие настройки».
+ for(const group of new Set([...original.querySelectorAll('.soft-section'),...modal.querySelectorAll('.soft-section')])){
+   const title=group.querySelector('h4')?.textContent||'';
+   const key=/Удержание кнопок/i.test(title)?'hold':/Смена/i.test(title)?'cycle':
+     /Виброотдача/i.test(title)?'vibration':/Движение карточек/i.test(title)?'motion':null;
+   if(key&&!panes.get(key).contains(group))panes.get(key).append(group);
+ }
  for(const s of sections){
    if(s.key==='other')continue;
-   const panel=panes.get(s.key);
+   const pane=panes.get(s.key);
    for(const id of s.ids||[]){
      const field=document.getElementById(id);
-     const row=field?.closest('.form-group,.settings-row')||field;
-     if(row&&row!==panel&&row.parentNode!==panel)panel.append(row);
+     if(!field||pane.contains(field))continue;
+     const row=field.closest('.form-group,.settings-row')||field;
+     if(!pane.contains(row))pane.append(row);
    }
    for(const id of s.blocks||[]){
      const block=document.getElementById(id);
-     if(block&&block.parentNode!==panel)panel.append(block);
+     if(block&&!pane.contains(block))pane.append(block);
    }
  }
+ // Move existing controls; never clone, rebind or reset a saved setting.
  for(const item of [...original.children])panes.get('other').append(item);
- tiles.get('other').hidden=!panes.get('other').children.length;
+ for(const pane of panes.values())for(const item of pane.querySelectorAll('.soft-section'))
+   item.hidden=!item.querySelector('input,select,textarea,button,a');
+ const other=panes.get('other');
+ for(const item of other.children)if(item.matches('.soft-section,.settings-row,.form-group')&&
+   !item.querySelector('input,select,textarea,button,a'))item.hidden=true;
+ tiles.get('other').hidden=![...other.children].some(item=>!item.hidden);
 }
 function queueGather(){if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;gather();},0);}
 const observer=new MutationObserver(queueGather);observer.observe(original,{childList:true});gather();
