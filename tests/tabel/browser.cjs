@@ -8,9 +8,24 @@ let browser;const errors=[];
   browser=await chromium.launch({headless:true,...(process.env.TABEL_BROWSER_EXECUTABLE?{executablePath:process.env.TABEL_BROWSER_EXECUTABLE}:{}),args:['--no-sandbox']});
   const context=await browser.newContext({viewport:{width:412,height:915},isMobile:true,hasTouch:true,permissions:['clipboard-read','clipboard-write']});
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
+  await page.clock.setFixedTime(new Date('2026-10-27T09:00:00Z')); // Fixed fixture calendar; timers keep running.
   await page.goto('http://127.0.0.1:8765/tests/tabel/harness.html');await page.locator('#nav-plugin-tabel').waitFor();assert.equal(await page.locator('#nav-timesheet,#tab-timesheet').count(),0);await page.locator('#nav-plugin-tabel').click();
   assert.equal(await page.locator('link[data-tabel-style]').count(),0);
   assert(!await page.evaluate(()=>performance.getEntriesByType('resource').some(x=>x.name.includes('/tabel/editor.mjs'))));
+  async function assertFullscreen(){
+    const size=await page.locator('.tb-app').evaluate(root=>{const r=root.getBoundingClientRect(),w=innerWidth,h=innerHeight;return{x:r.x,y:r.y,width:r.width,height:r.height,w,h,top:root.contains(document.elementFromPoint(w/2,2)),bottom:root.contains(document.elementFromPoint(w/2,h-2))};});
+    assert(Math.abs(size.x)<1&&Math.abs(size.y)<1&&Math.abs(size.width-size.w)<1&&Math.abs(size.height-size.h)<1,JSON.stringify(size));assert(size.top&&size.bottom,'Host chrome must stay beneath full-screen tab');
+  }
+  const lineBefore=await page.evaluate(()=>JSON.stringify(state.shift));
+  for(const viewport of [{width:412,height:915},{width:915,height:412}]){
+    await page.setViewportSize(viewport);
+    for(const view of ['request','shift','settings','catalog','history']){await page.locator('nav [data-view='+view+']').click();await page.waitForFunction(v=>document.querySelector('nav [data-view='+v+']')?.getAttribute('aria-pressed')==='true',view);await assertFullscreen();}
+    await page.locator('nav [data-view=table]').click();await page.locator('.tb-sheet-grid').waitFor();await assertFullscreen();
+    await page.locator('[data-t=exit]').click();assert.equal(await page.locator('.tb-app').count(),0);assert.equal(await page.evaluate(()=>JSON.stringify(state.shift)),lineBefore);
+    await page.locator('#nav-plugin-tabel').click();await page.locator('nav [data-view=settings]').waitFor();
+  }
+  await page.setViewportSize({width:412,height:915});
+  console.log('PASS all six Tabel views cover the viewport in portrait and landscape; return to Line preserves shift state');
   await page.locator('nav [data-view=settings]').click();await page.locator('.tb-config-form').waitFor();
   await page.locator('[data-t=add-work]').click();await page.locator('[name=work-name-0]').fill('Фрезерование 5 см');await page.locator('[name=work-plan-0]').fill('100000');
   await page.locator('[data-t=add-material]').click();await page.locator('[name=material-name-0]').fill('Конус 1');

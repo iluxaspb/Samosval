@@ -18,7 +18,7 @@ ALLOWED_FILES = {
 } # Explicitly authorized TEST plugin integration only.
 
 build = json.loads((ROOT/'test-app/build-manifest.json').read_text())['version']
-ALLOWED_DIRS = ('test-app/build/a56f826f30325346/', 'test-app/build/21e3174b72f1f963/', 'test-app/tabel/', 'tests/tabel/', 'test-app/build/'+build+'/')
+ALLOWED_DIRS = ('test-app/build/e125d3cac7017870/', 'test-app/build/a56f826f30325346/', 'test-app/build/21e3174b72f1f963/', 'test-app/tabel/', 'tests/tabel/', 'test-app/build/'+build+'/')
 files = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', BASE], cwd=ROOT).decode().splitlines()
 protected = []
 for name in files:

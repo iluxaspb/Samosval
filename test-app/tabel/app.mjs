@@ -52,4 +52,4 @@ export async function renderView(s,view){
   if(view==='table'){const editor=await import('./editor.mjs');s.check();s.editor=await editor.mount(s,content);return;}
   const mod=await import('./'+view+'.mjs');s.check();await mod.mount(s,content);
 }
-export function configMissing(s,host){if(!s.configRow){const p=document.createElement('p');p.className='tb-warning';p.textContent='Настройки объекта ещё не подтверждены. Проверьте дату начала в «Настройках». Новые правила тестовой базы не публиковались автоматически.';host.prepend(p);}}
+export function configMissing(s,host){if(!s.configRow){const p=document.createElement('p');p.className='tb-warning';p.textContent='Настройки объекта ещё не подтверждены сервером. Проверьте дату начала в «Настройках» и сохраните настройки.';host.prepend(p);}}

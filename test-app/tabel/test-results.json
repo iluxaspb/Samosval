@@ -1,76 +1,81 @@
 {
-  "moduleVersion": "1.1.0-test.2",
+  "moduleVersion": "1.1.0-test.3",
   "environment": "Local synthetic data; Chromium mobile emulation, not a physical Android device",
   "results": [
     {
       "name": "domain",
       "status": "passed",
-      "durationMs": 121
+      "durationMs": 83
     },
     {
       "name": "live-rule-boundary",
       "status": "passed",
-      "durationMs": 44
+      "durationMs": 23
     },
     {
       "name": "new-ui",
       "status": "passed",
-      "durationMs": 2866
+      "durationMs": 1840
     },
     {
       "name": "plugin-service",
       "status": "passed",
-      "durationMs": 774
+      "durationMs": 450
     },
     {
       "name": "legacy-core",
       "status": "passed",
-      "durationMs": 255
+      "durationMs": 125
     },
     {
       "name": "host-integrity-and-build",
       "status": "passed",
-      "durationMs": 2746
+      "durationMs": 1373
     },
     {
       "name": "coins",
       "status": "passed",
-      "durationMs": 144
+      "durationMs": 88
     },
     {
       "name": "actual-pwa",
       "status": "passed",
-      "durationMs": 256
+      "durationMs": 137
+    },
+    {
+      "name": "firebase-service-integration",
+      "status": "passed",
+      "durationMs": 4721
     },
     {
       "name": "legacy-emulator",
       "status": "passed",
-      "durationMs": 9521
+      "durationMs": 4618
     },
     {
       "name": "sandbox-emulator",
       "status": "passed",
-      "durationMs": 26726
+      "durationMs": 4283
     },
     {
       "name": "integrated-rule-proposal-not-applied",
       "status": "passed",
-      "durationMs": 15144
+      "durationMs": 4984
     },
     {
       "name": "chromium-mobile",
       "status": "passed",
-      "durationMs": 13902
+      "durationMs": 10294
     },
     {
       "name": "pwa-upgrade-real-worker-local-fixture",
       "status": "passed",
-      "durationMs": 3019
+      "durationMs": 2185
     },
     {
       "name": "protected-paths",
       "status": "passed",
-      "durationMs": 6391
+      "durationMs": 2589
     }
   ],
   "blocked": [
