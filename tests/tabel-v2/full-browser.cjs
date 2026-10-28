@@ -31,10 +31,10 @@ let browser;
     await p.waitForFunction(() => ready);
     await p.evaluate(() => seedLegacy());
     await p.locator("#open").click();
-    await p.locator("[data-view=request]").waitFor();
+    await p.locator("button[data-view=request]").waitFor();
     assert.equal(await p.evaluate(() => session.objectId), null);
     assert.equal(
-      await p.locator("[data-view=request]").getAttribute("aria-pressed"),
+      await p.locator("button[data-view=request]").getAttribute("aria-pressed"),
       "true",
     );
     assert.equal(await p.locator("[name=equipment]:checked").count(), 1);
@@ -108,7 +108,7 @@ let browser;
     await p.locator("dialog[open] [data-action=materials]").click();
     assert((await p.locator("dialog[open]").innerText()).includes("Песок"));
     await p.locator("dialog[open] [data-action=close]").first().click();
-    await p.locator("[data-view=request]").click();
+    await p.locator("button[data-view=request]").click();
     await p.locator(".tn-request [type=submit]").click();
     await action("object").click();
     await p.locator("dialog[open] [name=name]").fill("Новый объект");
