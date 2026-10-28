@@ -1,0 +1,489 @@
+.tn {
+  font:
+    14px Arial,
+    sans-serif;
+  color: #202124;
+  box-sizing: border-box;
+  color-scheme: light;
+}
+.tn * {
+  box-sizing: border-box;
+}
+.tn-app {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 10050;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  margin: 0 !important;
+  width: 100% !important;
+  height: 100dvh !important;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) !important;
+  overflow: hidden;
+}
+.tn-app[hidden] {
+  display: none !important;
+}
+.tn button,
+.tn select,
+.tn input {
+  font: inherit;
+  color: #202124;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  min-height: 32px;
+  padding: 5px 8px;
+}
+.tn button {
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tn button:disabled {
+  opacity: 0.45;
+}
+.tn button[aria-pressed="true"] {
+  background: #e6f4ea;
+  color: #137333;
+  border-color: #a8d5b5;
+}
+.tn header,
+.tn nav,
+.tn footer,
+.tn-tools,
+.tn-grid-tools {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.tn-header {
+  flex-shrink: 0;
+  height: 38px;
+  padding: 2px 6px;
+  border-bottom: 1px solid #ddd;
+}
+.tn-header select {
+  min-width: 0;
+  flex: 1;
+}
+.tn-version {
+  font-size: 10px;
+  color: #666;
+}
+.tn nav {
+  flex-shrink: 0;
+  padding: 3px 6px;
+  overflow: auto;
+}
+.tn nav button {
+  flex: 1;
+  min-height: 30px;
+}
+.tn main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+.tn [role="alert"] {
+  color: #a82020;
+  font-size: 12px;
+  white-space: pre-wrap;
+  margin: 0 6px;
+}
+.tn [role="alert"]:empty {
+  display: none;
+}
+.tn-status {
+  min-height: 24px;
+  border-top: 1px solid #ddd;
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 2px 6px;
+}
+.tn-status span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tn-status button {
+  min-height: 24px;
+  padding: 2px 5px;
+  font-size: 11px;
+}
+.tn h3 {
+  font-size: 15px;
+  margin: 12px 0 6px;
+}
+.tn p {
+  line-height: 1.4;
+}
+.tn form > label,
+.tn-dialog-body > label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.tn label input:not([type="checkbox"]),
+.tn label select {
+  min-width: 0;
+  max-width: 65%;
+}
+.tn-check {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-start !important;
+  padding: 5px 0;
+  gap: 8px;
+}
+.tn-check input {
+  min-height: 20px;
+  width: 20px;
+  height: 20px;
+}
+.tn-check small {
+  color: #666;
+}
+.tn-tools {
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+.tn-item {
+  border-bottom: 1px solid #ddd;
+  padding: 6px 0;
+}
+.tn-item label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 5px 0;
+}
+.tn-item input {
+  width: 90px;
+}
+.tn-hint {
+  font-size: 12px;
+  color: #666;
+}
+.tn-message {
+  width: 100%;
+  height: 45vh;
+  padding: 10px;
+  font: 14px Arial;
+}
+.tn pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.tn details {
+  border-bottom: 1px solid #ddd;
+  padding: 8px 0;
+}
+dialog.tn {
+  z-index: 11000;
+  width: min(620px, 96vw);
+  max-height: 92dvh;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 0;
+  background: #fff;
+}
+dialog.tn::backdrop {
+  background: #0006;
+}
+dialog.tn form {
+  display: flex;
+  flex-direction: column;
+  max-height: 90dvh;
+}
+dialog.tn header,
+dialog.tn footer {
+  padding: 8px;
+  justify-content: space-between;
+  background: #f8fafd;
+}
+.tn-dialog-body {
+  overflow: auto;
+  padding: 10px;
+}
+.tn-format-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.tn-format-grid label {
+  display: flex;
+  flex-direction: column;
+}
+.tn-format-grid label input {
+  max-width: 100%;
+  width: 100%;
+}
+.tn-menu {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.tn-table .tn-header {
+  height: 30px;
+}
+.tn-table .tn-header button,
+.tn-table .tn-header select {
+  min-height: 26px;
+  padding: 2px 5px;
+}
+.tn-table .tn-version {
+  display: none;
+}
+.tn-table nav {
+  padding: 1px 4px;
+}
+.tn-table nav button {
+  min-height: 26px;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.tn-table main {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tn-grid-tools {
+  min-height: 30px;
+  flex-shrink: 0;
+  overflow: auto;
+  border-bottom: 1px solid #ddd;
+  padding: 2px 4px;
+}
+.tn-grid-tools button,
+.tn-grid-tools select {
+  font-size: 11px;
+  padding: 3px 6px;
+  min-height: 26px;
+}
+.tn-formula {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #ddd;
+}
+.tn-formula [data-range] {
+  width: 76px;
+  font-size: 11px;
+  min-height: 28px;
+}
+.tn-formula [data-editor] {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  font-size: 13px;
+}
+.tn-formula button {
+  min-height: 28px;
+}
+.tn-grid-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+.tn-grid {
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  font-size: 12px;
+  color: #111;
+}
+.tn-grid th,
+.tn-grid td {
+  padding: 3px 5px;
+  border-right: 1px solid #b9bfc5;
+  border-bottom: 1px solid #b9bfc5;
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  max-width: 600px;
+}
+.tn-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #f1f3f4;
+  font-weight: normal;
+  height: 26px;
+}
+.tn-grid tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #f1f3f4;
+  font-weight: normal;
+  font-size: 10px;
+  text-align: center;
+}
+.tn-grid .tn-corner {
+  left: 0;
+  z-index: 8;
+}
+.tn-linked tbody td:first-of-type {
+  position: sticky;
+  left: 32px;
+  z-index: 2;
+}
+.tn-linked tbody tr:nth-child(1) > * {
+  position: sticky;
+  top: 26px;
+  z-index: 4;
+}
+.tn-linked tbody tr:nth-child(2) > * {
+  position: sticky;
+  top: 53px;
+  z-index: 4;
+}
+.tn-linked tbody tr:nth-child(-n + 2) > td:first-of-type {
+  z-index: 6;
+}
+.tn-grid .tn-selected {
+  box-shadow: inset 0 0 0 2px #188038;
+}
+.tn-fill {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #188038;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  touch-action: none;
+  border: 2px solid white;
+}
+.tn-resize-col {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+.tn-resize-row {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 8px;
+  cursor: row-resize;
+  touch-action: none;
+}
+.tn-sheets {
+  display: flex;
+  gap: 2px;
+  overflow: auto;
+  background: #f8fafd;
+  padding: 3px 5px;
+  min-height: 34px;
+  flex-shrink: 0;
+}
+.tn-sheets button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 0;
+  font-size: 12px;
+  padding: 4px 12px;
+}
+.tn-symbols {
+  position: fixed;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: #edf0f3;
+  z-index: 12000;
+  height: 34px;
+  overflow: auto;
+  padding: 2px 4px;
+  gap: 2px;
+}
+.tn-symbols[hidden] {
+  display: none;
+}
+.tn-symbols button {
+  flex: 1;
+  border: 0;
+  min-height: 28px;
+  padding: 2px 7px;
+  font-size: 14px;
+}
+.tn button:focus-visible,
+.tn input:focus-visible {
+  outline: 2px solid #188038;
+}
+/* Compact appearance keeps the approved teal settings palette. */
+.tn-header {
+  background: #123344;
+  color: white;
+}
+.tn-header select,
+.tn-header button {
+  border-color: #c3d5de;
+}
+.tn button[aria-pressed="true"] {
+  background: #e7f2f3;
+  color: #096c78;
+  border-color: #8cbcc1;
+}
+.tn nav {
+  gap: 3px;
+}
+.tn nav button {
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 4px 7px;
+}
+.tn main {
+  padding: 6px;
+}
+.tn-table main {
+  padding: 0;
+}
+.tn-settings-menu {
+  display: grid;
+  gap: 6px;
+}
+.tn-settings-menu button {
+  text-align: left;
+  min-height: 36px;
+}
+.tn-catalog-row {
+  padding: 7px 0;
+  border-bottom: 1px solid #dce5ea;
+}
+.tn [hidden] {
+  display: none !important;
+}
+.tn-linked tbody tr:nth-child(2) td {
+  white-space: pre-line !important;
+  font-size: 11px;
+  line-height: 1.2;
+  height: 36px;
+}
+.tn-format-grid label input {
+  max-width: 100%;
+}
+.tn-counts {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  margin: 4px 0;
+  padding: 4px;
+  background: #e7f2f3;
+}

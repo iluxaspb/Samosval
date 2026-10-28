@@ -318,6 +318,7 @@
     if (!versionAllowed) document.getElementById('releaseHistoryDialog')?.close();
     const viewBanner = document.getElementById('viewOnlyBanner'); const canDoAnything = hasPermission('start_shift') || hasPermission('edit_line') || hasPermission('action_load');
     if (viewBanner) viewBanner.style.display = (!canDoAnything && state.shift) ? 'block' : 'none';
+    const requestBtn=document.getElementById('tabelCreateRequestBtn');if(requestBtn)requestBtn.style.display=hasTabAccess('timesheet')?'':'none';
     const startBtn = document.getElementById('startShiftBtn'); if (startBtn) startBtn.style.display = hasPermission('start_shift') ? '' : 'none';
     const truckForm = document.getElementById('truckFormCard'); if (truckForm) truckForm.style.display = hasPermission('manage_trucks') ? '' : 'none';
     const objectForm = document.getElementById('objectFormCard'); if (objectForm) objectForm.style.display = hasPermission('manage_objects') ? '' : 'none';
