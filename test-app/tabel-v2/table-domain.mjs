@@ -78,6 +78,8 @@ export function config(object) {
       note: "",
       lunch: "",
       lunchNote: "",
+      pickupTime: "07:00",
+      trucks: [],
     },
     newSheet: "ask",
     countEquipment: "roster",
@@ -87,7 +89,7 @@ export function config(object) {
   };
 }
 export const dayKey = (d, shift) => "day:" + date(d) + ":" + shift;
-export function createDay(c, d, shift = "day") {
+export function createDay(c, d, shift = "day", previous = null) {
   date(d);
   if (d < c.start || (c.end && d > c.end))
     throw Error("Дата вне периода объекта");
@@ -97,17 +99,17 @@ export function createDay(c, d, shift = "day") {
     shift,
     closed: false,
     planned: d > today(),
-    equipment: c.equipment
-      .filter((e) => c.request.equipment.includes(e.id))
+    equipment: (previous?.equipment || c.equipment.filter((e) => c.request.equipment.includes(e.id)))
+      .filter((e) => !e.deleted)
       .map((e) => ({
         ...copy(e),
         hours: null,
         crewHours: null,
         pumpHours: null,
       })),
-    people: c.people
-      .filter((p) => c.request.people.includes(p.id))
-      .map((p) => ({ ...copy(p), hours: null })),
+    people: (previous?.people || c.people.filter((p) => c.request.people.includes(p.id)))
+      .filter((p) => !p.deleted)
+      .map((p) => ({ ...copy(p), hours: p.group === "itr" && d <= today() ? (p.hours ?? 12) : null })),
     values: {},
   };
 }
@@ -141,8 +143,8 @@ export function rows(c, shifts) {
     );
   for (const d of shifts) {
     for (const e of d.equipment)
-      machines.set(e.id, { ...e, pump: e.pump || machines.get(e.id)?.pump });
-    for (const p of d.people) people.set(p.id, p);
+      machines.set(e.id, { ...e, ...c.equipment.find(x=>x.id===e.id), pump: e.pump || machines.get(e.id)?.pump || c.equipment.find(x=>x.id===e.id)?.pump });
+    for (const p of d.people) people.set(p.id, {...p,...c.people.find(x=>x.id===p.id)});
   }
   const section = (name) =>
     result.push({
@@ -177,7 +179,7 @@ export function rows(c, shifts) {
         field: "crewHours",
         color,
       });
-      if (e.pump)
+      if (isWater(e) && e.pump)
         result.push({
           id: e.id + ":pumpHours",
           name: "Помпа · " + e.name,
@@ -191,6 +193,7 @@ export function rows(c, shifts) {
   section("Своя техника");
   [...machines.values()]
     .filter((e) => e.ownership !== "hired")
+    .sort((a,b) => equipmentOrder(a)-equipmentOrder(b))
     .forEach(equipment);
   section("Поступление");
   [...machines.values()]
@@ -537,4 +540,15 @@ export function describeChange(before, after) {
   return (
     out.join("\n") || "Часы и состав совпадают; изменены другие поля записи."
   );
+}
+
+
+export const isWater = e => e.kind === "water" || /полив/i.test(e.name || "");
+export const equipmentOrder = e => isWater(e) ? 0 : /мтз|щ[её]тк/i.test(e.name || "") ? 1 : /фрез/i.test(e.name || "") ? 2 : 3;
+export function previousDay(shifts, date, shift) {
+  return shifts.filter(d => d.date < date || (d.date === date && shift === "night" && d.shift === "day"))
+    .sort((a,b) => a.date.localeCompare(b.date) || (a.shift === b.shift ? 0 : a.shift === "day" ? -1 : 1)).at(-1) || null;
+}
+export function totals(c, shifts) {
+  return ["works","materials"].flatMap(kind => c[kind].map(x => ({...x,kind,quantity:shifts.reduce((n,d)=>n+(d.values?.[x.id]?.quantity || 0),0)})));
 }

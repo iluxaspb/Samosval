@@ -81,7 +81,7 @@ export async function openCategory(s, kind) {
       html += day.equipment
         .map(
           (e) =>
-            `<section class="tn-item">${field(e.name + " · часы", input(e.id + ":hours", D.fmt(e.hours), 'inputmode="decimal"'))}${e.ownership === "hired" ? "" : field(D.crewLabel(e) + " · часы", input(e.id + ":crewHours", D.fmt(e.crewHours), 'inputmode="decimal"')) + `<label class="tn-check"><input name="pump" value="${e.id}" type="checkbox" ${e.pump ? "checked" : ""}>Помпа · ${esc(e.name)}</label>` + (e.pump ? field("Часы помпы", input(e.id + ":pumpHours", D.fmt(e.pumpHours), 'inputmode="decimal"')) : "")}</section>`,
+            `<section class="tn-item">${field(e.name + " · часы", input(e.id + ":hours", D.fmt(e.hours), 'inputmode="decimal"'))}${e.ownership === "hired" ? "" : field(D.crewLabel(e) + " · часы", input(e.id + ":crewHours", D.fmt(e.crewHours), 'inputmode="decimal"')) + (D.isWater(e) ? `<label class="tn-check"><input name="pump" value="${e.id}" type="checkbox" ${e.pump ? "checked" : ""}>Помпа · ${esc(e.name)}</label>` : "") + (D.isWater(e) && e.pump ? field("Часы помпы", input(e.id + ":pumpHours", D.fmt(e.pumpHours), 'inputmode="decimal"')) : "")}</section>`,
         )
         .join("");
   } else if (kind === "materials") {
@@ -129,7 +129,7 @@ export async function openCategory(s, kind) {
             pumpHours: null,
             ...day.equipment.find((x) => x.id === e.id),
             pump:
-              e.ownership !== "hired" &&
+              D.isWater(e) && e.ownership !== "hired" &&
               (f.getAll("pump").includes(e.id) ||
                 (!day.equipment.some((x) => x.id === e.id) && e.pump)),
           }));
@@ -281,3 +281,4 @@ export async function openCategory(s, kind) {
   }
   return el;
 }
+

@@ -24,5 +24,26 @@ export function lunch(c, object, {mechanic=false, spare=false, workers=0}={}) {
 }
 export function lunchText(c, object, dateLabel, options) {
   const x=lunch(c,object,options);
-  return `${dateLabel}\n${x.address}\nФреза\nСмена: ${c.request.shift === "night" ? "ночная" : "дневная"}\nКоличество обедов: ${x.total}\nОтветственный: ${x.person?.name || "не выбран"}\nТелефон: ${x.phone || "добавьте в справочник ИТР"}`;
+  return `${dateLabel}\n${x.address}\nФреза\nСмена: ${c.request.shift === "night" ? "ночная" : "дневная"}\nКоличество обедов: ${x.total}\nОТВ. ${initials(x.person?.name) || "не выбран"}\nТелефон: ${x.phone || "добавьте в справочник ИТР"}`;
+}
+
+
+export function initials(name = "") {
+  const [surname, ...rest] = name.trim().split(/\s+/);
+  return surname ? surname + (rest.length ? " " + rest.map(x=>x[0].toLocaleUpperCase("ru")+".").join("") : "") : "";
+}
+export function truckGroups(groups = []) {
+  return groups.map(g=>{
+    const count=Number(g.count), trips=g.mode === "central" ? Number(g.trips) : 0;
+    if(!Number.isSafeInteger(count) || count<1 || count>10000) throw Error("Количество самосвалов: от 1 до 10000");
+    if(!["local","central"].includes(g.mode)) throw Error("Выберите по месту или централизацию");
+    if(g.mode === "central" && (!Number.isSafeInteger(trips) || trips<1 || trips>1000)) throw Error("Рейсы на самосвал: от 1 до 1000");
+    return {count,mode:g.mode,trips,tonnesPerTrip:40,tonnes:count*trips*40};
+  });
+}
+export function trucksText(groups = []) {
+  return truckGroups(groups).map(g=>{
+    const n=g.count%100, last=g.count%10, word=n>=11&&n<=14 ? "самосвалов" : last===1 ? "самосвал" : last>=2&&last<=4 ? "самосвала" : "самосвалов";
+    return `${g.count} ${word}` + (g.mode === "local" ? " по месту" : `, централизация, ${g.tonnes} тонн`);
+  }).join("\n");
 }

@@ -501,3 +501,60 @@ dialog.tn footer {
 .tn-hours-dialog [data-hours-value] {display:block;text-align:right;font-size:28px;padding:8px 12px;min-height:48px;border:1px solid #ccd7dc;border-radius:6px;}
 .tn-numberpad {display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0;}
 .tn-numberpad button {min-height:48px;font-size:22px;touch-action:manipulation;}
+
+/* 3.4.32: mobile shifts, bottom sheets and compact entry. */
+.tn-app > nav {border-top:1px solid #d9e2e7;background:#f8fafd;order:5;}
+.tn-app > .tn-status {order:6;}
+.tn-table .tn-sheets {height:26px;min-height:26px;max-height:26px;padding:0 3px;align-items:center;border-top:1px solid #d4dce0;}
+.tn-table .tn-sheets button {min-height:24px;height:24px;font-size:11px;padding:2px 9px;flex:0 0 auto;}
+.tn-linked tbody td:first-of-type {left:0;}
+.tn-linked tbody tr:nth-child(1)>* {top:0;}
+.tn-linked .tn-address td {padding:4px 6px;white-space:normal;}
+.tn-linked .tn-address div {width:calc(100vw - 20px);max-width:100%;white-space:normal;overflow-wrap:anywhere;font-size:12px;font-weight:bold;text-align:left;}
+.tn-object-totals {flex:0 0 auto;padding:2px 6px;max-height:120px;overflow:auto;font-size:11px;}
+.tn-object-totals summary {cursor:pointer;}
+.tn-object-totals p {margin:3px 0;}
+dialog.tn-hours-dialog,dialog.tn-five-dialog {position:fixed;inset:0;margin:auto;}
+.tn-quick-hours {display:flex;align-items:center;gap:4px;margin:8px 0;}
+.tn-quick-hours button {flex:1;min-width:0;padding:4px;min-height:32px;}
+.tn-quick-hours .tn-twelve {flex:1.4;min-height:42px;font-size:20px;background:#e7f2f3;font-weight:bold;}
+.tn-request-date {display:flex;gap:8px;align-items:center;}
+.tn-request-date > label {display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;font-size:12px;}
+.tn-request-date input,.tn-request-date select {width:100%;max-width:100%!important;}
+.tn-truck-group {border:1px solid #d5e0e4;padding:6px;margin:5px 0;border-radius:6px;}
+.tn-truck-group label {display:flex;align-items:center;justify-content:space-between;margin:4px 0;gap:8px;}
+.tn-truck-group input {width:90px;}
+.tn-truck-group output {font-size:12px;color:#096c78;}
+.tn-date-nav {display:flex;align-items:center;gap:5px;}
+.tn-date-nav button {flex:0 0 38px;font-size:28px;min-height:42px;padding:0;}
+.tn-date-nav input {min-width:0;width:130px;flex:1;padding:5px 3px;}
+.tn-date-nav select {min-width:0;width:98px;padding:5px 3px;}
+.tn-shift-tabs,.tn-catalog-tabs {display:flex;overflow:auto;gap:3px;background:#f8fafd;border-top:1px solid #d9e2e7;padding:3px 0;position:sticky;bottom:-6px;z-index:10;margin-top:8px;flex-shrink:0;}
+.tn-shift-tabs button,.tn-catalog-tabs button {font-size:11px;padding:4px 6px;flex:0 0 auto;}
+.tn-shift-tabs button[aria-selected="true"] {background:#e7f2f3;color:#096c78;}
+.tn-cards {display:grid;gap:8px;}
+.tn-equipment-card {border:1px solid #d5e0e4;border-radius:8px;overflow:hidden;background:#fff;}
+.tn-equipment-card .tn-card-title {display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;border:0;border-radius:0;background:#eef5f7;padding:8px;white-space:normal;gap:6px;font-weight:bold;}
+.tn-card-title small {font-weight:normal;font-size:10px;color:#576771;}
+.tn-card-hours {display:grid;grid-template-columns:repeat(auto-fit,minmax(95px,1fr));gap:6px;padding:7px;}
+.tn-card-hours label {font-size:11px;display:flex;flex-direction:column;gap:4px;}
+.tn-card-hours button {width:100%;font-size:20px;min-height:40px;color:#096c78;}
+.tn-five-dialog {width:min(500px,96vw);}
+.tn-five-dialog .tn-dialog-body {padding:6px;}
+.tn-five-days {border-collapse:collapse;table-layout:fixed;width:100%;font-size:10px;}
+.tn-five-days th {font-weight:normal;overflow-wrap:anywhere;}
+.tn-five-days th:first-child {width:76px;text-align:left;}
+.tn-five-days td,.tn-five-days th {border:1px solid #d1dbe0;padding:2px;}
+.tn-five-days input {width:100%;min-width:0;min-height:34px;padding:3px 0;text-align:center;font-size:14px;cursor:pointer;}
+.tn-five-days input.tn-active-cell {outline:2px solid #096c78;background:#e7f2f3;}
+.tn-hour-row {display:flex;gap:1px;margin:10px 0;width:100%;}
+.tn-hour-row button {flex:1 1 0;min-width:0;padding:3px 0;min-height:32px;font-size:11px;border-radius:3px;}
+.tn-catalog-row {display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.tn-catalog-row small {display:block;color:#66757d;font-size:11px;}
+.tn-picker label {display:flex;flex-direction:column;gap:5px;margin:8px 0;}
+.tn-picker label input,.tn-picker label select {max-width:100%;width:100%;}
+
+.tn-app[data-view="shift"] main,.tn-app[data-view="catalog"] main {display:flex;flex-direction:column;overflow:hidden;gap:0;}
+.tn-app[data-view="shift"] main > :not([data-shift-content]),.tn-catalog-tabs {flex-shrink:0;}
+.tn-app[data-view="shift"] [data-shift-content],.tn-catalog-list {flex:1 1 0;min-height:0;overflow:auto;}
+.tn-shift-tabs,.tn-catalog-tabs {position:static;margin-top:4px;}

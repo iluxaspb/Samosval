@@ -29,7 +29,7 @@
 
   // Built-in test module. No plugin installation or production writes.
   let tabelV2Opening = false;
-  async function openTabelV2(settingsOnly) {
+  async function openTabelV2(settingsOnly, requestFirst = false) {
     if (tabelV2Opening) return;
     tabelV2Opening = true;
     try {
@@ -48,6 +48,7 @@
           const ref=refs.objects.doc(),data={name,startDate,createdAt:Date.now(),createdBy:getUserName()};
           await tfAwait(ref.set(data));return {id:ref.id,...data};
         }
-      }, settingsOnly);
+      }, settingsOnly, {requestFirst});
     } catch (error) { showError(error.message); } finally { tabelV2Opening = false; }
   }
+

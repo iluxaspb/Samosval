@@ -84,59 +84,25 @@ export async function addDefinition(s, kind, selectedId) {
   }
   return el;
 }
+const sections=[["equipment","Техника"],["worker","Рабочие"],["itr","ИТР"],["works","Виды работ"],["materials","Материалы"]];
 export async function mount(s, root) {
-  const c = s.config(),
-    registry = s.store.get("_catalog/config").data || {};
-  root.innerHTML = `<div class="tn-tools">${btn("＋ Техника", "equipment")}${btn("＋ Рабочий / ИТР", "person")}${btn("＋ Вид работ", "works")}${btn("＋ Материал", "materials")}</div><input data-search placeholder="Поиск по всем справочникам" aria-label="Поиск в справочнике">${[
-    ["equipment", "Техника"],
-    ["people", "Рабочие и ИТР"],
-    ["works", "Виды работ"],
-    ["materials", "Материалы"],
-  ]
-    .map(([key, label]) => {
-      const list = [
-        ...new Map(
-          [...(registry[key] || []), ...c[key]].map((x) => [x.id, x]),
-        ).values(),
-      ];
-      return `<h3>${label}</h3>${
-        rankChoices(list)
-          .map(
-            (x) =>
-              `<div class="tn-catalog-row">${esc(x.name)} ${key === "people" && x.group === "itr" ? btn(esc(x.phone || "Добавить телефон"),"phone",`data-person="${esc(x.id)}"`) : ""}<small>${esc(x.plate || x.number || x.unit || { worker: "Рабочий", itr: "ИТР" }[x.group] || "")}</small></div>`,
-          )
-          .join("") || "<p>Пока нет записей</p>"
-      }`;
-    })
-    .join("")}`;
-  root.querySelectorAll("[data-person]").forEach(b=>b.onclick=()=>{
-    const person=c.people.find(p=>p.id===b.dataset.person);
-    if(!person) return;
-    dialog("Телефон ИТР: "+person.name,field("Телефон",input("phone",person.phone || "",'type="tel" required')),async f=>{
-      s.require("settings","edit");
-      const next=s.config(), before=s.store.get(s.key("config"));
-      next.people=next.people.map(p=>p.id===person.id ? {...p,phone:String(f.get("phone")).trim()} : p);
-      const key="_catalog/config", base=s.store.get(key), registry=base.data || {equipment:[],people:[]};
-      registry.people=[...registry.people.filter(p=>p.id!==person.id),{...person,phone:String(f.get("phone")).trim()}];
-      await s.store.save(key,registry,base,"Телефон ИТР");
-      await s.saveConfig(next,before);await s.refresh();
-    });
-  });
-  root.querySelector("[data-search]").oninput = (e) =>
-    root
-      .querySelectorAll(".tn-catalog-row")
-      .forEach(
-        (row) =>
-          (row.hidden = !row.textContent
-            .toLowerCase()
-            .includes(e.target.value.toLowerCase())),
-      );
-  for (const [action, fn] of [
-    ["equipment", s.addEquipment],
-    ["person", s.addPerson],
-    ["works", () => addDefinition(s, "works")],
-    ["materials", () => addDefinition(s, "materials")],
-  ])
-    root.querySelector(`[data-action="${action}"]`).onclick = () =>
-      Promise.resolve(fn()).catch(error);
+ const c=s.config(),registry=s.store.get("_catalog/config").data||{},section=s.catalogTab||"equipment",key=["worker","itr"].includes(section)?"people":section;
+ const list=[...new Map([...(c[key]||[]),...(registry[key]||[])].map(x=>[x.id,x])).values()].filter(x=>key!=="people"||x.group===section);
+ root.innerHTML=`<div class="tn-catalog-list"><h3>${sections.find(x=>x[0]===section)[1]}</h3><div class="tn-tools">${btn("＋ Добавить","add-catalog")}</div><input data-search placeholder="Поиск" aria-label="Поиск в справочнике">${rankChoices(list).map(x=>`<div class="tn-catalog-row"><span>${esc(x.name)}<small>${esc(x.plate||x.unit||x.phone||"")}</small></span>${btn("Изменить","edit-catalog",`data-id="${esc(x.id)}"`)}</div>`).join("")||"<p>Пока нет записей</p>"}</div><div class="tn-catalog-tabs">${sections.map(([id,label])=>btn(label,"catalog-tab",`data-tab="${id}" aria-pressed="${id===section}"`)).join("")}</div>`;
+ root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{s.catalogTab=b.dataset.tab;s.refresh().catch(error);});
+ root.querySelector('[data-search]').oninput=e=>root.querySelectorAll('.tn-catalog-row').forEach(row=>row.hidden=!row.textContent.toLowerCase().includes(e.target.value.toLowerCase()));
+ root.querySelector('[data-action=add-catalog]').onclick=()=>Promise.resolve(key==="equipment"?s.addEquipment():key==="people"?s.addPerson(section):addDefinition(s,key)).catch(error);
+ root.querySelectorAll('[data-action=edit-catalog]').forEach(b=>b.onclick=()=>editItem(s,key,list.find(x=>x.id===b.dataset.id)).catch(error));
+}
+async function editItem(s,key,item){
+ s.require("settings","edit");
+ const el=dialog("Изменить: "+item.name,field("Название",input("name",item.name,'required maxlength="180"'))+(key==="equipment"?field("Госномер / номер",input("plate",item.plate||item.number||""))+field("Собственность",`<select name="ownership"><option value="own">Своя</option><option value="hired" ${item.ownership==="hired"?"selected":""}>Наёмная</option></select>`)+field("Подпись персонала",input("crewLabel",item.crewLabel||""))+(D.isWater(item)?'<label class="tn-check"><input name="pump" type="checkbox" '+(item.pump?'checked':'')+'>Есть помпа</label>':""):key==="people"?field("Телефон",input("phone",item.phone||"",'type="tel"')):field("Единица",input("unit",item.unit,'required'))+(key==="materials"?field("Направление",input("direction",item.direction||"")):key==="works"?field("План объекта",input("plan",D.fmt(item.plan),'inputmode="decimal"')):"")),async f=>{
+  const next={...item,name:String(f.get("name")).trim()};if(!next.name)throw Error("Введите название");
+  if(key==="equipment")Object.assign(next,{plate:String(f.get("plate")).trim(),ownership:f.get("ownership"),crewLabel:String(f.get("crewLabel")).trim(),kind:D.isWater(item)?"water":item.kind,pump:D.isWater(item)&&f.get("ownership")!=="hired"&&f.has("pump")});
+  if(key==="people")next.phone=String(f.get("phone")).trim();
+  if(["works","materials"].includes(key)){next.unit=String(f.get("unit")).trim();if(!next.unit)throw Error("Введите единицу");if(next.unit!==item.unit&&s.days().some(d=>d.values[item.id]?.quantity!=null))throw Error("После ввода объёмов единицу менять нельзя");}
+  if(key==="works")next.plan=D.numeric(f.get("plan"));if(key==="materials")next.direction=String(f.get("direction")).trim();
+  const catalogKey="_catalog/config",base=s.store.get(catalogKey),catalog=base.data||{equipment:[],people:[],works:[],materials:[]};catalog[key]=[...(catalog[key]||[]).filter(x=>x.id!==item.id),next];await s.store.save(catalogKey,catalog,base,"Редактирование справочника: "+next.name);
+  const c=s.config(),before=s.store.get(s.key("config"));c[key]=[...c[key].filter(x=>x.id!==item.id),next];await s.saveConfig(c,before);await s.refresh();
+ });return el;
 }

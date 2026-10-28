@@ -20,7 +20,7 @@ export async function mount(s, host) {
   let visibleDays = [],
     linkedRows = [];
   host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
-  host.querySelector(".tn-grid-tools").after(host.querySelector(".tn-sheets"));
+
   const table = host.querySelector("table"),
     scroll = host.querySelector(".tn-grid-scroll"),
     edit = host.querySelector("[data-editor]"),
@@ -62,7 +62,7 @@ export async function mount(s, host) {
       ) +
       s.store
         .list(s.key("sheet:"))
-        .filter((r) => r.data && r.key !== s.key("sheet:linked"))
+        .filter((r) => r.data && !r.data.deleted && r.key !== s.key("sheet:linked"))
         .map((r) =>
           btn(
             esc(r.data.name),
@@ -71,11 +71,12 @@ export async function mount(s, host) {
           ),
         )
         .join("") +
-      btn("＋ Лист", "new-sheet", 'aria-label="Добавить лист"');
+      btn("＋ Лист", "new-sheet", 'aria-label="Добавить лист"') + (sheetId !== "linked" ? btn("⋯ Лист","sheet-options",'aria-label="Переименовать или удалить лист"') : "");
     host
       .querySelectorAll("[data-action=sheet]")
       .forEach((b) => (b.onclick = () => load(b.dataset.id).catch(error)));
     host.querySelector("[data-action=new-sheet]").onclick = () => newSheet();
+    host.querySelector("[data-action=sheet-options]")?.addEventListener("click",sheetOptions);
   }
   function dimensions() {
     if (sheetId === "linked") {
@@ -184,7 +185,7 @@ export async function mount(s, host) {
       first = sheetId === "linked" ? 0 : startRow;
     const memo = new Map();
     table.style.width =
-      32 +
+      (sheetId === "linked" ? 0 : 32) +
       Array.from(
         { length: dim.cols },
         (_, col) =>
@@ -196,19 +197,13 @@ export async function mount(s, host) {
     table.style.minWidth = "0";
     table.style.fontSize = 12 * scale + "px";
     table.innerHTML =
-      '<colgroup><col style="width:32px">' +
+      '<colgroup>' + (sheetId === "linked" ? "" : '<col style="width:32px">') +
       Array.from(
         { length: dim.cols },
         (_, col) =>
           `<col style="width:${(sheet.widths[widthKey(col)] || (sheetId === "linked" ? (col === 0 ? 145 : autoWidth(col)) : 80)) * scale}px">`,
       ).join("") +
-      '</colgroup><thead><tr><th class="tn-corner"></th>' +
-      Array.from(
-        { length: dim.cols },
-        (_, col) =>
-          `<th data-column="${col}">${D.colName(col)}<span class="tn-resize-col" data-resize-col="${col}"></span></th>`,
-      ).join("") +
-      "</tr></thead><tbody>" +
+      '</colgroup>' + (sheetId === "linked" ? "" : '<thead><tr><th class="tn-corner"></th>' + Array.from({length:dim.cols},(_,col)=>`<th data-column="${col}">${D.colName(col)}<span class="tn-resize-col" data-resize-col="${col}"></span></th>`).join("")+"</tr></thead>") + "<tbody>" +
       (first
         ? `<tr><td colspan="${dim.cols + 1}">${btn("↑ Предыдущие 60 строк", "prev-rows")}</td></tr>`
         : "") +
@@ -217,8 +212,9 @@ export async function mount(s, host) {
           height =
             (sheet.heights[heightKey(r)] ||
               (sheetId === "linked" && r === 1 ? 36 : 27)) * scale;
+        if(sheetId === "linked" && r===0) return `<tr class="tn-address"><td data-cell="A1" colspan="${dim.cols}" style="background:#ff9900"><div>${esc(s.object.address || s.object.location || c.name)}</div></td></tr>`;
         return (
-          `<tr style="height:${height}px"><th data-row="${r}">${r + 1}<span class="tn-resize-row" data-resize-row="${r}"></span></th>` +
+          `<tr style="height:${height}px">` + (sheetId === "linked" ? "" : `<th data-row="${r}">${r + 1}<span class="tn-resize-row" data-resize-row="${r}"></span></th>`) +
           Array.from({ length: dim.cols }, (_, col) => {
             const k = D.cell(r, col);
             let v =
@@ -253,8 +249,12 @@ export async function mount(s, host) {
         .forEach(
           (td) =>
             (td.style.top =
-              26 + (sheet.heights["header:0"] || 27) * scale + "px"),
+              (table.querySelector(".tn-address")?.getBoundingClientRect().height || 27*scale) + "px"),
         );
+    }
+    host.querySelector(".tn-object-totals")?.remove();
+    if(sheetId === "linked"){
+      const panel=document.createElement("details");panel.className="tn-object-totals";panel.innerHTML='<summary>Итоги работ и материалов за весь объект</summary>'+D.totals(s.config(),allDays).map(x=>`<p>${esc(x.name)}: <b>${D.fmt(x.quantity)}</b> ${esc(x.unit)}</p>`).join("");host.querySelector(".tn-sheets").before(panel);
     }
     mark();
     host
@@ -349,6 +349,13 @@ export async function mount(s, host) {
         };
         changes.set(key, item);
       }
+      if(row.kind!=="value" && !item.data[row.kind].some(e=>e.id===row.entity)) {
+        const config=s.config(),source=config[row.kind].find(e=>e.id===row.entity) || allDays.flatMap(d=>d[row.kind]).find(e=>e.id===row.entity);
+        if(!source)throw Error("Запись не найдена в справочнике");
+        const accepted=await confirmAdd(row.name,day.date);
+        if(!accepted)throw Error("Добавление в состав отменено. Часы не сохранены.");
+        item.data[row.kind].push({...D.copy(source),hours:null,crewHours:null,pumpHours:null});
+      }
       D.setValue(row, item.data, rawValue);
     }
     const applied = [];
@@ -431,11 +438,12 @@ export async function mount(s, host) {
     try{s.require("table","edit");}catch(e){error(e);return;}
     selected=end=k;mark();
     let value=raw(k);
-    const el=dialog(row.name+" · "+D.display(day.date),`<output data-hours-value aria-live="polite">${esc(value || "0")}</output><div class="tn-numberpad">${['7','8','9','4','5','6','1','2','3',',','0','⌫'].map(x=>btn(x,'digit',`data-digit="${x}"`)).join('')}</div>${btn('Очистить','clear-hours')}`,async()=>{await linkedWrite([[k,value]],"Часы: цифровой ввод");});
+    const el=dialog(row.name+" · "+D.display(day.date),`<output data-hours-value aria-live="polite">${esc(value || "0")}</output><div class="tn-quick-hours">${[10,11,12,13,14].map(n=>btn(n,"preset",`data-preset="${n}" ${n===12?'class="tn-twelve"':""}`)).join("")}</div><div class="tn-numberpad">${['7','8','9','4','5','6','1','2','3',',','0','⌫'].map(x=>btn(x,'digit',`data-digit="${x}"`)).join('')}</div>${btn('Очистить','clear-hours')}`,async()=>{await linkedWrite([[k,value]],"Часы: цифровой ввод");});
     el.classList.add('tn-hours-dialog');
     el.querySelector('[type=submit]').textContent='Enter · Сохранить';
     let replace=true;
     const update=()=>el.querySelector('[data-hours-value]').textContent=value || '0';
+    el.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{value=b.dataset.preset;replace=true;update();});
     el.querySelectorAll('[data-digit]').forEach(b=>b.onclick=()=>{
       const digit=b.dataset.digit;
       if(digit==='⌫')value=value.slice(0,-1);
@@ -784,6 +792,13 @@ export async function mount(s, host) {
       throw Error("Лимит облегчённого листа: 100 столбцов × 1000 строк");
     await persist(next, "Размер листа");
   }
+  function sheetOptions(){
+    if(sheetId === "linked")return;
+    const el=dialog(sheet.name,btn("Переименовать","rename-sheet")+btn("Удалить лист","delete-sheet"));
+    el.querySelector('[data-action=rename-sheet]').onclick=()=>{el.close();dialog("Название листа",input("name",sheet.name,'required maxlength="80"'),async f=>{const name=String(f.get("name")).trim();if(!name)throw Error("Введите название");await persist({...sheet,name},"Переименование листа");tabs();});};
+    el.querySelector('[data-action=delete-sheet]').onclick=()=>{el.close();dialog("Удалить лист «"+sheet.name+"»?","<p>Лист исчезнет из списка. Основной табель останется.</p>",async()=>{await s.save(key(),{...sheet,deleted:true},base,"Удаление листа", "table");await load("linked");});};
+  }
+  function confirmAdd(name,date){return new Promise(resolve=>{let accepted=false;const el=dialog("Нет в составе смены",`<p>${esc(name)} нет в составе смены на ${D.display(date)}. Добавить с введёнными часами?</p>`,async()=>{accepted=true;});el.querySelector('[type=submit]').textContent="Добавить";el.addEventListener('close',()=>resolve(accepted),{once:true});});}
   function newSheet() {
     const defaultType = c.newSheet;
     if (defaultType === "ask") {
@@ -892,3 +907,4 @@ export async function mount(s, host) {
     idle: () => chain,
   };
 }
+

@@ -32,6 +32,8 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     host,
     root,
     object: null,
+    shiftTab: "equipment",
+    requestLocked: !!host.requestObjectId,
     view: "request",
     day: D.today(),
     shift: "day",
@@ -74,7 +76,8 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   ).open();
   s.key = (suffix) => s.object.id + "/" + suffix;
   s.config = () => {
-    const c = s.store.get(s.key("config")).data || D.config(s.object),
+    const stored=s.store.get(s.key("config")).data, defaults=s.store.get("_defaults/config").data;
+    const c = stored || (defaults ? {...D.config(s.object),equipment:D.copy(defaults.equipment||[]),people:D.copy(defaults.people||[]),request:{...D.config(s.object).request,...D.copy(defaults.request),date:D.add(D.today(),1)}} : D.config(s.object)),
       catalog = s.store.get("_catalog/config").data || {
         equipment: [],
         people: [],
@@ -83,18 +86,20 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       ...new Map(
         [
           ...(host.catalog?.equipment || []),
-          ...catalog.equipment,
           ...c.equipment,
+          ...catalog.equipment,
         ].map((e) => [e.id, e]),
       ).values(),
     ];
     c.people = [
       ...new Map(
-        [...(host.catalog?.people || []), ...catalog.people, ...c.people].map(
+        [...(host.catalog?.people || []), ...c.people, ...catalog.people].map(
           (e) => [e.id, e],
         ),
       ).values(),
     ];
+    if (!c.equipment.some(D.isWater)) c.equipment.push({id:"builtin-water",name:"Поливомоечная",kind:"water",ownership:"own",pump:false});
+    c.equipment=c.equipment.filter(e=>!e.deleted).map(e=>({...e,pump:D.isWater(e) && e.ownership!=="hired" && !!e.pump}));
     return c;
   };
   s.require = (area, mode = "view") => {
@@ -123,13 +128,13 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     s.save(s.key("config"), c, base, "Настройки / заявка", area);
   s.refresh = () => render(s);
   s.addEquipment = () => addEquipment(s);
-  s.addPerson = () => addPerson(s);
+  s.addPerson = (group) => addPerson(s,group);
   s.openSettings = () =>
     import("./settings-menu.mjs").then((m) => m.openSettings(s));
   s.addDefinition = (kind) =>
     import("./catalog.mjs").then((m) => m.addDefinition(s, kind));
   s.addDay = () => addDay(s);
-  s.composition = () => composition(s);
+  s.composition = (group) => composition(s,group);
   s.editValue = async (row, d, raw) => {
     const key = s.key(D.dayKey(d.date, d.shift)),
       base = s.store.get(key),
@@ -155,6 +160,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   s.root.innerHTML = "<p>Открываем новый табель…</p>";
   const objects = host.data().objects || [];
   s.object =
+    objects.find((o) => o.id === host.requestObjectId) ||
     objects.find((o) => o.id === host.data().shift?.objectId) ||
     objects[0] ||
     null;
@@ -262,12 +268,12 @@ async function render(s) {
   s.grid = null;
   const c = s.object ? s.config() : null;
   s.root.classList.toggle("tn-table", s.view === "table");
-  s.root.innerHTML = `<header class="tn-header">${btn("‹", "exit", 'aria-label="На линию"')}<select data-object aria-label="Объект">${[...new Map([...(s.host.data().objects || []), ...(s.object ? [s.object] : [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select><span class="tn-version">Табель 2</span>${btn("＋ Объект", "object")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
+  s.root.dataset.view=s.view;
+  s.root.innerHTML = `<header class="tn-header">${btn("‹", "exit", 'aria-label="На линию"')}<select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.host.data().objects || []), ...(s.object ? [s.object] : [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select><span class="tn-version">Табель 2</span>${btn("＋ Объект", "object",s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
     ["request", "Заявки"],
     ["shift", "Смена"],
     ["table", "Таблица"],
     ["catalog", "Справочник"],
-    ["settings", "Настройки"],
     ["history", "История"],
   ]
     .map(([id, label]) =>
@@ -276,6 +282,7 @@ async function render(s) {
     .join(
       "",
     )}</nav><p role="alert"></p><main></main><footer class="tn-status"><span data-status></span>${btn("↻", "sync", 'aria-label="Синхронизировать"')}${btn("Конфликты", "conflicts")}</footer>`;
+  s.root.querySelector(".tn-status").before(s.root.querySelector("nav"));
   s.root.querySelector("[data-action=exit]").onclick = () => {
     s.root.hidden = true;
     s.host.leave();
@@ -319,8 +326,8 @@ async function render(s) {
       return;
     }
     if (s.view === "request") request(s, main);
-    if (s.view === "shift") shift(s, main);
-    if (s.view !== "table" && s.view !== "settings") {
+    if (s.view === "shift") await shift(s, main);
+    if (s.view === "shift") {
       const days = s.days().filter((d) => d.date === s.day),
         list = days.flatMap((d) => d.people);
       const counts = document.createElement("div");
@@ -373,8 +380,17 @@ function newObject(s) {
 }
 function request(s, main) {
   const base = s.store.get(s.key("config")), c = s.config();
-  main.innerHTML = `<form class="tn-request">${field("Дата заявки",input("date",c.request.date,'type="date" required'))}${field("Смена",`<select name="shift"><option value="day">Дневная</option><option value="night" ${c.request.shift === "night" ? "selected" : ""}>Ночная</option></select>`)}<div class="tn-tools">${btn("＋ Добавить технику", "choose-equipment")}${btn("＋ ИТР", "add-itr")}${btn("Состав по умолчанию", "defaults")}</div><h3>Техника в заявке</h3>${R.selectedEquipment(c).map(e=>`<label class="tn-check"><input type="checkbox" name="equipment" value="${esc(e.id)}" checked>${esc(e.name)}</label>`).join("") || "<p>Добавьте нужную технику из справочника.</p>"}<h3>ИТР</h3>${c.people.filter(p=>p.group === "itr").map(p=>`<label class="tn-check"><input type="checkbox" name="people" value="${esc(p.id)}" ${c.request.people.includes(p.id) ? "checked" : ""}>${esc(p.name)}</label>`).join("")}${field("Ответственный ИТР",'<select name="responsibleId"></select>')}${field("Станция метро для развозки",input("metro",c.request.metro || "",'autocomplete="off" placeholder="Начните вводить название"'))}<div data-stations class="tn-stations" hidden></div>${field("Время подачи развозки",input("pickupTime",c.request.pickupTime || "",'type="time"'))}${field("Примечание к заявке",input("note",c.request.note))}<button type="submit">Сохранить заявку</button></form><div class="tn-tools">${btn("Поделиться заявкой", "send-request")}${btn("Заказ обеда", "lunch")}${btn("Отправить отчёт", "report")}${btn("Начать / добавить смену", "add-day")}</div><p class="tn-hint">Рабочие учитываются в табеле. В заявке выбираются техника и ИТР.</p>`;
+  main.innerHTML = `<form class="tn-request"><div class="tn-request-date">${field("Дата заявки",input("date",c.request.date,'type="date" required'))}${field("Смена",`<select name="shift"><option value="day">Дневная</option><option value="night" ${c.request.shift === "night" ? "selected" : ""}>Ночная</option></select>`)}</div><div class="tn-tools">${btn("＋ Добавить технику", "choose-equipment")}${btn("＋ ИТР", "add-itr")}</div><h3>Техника в заявке</h3>${R.selectedEquipment(c).map(e=>`<label class="tn-check"><input type="checkbox" name="equipment" value="${esc(e.id)}" checked>${esc(e.name)}</label>`).join("") || "<p>Добавьте нужную технику из справочника.</p>"}<section class="tn-trucks"><h3>Самосвалы</h3><div data-truck-groups></div>${btn("＋ Группа самосвалов","truck-group")}</section><h3>ИТР</h3>${c.people.filter(p=>p.group === "itr").map(p=>`<label class="tn-check"><input type="checkbox" name="people" value="${esc(p.id)}" ${c.request.people.includes(p.id) ? "checked" : ""}>${esc(p.name)}</label>`).join("")}${field("Ответственный ИТР",'<select name="responsibleId"></select>')}${field("Станция метро для развозки",input("metro",c.request.metro || "",'autocomplete="off" placeholder="Начните вводить название"'))}<div data-stations class="tn-stations" hidden></div>${field("Время подачи развозки",input("pickupTime",c.request.pickupTime || "07:00",'type="time"'))}${field("Примечание к заявке",input("note",c.request.note))}<button type="submit">Сохранить заявку</button></form><div class="tn-tools">${btn("Поделиться заявкой", "send-request")}${btn("Заказ обеда", "lunch")}${btn("Отправить отчёт", "report")}${btn("Начать / добавить смену", "add-day")}</div><p class="tn-hint">Рабочие учитываются в табеле. В заявке выбираются техника и ИТР.</p>`;
   const form=main.querySelector("form"), select=form.elements.responsibleId;
+  const groupRoot=form.querySelector("[data-truck-groups]");
+  function addTruckGroup(g={count:1,mode:"local",trips:1}) {
+    const row=document.createElement("div");row.className="tn-truck-group";
+    row.innerHTML=field("Количество самосвалов",input("truckCount",g.count,'type="number" min="1" max="10000" required'))+field("Тип",`<select name="truckMode"><option value="local">По месту</option><option value="central" ${g.mode === "central" ? "selected" : ""}>Централизация</option></select>`)+`<div data-central>${field("Рейсы на каждый",input("truckTrips",g.trips || 1,'type="number" min="1" max="1000"'))}<output data-truck-total></output></div>`+btn("× Убрать","remove-group");
+    const update=()=>{const central=row.querySelector('[name=truckMode]').value==="central";row.querySelector('[data-central]').hidden=!central;row.querySelector('[name=truckTrips]').required=central;row.querySelector('[name=truckTrips]').disabled=!central;row.querySelector('[data-truck-total]').textContent=`${Number(row.querySelector('[name=truckCount]').value)*Number(row.querySelector('[name=truckTrips]').value)*40} тонн · 40 т/рейс`;};
+    row.oninput=update;row.onchange=update;row.querySelector('[data-action=remove-group]').onclick=()=>row.remove();groupRoot.append(row);update();
+  }
+  (c.request.trucks || []).forEach(addTruckGroup);
+  bind(main,"truck-group",()=>addTruckGroup());
   const updateResponsible=()=>{
     const id=select.value || c.request.responsibleId;
     const ids=new FormData(form).getAll("people");
@@ -393,8 +409,10 @@ function request(s, main) {
   async function saveRequest(){
     const f=new FormData(form), next=D.copy(c);
     next.request={...next.request,equipment:f.getAll("equipment"),people:f.getAll("people"),responsibleId:f.get("responsibleId"),metro:String(f.get("metro")).trim(),pickupTime:f.get("pickupTime"),date:D.date(f.get("date")),shift:f.get("shift"),note:f.get("note")};
+    next.request.trucks=R.truckGroups([...groupRoot.children].map(row=>({count:row.querySelector('[name=truckCount]').value,mode:row.querySelector('[name=truckMode]').value,trips:row.querySelector('[name=truckTrips]').value})));
     if(next.request.metro && !R.stations.includes(next.request.metro)) throw Error("Выберите станцию метро из списка");
     await s.saveConfig(next,base,"request");
+    await s.store.save("_defaults/config",next,s.store.get("_defaults/config"),"Последний состав заявки");
     return next;
   }
   form.onsubmit=async e=>{e.preventDefault();try{await saveRequest();await render(s);}catch(e){error(e);}};
@@ -413,7 +431,7 @@ function request(s, main) {
   bind(main,"defaults",()=>dialog("Состав новых объектов","<p>Сохранить состав этой заявки для новых объектов?</p>",async()=>{await saveRequest();s.require("settings","edit");await s.store.save("_defaults/config",s.config(),s.store.get("_defaults/config"),"Шаблон нового объекта");}));
   bind(main,"send-request",async()=>{
     const next=await saveRequest();await render(s);
-    message("Заявка",`Заявка на ${D.display(next.request.date)}\nОбъект: ${next.name}\nСмена: ${next.request.shift === "night" ? "ночная" : "дневная"}\nТехника:\n${R.selectedEquipment(next).map(e=>"— "+e.name).join("\n") || "не выбрана"}\nИТР:\n${R.selectedITR(next).map(p=>"— "+p.name).join("\n") || "не выбраны"}\nМетро: ${next.request.metro || "не выбрано"}\nРазвозка к: ${next.request.pickupTime || "не указано"}\n${next.request.note}`);
+    message("Заявка",`Заявка на ${D.display(next.request.date)}\nОбъект: ${next.name}\nСмена: ${next.request.shift === "night" ? "ночная" : "дневная"}\nТехника:\n${R.selectedEquipment(next).map(e=>"— "+e.name).join("\n") || "не выбрана"}${next.request.trucks?.length ? "\n"+R.trucksText(next.request.trucks) : ""}\nИТР:\n${R.selectedITR(next).map(p=>"— "+p.name).join("\n") || "не выбраны"}\nМетро: ${next.request.metro || "не выбрано"}\nРазвозка к: ${next.request.pickupTime || "не указано"}\n${next.request.note}`);
   });
   bind(main,"lunch",async()=>{
     const next=await saveRequest();await render(s);
@@ -447,7 +465,7 @@ function addEquipment(s) {
         "Подпись строки персонала",
         input("crewLabel", "", 'placeholder="Определится по названию"'),
       ) +
-      '<label class="tn-check"><input name="pump" type="checkbox">Есть помпа</label>',
+      field("Тип техники",'<select name="kind"><option value="other">Другая техника</option><option value="water">Поливомоечная</option><option value="mill">Фреза</option><option value="brush">МТЗ-щётка</option></select>'),
     async (f) => {
       const c = s.config(),
         base = s.store.get(s.key("config"));
@@ -457,7 +475,8 @@ function addEquipment(s) {
         plate: String(f.get("plate")).trim(),
         ownership: f.get("ownership"),
         crewLabel: String(f.get("crewLabel")).trim(),
-        pump: f.get("ownership") === "own" && f.has("pump"),
+        kind: f.get("kind"),
+        pump: false,
       };
       if (!e.name) throw Error("Введите название");
       const catalogKey = "_catalog/config",
@@ -484,7 +503,7 @@ function addPerson(s, group = "worker") {
     field("Телефон", input("phone", "", 'type="tel"')) + field("Фамилия и имя", input("name", "", "required")) +
       field(
         "Категория",
-        `<select name="group" ${group === 'itr' ? 'disabled' : ''}><option value="worker">Рабочий</option><option value="itr" ${group === 'itr' ? 'selected' : ''}>ИТР</option></select>`,
+        `<select name="group" disabled><option value="worker">Рабочий</option><option value="itr" ${group === 'itr' ? 'selected' : ''}>ИТР</option></select>`,
       ),
     async (f) => {
       const c = s.config(),
@@ -492,7 +511,7 @@ function addPerson(s, group = "worker") {
       const person = {
           id: D.uid(),
           name: String(f.get("name")).trim(),
-          group: group === "itr" ? "itr" : f.get("group"),
+          group,
           phone: String(f.get("phone") || "").trim(),
         },
         catalogKey = "_catalog/config",
@@ -526,7 +545,7 @@ async function addDay(s) {
       if (!base.data)
         await s.save(
           key,
-          D.createDay(c, d, shift),
+          D.createDay(c, d, shift, D.previousDay(s.days(),d,shift)),
           base,
           "Создание смены " + d,
         );
@@ -544,91 +563,10 @@ async function addDay(s) {
         ))),
   );
 }
-function shift(s, main) {
-  const c = s.config(),
-    key = s.key(D.dayKey(s.day, s.shift)),
-    base = s.store.get(key),
-    d = base.data;
-  main.innerHTML = `<div class="tn-tools"><input type="date" data-day value="${s.day}"><select data-shift><option value="day" ${s.shift === "day" ? "selected" : ""}>Дневная</option><option value="night" ${s.shift === "night" ? "selected" : ""}>Ночная</option></select>${[-2, -1, 0].map((n, i) => btn(["Позавчера", "Вчера", "Сегодня"][i], "quick", `data-offset="${n}"`)).join("")}${btn("＋ День", "add-day")}</div><h3>${D.display(s.day)}${d?.date > D.today() ? " · ПЛАН" : ""}</h3>${
-    d
-      ? `<div class="tn-tools">${btn("Состав", "composition")}</div><form data-facts>${[
-          ["equipment", "Техника"],
-          ["people", "Люди"],
-        ]
-          .map(
-            ([kind, label]) =>
-              `<h3>${label}</h3>${d[kind]
-                .map((e) => {
-                  const rows =
-                    kind === "people"
-                      ? [["hours", e.name]]
-                      : [
-                          ["hours", e.name],
-                          ...(e.ownership === "hired"
-                            ? []
-                            : [
-                                ["crewHours", D.crewLabel(e)],
-                                ...(e.pump ? [["pumpHours", "Помпа"]] : []),
-                              ]),
-                        ];
-                  return `<section class="tn-item">${rows.map(([field, label]) => `<label>${esc(label)}${input(kind + ":" + e.id + ":" + field, D.fmt(e[field]), 'inputmode="decimal" placeholder="часы" ' + "")}</label>`).join("")}${kind === "equipment" ? btn("Ввод за 5 дней", "multi", `data-id="${e.id}"`) : ""}</section>`;
-                })
-                .join("")}`,
-          )
-          .join(
-            "",
-          )}<h3>Материалы и объёмы работ</h3>${[...c.works, ...c.materials].map((w) => field(w.name + " · " + w.unit, input("value:" + w.id, D.fmt(d.values[w.id]?.quantity), 'inputmode="decimal" ' + "")) + (c.materials.some((m) => m.id === w.id) ? field("Направление", input("direction:" + w.id, d.values[w.id]?.direction ?? w.direction, d.closed ? "disabled" : "")) : "")).join("")}<button type="submit" >Сохранить факт</button></form>`
-      : "<p>Смена пока не создана. Добавьте день здесь или в таблице.</p>"
-  }`;
-  main.querySelector("[data-day]").onchange = (e) => {
-    s.day = e.target.value;
-    render(s).catch(error);
-  };
-  main.querySelector("[data-shift]").onchange = (e) => {
-    s.shift = e.target.value;
-    render(s).catch(error);
-  };
-  main.querySelectorAll("[data-offset]").forEach(
-    (b) =>
-      (b.onclick = () => {
-        s.day = D.add(D.today(), Number(b.dataset.offset));
-        render(s).catch(error);
-      }),
-  );
-  bind(main, "add-day", s.addDay);
-  if (!d) return;
-  bind(main, "composition", s.composition);
-
-  main
-    .querySelectorAll("[data-action=multi]")
-    .forEach((b) => (b.onclick = () => multi(s, b.dataset.id).catch(error)));
-  main.querySelector("form").onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const next = D.copy(d),
-        f = new FormData(e.target);
-      for (const [k, v] of f) {
-        const parts = k.split(":");
-        if (parts[0] === "direction")
-          next.values[parts[1]] = {
-            ...next.values[parts[1]],
-            direction: String(v),
-          };
-        else
-          D.setValue(
-            { kind: parts[0], entity: parts[1], field: parts[2] },
-            next,
-            v,
-          );
-      }
-      await s.save(key, next, base, "Факт смены " + d.date);
-      await render(s);
-    } catch (e) {
-      error(e);
-    }
-  };
+async function shift(s, main) {
+  const mod=await import("./shift-cards.mjs");await mod.mount(s,main);
 }
-function composition(s) {
+function composition(s, group) {
   const c = s.config(),
     key = s.key(D.dayKey(s.day, s.shift)),
     base = s.store.get(key),
@@ -637,7 +575,7 @@ function composition(s) {
 
   dialog(
     "Состав только этой смены",
-    `<h3>Техника</h3>${c.equipment.map((e) => `<label class="tn-check"><input type="checkbox" name="equipment" value="${e.id}" ${d.equipment.some((x) => x.id === e.id) ? "checked" : ""}>${esc(e.name)}</label>${e.ownership === "own" ? `<label class="tn-check"><input type="checkbox" name="pump" value="${e.id}" ${(d.equipment.find((x) => x.id === e.id)?.pump ?? e.pump) ? "checked" : ""}>Помпа · ${esc(e.name)}</label>` : ""}`).join("")}<h3>Люди</h3>${c.people.map((p) => `<label class="tn-check"><input type="checkbox" name="people" value="${p.id}" ${d.people.some((x) => x.id === p.id) ? "checked" : ""}>${esc(p.name)}</label>`).join("")}<p>Исключение удалит строку из факта этой смены. Предыдущие значения сохранятся в истории.</p>`,
+    `<h3>Техника</h3>${c.equipment.map((e) => `<label class="tn-check"><input type="checkbox" name="equipment" value="${e.id}" ${d.equipment.some((x) => x.id === e.id) ? "checked" : ""}>${esc(e.name)}</label>${D.isWater(e) && e.ownership === "own" ? `<label class="tn-check"><input type="checkbox" name="pump" value="${e.id}" ${(d.equipment.find((x) => x.id === e.id)?.pump ?? e.pump) ? "checked" : ""}>Помпа · ${esc(e.name)}</label>` : ""}`).join("")}<h3>Люди</h3>${c.people.map((p) => `<label class="tn-check"><input type="checkbox" name="people" value="${p.id}" ${d.people.some((x) => x.id === p.id) ? "checked" : ""}>${esc(p.name)}</label>`).join("")}<p>Исключение удалит строку из факта этой смены. Предыдущие значения сохранятся в истории.</p>`,
     async (f) => {
       const next = D.copy(d);
       next.equipment = c.equipment
@@ -648,7 +586,7 @@ function composition(s) {
           crewHours: null,
           pumpHours: null,
           ...d.equipment.find((x) => x.id === e.id),
-          pump: e.ownership === "own" && f.getAll("pump").includes(e.id),
+          pump: D.isWater(e) && e.ownership === "own" && f.getAll("pump").includes(e.id),
         }));
       next.people = c.people
         .filter((p) => f.getAll("people").includes(p.id))
@@ -662,77 +600,6 @@ function composition(s) {
     },
   );
 }
-async function multi(s, id) {
-  const c = s.config(),
-    end = s.day > D.today() ? D.today() : s.day,
-    start = D.add(end, -4) < c.start ? c.start : D.add(end, -4),
-    snapshots = D.days(start, end).map((date) => ({
-      key: s.key(D.dayKey(date, s.shift)),
-      ...s.store.get(s.key(D.dayKey(date, s.shift))),
-    })),
-    draftKey = s.key("draft:multi:" + id + ":" + s.shift),
-    draft = s.store.get(draftKey).data || {};
-  const el = dialog(
-    "Часы техники за 5 дней",
-    snapshots
-      .map((r) => {
-        const e = r.data?.equipment.find((x) => x.id === id);
-        if (!e) return `<p>${r.key.split(":")[1]} — нет техники в смене</p>`;
-        return `<h3>${D.display(r.data.date)}</h3>${[["hours", e.name], ...(e.ownership === "hired" ? [] : [["crewHours", D.crewLabel(e)], ...(e.pump ? [["pumpHours", "Помпа"]] : [])])].map(([field, label]) => fieldHTML(label, r.key + "|" + field, draft.values?.[r.key + "|" + field] ?? D.fmt(e[field]))).join("")}`;
-      })
-      .join(""),
-    async (f) => {
-      await saving;
-      for (const r of snapshots) {
-        if (!r.data?.equipment.some((e) => e.id === id)) continue;
-        const base = draft.snapshots?.[r.key] || r,
-          next = D.copy(base.data);
-        for (const [k, v] of f) {
-          const [key, field] = k.split("|");
-          if (key === r.key)
-            D.setValue({ kind: "equipment", entity: id, field }, next, v);
-        }
-        if (JSON.stringify(next) !== JSON.stringify(base.data))
-          await s.save(r.key, next, base, "Многодневный ввод");
-      }
-      await s.store.serialize(async () => {
-        delete s.store.state.records[draftKey];
-        await s.store.persist();
-      });
-      await render(s);
-    },
-  );
-  let saving = Promise.resolve();
-  el.querySelectorAll("input").forEach(
-    (i) =>
-      (i.oninput = () => {
-        const values = Object.fromEntries(
-          new FormData(el.querySelector("form")),
-        );
-        saving = saving
-          .then(() =>
-            s.store.serialize(async () => {
-              s.store.state.records[draftKey] = {
-                revision: 0,
-                data: {
-                  values,
-                  snapshots: Object.fromEntries(
-                    snapshots.map((r) => [
-                      r.key,
-                      draft.snapshots?.[r.key] || r,
-                    ]),
-                  ),
-                },
-              };
-              await s.store.persist();
-            }),
-          )
-          .catch(error);
-      }),
-  );
-}
-const fieldHTML = (label, name, v) =>
-  field(label, input(name, v, 'inputmode="decimal"'));
 function settings(s, main) {
   const c = s.config(),
     base = s.store.get(s.key("config"));
@@ -947,3 +814,4 @@ async function dailyReport(s) {
     );
   });
 }
+
