@@ -7,7 +7,7 @@ const source=fs.readFileSync(path.join(root,'test-app/source/features/line-motio
 const shell=fs.readFileSync(path.join(root,'test-app/source/shell.html'),'utf8');
 const hub=fs.readFileSync(path.join(root,'test-app/source/features/settings-hub.js'),'utf8');
 assert.doesNotThrow(()=>new Function(source));
-assert(shell.includes('content="3.4.26"'),'test shell must expose updated release');
+assert(shell.includes('content="3.4.27"'),'test shell must expose updated release');
 assert(hub.includes("'soft-motion-spring-speed'"),'separate control stays in motion category');
 assert(source.includes("prefs.springSpeed = Number.isFinite(p.springSpeed)"),'restores saved spring speed');
 assert(source.includes("prefs.springSpeed=value;savePrefs()"),'spring speed change is persisted');
