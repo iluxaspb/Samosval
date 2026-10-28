@@ -117,10 +117,28 @@ export const shiftLabel = (d) =>
   d.shift === "night"
     ? Number(d.date.slice(-2)) + "/" + Number(add(d.date, 1).slice(-2))
     : String(Number(d.date.slice(-2)));
+export const isMill = e => e.kind ? e.kind === "mill" : /фрез/i.test(e.name || "");
+export const isBrush = e => e.kind ? e.kind === "brush" : /тракт|щ[её]т|мтз/i.test(e.name || "");
+// Identity, rather than row position or name, keeps a machine's shade stable.
+export function equipmentColor(e) {
+  if (/^#[0-9a-f]{6}$/i.test(e.color || "")) return e.color;
+  if (isWater(e)) return "#d5e8f7";
+  if (isMill(e)) return "#c9e9e3";
+  if (isBrush(e)) return "#e6d5bd";
+  let hash = 2166136261;
+  for (const char of String(e.id || e.plate || e.name)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+  const hue = (hash * 137.508) % 360, saturation = 0.28 + (hash % 12) / 100, light = 0.87;
+  const chroma = (1 - Math.abs(2 * light - 1)) * saturation, x = chroma * (1 - Math.abs(hue / 60 % 2 - 1)), m = light - chroma / 2;
+  const rgb = hue < 60 ? [chroma,x,0] : hue < 120 ? [x,chroma,0] : hue < 180 ? [0,chroma,x] : hue < 240 ? [0,x,chroma] : hue < 300 ? [x,0,chroma] : [chroma,0,x];
+  return "#" + rgb.map(v => Math.round((v+m)*255).toString(16).padStart(2,"0")).join("");
+}
+export function fiveDayHours(machine, field, hours, doubleCrew) {
+  return Number(hours) * (isMill(machine) && field === "crewHours" && doubleCrew ? 2 : 1);
+}
 export function crewLabel(e) {
   return (
     e.crewLabel ||
-    (/фрез/i.test(e.name)
+    (isMill(e)
       ? "Машинисты фрезы"
       : /тракт|щ[её]т|мтз/i.test(e.name)
         ? "Тракторист"
@@ -154,14 +172,7 @@ export function rows(c, shifts) {
       color: "#000000",
     });
   const equipment = (e) => {
-    const color =
-      e.ownership === "hired"
-        ? "#ffdc70"
-        : /фрез/i.test(e.name)
-          ? "#00e5e5"
-          : /тракт|щ[её]т/i.test(e.name)
-            ? "#bf9600"
-            : "#a4c2f4";
+    const color = equipmentColor(e);
     result.push({
       id: e.id + ":hours",
       name: e.name,
@@ -406,10 +417,10 @@ export function formula(
     const src = raw
         .slice(1)
         .toUpperCase()
-        .replace(/СУММ/g, "SUM")
+        .replace(/СУММА?/g, "SUM")
         .replace(/−/g, "-"),
       tokens =
-        src.match(/\s+|\d+(?:[.,]\d+)?|[A-Z]+[1-9]\d*|SUM|[()+*/:\-]/g) || [];
+        src.match(/\s+|\d+(?:[.,]\d+)?|[A-Z]+[1-9]\d*|SUM|[();+*/:\-]/g) || [];
     if (tokens.join("") !== src || tokens.length > 500)
       throw Error("#ФОРМУЛА!");
     const t = tokens.filter((x) => x.trim());
@@ -431,11 +442,17 @@ export function formula(
       }
       if (a === "SUM") {
         if (t[i++] !== "(") throw Error("#ФОРМУЛА!");
-        const from = t[i++];
-        if (t[i++] !== ":") throw Error("#ФОРМУЛА!");
-        const to = t[i++];
-        if (t[i++] !== ")") throw Error("#ФОРМУЛА!");
-        return range(from, to).reduce((n, k) => n + ref(k), 0);
+        let total=0;
+        while(t[i]!==')'){
+          if(/^[A-Z]+[1-9]\d*$/.test(t[i]||'')&&t[i+1]===':'){
+            const from=t[i];i+=2;const to=t[i++];
+            total+=range(from,to).reduce((n,k)=>n+ref(k),0);
+          }else total+=expr();
+          if(t[i]===')')break;
+          if(t[i++]!==';')throw Error('#ФОРМУЛА!');
+        }
+        if(t[i++]!==')')throw Error('#ФОРМУЛА!');
+        return total;
       }
       if (/^[A-Z]+\d+$/.test(a || "")) return ref(a);
       if (/^\d+(?:[.,]\d+)?$/.test(a || "")) return Number(a.replace(",", "."));
@@ -544,11 +561,33 @@ export function describeChange(before, after) {
 
 
 export const isWater = e => e.kind === "water" || /полив/i.test(e.name || "");
-export const equipmentOrder = e => isWater(e) ? 0 : /мтз|щ[её]тк/i.test(e.name || "") ? 1 : /фрез/i.test(e.name || "") ? 2 : 3;
+export const equipmentOrder = e => isWater(e) ? 0 : isBrush(e) ? 1 : isMill(e) ? 2 : 3;
 export function previousDay(shifts, date, shift) {
   return shifts.filter(d => d.date < date || (d.date === date && shift === "night" && d.shift === "day"))
     .sort((a,b) => a.date.localeCompare(b.date) || (a.shift === b.shift ? 0 : a.shift === "day" ? -1 : 1)).at(-1) || null;
 }
 export function totals(c, shifts) {
   return ["works","materials"].flatMap(kind => c[kind].map(x => ({...x,kind,quantity:shifts.reduce((n,d)=>n+(d.values?.[x.id]?.quantity || 0),0)})));
+}
+
+// Read linked formulas for shift cards and reports from the same shared definitions
+// as the grid, so a changed source hour never leaves their displayed totals stale.
+export function linkedFormulaDays(c, shifts, sheet, deleted = new Set()) {
+  if(!Object.values(sheet?.cells||{}).some(x=>String(x.raw||'').startsWith('=')))return shifts;
+  const result=copy(shifts),rr=rows(c,result),last=c.end&&c.end<=today()?c.end:result.at(-1)?.date||c.start;
+  const dd=days(c.start,last).flatMap(date=>result.filter(d=>d.date===date).length?result.filter(d=>d.date===date):deleted.has(date)?[]:[{date,shift:'day',equipment:[],people:[],values:{}}]);
+  const cells={},targets=[];
+  for(let r=0;r<rr.length+2;r++)for(let col=0;col<dd.length+1;col++){
+    const row=rr[r-2],d=dd[col-1],k=cell(r,col),id=(row?.id||'header:'+r)+'|'+(d?dayKey(d.date,d.shift):'label');
+    const overlay=sheet.cells[id]?.raw;
+    const raw=overlay??(r===0?(col===0?'Адрес':col===1?c.name:''):r===1?(col===0?'Дата':display(d.date)) : col===0?row.name:row.section?'':fmt(value(row,d)));
+    cells[k]={raw};
+    if(String(overlay||'').startsWith('=')&&row&&!row.section&&d&&col>0)targets.push({row,d,k});
+  }
+  const size={rows:rr.length+2,cols:dd.length+1};
+  for(const {row,d,k}of targets){const n=formula(cells,k,size);if(typeof n!=='number')continue;
+    if(row.kind==='value')d.values[row.entity]={...d.values[row.entity],quantity:n};
+    else {const e=d[row.kind].find(e=>e.id===row.entity);if(e)e[row.field]=n;}
+  }
+  return result;
 }

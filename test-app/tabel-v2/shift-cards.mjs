@@ -11,7 +11,7 @@ export async function mount(s, root) {
   const c = s.config(),
     key = s.key(D.dayKey(s.day, s.shift)),
     base = s.store.get(key),
-    d = base.data?.deleted ? null : base.data;
+    d = base.data?.deleted ? null : s.days().find(d=>d.date===s.day&&d.shift===s.shift)||base.data;
   root.innerHTML = `<div class="tn-date-nav">${btn("‹", "prev-date", 'aria-label="Предыдущая дата"')}<input type="date" data-day value="${s.day}" aria-label="Дата смены"><select data-shift aria-label="Смена"><option value="day">Дневная</option><option value="night" ${s.shift === "night" ? "selected" : ""}>Ночная</option></select>${btn("›", "next-date", 'aria-label="Следующая дата"')}${btn("Сегодня", "today")}</div><div class="tn-tools">${btn("Начать / добавить смену", "add-day")}${d ? btn("Выбрать состав", "choose-roster") + btn("Удалить смену", "delete-shift", 'class="tn-danger"') : ""}</div><section data-shift-content></section><div class="tn-shift-tabs" role="tablist">${tabs.map(([id, label]) => btn(label, "shift-tab", `data-tab="${id}" role="tab" aria-selected="${s.shiftTab === id}"`)).join("")}</div>`;
   const navigate = async (date, shift = s.shift) => {
     s.day = D.date(date);
@@ -102,7 +102,7 @@ export async function mount(s, root) {
   if (!equipment) {
     content.innerHTML = `<div class="tn-people-table">${list.map((e) => `<div class="tn-person-row"><span>${esc(e.name)}</span>${btn(D.fmt(e.hours) || "—", "hours", `data-entity="${esc(e.id)}" data-field="hours" aria-label="${esc(e.name + " · Часы за смену")}"`)}</div>`).join("") || "<p>Состав не выбран.</p>"}</div>`;
   } else {
-    content.innerHTML = `<div class="tn-cards">${list.map((e) => `<article class="tn-equipment-card" data-card="${esc(e.id)}"><button class="tn-card-title" type="button" data-open="${esc(e.id)}">${esc(e.name)}${equipment ? "<small>Последние 5 дней ›</small>" : ""}</button><div class="tn-card-hours">${(equipment ? equipmentFields(e) : [["hours", "Часы за смену"]]).map(([field, label]) => `<label>${esc(label)}${btn(D.fmt(e[field]) || "—", "hours", `data-entity="${esc(e.id)}" data-field="${field}" aria-label="${esc(e.name + " · " + label)}"`)}</label>`).join("")}</div></article>`).join("") || "<p>Состав не выбран.</p>"}</div>`;
+    content.innerHTML = `<div class="tn-cards">${list.map((e) => `<article class="tn-equipment-card" data-card="${esc(e.id)}" style="--tn-equipment-color:${D.equipmentColor(c.equipment.find(x => x.id === e.id) || e)}"><button class="tn-card-title" type="button" data-open="${esc(e.id)}"><span class="tn-machine-name">${esc(e.name)}</span>${equipment ? "<small>Последние 5 дней ›</small>" : ""}</button><div class="tn-card-hours">${(equipment ? equipmentFields(e) : [["hours", "Часы за смену"]]).map(([field, label]) => `<label>${esc(label)}${btn(D.fmt(e[field]) || "—", "hours", `data-entity="${esc(e.id)}" data-field="${field}" aria-label="${esc(e.name + " · " + label)}"`)}</label>`).join("")}</div></article>`).join("") || "<p>Состав не выбран.</p>"}</div>`;
   }
   content.querySelectorAll("[data-open]").forEach(
     (b) =>
@@ -230,7 +230,7 @@ export async function multi(s, id) {
     saving = Promise.resolve();
   const el = dialog(
     machine.name,
-    `<table class="tn-five-days"><thead><tr><th></th>${dates.map((date) => `<th>${D.display(date).slice(0, 5)}</th>`).join("")}</tr></thead><tbody>${fields
+    `${D.isMill(machine) && machine.ownership !== "hired" ? `<label class="tn-check tn-double-crew"><input type="checkbox" data-double-crew ${draft?.doubleCrew ? "checked" : ""}>×2 · Два машиниста</label><p class="tn-hint">Удваиваются часы машинистов: 13 → 26, 14 → 28. Часы техники вводятся отдельно.</p>` : ""}<table class="tn-five-days"><thead><tr><th></th>${dates.map((date) => `<th>${D.display(date).slice(0, 5)}</th>`).join("")}</tr></thead><tbody>${fields
       .map(
         ([field, label]) =>
           `<tr><th>${esc(label)}</th>${snapshots
@@ -299,6 +299,7 @@ export async function multi(s, id) {
             revision: 0,
             data: {
               values,
+              doubleCrew: !!el.querySelector("[data-double-crew]")?.checked,
               snapshots:
                 draft?.snapshots ||
                 Object.fromEntries(snapshots.map((r) => [r.key, r])),
@@ -309,15 +310,16 @@ export async function multi(s, id) {
       )
       .catch(error);
   };
-  el.querySelectorAll("input:not(:disabled)").forEach((i) => {
+  el.querySelectorAll(".tn-five-days input:not(:disabled)").forEach((i) => {
     i.onpointerdown = (e) => e.preventDefault();
     i.onclick = () => {
       active = i;
-      el.querySelectorAll("input").forEach((x) =>
+      el.querySelectorAll(".tn-five-days input").forEach((x) =>
         x.classList.toggle("tn-active-cell", x === i),
       );
     };
   });
+  el.querySelector("[data-double-crew]")?.addEventListener("change", cache);
   el.querySelectorAll("[data-hour]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -325,7 +327,7 @@ export async function multi(s, id) {
           error("Сначала выберите ячейку");
           return;
         }
-        active.value = b.dataset.hour;
+        active.value = D.fiveDayHours(machine, active.name.split("|").at(-1), b.dataset.hour, !!el.querySelector("[data-double-crew]")?.checked);
         cache();
       }),
   );

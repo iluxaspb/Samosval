@@ -4,6 +4,7 @@ import * as D from "./table-domain.mjs";
 import { Store, firestoreRemote } from "./store.mjs";
 import { esc, btn, input, field, dialog, message, error } from "./messages.mjs";
 import {sheetVisible,sheetManager} from './sheet-access.mjs';
+import {autoConflicts} from "./conflict-view.mjs";
 import {historyRows} from './history-view.mjs';
 const areas = [
   "request",
@@ -145,13 +146,22 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     const id=key.includes('/sheet:')?key.split('/sheet:')[1]:key.includes('/day:')?'linked':null;
     if(id&&!s.sheetVisible(id))throw Error('Нет доступа к листу');
     const ok = await s.store.save(key, data, base, label);
-    if (!ok)
-      throw Error(
-        "Есть новая версия записи. Обе правки сохранены — откройте «Конфликты».",
-      );
+    // A conflict is already durable; the automatic comparison dialog handles it.
+    if (!ok) { s.conflictUI?.check(); return; }
+    if(area==='shift'&&key.includes('/day:')){
+      const sheetKey=s.key('sheet:linked'),sheetBase=s.store.get(sheetKey);
+      if(sheetBase.data){
+        const next=D.copy(sheetBase.data);let changed=false;
+        for(const row of D.rows(s.config(),[data]))if(row.kind&&!row.section){
+          const id=row.id+'|'+D.dayKey(data.date,data.shift);
+          if(next.cells[id]?.raw && D.value(row,data)!==D.value(row,base.data)) {delete next.cells[id].raw;changed=true;}
+        }
+        if(changed)await s.store.save(sheetKey,next,sheetBase,'Ручной ввод вместо формулы');
+      }
+    }
     void s.store.flush();
   };
-  s.days = () =>
+  s.rawDays = () =>
     s.store
       .list(s.key("day:"))
       .filter((r) => r.data && !r.data.deleted)
@@ -160,6 +170,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         (a, b) =>
           a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift),
       );
+  s.days = () => D.linkedFormulaDays(s.config(),s.rawDays(),s.store.get(s.key('sheet:linked')).data,new Set(s.store.list(s.key('day:')).filter(r=>r.data?.deleted).map(r=>r.data.date)));
   s.saveConfig = async (c, base, area = "settings") =>
     s.save(s.key("config"), c, base, "Настройки / заявка", area);
   s.refresh = () => render(s);
@@ -226,6 +237,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       ((s.store.uploadError||s.store.error) ? " · сервер: " + (s.store.uploadError||s.store.error) : "") + (s.store.uploading?" · отправляется "+s.store.uploading.key:"");
   };
   s.store.listeners.add(s.status);
+  s.conflictUI=autoConflicts(s);
   async function loadObject() {
     if (!s.object || !s.remote) return;
     await s.store.pull(s.key("config"));
@@ -305,10 +317,12 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       s.view="shift";s.day=D.today();
       if(!s.object){const objects=host.data().objects||[];const id=localStorage.getItem(selectionKey);s.object=objects.find(o=>o.id===id)||objects[0]||null;await host.prepare?.(s.store,s.object);void synchronize();}
       await render(s);
+      s.conflictUI.check();
     },
     async dispose() {
       s.unwatch?.();
       observer.disconnect();
+      s.conflictUI.dispose();
       s.grid?.dispose();
       document.querySelectorAll("dialog.tn").forEach((el) => el.close());
       root.remove();
@@ -318,6 +332,9 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   };
 }
 async function render(s) {
+  const rendering=s.rendering=(s.rendering||0)+1;
+  if(s.grid)await s.grid.finish?.();
+  if(rendering!==s.rendering)return;
   s.remember?.();
   if(s.grid?.snapshot){s.gridPositions ||= {};s.gridPositions[s.object.id]=s.grid.snapshot();}
   s.grid?.dispose();
@@ -384,7 +401,10 @@ async function render(s) {
           : s.view,
     );
     if (s.view === "table") {
-      s.grid = await (await import("./grid.mjs")).mount(s, main);
+      const module=await import("./grid.mjs");
+      if(rendering!==s.rendering || !main.isConnected)return;
+      const grid=await module.mount(s,main);
+      if(rendering!==s.rendering || !main.isConnected)grid.dispose();else s.grid=grid;
       return;
     }
     if (s.view === "request") request(s, main);
@@ -731,6 +751,7 @@ function addEquipment(s) {
         pump: false,
       };
       if (!e.name) throw Error("Введите название");
+      e.color = D.equipmentColor(e);
       const catalogKey = "_catalog/config",
         catalogBase = s.store.get(catalogKey),
         catalog = catalogBase.data || { equipment: [], people: [] };

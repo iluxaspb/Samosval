@@ -1097,3 +1097,44 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 .tn-fill-preview{position:fixed;top:80px;right:12px;z-index:50;pointer-events:none;padding:4px 8px;background:var(--tn-card);color:var(--tn-text);border:2px solid #188038;border-radius:8px;}
 .tn-history-row{padding:10px 0;border-bottom:1px solid var(--tn-border);overflow-wrap:anywhere;}
 .tn-history-row p{margin:5px 0;}
+
+/* Stable soft machine shades, shared with the linked table. */
+.tn .tn-equipment-card {
+  background: var(--tn-equipment-color, #eef5f7);
+  color: #23343a;
+  border-color: color-mix(in srgb, var(--tn-equipment-color, #d5e0e4), #52656b 22%);
+}
+.tn .tn-equipment-card .tn-card-title {
+  background: var(--tn-equipment-color, #eef5f7) !important;
+  color: #23343a !important;
+  -webkit-text-fill-color: #23343a !important;
+  height: 36px;
+  min-height: 36px;
+  padding: 4px 8px;
+  font-size: 17px;
+  line-height: 24px;
+  overflow: hidden;
+}
+.tn-card-title .tn-machine-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tn .tn-equipment-card .tn-card-title small { flex: 0 0 auto; color: #4b6068; }
+.tn .tn-equipment-card .tn-card-hours label { color: #23343a; }
+
+.tn-select-mode .tn-grid { touch-action: none; user-select: none; -webkit-user-select: none; }
+.tn-selection-total { display:block; padding:4px 8px; min-height:24px; font-size:12px; background:var(--tn-card);color:var(--tn-text);flex:0 0 auto; }
+.tn .tn-grid .tn-formula-ref { box-shadow: inset 0 0 0 2px #4b65d9 !important; background-image:linear-gradient(#4b65d922,#4b65d922); }
+/* Keep formula symbols in their own row so they never cover sheet or view tabs. */
+.tn-table .tn-symbols { position:static; flex:0 0 34px; width:100%; box-sizing:border-box; }
+
+.tn-grid-scroll {position:relative;}
+.tn .tn-grid .tn-selected, .tn .tn-grid .tn-fill-target {box-shadow:none !important; background-image:none !important;}
+.tn-selection-box {position:absolute;box-sizing:border-box;pointer-events:none;z-index:7;border:1px solid #8799aa;background:rgba(145,171,192,.09);border-radius:1px;}
+.tn .tn-grid .tn-fill {background:#8799aa;width:8px;height:8px;border:1px solid #fff;}
+.tn-cell-tools {display:flex;flex:0 0 38px;gap:2px;overflow-x:auto;align-items:center;border-top:1px solid var(--tn-border);padding:2px 4px;box-sizing:border-box;}
+.tn-cell-tools button {display:grid;place-items:center;flex:0 0 36px;min-width:36px;height:32px;padding:4px;font-size:18px;}
+.tn-color-families {display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:5px;}
+.tn-color-shades {display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:5px;}
+.tn .tn-swatch {background:var(--swatch) !important;min-width:0;min-height:34px;width:100%;height:34px;padding:0;border:1px solid #8b959f !important;border-radius:5px;}
+.tn .tn-swatch[aria-pressed=true] {outline:2px solid var(--tn-primary);outline-offset:2px;}
+.tn-color-field:before {content:'';display:inline-block;vertical-align:middle;width:20px;height:20px;background:var(--swatch);border:1px solid #888;border-radius:3px;margin-right:6px;}
+.tn button[hidden] {display:none !important;}
+.tn .tn-swatch[aria-pressed=true] {background:var(--swatch) !important;}

@@ -1,8 +1,9 @@
+import {isMill} from "./table-domain.mjs";
 // Station names verified against metro.spb.ru, 2026-10-28. Offline search.
 export const stations = `Девяткино|Гражданский проспект|Академическая|Политехническая|Площадь Мужества|Лесная|Выборгская|Площадь Ленина|Чернышевская|Площадь Восстания|Владимирская|Пушкинская|Технологический институт|Балтийская|Нарвская|Кировский завод|Автово|Ленинский проспект|Проспект Ветеранов|Парнас|Проспект Просвещения|Озерки|Удельная|Пионерская|Чёрная речка|Петроградская|Горьковская|Невский проспект|Сенная площадь|Фрунзенская|Московские ворота|Электросила|Парк Победы|Московская|Звёздная|Купчино|Беговая|Зенит|Приморская|Василеостровская|Гостиный двор|Маяковская|Площадь Александра Невского|Елизаровская|Ломоносовская|Пролетарская|Обухово|Рыбацкое|Горный институт|Спасская|Достоевская|Лиговский проспект|Новочеркасская|Ладожская|Проспект Большевиков|Улица Дыбенко|Комендантский проспект|Старая Деревня|Крестовский остров|Чкаловская|Спортивная|Адмиралтейская|Садовая|Звенигородская|Обводный канал|Волковская|Бухарестская|Международная|Проспект Славы|Дунайская|Шушары|Путиловская|Юго-Западная`.split("|").sort((a,b)=>a.localeCompare(b,"ru"));
 const normalize = x => String(x).toLocaleLowerCase("ru").replaceAll("ё","е");
 export const searchStations = query => stations.filter(x=>normalize(x).includes(normalize(query)));
-export const crewCount = e => /фрез/i.test(e.name) ? 2 : 1;
+export const crewCount = e => isMill(e) ? 2 : 1;
 export const selectedEquipment = c => c.equipment.filter(e=>c.request.equipment.includes(e.id));
 export const selectedITR = c => c.people.filter(p=>p.group === "itr" && c.request.people.includes(p.id));
 export function responsible(c) {
@@ -24,7 +25,7 @@ export function lunch(c, object, {mechanic=false, spare=false, workers=0}={}) {
 }
 export function lunchText(c, object, dateLabel, options) {
   const x=lunch(c,object,options);
-  return `${dateLabel}\n${x.address}\nФреза\nСмена: ${c.request.shift === "night" ? "ночная" : "дневная"}\nКоличество обедов: ${x.total}\nОТВ. ${initials(x.person?.name) || "не выбран"}\nТелефон: ${x.phone || "добавьте в справочник ИТР"}`;
+  return `${dateLabel}\n${x.address}\nФреза\nСмена: ${c.request.shift === "night" ? "ночная" : "дневная"}\nКоличество обедов: ${x.total}\nОтв. ${initials(x.person?.name) || "не выбран"}\nТелефон: ${x.phone || "добавьте в справочник ИТР"}`;
 }
 
 

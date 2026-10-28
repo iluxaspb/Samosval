@@ -1,3 +1,4 @@
+import {chooseColor,colorField,bindColorFields} from "./color-palette.mjs";
 import { numberInput } from "./number-input.mjs";
 import * as D from "./table-domain.mjs";
 import { esc, btn, input, field, dialog, error } from "./messages.mjs";
@@ -12,6 +13,7 @@ export async function mount(s, host) {
     disposed = false,
     chain = Promise.resolve(),
     startRow = 0;
+  let dirty=false, hasSelection=false, selectMode=true, suppressClick=false;
   const c = s.config(),
     allDays = s.days();
   s.gridUndo ||= {};
@@ -24,13 +26,22 @@ export async function mount(s, host) {
   const simple = () => sheetId === "linked" && s.config().tableMode !== "full";
   let visibleDays = [],
     linkedRows = [];
-  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("↶", "undo", 'aria-label="Отменить действие" title="Отменить действие"')}${btn("↷", "redo", 'aria-label="Повторить действие" title="Повторить действие"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
+  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("↶", "undo", 'aria-label="Отменить действие" title="Отменить действие"')}${btn("↷", "redo", 'aria-label="Повторить действие" title="Повторить действие"')}${btn("Выделение", "select-mode", 'aria-pressed="true" title="Переключить выделение и прокрутку пальцем"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><output class="tn-selection-total" data-selection-total aria-live="polite">Сумма: 0</output><div class="tn-cell-tools" role="toolbar" aria-label="Инструменты ячеек"></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
 
   const table = host.querySelector("table"),
     scroll = host.querySelector(".tn-grid-scroll"),
     edit = host.querySelector("[data-editor]"),
+    selectionBox = document.createElement('div'),
     rangeInput = host.querySelector("[data-range]"),
     symbols = host.querySelector(".tn-symbols");
+  selectionBox.className='tn-selection-box';selectionBox.setAttribute('aria-hidden','true');scroll.append(selectionBox);
+  function outline(keys) {
+    const cells=[...table.querySelectorAll('[data-cell]')].filter(td=>keys.has(td.dataset.cell));
+    if(!cells.length){selectionBox.hidden=true;return;}
+    selectionBox.hidden=false;const parent=scroll.getBoundingClientRect(),boxes=cells.map(td=>td.getBoundingClientRect());
+    const left=Math.min(...boxes.map(b=>b.left)),top=Math.min(...boxes.map(b=>b.top)),right=Math.max(...boxes.map(b=>b.right)),bottom=Math.max(...boxes.map(b=>b.bottom));
+    Object.assign(selectionBox.style,{left:(left-parent.left+scroll.scrollLeft)+'px',top:(top-parent.top+scroll.scrollTop)+'px',width:(right-left)+'px',height:(bottom-top)+'px'});
+  }
   const key = () => s.key("sheet:" + sheetId);
   const blank = () => ({
     name: "Табель",
@@ -41,6 +52,7 @@ export async function mount(s, host) {
     heights: {},
   });
   async function load(id) {
+    if(dirty)await queue(commit);
     await chain;
     saveStacks();
     sheetId = id;
@@ -58,7 +70,7 @@ export async function mount(s, host) {
     }
     draw();
     tabs();
-    if (draft) edit.value = draft.raw;
+    if (draft) {edit.value = draft.raw;dirty=true;}
   }
   function visibleIds(){return ['linked',...s.store.list(s.key('sheet:')).filter(r=>r.data&&!r.data.deleted&&r.key!==s.key('sheet:linked')).map(r=>r.key.slice(s.key('sheet:').length))].filter(s.sheetVisible);}
   function tabs() {
@@ -146,6 +158,8 @@ export async function mount(s, host) {
   }
   function raw(k) {
     if (sheetId !== "linked") return sheet.cells[k]?.raw ?? "";
+    const stored=sheet.cells[styleKey(k)]?.raw;
+    if(String(stored||"").startsWith("="))return stored;
     const { row, day, p } = linkedAt(k);
     if (p.r === 0) return p.c === 0 ? "Адрес" : p.c === 1 ? c.name : "";
     if (p.r === 1)
@@ -158,6 +172,38 @@ export async function mount(s, host) {
     if (p.c === 0) return row.name;
     if (row.section) return "";
     return D.fmt(D.value(row, day));
+  }
+  function formulaCells(candidate=sheet) {
+    if(sheetId!=="linked")return candidate.cells;
+    const dim=dimensions(),cells={};
+    for(let r=0;r<dim.rows;r++)for(let col=0;col<dim.cols;col++){
+      const k=D.cell(r,col),overlay=candidate.cells[styleKey(k)]?.raw;
+      cells[k]={raw:overlay??raw(k)};
+    }
+    return cells;
+  }
+  function computed(k,cells=formulaCells()) { return D.formula(cells,k,dimensions()); }
+  function selectionTotal() {
+    try{
+      const cells=formulaCells(),values=D.range(selected,end).map(k=>computed(k,cells)).filter(v=>typeof v==='number'&&Number.isFinite(v));
+      host.querySelector('[data-selection-total]').textContent='Сумма: '+D.fmt(values.reduce((a,b)=>a+b,0))+' · чисел: '+values.length;
+    }catch{}
+  }
+  function expectsReference() {return dirty && /^=/.test(edit.value) && /(?:^=|[+*/(:−-]|СУММ(?:А)?|SUM)\s*$/i.test(edit.value);}
+  function referenceParts() {
+    let prefix=edit.value;
+    if(/(?:СУММ(?:А)?|SUM)\s*$/i.test(prefix))prefix+='(';
+    return {prefix,suffix:/\(\s*$/.test(prefix)?')':''};
+  }
+  function pickReference(a,b,parts) {
+    edit.value=parts.prefix+a+(a===b?'':':'+b)+parts.suffix;
+    dirty=true;edit.dispatchEvent(new Event('input'));
+    const keys=new Set(D.range(a,b));
+    table.querySelectorAll('[data-cell]').forEach(td=>td.classList.toggle('tn-formula-ref',keys.has(td.dataset.cell)));
+  }
+  async function selectCell(k) {
+    if(dirty)await commit();
+    selected=end=k;hasSelection=true;mark();edit.value=raw(k);
   }
   function cellStyle(k) {
     const { row, p } = linkedAt(k),
@@ -186,7 +232,7 @@ export async function mount(s, host) {
           "fontSize",
           "textAlign",
           "whiteSpace",
-          "border",
+          "border", "borderTop", "borderBottom", "borderLeft", "borderRight",
         ].includes(k),
       )
       .map(
@@ -211,7 +257,7 @@ export async function mount(s, host) {
     const max =
         sheetId === "linked" ? dim.rows : Math.min(dim.rows, startRow + 80),
       first = sheetId === "linked" ? 0 : startRow;
-    const memo = new Map();
+    const memo = new Map(),displayCells=formulaCells();
     table.style.width =
       (sheetId === "linked" ? 0 : 32) +
       Array.from(
@@ -261,9 +307,7 @@ export async function mount(s, host) {
           Array.from({ length: dim.cols }, (_, col) => {
             const k = D.cell(r, col);
             let v =
-              sheetId === "linked"
-                ? raw(k)
-                : D.formula(sheet.cells, k, dim, new Set(), memo);
+              D.formula(displayCells, k, dim, new Set(), memo);
             const nf = sheet.cells[styleKey(k)]?.numberFormat;
             if (nf && v !== "" && !isNaN(Number(String(v).replace(",", ".")))) {
               const n = Number(String(v).replace(",", "."));
@@ -367,7 +411,8 @@ export async function mount(s, host) {
       td.append(handle);
     }
     rangeInput.value = selected === end ? selected : selected + ":" + end;
-    if (document.activeElement !== edit) edit.value = raw(selected);
+    if (!dirty) edit.value = raw(selected);
+    outline(keys);selectionTotal();
   }
   async function persist(next, label) {
     s.require("table", "edit");
@@ -384,7 +429,25 @@ export async function mount(s, host) {
     chain = chain.then(fn).catch(error);
     return chain;
   }
-  async function linkedWrite(updates, label) {
+  async function linkedWrite(updates,label) {
+    const next=D.copy(sheet);
+    for(const [k,value]of updates){
+      const id=styleKey(k);
+      if(String(value).startsWith('='))next.cells[id]={...next.cells[id],raw:String(value)};
+      else if(next.cells[id])delete next.cells[id].raw;
+    }
+    const cells=formulaCells(next);
+    for(const [k,value]of updates)cells[k]={raw:String(value??'')};
+    const changed=new Map(updates);
+    for(const k of Object.keys(cells))if(String(cells[k].raw).startsWith('=')){
+      const value=D.formula(cells,k,dimensions());
+      if(typeof value!=='number')throw Error(value);
+      changed.set(k,value);
+    }
+    await linkedFacts([...changed],label);
+    if(JSON.stringify(next)!==JSON.stringify(sheet))await persist(next,'Формулы диапазона');
+  }
+  async function linkedFacts(updates, label) {
     const changes = new Map();
     for (const [k, rawValue] of updates) {
       const { row, day, p } = linkedAt(k);
@@ -475,22 +538,26 @@ export async function mount(s, host) {
   }
   async function apply() {
     const rawValue = edit.value;
-    if (sheetId === "linked")
-      await linkedWrite([[selected, rawValue]], "Ввод из таблицы");
-    else {
+    dirty=false;
+    if (sheetId === "linked") {
+      await linkedWrite([[selected,rawValue]],"Ввод из таблицы");
+    } else {
       const next = D.copy(sheet);
       next.cells[selected] = { ...next.cells[selected], raw: rawValue };
       await persist(next, "Ячейка " + selected);
     }
   }
   const commit = async () => {
-    await apply();
+    if(!dirty && edit.value===raw(selected))return;
+    try{await apply();}catch(e){dirty=true;throw e;}
+    table.querySelectorAll(".tn-formula-ref").forEach(td=>td.classList.remove("tn-formula-ref"));
     await s.store.serialize(async () => {
       delete s.store.state.records[s.key("draft:grid:" + sheetId)];
       await s.store.persist();
     });
   };
   edit.oninput = () => {
+    dirty=true;
     const data = { cell: selected, raw: edit.value },
       draftKey = s.key("draft:grid:" + sheetId);
     queue(() =>
@@ -507,7 +574,7 @@ export async function mount(s, host) {
       queue(commit);
     }
     if (e.key === "Escape") {
-      edit.value = raw(selected);
+      dirty=false;edit.value = raw(selected);
       edit.blur();
     }
   };
@@ -530,20 +597,14 @@ export async function mount(s, host) {
     );
   }
   table.onclick = (e) => {
-    if (e.target.closest("[class*=tn-resize]") || e.target.closest(".tn-fill"))
-      return;
-    const td = e.target.closest("[data-cell]");
-    if (td) {
-      if (simple()) {
-        openHours(td.dataset.cell);
-        return;
-      }
-      selected = td.dataset.cell;
-      end = selected;
-      mark();
-      edit.value = raw(selected);
-      edit.focus({ preventScroll: true });
-      return;
+    if(suppressClick){suppressClick=false;return;}
+    if (e.target.closest("[class*=tn-resize]") || e.target.closest(".tn-fill"))return;
+    const td=e.target.closest('[data-cell]');
+    if(td){
+      const k=td.dataset.cell;
+      if(expectsReference()){pickReference(k,k,referenceParts());return;}
+      if(hasSelection&&!dirty&&D.range(selected,end).includes(k)){menu();return;}
+      queue(()=>selectCell(k));return;
     }
     const col = e.target.closest("[data-column]"),
       row = e.target.closest("[data-row]"),
@@ -560,17 +621,12 @@ export async function mount(s, host) {
   };
   table.oncontextmenu = (e) => {
     e.preventDefault();
-    if (simple()) return;
     const td = e.target.closest("[data-cell]");
-    if (td) {
-      selected = end = td.dataset.cell;
-      mark();
-    }
+    if(td&&!D.range(selected,end).includes(td.dataset.cell)){selected=end=td.dataset.cell;mark();}
     menu();
   };
   let hold, origin;
   table.addEventListener("pointerdown", (e) => {
-    if (simple()) return;
     const target = e.target.closest("[data-resize-col],[data-resize-row]");
     if (target) {
       e.preventDefault();
@@ -616,7 +672,7 @@ export async function mount(s, host) {
         if(!td||!table.contains(td))return;
         try{const keys=new Set(D.range(seed,td.dataset.cell));end=td.dataset.cell;
           table.querySelectorAll('[data-cell]').forEach(cell=>cell.classList.toggle('tn-fill-target',keys.has(cell.dataset.cell)));
-          preview.textContent=seed+':'+end+' · ячеек: '+keys.size;
+          outline(keys);preview.textContent=seed+':'+end+' · ячеек: '+keys.size;
         }catch{}
       };
       const cleanup=()=>{s.gridDragging=false;preview.remove();table.querySelectorAll('.tn-fill-target').forEach(td=>td.classList.remove('tn-fill-target'));handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',finish);handle.removeEventListener('pointercancel',cancel);};
@@ -625,23 +681,40 @@ export async function mount(s, host) {
       handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',cancel);
       return;
     }
-    const td = e.target.closest("[data-cell]");
-    if (td) {
-      origin = { x: e.clientX, y: e.clientY };
-      hold = setTimeout(() => {
-        selected = end = td.dataset.cell;
-        mark();
-        menu();
-      }, 650);
+    const td=e.target.closest('[data-cell]');
+    if(td && (selectMode||expectsReference()) && e.button===0){
+      e.preventDefault();
+      const anchor=td.dataset.cell,parts=expectsReference()?referenceParts():null;
+      let moved=false,targetCell=anchor,ready=!dirty||!!parts;
+      const previous={selected,end};
+      if(dirty&&!parts)edit.readOnly=true;
+      origin={x:e.clientX,y:e.clientY};s.gridDragging=true;
+      table.setPointerCapture(e.pointerId);
+      const preparing=parts?Promise.resolve():dirty?queue(async()=>{await commit();ready=true;}):Promise.resolve();
+      const move=event=>{
+        if(Math.hypot(event.clientX-origin.x,event.clientY-origin.y)<6&&!moved)return;
+        const cell=document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-cell]');
+        if(!cell||!table.contains(cell)||!ready)return;
+        moved=true;targetCell=cell.dataset.cell;
+        try{if(parts)pickReference(anchor,targetCell,parts);else{selected=anchor;end=targetCell;mark();}}catch(errorValue){error(errorValue);}
+      };
+      const cleanup=()=>{s.gridDragging=false;table.removeEventListener('pointermove',move);table.removeEventListener('pointerup',finish);table.removeEventListener('pointercancel',cancel);if(table.hasPointerCapture(e.pointerId))table.releasePointerCapture(e.pointerId);};
+      const finish=event=>{
+        move(event);cleanup();
+        if(parts){pickReference(anchor,targetCell,parts);suppressClick=true;return;}
+        if(moved){edit.readOnly=false;hasSelection=true;suppressClick=true;return;}
+        // Pointer capture retargets click to the table, so handle taps here.
+        suppressClick=true;
+        void preparing.then(()=>{
+          if(hasSelection&&!dirty&&D.range(previous.selected,previous.end).includes(anchor)){menu();return;}
+          return queue(()=>selectCell(anchor));
+        }).catch(error).finally(()=>{edit.readOnly=false;});
+      };
+      const cancel=()=>{cleanup();edit.readOnly=false;selected=previous.selected;end=previous.end;mark();suppressClick=true;};
+      table.addEventListener('pointermove',move);table.addEventListener('pointerup',finish);table.addEventListener('pointercancel',cancel);
     }
   });
-  table.addEventListener("pointermove", (e) => {
-    if (origin && Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > 8)
-      clearTimeout(hold);
-  });
-  for (const ev of ["pointerup", "pointercancel"])
-    table.addEventListener(ev, () => clearTimeout(hold));
-  rangeInput.onchange = () => {
+  rangeInput.onchange = async () => {
     try {
       const [a, b = a] = rangeInput.value.toUpperCase().split(":");
       const dim = dimensions();
@@ -651,8 +724,9 @@ export async function mount(s, host) {
           throw Error("Диапазон вне листа");
       }
       D.range(a, b);
+      if(dirty)await queue(commit);
       selected = a;
-      end = b;
+      end = b;hasSelection=true;
       mark();
     } catch (e) {
       error(e);
@@ -679,9 +753,9 @@ export async function mount(s, host) {
   function format() {
     const st = cellStyle(selected),
       p = D.coords(selected);
-    dialog(
+    const el=dialog(
       "Формат диапазона " + rangeInput.value,
-      `<div class="tn-format-grid">${field("Фон", input("background", st.background, 'type="color"'))}${field("Текст", input("color", st.color, 'type="color"'))}${field("Шрифт, px", input("fontSize", parseInt(st.fontSize) || 12, 'type="number" min="8" max="48"'))}${field("Ширина столбцов", input("width", sheet.widths[widthKey(p.c)] || 80, 'type="number" min="40" max="600"'))}${field("Высота строк", input("height", sheet.heights[heightKey(p.r)] || 27, 'type="number" min="20" max="300"'))}${field("Выравнивание", '<select name="textAlign"><option>left</option><option>center</option><option>right</option></select>')}</div>${field("Числовой формат", '<select name="numberFormat"><option value="">Автоматически</option><option value="0">Целое</option><option value="2">Два знака</option><option value="percent">Проценты</option></select>')}<label><input type="checkbox" name="bold" ${st.fontWeight === "bold" ? "checked" : ""}>Жирный</label><label><input type="checkbox" name="italic" ${st.fontStyle === "italic" ? "checked" : ""}>Курсив</label><label><input type="checkbox" name="wrap" ${st.whiteSpace === "normal" ? "checked" : ""}>Перенос текста</label><label><input type="checkbox" name="border" ${st.border ? "checked" : ""}>Чёткие границы</label>`,
+      `<div class="tn-format-grid">${field("Фон", colorField("background",st.background,"Заливка"))}${field("Текст", colorField("color",st.color,"Цвет текста"))}${field("Шрифт, px", input("fontSize", parseInt(st.fontSize) || 12, 'type="number" min="8" max="48"'))}${field("Ширина столбцов", input("width", sheet.widths[widthKey(p.c)] || 80, 'type="number" min="40" max="600"'))}${field("Высота строк", input("height", sheet.heights[heightKey(p.r)] || 27, 'type="number" min="20" max="300"'))}${field("Выравнивание", '<select name="textAlign"><option>left</option><option>center</option><option>right</option></select>')}</div>${field("Числовой формат", '<select name="numberFormat"><option value="">Автоматически</option><option value="0">Целое</option><option value="2">Два знака</option><option value="percent">Проценты</option></select>')}<label><input type="checkbox" name="bold" ${st.fontWeight === "bold" ? "checked" : ""}>Жирный</label><label><input type="checkbox" name="italic" ${st.fontStyle === "italic" ? "checked" : ""}>Курсив</label><label><input type="checkbox" name="wrap" ${st.whiteSpace === "normal" ? "checked" : ""}>Перенос текста</label><label><input type="checkbox" name="border" ${st.border ? "checked" : ""}>Чёткие границы</label>`,
       async (f) => {
         const next = D.copy(sheet);
         for (const k of D.range(selected, end)) {
@@ -713,6 +787,7 @@ export async function mount(s, host) {
         await persist(next, "Оформление диапазона");
       },
     );
+    bindColorFields(el);
   }
   async function copySelection(cut = false) {
     const a = D.coords(selected),
@@ -724,12 +799,15 @@ export async function mount(s, host) {
         row.push(raw(D.cell(r, col)));
       lines.push(row.join("\t"));
     }
-    await navigator.clipboard.writeText(lines.join("\n"));
+    s.gridClipboard=lines.join("\n");
+    s.gridClipboardMeta={cell:D.cell(Math.min(a.r,b.r),Math.min(a.c,b.c)),cut};
+    try{await navigator.clipboard.writeText(s.gridClipboard);}catch{}
     if (cut) await clear(false);
   }
   async function paste() {
-    const text = await navigator.clipboard.readText(),
-      p = D.coords(selected),
+    let text;
+    try{text=await navigator.clipboard.readText();}catch{if(s.gridClipboard===undefined)throw Error("Скопируйте ячейки в таблице перед вставкой");text=s.gridClipboard;}
+    const p = D.coords(selected),
       next = D.copy(sheet),
       dim = dimensions(),
       updates = [];
@@ -738,8 +816,10 @@ export async function mount(s, host) {
         if (p.r + dr >= dim.rows || p.c + dc >= dim.cols)
           throw Error("Вставка выходит за границы листа");
         const k = D.cell(p.r + dr, p.c + dc);
-        next.cells[k] = { ...next.cells[k], raw: v };
-        updates.push([k, v]);
+        const source=s.gridClipboardMeta&&text===s.gridClipboard&&!s.gridClipboardMeta.cut?D.coords(s.gridClipboardMeta.cell):null;
+        const pasted=source?D.translate(v,p.r-source.r,p.c-source.c):v;
+        next.cells[k] = { ...next.cells[k], raw: pasted };
+        updates.push([k, pasted]);
       }
     if (sheetId === "linked") return linkedWrite(updates, "Вставка факта");
     await persist(next, "Вставка диапазона");
@@ -765,6 +845,10 @@ export async function mount(s, host) {
     await persist(next, all ? "Очистить всё" : "Очистить содержимое");
   }
   function menu() {
+    const keys=D.range(selected,end),filled=keys.some(k=>raw(k)!==''),styled=keys.some(k=>sheet.cells[styleKey(k)]?.style);
+    let writable=true;try{s.require('table','edit');}catch{writable=false;}
+    const factRange=sheetId!=='linked'||keys.every(k=>{const {row,day,p}=linkedAt(k);return row&&!row.section&&p.c>0&&day&&day.date<=D.today();});
+    const available={copy:filled,cut:filled&&writable&&factRange,paste:writable&&factRange&&(s.gridClipboard!==undefined||!!navigator.clipboard?.readText),sum:keys.length>1&&keys.some(k=>typeof computed(k)==='number'),edit:keys.length===1&&writable&&factRange,fill:keys.length>1&&raw(selected)!==''&&writable&&factRange,clear:filled&&writable&&factRange,'clear-all':(filled||styled)&&writable&&factRange,undo:!!undo.length,redo:!!redo.length,format:writable,rename:sheetId!=='linked'&&s.sheetManager(),'add-col':writable,'add-row':writable};
     const el = dialog(
       "Ячейки " + rangeInput.value,
       `<div class="tn-menu">${[
@@ -772,7 +856,8 @@ export async function mount(s, host) {
         ["cut", "Вырезать"],
         ["paste", "Вставить"],
         ["sum", "Сумма выделенного"],
-        ["fill", "Заполнить диапазон"],
+        ["edit", "Ввести значение / формулу"],
+        ["fill", "Заполнить автоматически"],
         ["clear", "Очистить содержимое"],
         ["clear-all", "Очистить всё"],
         ["undo", "Отменить"],
@@ -786,6 +871,7 @@ export async function mount(s, host) {
         .join("")}</div>`,
     );
     const actions = {
+      edit: () => {if(simple())return openHours(selected);edit.focus({preventScroll:true});edit.select();},
       copy: () => copySelection(),
       cut: () => copySelection(true),
       paste,
@@ -820,11 +906,10 @@ export async function mount(s, host) {
       "add-col": () => grow("cols"),
       "add-row": () => grow("rows"),
     };
-    for (const [action, fn] of Object.entries(actions))
-      el.querySelector("[data-action=" + action + "]").onclick = () => {
-        el.close();
-        queue(fn);
-      };
+    for (const [action, fn] of Object.entries(actions)) {
+      const button=el.querySelector('[data-action='+action+']');button.hidden=!available[action];
+      button.onclick=()=>{el.close();queue(fn);};
+    }
   }
   async function restore(from, to) {
     if (!from.length) return;
@@ -985,6 +1070,37 @@ export async function mount(s, host) {
     await s.save(key, next, s.store.get(key), "Создание листа", "table");
     await load(id);
   }
+  async function setStyles(style) {
+    const next=D.copy(sheet);
+    for(const k of D.range(selected,end)){const id=styleKey(k);next.cells[id]={...next.cells[id],style:{...next.cells[id]?.style,...style}};}
+    await persist(next,'Оформление '+rangeInput.value);
+  }
+  function borders(){
+    const el=dialog('Границы выделенного диапазона','<div class="tn-menu">'+[['all','Все границы'],['outer','Внешняя рамка'],['none','Без границ']].map(([id,label])=>btn(label,'border-'+id)).join('')+'</div>');
+    for(const mode of ['all','outer','none'])el.querySelector('[data-action=border-'+mode+']').onclick=()=>{el.close();queue(async()=>{
+      const next=D.copy(sheet),a=D.coords(selected),b=D.coords(end),top=Math.min(a.r,b.r),bottom=Math.max(a.r,b.r),left=Math.min(a.c,b.c),right=Math.max(a.c,b.c);
+      for(const k of D.range(selected,end)){const p=D.coords(k),id=styleKey(k),line='1px solid #111111',none='0px solid transparent';next.cells[id]={...next.cells[id],style:{...next.cells[id]?.style,border:mode==='all'?line:none,borderTop:mode==='outer'&&p.r===top?line:mode==='all'?line:none,borderBottom:mode==='outer'&&p.r===bottom?line:mode==='all'?line:none,borderLeft:mode==='outer'&&p.c===left?line:mode==='all'?line:none,borderRight:mode==='outer'&&p.c===right?line:mode==='all'?line:none}};}
+      await persist(next,'Границы диапазона');
+    });};
+  }
+  const icon=paths=>'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+paths+'</svg>';
+  const icons={fill:icon('<path d="m4 11 7-7 9 9-7 7zM7 2l10 10M20 15c3 4 2 6 0 6s-3-2 0-6"/>'),text:icon('<path d="m6 18 6-14 6 14M8 13h8M4 22h16"/>'),border:icon('<rect x="4" y="4" width="16" height="16"/><path d="M4 12h16M12 4v16"/>'),copy:icon('<rect x="8" y="8" width="12" height="13" rx="1"/><path d="M16 8V3H3v13h5"/>'),paste:icon('<path d="M8 5H4v16h16V5h-4M8 3h8v5H8z"/>'),clear:icon('<path d="m5 16 10-12 6 5L11 21H8zM11 21h10M10 10l6 5"/>')};
+  const tools=[['tool-fill',icons.fill,'Заливка'],['tool-text',icons.text,'Цвет текста'],['tool-border',icons.border,'Границы'],['tool-bold','<b>Ж</b>','Жирный'],['tool-italic','<i>К</i>','Курсив'],['tool-align','≡','Выравнивание'],['tool-copy',icons.copy,'Копировать'],['tool-paste',icons.paste,'Вставить'],['tool-clear',icons.clear,'Очистить'],['tool-format','⋯','Все настройки']];
+  host.querySelector('.tn-cell-tools').innerHTML=tools.map(([a,label,title])=>btn(label,a,'aria-label="'+title+'" title="'+title+'"')).join('');
+  const toolActions={
+    'tool-fill':()=>chooseColor('Заливка ячеек',cellStyle(selected).background,color=>queue(()=>setStyles({background:color}))),
+    'tool-text':()=>chooseColor('Цвет текста',cellStyle(selected).color,color=>queue(()=>setStyles({color}))),
+    'tool-border':borders,'tool-bold':()=>queue(()=>setStyles({fontWeight:cellStyle(selected).fontWeight==='bold'?'normal':'bold'})),
+    'tool-italic':()=>queue(()=>setStyles({fontStyle:cellStyle(selected).fontStyle==='italic'?'normal':'italic'})),
+    'tool-align':()=>{const el=dialog('Выравнивание',[['left','Слева'],['center','По центру'],['right','Справа']].map(([a,label])=>btn(label,a)).join(''));for(const a of ['left','center','right'])el.querySelector('[data-action='+a+']').onclick=()=>{el.close();queue(()=>setStyles({textAlign:a}));};},
+    'tool-copy':()=>queue(()=>copySelection()),'tool-paste':()=>queue(paste),'tool-clear':()=>queue(()=>clear(false)),'tool-format':format
+  };
+  for(const [a,fn]of Object.entries(toolActions))host.querySelector('[data-action='+a+']').onclick=fn;
+  host.classList.add('tn-select-mode');
+  host.querySelector('[data-action=select-mode]').onclick=()=>{
+    selectMode=!selectMode;host.classList.toggle('tn-select-mode',selectMode);
+    const button=host.querySelector('[data-action=select-mode]');button.setAttribute('aria-pressed',String(selectMode));button.textContent=selectMode?'Выделение':'Прокрутка';
+  };
   host.querySelector("[data-action=undo]").onclick=()=>queue(()=>restore(undo,redo));
   host.querySelector("[data-action=redo]").onclick=()=>queue(()=>restore(redo,undo));
   host.querySelector("[data-action=format]").onclick = format;
@@ -1034,11 +1150,11 @@ export async function mount(s, host) {
   const viewport = () => {
     const v = visualViewport;
     symbols.style.bottom =
-      (v ? Math.max(0, innerHeight - v.height - v.offsetTop) : 0) + "px";
+      (Math.max(0, v ? innerHeight - v.height - v.offsetTop : 0) + (s.root.querySelector("nav")?.getBoundingClientRect().height || 40) + (s.root.querySelector(".tn-status")?.getBoundingClientRect().height || 32) + 4) + "px";
     symbols.hidden = document.activeElement !== edit;
   };
   edit.onfocus = viewport;
-  edit.onblur = () => setTimeout(viewport, 0);
+  edit.onblur = () => {setTimeout(viewport,0);if(dirty&&!expectsReference())void queue(commit);};
   globalThis.visualViewport?.addEventListener("resize", viewport);
   globalThis.visualViewport?.addEventListener("scroll", viewport);
   symbols.querySelectorAll("button").forEach((b) => {
@@ -1056,6 +1172,7 @@ export async function mount(s, host) {
   await load(position?.sheetId||"linked");
   if(position&&sheetId){selected=position.selected;end=position.end;mark();scroll.scrollTop=position.top;scroll.scrollLeft=position.left;}
   return {
+    finish:()=>dirty?queue(commit):chain,
     snapshot(){return {sheetId,selected,end,period,week,scale,top:scroll.scrollTop,left:scroll.scrollLeft};},
     dispose() {
       disposed = true;

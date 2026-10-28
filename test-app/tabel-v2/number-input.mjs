@@ -75,6 +75,7 @@ export function bindNumericFields(root) {
         input.value,
         (value) => {
           input.value = value;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
           input.dispatchEvent(new Event("change", { bubbles: true }));
         },
         { presets: /час/i.test(input.closest("label")?.textContent || "") },
