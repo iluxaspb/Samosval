@@ -1,11 +1,11 @@
 {
-  "version": "45e428003253a236",
-  "channel": "test-3.4.16-modular-plus-timesheet",
+  "version": "c19df6a643698f93",
+  "channel": "test-3.4.17-modular-plus-timesheet",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index-test.html",
-      "sha256": "1a14e971420583de858ccad7147901951608501c23ccdc586c48767fee068239"
+      "sha256": "f864a828c1061e0c10f39e0cd9f794066bd8b3620ff08951608c7e824ede621f"
     },
     {
       "url": "./manifest-test.webmanifest",
@@ -64,8 +64,8 @@
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./test-app/build/45e428003253a236/core.js",
-      "sha256": "6716696e5431ff2abd627736b2cb0135f6534f66a80c225fd79bb05dbb5dcfaf"
+      "url": "./test-app/build/c19df6a643698f93/core.js",
+      "sha256": "a64ef01278cc371a3e19de1b5acf497d0b7f9856d565e470b58c7cf4446991d1"
     },
     {
       "url": "./test-app/build/45e428003253a236/gai-report-toggle.js",
@@ -92,12 +92,12 @@
       "sha256": "94b6082bc2d2939da2214787ad258b870c426ef0475220b7dd364d3959498db7"
     },
     {
-      "url": "./test-app/build/45e428003253a236/paper-viewer.js",
-      "sha256": "452edec9e65c7a48929221af761992e589ad21c69af4126d02d180f37257e8fc"
+      "url": "./test-app/build/c19df6a643698f93/paper-viewer.js",
+      "sha256": "4ae0a1ebb39d64df2a41a284b8651ee2c698fe2472e843debc5aafc4b956a151"
     },
     {
-      "url": "./test-app/build/45e428003253a236/release-history.js",
-      "sha256": "8e15a9fa2e2b05934dd9cc31278c74af4b8ecad10d8b015c14d8921cb6c17242"
+      "url": "./test-app/build/c19df6a643698f93/release-history.js",
+      "sha256": "38af88e33e9280b23b9343c54372f18673473e7bbcf30b97195df28c01e87e09"
     },
     {
       "url": "./test-app/build/45e428003253a236/reset-settings.js",
