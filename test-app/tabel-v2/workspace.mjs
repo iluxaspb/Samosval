@@ -201,7 +201,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
             ? "Ожидает отправки в Firebase"
             : s.store.error
               ? "Ошибка Firebase"
-              : "Firebase: очередь пуста"
+              : "Firebase подключён · очередь пуста"
           : "Офлайн"
         : "На устройстве: синхронизация Firebase не включена") +
       " · локально " +
@@ -241,6 +241,14 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   await render(s);
   if (host.errors?.length) error(host.errors.join("\n"));
   void s.store.flush();
+  async function refreshIncoming(){
+    if(!s.incoming||s.root.hidden)return;
+    const active=document.activeElement;
+    if(document.querySelector('dialog.tn[open]') || (s.view!=="table" && s.root.contains(active) && active?.matches('input:not([readonly]),textarea'))){
+      clearTimeout(s.incomingTimer);s.incomingTimer=setTimeout(()=>refreshIncoming().catch(error),1000);return;
+    }
+    s.incoming=false;await render(s);
+  }
   function watch() {
     s.unwatch?.();
     if (!s.object || !s.remote) return;
@@ -256,16 +264,8 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         if (s.object.id !== token) return;
         await s.store.accept(records);
         if (s.view === "history") await s.store.pullHistory(token);
-        const active = document.activeElement;
-        if (
-          !document.querySelector("dialog.tn") &&
-          !(
-            s.root.contains(active) &&
-            active?.matches("input,textarea,select,[contenteditable=true]")
-          ) &&
-          !s.root.hidden
-        )
-          await render(s);
+        s.incoming=true;
+        await refreshIncoming();
       },
       (e) => {
         s.store.error = e.message;
@@ -291,6 +291,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       s.grid?.dispose();
       document.querySelectorAll("dialog.tn").forEach((el) => el.close());
       root.remove();
+      clearTimeout(s.incomingTimer);
       await s.store.close();
     },
   };

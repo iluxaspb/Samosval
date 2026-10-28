@@ -1060,3 +1060,9 @@ dialog.tn :is(header, footer) {
   background: var(--tn-card);
 }
 .tn button.tn-danger {color:var(--danger,#c93636)!important;-webkit-text-fill-color:var(--danger,#c93636)!important;border-color:var(--danger,#c93636)!important;}
+
+/* Isolate from the host's global nav {position:fixed;height:64px}. */
+.tn-app > nav {position:static!important;inset:auto!important;height:38px!important;flex:0 0 38px!important;z-index:auto!important;}
+.tn-app > .tn-status {max-height:none;min-height:26px;height:auto;flex:0 0 auto;}
+.tn-status [data-status] {white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;font-size:11px;line-height:1.25;}
+.tn-app main {min-height:0!important;}
