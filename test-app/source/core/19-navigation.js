@@ -26,3 +26,18 @@
   setInterval(updateSyncUI, 3000);
   setInterval(offlineReplayJournal, 8000);
   setInterval(() => { if (maxQueue.length && !maxSenderRunning) runMaxQueue(); }, 20000);
+
+  // Built-in test module. No plugin installation or production writes.
+  let tabelV2Opening = false;
+  async function openTabelV2(settingsOnly) {
+    if (tabelV2Opening) return;
+    tabelV2Opening = true;
+    try {
+      const session = () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
+        uid: currentUid, active: currentUserStatus === 'active',
+        view: permissionsLoaded && hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit'),
+        objectId: state.shift && state.shift.objectId});
+      const module = await import(new URL('./test-app/tabel-v2/entry.mjs', document.baseURI).href);
+      await module.open({session, workspace: wsRef, shift: state.shift, objects: state.objects}, settingsOnly);
+    } catch (error) { showError(error.message); } finally { tabelV2Opening = false; }
+  }

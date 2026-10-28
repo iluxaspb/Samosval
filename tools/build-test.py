@@ -26,6 +26,7 @@ def body(module):
 def build():
     spec = json.loads((APP / 'modules.json').read_text())
     inputs = [APP / 'modules.json', Path(__file__)] + sorted(p for p in SOURCE.rglob('*') if p.is_file() and p.suffix in ['.js','.css','.html'])
+    inputs += sorted(p for p in (APP / 'tabel-v2').iterdir() if p.suffix in ['.js','.mjs','.css','.html'])
     inputs += sorted(p for p in (APP / 'tabel').iterdir() if p.suffix in ['.js','.mjs','.css'])
     build_id = sha(b''.join(str(p.relative_to(ROOT)).encode()+p.read_bytes() for p in inputs))[:16]
     out = APP / 'build' / build_id
@@ -48,6 +49,7 @@ def build():
     old = json.loads((APP / 'build-manifest.json').read_text())
     assets = [ROOT / 'index-test.html']
     assets += [ROOT / r['url'] for r in old['assets'] if r['url'] != './index-test.html' and not r['url'].startswith('./test-app/build/') and 'timesheet-' not in r['url'] and '/test-app/tabel/' not in r['url']]
+    assets += sorted(p for p in (APP / 'tabel-v2').iterdir() if p.suffix in ['.js','.mjs','.css','.html'])
     assets += sorted(out.glob('*.js'))
     assets += sorted(p for p in (APP / 'tabel').iterdir() if p.suffix in ['.js','.mjs','.css'])
     assets = list(dict.fromkeys(assets))
