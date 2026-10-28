@@ -186,6 +186,7 @@ export async function mount(s, host) {
       .join(";");
   }
   function draw() {
+    const previousScroll={top:scroll.scrollTop,left:scroll.scrollLeft};
     host.classList.toggle("tn-simple-table", simple());
     host.querySelector(".tn-formula").hidden = simple();
     for (const action of ["format", "menu"])
@@ -299,6 +300,7 @@ export async function mount(s, host) {
       host.querySelector(".tn-sheets").before(panel);
     }
     mark();
+    scroll.scrollTop=previousScroll.top;scroll.scrollLeft=previousScroll.left;
     host
       .querySelector("[data-action=next-rows]")
       ?.addEventListener("click", () => {
@@ -1020,8 +1022,12 @@ export async function mount(s, host) {
       edit.focus({ preventScroll: true });
     };
   });
-  await load("linked");
+  const position=s.gridPositions?.[s.object.id];
+  if(position){period=position.period;week=position.week;scale=position.scale;}
+  await load(position?.sheetId||"linked");
+  if(position){selected=position.selected;end=position.end;mark();scroll.scrollTop=position.top;scroll.scrollLeft=position.left;}
   return {
+    snapshot(){return {sheetId,selected,end,period,week,scale,top:scroll.scrollTop,left:scroll.scrollLeft};},
     dispose() {
       disposed = true;
       clearTimeout(hold);

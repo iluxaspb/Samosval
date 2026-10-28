@@ -223,8 +223,9 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     await s.store.pullHistory(s.object.id);
   }
   s.select = async (id) => {
+    if(s.grid?.snapshot){s.gridPositions ||= {};s.gridPositions[s.object.id]=s.grid.snapshot();}
     s.unwatch?.();
-    s.grid?.dispose();
+    s.grid?.dispose();s.grid=null;
     s.object = (host.data().objects || []).find((o) => o.id === id) || s.object;
     s.generation++;
     remember();
@@ -306,6 +307,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
 }
 async function render(s) {
   s.remember?.();
+  if(s.grid?.snapshot){s.gridPositions ||= {};s.gridPositions[s.object.id]=s.grid.snapshot();}
   s.grid?.dispose();
   s.grid = null;
   const c = s.object ? s.config() : null;
