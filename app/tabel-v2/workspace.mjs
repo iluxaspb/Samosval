@@ -452,6 +452,14 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   };
 }
 async function render(s) {
+  // Rebuilding the shift DOM must not move the operator away from their card.
+  // Scope the position to this object, date, shift and subtab; navigation resets it.
+  const shiftContext = JSON.stringify([s.object?.id, s.day, s.shift, s.shiftTab]);
+  const previousContent = s.root.querySelector("[data-shift-content]");
+  const shiftPosition = s.view === "shift" &&
+    s.root.dataset.shiftContext === shiftContext && previousContent
+      ? { top: previousContent.scrollTop, left: previousContent.scrollLeft }
+      : null;
   const rendering = (s.rendering = (s.rendering || 0) + 1);
   if (s.grid) await s.grid.finish?.();
   if (rendering !== s.rendering) return;
@@ -465,6 +473,7 @@ async function render(s) {
   const c = s.object ? s.config() : null;
   s.root.classList.toggle("tn-table", s.view === "table");
   s.root.dataset.view = s.view;
+  s.root.dataset.shiftContext = s.view === "shift" ? shiftContext : "";
   s.root.innerHTML = `<header class="tn-header">${btn("×", "exit", 'class="tn-exit" aria-label="Закрыть табель"')}<select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.host.data().objects || []), ...(s.object ? [s.object] : [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
     ["request", "Заявки"],
     ["shift", "Смена"],
@@ -540,6 +549,13 @@ async function render(s) {
       counts.className = "tn-counts";
       counts.innerHTML = `<span>Техника: <b>${D.equipmentCount(days, arrivals(s.host.data(), s.object.id, s.day).rows, s.config())}</b></span><span>Рабочие: <b>${new Set(list.filter((p) => p.group === "worker").map((p) => p.id)).size}</b></span><span>ИТР: <b>${new Set(list.filter((p) => p.group === "itr").map((p) => p.id)).size}</b></span>`;
       main.prepend(counts);
+      if (rendering === s.rendering && shiftPosition) {
+        const content = main.querySelector("[data-shift-content]");
+        if (content) {
+          content.scrollTop = shiftPosition.top;
+          content.scrollLeft = shiftPosition.left;
+        }
+      }
     }
 
     if (s.view === "settings") {
