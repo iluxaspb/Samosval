@@ -10,6 +10,8 @@
     let t = document.getElementById('tab-'+name); if(t) t.classList.add('active');
     if(btn) btn.classList.add('active');
     window.scrollTo(0,0);
+    // Always open Summary on the regular truck sheet; GAI is opt-in per visit.
+    if (name === 'report') showGAITable = false;
     if (pluginTabs[name]) pluginTabs[name].render(pluginTabs[name].container); else renderAll();
   }
 
