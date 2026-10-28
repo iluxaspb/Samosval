@@ -15,7 +15,6 @@ export async function mount(s, host) {
     startRow = 0;
   let dirty = false,
     hasSelection = false,
-    selectMode = true,
     suppressClick = false;
   const c = s.config(),
     allDays = s.days();
@@ -35,7 +34,7 @@ export async function mount(s, host) {
   const simple = () => sheetId === "linked" && s.config().tableMode !== "full";
   let visibleDays = [],
     linkedRows = [];
-  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("↶", "undo", 'aria-label="Отменить действие" title="Отменить действие"')}${btn("↷", "redo", 'aria-label="Повторить действие" title="Повторить действие"')}${btn("Выделение", "select-mode", 'aria-pressed="true" title="Переключить выделение и прокрутку пальцем"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><output class="tn-selection-total" data-selection-total aria-live="polite">Сумма: 0</output><div class="tn-cell-tools" role="toolbar" aria-label="Инструменты ячеек"></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
+  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("↶", "undo", 'aria-label="Отменить действие" title="Отменить действие"')}${btn("↷", "redo", 'aria-label="Повторить действие" title="Повторить действие"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><output class="tn-selection-total" data-selection-total aria-live="polite">Сумма: 0</output><div class="tn-cell-tools" role="toolbar" aria-label="Инструменты ячеек"></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
 
   const table = host.querySelector("table"),
     scroll = host.querySelector(".tn-grid-scroll"),
@@ -500,10 +499,10 @@ export async function mount(s, host) {
       td.querySelector(".tn-fill")?.remove();
     });
     const td = table.querySelector(`[data-cell="${end}"]`);
-    if (td && !simple()) {
+    if (td && hasSelection) {
       const handle = document.createElement("span");
       handle.className = "tn-fill";
-      handle.setAttribute("aria-label", "Маркер автозаполнения");
+      handle.setAttribute("aria-label", "Потянуть для выделения диапазона");
       td.append(handle);
     }
     rangeInput.value = selected === end ? selected : selected + ":" + end;
@@ -705,6 +704,25 @@ export async function mount(s, host) {
       { presets: row.kind !== "value" },
     );
   }
+  function activateCell(k) {
+    if (
+      hasSelection &&
+      !dirty &&
+      (!simple() || selected !== end) &&
+      D.range(selected, end).includes(k)
+    ) {
+      menu();
+      return;
+    }
+    edit.readOnly = true;
+    queue(async () => {
+      try {
+        await selectCell(k);
+      } finally {
+        edit.readOnly = false;
+      }
+    });
+  }
   table.onclick = (e) => {
     if (suppressClick) {
       suppressClick = false;
@@ -719,16 +737,7 @@ export async function mount(s, host) {
         pickReference(k, k, referenceParts());
         return;
       }
-      if (
-        hasSelection &&
-        !dirty &&
-        (!simple() || selected !== end) &&
-        D.range(selected, end).includes(k)
-      ) {
-        menu();
-        return;
-      }
-      queue(() => selectCell(k));
+      activateCell(k);
       return;
     }
     const col = e.target.closest("[data-column]"),
@@ -759,6 +768,7 @@ export async function mount(s, host) {
   };
   let hold, origin;
   table.addEventListener("pointerdown", (e) => {
+    suppressClick = false;
     const target = e.target.closest("[data-resize-col],[data-resize-row]");
     if (target) {
       e.preventDefault();
@@ -795,6 +805,7 @@ export async function mount(s, host) {
     }
     if (e.target.closest(".tn-fill")) {
       e.preventDefault();
+      suppressClick = false;
       const seed = selected,
         previousEnd = end,
         handle = e.target.closest(".tn-fill");
@@ -835,10 +846,10 @@ export async function mount(s, host) {
       };
       const finish = (event) => {
         move(event);
-        const target = end;
         cleanup();
+        hasSelection = true;
         mark();
-        queue(() => fill(seed, target));
+        suppressClick = true;
       };
       const cancel = () => {
         cleanup();
@@ -851,7 +862,30 @@ export async function mount(s, host) {
       return;
     }
     const td = e.target.closest("[data-cell]");
-    if (td && (selectMode || expectsReference()) && e.button === 0) {
+    if (td && !expectsReference() && e.pointerType !== "mouse") {
+      const anchor = td.dataset.cell,
+        x = e.clientX,
+        y = e.clientY;
+      let moved = false;
+      const move = (event) => {
+        if (Math.hypot(event.clientX - x, event.clientY - y) > 6) moved = true;
+      };
+      const cleanup = () => {
+        table.removeEventListener("pointermove", move);
+        table.removeEventListener("pointerup", up);
+        table.removeEventListener("pointercancel", cleanup);
+      };
+      const up = () => {
+        cleanup();
+        suppressClick = true;
+        if (!moved) activateCell(anchor);
+      };
+      table.addEventListener("pointermove", move);
+      table.addEventListener("pointerup", up);
+      table.addEventListener("pointercancel", cleanup);
+      return;
+    }
+    if (td && expectsReference() && e.button === 0) {
       e.preventDefault();
       const anchor = td.dataset.cell,
         parts = expectsReference() ? referenceParts() : null;
@@ -1619,14 +1653,6 @@ export async function mount(s, host) {
   };
   for (const [a, fn] of Object.entries(toolActions))
     host.querySelector("[data-action=" + a + "]").onclick = fn;
-  host.classList.add("tn-select-mode");
-  host.querySelector("[data-action=select-mode]").onclick = () => {
-    selectMode = !selectMode;
-    host.classList.toggle("tn-select-mode", selectMode);
-    const button = host.querySelector("[data-action=select-mode]");
-    button.setAttribute("aria-pressed", String(selectMode));
-    button.textContent = selectMode ? "Выделение" : "Прокрутка";
-  };
   host.querySelector("[data-action=undo]").onclick = () =>
     queue(() => restore(undo, redo));
   host.querySelector("[data-action=redo]").onclick = () =>

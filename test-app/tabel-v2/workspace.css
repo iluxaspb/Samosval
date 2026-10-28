@@ -527,8 +527,7 @@ dialog.tn footer {
   min-height: 36px;
 }
 .tn-simple-table .tn-resize-col,
-.tn-simple-table .tn-resize-row,
-.tn-simple-table .tn-fill {
+.tn-simple-table .tn-resize-row {
   display: none !important;
 }
 .tn-hours-dialog {
@@ -1119,7 +1118,8 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 .tn .tn-equipment-card .tn-card-title small { flex: 0 0 auto; color: #4b6068; }
 .tn .tn-equipment-card .tn-card-hours label { color: #23343a; }
 
-.tn-select-mode .tn-grid { touch-action: none; user-select: none; -webkit-user-select: none; }
+.tn-grid-scroll { touch-action: manipulation; }
+.tn-grid { user-select: none; -webkit-user-select: none; }
 .tn-selection-total { display:block; padding:4px 8px; min-height:24px; font-size:12px; background:var(--tn-card);color:var(--tn-text);flex:0 0 auto; }
 .tn .tn-grid .tn-formula-ref { box-shadow: inset 0 0 0 2px #4b65d9 !important; background-image:linear-gradient(#4b65d922,#4b65d922); }
 /* Keep formula symbols in their own row so they never cover sheet or view tabs. */
@@ -1145,3 +1145,6 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 .tn-grid td:has(.tn-grid-contractor) {line-height:1;}
 
 .tn-simple-table .tn-cell-tools {display:none!important;}
+
+/* Dragging the corner selects only; edits are explicit menu actions. */
+.tn .tn-grid .tn-fill { width:12px; height:12px; border-radius:50%; background:radial-gradient(circle, #8799aa 0 4px, transparent 5px); border:0; cursor:crosshair; }

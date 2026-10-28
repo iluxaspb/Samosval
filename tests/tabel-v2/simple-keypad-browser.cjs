@@ -42,6 +42,7 @@ const server = spawn(
     await p.locator("dialog.tn-hours-dialog[open]").waitFor();
     await p.locator('[data-value="12"]').click();
     await p.locator("dialog[open]").waitFor({ state: "hidden" });
+
     await p.locator("[data-cell=S4]").tap();
     await p.locator("dialog.tn-hours-dialog[open]").waitFor();
     await p.locator("dialog[open] [data-action=close]").first().click();
