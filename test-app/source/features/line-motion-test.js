@@ -1,4 +1,4 @@
-/* TEST-ONLY v3.4.26: upgrade existing Firebase line-motion patch locally.
+/* TEST-ONLY v3.4.27: upgrade existing Firebase line-motion patch locally.
  * Do not activate an admin-disabled patch; do not modify Firebase or production.
  */
 (function upgradeInstalledLineMotion(){
@@ -283,14 +283,14 @@ function upgrade(){
         display:block!important;width:100%;padding:12px!important;overflow:hidden!important;
       }
       #settingsModal .soft-preview-track,#settingsCategoryModal .soft-preview-track{
-        position:relative;height:250px;min-width:0;width:100%;overflow:hidden;
+        position:relative;height:286px;min-width:0;width:100%;overflow:hidden;
         border:1px solid var(--border,#334155);border-radius:12px;
         background:linear-gradient(180deg,rgba(56,189,248,.08),transparent 45%,rgba(56,189,248,.05));
       }
       #settingsModal .soft-preview-demo-card,#settingsCategoryModal .soft-preview-demo-card{
-        position:absolute;top:38px;left:16px;right:16px;z-index:1;
+        position:absolute;top:36px;left:16px;right:16px;z-index:1;
         box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:2px;
-        height:66px;min-width:0;padding:9px 12px;border-radius:10px;
+        height:62px;min-width:0;padding:8px 12px;border-radius:10px;
         border:2px solid #38bdf8;background:var(--card,#1e293b);color:var(--text,#f8fafc);
         box-shadow:0 4px 14px #0004;will-change:transform;
       }
@@ -399,30 +399,47 @@ function upgrade(){
     newRange(motion,'soft-motion-spring-speed','Скорость пружины',prefs.springSpeed,0,100,5,
       n=>n<34?'Медленно':n>66?'Быстро':'Обычно',
       'Медленнее','Быстрее',value=>{prefs.springSpeed=value;savePrefs();});
-    // A single, vertical demonstration lane: truck moves from bottom to the top.
-    // Other trucks are not drawn here, so nothing crosses or overlaps sideways.
+    // A single, vertical demonstration lane with three separate truck cards.
+    // The last truck arrives at the top; two others shift down. No sideways motion.
     const preview=document.createElement('div');preview.className='soft-preview';
-    preview.setAttribute('aria-label','Пример движения карточки снизу вверх');
+    preview.setAttribute('aria-label','Три самосвала: нижний поднимается наверх, два остальных опускаются');
     preview.innerHTML='<div class="soft-preview-track">'+
-      '<div class="soft-preview-marker soft-preview-marker-top">Финиш ↑</div>'+
-      '<div class="soft-preview-demo-card"><strong>🚛 Самосвал</strong><small>Приехал на линию</small></div>'+
-      '<div class="soft-preview-marker soft-preview-marker-bottom">Старт ↑</div></div>';
+      '<div class="soft-preview-marker soft-preview-marker-top">Верх линии ↑</div>'+
+      '<div class="soft-preview-demo-card" data-demo-truck="1"><strong>🚛 Самосвал 1</strong><small>На линии</small></div>'+
+      '<div class="soft-preview-demo-card" data-demo-truck="2"><strong>🚛 Самосвал 2</strong><small>На линии</small></div>'+
+      '<div class="soft-preview-demo-card" data-demo-truck="3"><strong>🚛 Самосвал 3</strong><small>Приехал на линию</small></div>'+
+      '<div class="soft-preview-marker soft-preview-marker-bottom">Низ линии ↑</div></div>';
     motion.append(preview);
     const previewButton=document.createElement('button');previewButton.type='button';
     previewButton.className='soft-preview-button';previewButton.textContent='Посмотреть движение';
     motion.append(previewButton);
+    const previewCards=[...preview.querySelectorAll('.soft-preview-demo-card')];
+    let previewOrder=previewCards.slice();
+    const previewTop=36, previewStep=76;
+    // Reserve room for a full 28px top rebound and for the lowest card to bounce.
+    function positionPreviewCards(){
+      previewOrder.forEach((card,i)=>{card.style.top=(previewTop+i*previewStep)+'px';});
+    }
+    positionPreviewCards();
     let previewAnimations=[];
     previewButton.onclick=()=>{
       if(reduce.matches){previewButton.textContent='Уменьшение движения включено на устройстве';return;}
       previewAnimations.forEach(a=>a.cancel());previewAnimations=[];
-      const truck=preview.querySelector('.soft-preview-demo-card');
       const track=preview.querySelector('.soft-preview-track');
-      if(!truck||!track||typeof truck.animate!=='function')return;
-      // Top is reserved for the full 28px spring rebound; bottom is also padded.
-      const distance=Math.max(20,track.clientHeight-truck.offsetHeight-88);
-      previewAnimations.push(truck.animate(springFrames(0,distance),{
-        duration:560*prefs.pace,easing:'linear',fill:'none'
-      }));
+      if(!track||previewCards.length!==3||previewCards.some(card=>typeof card.animate!=='function'))return;
+      const prior=previewOrder.slice(), arriving=prior[prior.length-1];
+      previewOrder=[arriving,...prior.slice(0,-1)];
+      const distance=(previewOrder.length-1)*previewStep;
+      previewOrder.forEach((card,i)=>{
+        const oldIndex=prior.indexOf(card),offset=(oldIndex-i)*previewStep;
+        card.style.top=(previewTop+i*previewStep)+'px';
+        card.style.zIndex=card===arriving?'3':'1';
+        // Same spring and main pace as the real Line animation; only Y changes.
+        const frames=card===arriving ? springFrames(0,distance) : springFrames(0,offset);
+        previewAnimations.push(card.animate(frames,{
+          duration:560*prefs.pace,easing:'linear',fill:'none'
+        }));
+      });
     };
     const observer=new MutationObserver(()=>{if(modal.classList.contains('open'))layout();});
     // Only new groups matter; value/text changes must not trigger a loop.
