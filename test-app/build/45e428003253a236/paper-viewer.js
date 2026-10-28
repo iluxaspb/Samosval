@@ -219,15 +219,21 @@
   }
   function renderArchiveSheet(snapshot, gai) {
     const logs=snapshot.logs.filter(log=>!!log.isGAI===gai);
+    // A closed shift keeps Firestore's arbitrary log order. Rebuild the same
+    // chronological trip columns as Summary, irrespective of storage order.
+    const orderedLogs=logs.slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) ||
+      String(a.id||'').localeCompare(String(b.id||'')));
     const active=snapshot.activeIds.filter(id=>snapshot.trucks.has(id) && !!snapshot.trucks.get(id).isGAI===gai);
-    const ids=[...new Set([...active,...logs.map(log=>log.truckId)])];
-    const first={}; logs.forEach(log=>{if(first[log.truckId]===undefined || log.timestamp<first[log.truckId])first[log.truckId]=log.timestamp;});
-    ids.sort((a,b)=>(first[a]||0)-(first[b]||0));
+    const ids=[...new Set([...active,...orderedLogs.map(log=>log.truckId)])];
+    const first={}; orderedLogs.forEach(log=>{if(first[log.truckId]===undefined)first[log.truckId]=Number(log.timestamp)||0;});
+    // Summary benchmark: earliest first load leads; trucks with no trips last.
+    ids.sort((a,b)=>((first[a]===undefined)-(first[b]===undefined)) ||
+      ((first[a]||0)-(first[b]||0)) || String(a).localeCompare(String(b)));
     const max=Math.max(8,...ids.map(id=>logs.filter(log=>log.truckId===id).length));
     let head='<th>№</th><th style="text-align:left;">Самосвал</th>';
     for(let i=1;i<=max;i++)head+=`<th>Рейс ${i}</th>`;
     const rows=ids.map((id,index)=>{
-      const truck=snapshot.trucks.get(id), trips=logs.filter(log=>log.truckId===id).slice().reverse(), ttn=snapshot.ttn[id];
+      const truck=snapshot.trucks.get(id), trips=orderedLogs.filter(log=>log.truckId===id), ttn=snapshot.ttn[id];
       const duplicate=(typeof window.__closedShiftDupEnabled==='function' && window.__closedShiftDupEnabled()) ? (trips.length>0 && ttn!==true && ttn!=='pending') : (trips.length>0 && !ttn);
       const dup=duplicate?' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>':'';
       let cells='';
