@@ -1138,3 +1138,8 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 .tn-color-field:before {content:'';display:inline-block;vertical-align:middle;width:20px;height:20px;background:var(--swatch);border:1px solid #888;border-radius:3px;margin-right:6px;}
 .tn button[hidden] {display:none !important;}
 .tn .tn-swatch[aria-pressed=true] {background:var(--swatch) !important;}
+
+.tn-grid-contractor {display:block;font-size:8px;font-weight:normal;line-height:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tn-contractor {font-size:11px!important;white-space:normal!important;}
+
+.tn-grid td:has(.tn-grid-contractor) {line-height:1;}

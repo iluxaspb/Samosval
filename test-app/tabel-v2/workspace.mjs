@@ -3,9 +3,9 @@ import { arrivals } from "./line.mjs";
 import * as D from "./table-domain.mjs";
 import { Store, firestoreRemote } from "./store.mjs";
 import { esc, btn, input, field, dialog, message, error } from "./messages.mjs";
-import {sheetVisible,sheetManager} from './sheet-access.mjs';
-import {autoConflicts} from "./conflict-view.mjs";
-import {historyRows} from './history-view.mjs';
+import { sheetVisible, sheetManager } from "./sheet-access.mjs";
+import { autoConflicts } from "./conflict-view.mjs";
+import { historyRows } from "./history-view.mjs";
 const areas = [
   "request",
   "shift",
@@ -68,9 +68,20 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         : "shift";
     const c = s.store.get(job.key.split("/")[0] + "/config").data;
     const a = account();
-    const sheetId=job.key.includes('/sheet:')?job.key.split('/sheet:')[1]:job.key.includes('/day:')?'linked':null;
-    if(sheetId&&!sheetVisible(a,c,sheetId))throw Error('Нет доступа к листу');
-    if(!sheetManager(a)&&job.key.endsWith('/config')&&JSON.stringify(job.data.sheetAccess||{})!==JSON.stringify(job.before?.data?.sheetAccess||{}))throw Error('Доступ к листам настраивает прораб или администратор');
+    const sheetId = job.key.includes("/sheet:")
+      ? job.key.split("/sheet:")[1]
+      : job.key.includes("/day:")
+        ? "linked"
+        : null;
+    if (sheetId && !sheetVisible(a, c, sheetId))
+      throw Error("Нет доступа к листу");
+    if (
+      !sheetManager(a) &&
+      job.key.endsWith("/config") &&
+      JSON.stringify(job.data.sheetAccess || {}) !==
+        JSON.stringify(job.before?.data?.sheetAccess || {})
+    )
+      throw Error("Доступ к листам настраивает прораб или администратор");
     if (!D.allowed(a, c, area, "edit"))
       throw Error("Нет права записи: " + area);
   };
@@ -135,28 +146,56 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     return c;
   };
   s.require = (area, mode = "view") => {
-    if(['shift','history','report'].includes(area) && !sheetVisible(account(),s.config(),'linked'))throw Error('Нет доступа к основному листу табеля. Обратитесь к прорабу или администратору.');
+    if (
+      ["shift", "history", "report"].includes(area) &&
+      !sheetVisible(account(), s.config(), "linked")
+    )
+      throw Error(
+        "Нет доступа к основному листу табеля. Обратитесь к прорабу или администратору.",
+      );
     if (!D.allowed(account(), s.config(), area, mode))
       throw Error("Нет права: " + area + "." + mode);
   };
-  s.sheetVisible=id=>sheetVisible(account(),s.config(),id);
-  s.sheetManager=()=>sheetManager(account());
+  s.sheetVisible = (id) => sheetVisible(account(), s.config(), id);
+  s.sheetManager = () => sheetManager(account());
   s.save = async (key, data, base, label, area = "shift") => {
     s.require(area, "edit");
-    const id=key.includes('/sheet:')?key.split('/sheet:')[1]:key.includes('/day:')?'linked':null;
-    if(id&&!s.sheetVisible(id))throw Error('Нет доступа к листу');
+    const id = key.includes("/sheet:")
+      ? key.split("/sheet:")[1]
+      : key.includes("/day:")
+        ? "linked"
+        : null;
+    if (id && !s.sheetVisible(id)) throw Error("Нет доступа к листу");
     const ok = await s.store.save(key, data, base, label);
     // A conflict is already durable; the automatic comparison dialog handles it.
-    if (!ok) { s.conflictUI?.check(); return; }
-    if(area==='shift'&&key.includes('/day:')){
-      const sheetKey=s.key('sheet:linked'),sheetBase=s.store.get(sheetKey);
-      if(sheetBase.data){
-        const next=D.copy(sheetBase.data);let changed=false;
-        for(const row of D.rows(s.config(),[data]))if(row.kind&&!row.section){
-          const id=row.id+'|'+D.dayKey(data.date,data.shift);
-          if(next.cells[id]?.raw && D.value(row,data)!==D.value(row,base.data)) {delete next.cells[id].raw;changed=true;}
-        }
-        if(changed)await s.store.save(sheetKey,next,sheetBase,'Ручной ввод вместо формулы');
+    if (!ok) {
+      s.conflictUI?.check();
+      return;
+    }
+    if (area === "shift" && key.includes("/day:")) {
+      const sheetKey = s.key("sheet:linked"),
+        sheetBase = s.store.get(sheetKey);
+      if (sheetBase.data) {
+        const next = D.copy(sheetBase.data);
+        let changed = false;
+        for (const row of D.rows(s.config(), [data]))
+          if (row.kind && !row.section) {
+            const id = row.id + "|" + D.dayKey(data.date, data.shift);
+            if (
+              next.cells[id]?.raw &&
+              D.value(row, data) !== D.value(row, base.data)
+            ) {
+              delete next.cells[id].raw;
+              changed = true;
+            }
+          }
+        if (changed)
+          await s.store.save(
+            sheetKey,
+            next,
+            sheetBase,
+            "Ручной ввод вместо формулы",
+          );
       }
     }
     void s.store.flush();
@@ -170,7 +209,18 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         (a, b) =>
           a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift),
       );
-  s.days = () => D.linkedFormulaDays(s.config(),s.rawDays(),s.store.get(s.key('sheet:linked')).data,new Set(s.store.list(s.key('day:')).filter(r=>r.data?.deleted).map(r=>r.data.date)));
+  s.days = () =>
+    D.linkedFormulaDays(
+      s.config(),
+      s.rawDays(),
+      s.store.get(s.key("sheet:linked")).data,
+      new Set(
+        s.store
+          .list(s.key("day:"))
+          .filter((r) => r.data?.deleted)
+          .map((r) => r.data.date),
+      ),
+    );
   s.saveConfig = async (c, base, area = "settings") =>
     s.save(s.key("config"), c, base, "Настройки / заявка", area);
   s.refresh = () => render(s);
@@ -205,10 +255,23 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     );
   };
   s.root.innerHTML = "<p>Открываем новый табель…</p>";
-  const selectionKey=JSON.stringify(['tabel-v2-last-object',session.projectId,session.workspaceId,session.uid]);
-  let lastObject=null;try{lastObject=localStorage.getItem(selectionKey);}catch{}
-  const remember=()=>{if(s.object)try{localStorage.setItem(selectionKey,s.object.id);}catch{}};
-  s.remember=remember;
+  const selectionKey = JSON.stringify([
+    "tabel-v2-last-object",
+    session.projectId,
+    session.workspaceId,
+    session.uid,
+  ]);
+  let lastObject = null;
+  try {
+    lastObject = localStorage.getItem(selectionKey);
+  } catch {}
+  const remember = () => {
+    if (s.object)
+      try {
+        localStorage.setItem(selectionKey, s.object.id);
+      } catch {}
+  };
+  s.remember = remember;
   const objects = host.data().objects || [];
   s.object =
     objects.find((o) => o.id === host.requestObjectId) ||
@@ -223,21 +286,26 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     target.textContent =
       (s.remote
         ? navigator.onLine
-          ? s.store.uploadError ? "Ошибка отправки Firebase" : jobs.some((j) => j.status === "queued")
-            ? "Ожидает отправки в Firebase"
-            : s.store.error
-              ? "Ошибка Firebase"
-              : "Firebase подключён · очередь пуста"
+          ? s.store.uploadError
+            ? "Ошибка отправки Firebase"
+            : jobs.some((j) => j.status === "queued")
+              ? "Ожидает отправки в Firebase"
+              : s.store.error
+                ? "Ошибка Firebase"
+                : "Firebase подключён · очередь пуста"
           : "Офлайн"
         : "На устройстве: синхронизация Firebase не включена") +
       " · локально " +
       jobs.filter((j) => j.status === "queued").length +
       " · конфликты " +
       jobs.filter((j) => j.status === "conflict").length +
-      ((s.store.uploadError||s.store.error) ? " · сервер: " + (s.store.uploadError||s.store.error) : "") + (s.store.uploading?" · отправляется "+s.store.uploading.key:"");
+      (s.store.uploadError || s.store.error
+        ? " · сервер: " + (s.store.uploadError || s.store.error)
+        : "") +
+      (s.store.uploading ? " · отправляется " + s.store.uploading.key : "");
   };
   s.store.listeners.add(s.status);
-  s.conflictUI=autoConflicts(s);
+  s.conflictUI = autoConflicts(s);
   async function loadObject() {
     if (!s.object || !s.remote) return;
     await s.store.pull(s.key("config"));
@@ -245,37 +313,54 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     await s.store.pullHistory(s.object.id);
   }
   s.select = async (id) => {
-    if(s.grid?.snapshot){s.gridPositions ||= {};s.gridPositions[s.object.id]=s.grid.snapshot();}
+    if (s.grid?.snapshot) {
+      s.gridPositions ||= {};
+      s.gridPositions[s.object.id] = s.grid.snapshot();
+    }
     s.unwatch?.();
-    s.grid?.dispose();s.grid=null;
+    s.grid?.dispose();
+    s.grid = null;
     s.object = (host.data().objects || []).find((o) => o.id === id) || s.object;
     s.generation++;
     remember();
-    await host.prepare?.(s.store,s.object);
+    await host.prepare?.(s.store, s.object);
     await render(s);
     void synchronize();
   };
   remember();
-  await host.prepare?.(s.store,s.object);
+  await host.prepare?.(s.store, s.object);
   await render(s);
-  async function synchronize(){
-    if(!s.remote||s.store.closed)return;
-    if(account().permissions.edit)await s.store.prepareSync();
-    const object=s.object?.id;
-    await s.store.pull('_catalog/config');await s.store.pull('_defaults/config');
+  async function synchronize() {
+    if (!s.remote || s.store.closed) return;
+    if (account().permissions.edit) await s.store.prepareSync();
+    const object = s.object?.id;
+    await s.store.pull("_catalog/config");
+    await s.store.pull("_defaults/config");
     void s.store.flush();
     await loadObject();
-    if(s.store.closed||s.object?.id!==object)return;
-    watch();void s.store.flush();s.incoming=true;await refreshIncoming();
+    if (s.store.closed || s.object?.id !== object) return;
+    watch();
+    void s.store.flush();
+    s.incoming = true;
+    await refreshIncoming();
   }
-  if(s.remote)void synchronize();
-  async function refreshIncoming(){
-    if(!s.incoming||s.root.hidden)return;
-    const active=document.activeElement;
-    if(s.gridDragging || document.querySelector('dialog.tn[open]') || (s.view!=="table" && s.root.contains(active) && active?.matches('input:not([readonly]),textarea'))){
-      clearTimeout(s.incomingTimer);s.incomingTimer=setTimeout(()=>refreshIncoming().catch(error),1000);return;
+  if (s.remote) void synchronize();
+  async function refreshIncoming() {
+    if (!s.incoming || s.root.hidden) return;
+    const active = document.activeElement;
+    if (
+      s.gridDragging ||
+      document.querySelector("dialog.tn[open]") ||
+      (s.view !== "table" &&
+        s.root.contains(active) &&
+        active?.matches("input:not([readonly]),textarea"))
+    ) {
+      clearTimeout(s.incomingTimer);
+      s.incomingTimer = setTimeout(() => refreshIncoming().catch(error), 1000);
+      return;
     }
-    s.incoming=false;await render(s);
+    s.incoming = false;
+    await render(s);
   }
   function watch() {
     s.unwatch?.();
@@ -292,7 +377,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         if (s.object.id !== token) return;
         await s.store.accept(records);
         if (s.view === "history") await s.store.pullHistory(token);
-        s.incoming=true;
+        s.incoming = true;
         await refreshIncoming();
       },
       (e) => {
@@ -307,15 +392,40 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   });
   observer.observe(container, { attributes: true, attributeFilter: ["class"] });
   return {
-    async settings(id){if(id&&s.object?.id!==id)await s.select(id);return s.openSettings();},
-    refresh(){s.incoming=true;return refreshIncoming();},
-    notice(text){s.store.error=text;s.status();},
-    async connect(){if(s.store.closed)return;account();if(!s.remote){s.remote=firestoreRemote(host,guard);s.store.remote=s.remote;}void s.store.flush();await synchronize();},
+    async settings(id) {
+      if (id && s.object?.id !== id) await s.select(id);
+      return s.openSettings();
+    },
+    refresh() {
+      s.incoming = true;
+      return refreshIncoming();
+    },
+    notice(text) {
+      s.store.error = text;
+      s.status();
+    },
+    async connect() {
+      if (s.store.closed) return;
+      account();
+      if (!s.remote) {
+        s.remote = firestoreRemote(host, guard);
+        s.store.remote = s.remote;
+      }
+      void s.store.flush();
+      await synchronize();
+    },
     async show() {
       account();
       root.hidden = false;
-      s.view="shift";s.day=D.today();
-      if(!s.object){const objects=host.data().objects||[];const id=localStorage.getItem(selectionKey);s.object=objects.find(o=>o.id===id)||objects[0]||null;await host.prepare?.(s.store,s.object);void synchronize();}
+      s.view = "shift";
+      s.day = D.today();
+      if (!s.object) {
+        const objects = host.data().objects || [];
+        const id = localStorage.getItem(selectionKey);
+        s.object = objects.find((o) => o.id === id) || objects[0] || null;
+        await host.prepare?.(s.store, s.object);
+        void synchronize();
+      }
       await render(s);
       s.conflictUI.check();
     },
@@ -332,11 +442,14 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   };
 }
 async function render(s) {
-  const rendering=s.rendering=(s.rendering||0)+1;
-  if(s.grid)await s.grid.finish?.();
-  if(rendering!==s.rendering)return;
+  const rendering = (s.rendering = (s.rendering || 0) + 1);
+  if (s.grid) await s.grid.finish?.();
+  if (rendering !== s.rendering) return;
   s.remember?.();
-  if(s.grid?.snapshot){s.gridPositions ||= {};s.gridPositions[s.object.id]=s.grid.snapshot();}
+  if (s.grid?.snapshot) {
+    s.gridPositions ||= {};
+    s.gridPositions[s.object.id] = s.grid.snapshot();
+  }
   s.grid?.dispose();
   s.grid = null;
   const c = s.object ? s.config() : null;
@@ -401,10 +514,11 @@ async function render(s) {
           : s.view,
     );
     if (s.view === "table") {
-      const module=await import("./grid.mjs");
-      if(rendering!==s.rendering || !main.isConnected)return;
-      const grid=await module.mount(s,main);
-      if(rendering!==s.rendering || !main.isConnected)grid.dispose();else s.grid=grid;
+      const module = await import("./grid.mjs");
+      if (rendering !== s.rendering || !main.isConnected) return;
+      const grid = await module.mount(s, main);
+      if (rendering !== s.rendering || !main.isConnected) grid.dispose();
+      else s.grid = grid;
       return;
     }
     if (s.view === "request") request(s, main);
@@ -427,7 +541,7 @@ async function render(s) {
       await (await import("./catalog.mjs")).mount(s, main);
     if (s.view === "history") history(s, main);
   } catch (e) {
-    main.innerHTML="<p>"+esc(e.message)+"</p>";
+    main.innerHTML = "<p>" + esc(e.message) + "</p>";
   }
 }
 function newObject(s) {
@@ -724,7 +838,8 @@ function bind(root, action, fn) {
 function addEquipment(s) {
   dialog(
     "Добавить технику в базу",
-    field("Название", input("name", "", "required")) +
+    field("Контрагент (для наёмной)", input("contractor")) +
+      field("Название", input("name", "", "required")) +
       field("Госномер / устойчивый номер", input("plate")) +
       field(
         "Собственность",
@@ -749,6 +864,16 @@ function addEquipment(s) {
         crewLabel: String(f.get("crewLabel")).trim(),
         kind: f.get("kind"),
         pump: false,
+        contractor:
+          f.get("ownership") === "hired"
+            ? String(f.get("contractor") || "").trim()
+            : "",
+        contractorId:
+          f.get("ownership") === "hired"
+            ? String(f.get("contractor") || "")
+                .trim()
+                .toLocaleLowerCase()
+            : "",
       };
       if (!e.name) throw Error("Введите название");
       e.color = D.equipmentColor(e);
@@ -756,6 +881,11 @@ function addEquipment(s) {
         catalogBase = s.store.get(catalogKey),
         catalog = catalogBase.data || { equipment: [], people: [] };
       catalog.equipment.push(e);
+      if (e.contractor) {
+        catalog.contractors ||= [];
+        if (!catalog.contractors.some((x) => x.id === e.contractorId))
+          catalog.contractors.push({ id: e.contractorId, name: e.contractor });
+      }
       s.require("settings", "edit");
       await s.store.save(
         catalogKey,
@@ -1016,7 +1146,11 @@ function settings(s, main) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 }
-function conflicts(s) {return import('./conflict-view.mjs').then(m=>m.showConflicts(s)).catch(error);}
+function conflicts(s) {
+  return import("./conflict-view.mjs")
+    .then((m) => m.showConflicts(s))
+    .catch(error);
+}
 function history(s, main) {
   main.innerHTML =
     "<h3>История подтверждений и решений</h3>" +
@@ -1024,10 +1158,7 @@ function history(s, main) {
       .filter((h) => h.key.startsWith(s.object.id + "/"))
       .slice()
       .reverse()
-      .map(
-        (h) =>
-          historyRows(h,s.config()),
-      )
+      .map((h) => historyRows(h, s.config()))
       .join("");
 }
 async function dailyReport(s) {

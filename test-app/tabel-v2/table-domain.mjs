@@ -99,7 +99,10 @@ export function createDay(c, d, shift = "day", previous = null) {
     shift,
     closed: false,
     planned: d > today(),
-    equipment: (previous?.equipment || c.equipment.filter((e) => c.request.equipment.includes(e.id)))
+    equipment: (
+      previous?.equipment ||
+      c.equipment.filter((e) => c.request.equipment.includes(e.id))
+    )
       .filter((e) => !e.deleted)
       .map((e) => ({
         ...copy(e),
@@ -107,9 +110,15 @@ export function createDay(c, d, shift = "day", previous = null) {
         crewHours: null,
         pumpHours: null,
       })),
-    people: (previous?.people || c.people.filter((p) => c.request.people.includes(p.id)))
+    people: (
+      previous?.people ||
+      c.people.filter((p) => c.request.people.includes(p.id))
+    )
       .filter((p) => !p.deleted)
-      .map((p) => ({ ...copy(p), hours: p.group === "itr" && d <= today() ? (p.hours ?? 12) : null })),
+      .map((p) => ({
+        ...copy(p),
+        hours: p.group === "itr" && d <= today() ? (p.hours ?? 12) : null,
+      })),
     values: {},
   };
 }
@@ -117,8 +126,10 @@ export const shiftLabel = (d) =>
   d.shift === "night"
     ? Number(d.date.slice(-2)) + "/" + Number(add(d.date, 1).slice(-2))
     : String(Number(d.date.slice(-2)));
-export const isMill = e => e.kind ? e.kind === "mill" : /фрез/i.test(e.name || "");
-export const isBrush = e => e.kind ? e.kind === "brush" : /тракт|щ[её]т|мтз/i.test(e.name || "");
+export const isMill = (e) =>
+  e.kind ? e.kind === "mill" : /фрез/i.test(e.name || "");
+export const isBrush = (e) =>
+  e.kind ? e.kind === "brush" : /тракт|щ[её]т|мтз/i.test(e.name || "");
 // Identity, rather than row position or name, keeps a machine's shade stable.
 export function equipmentColor(e) {
   if (/^#[0-9a-f]{6}$/i.test(e.color || "")) return e.color;
@@ -126,14 +137,42 @@ export function equipmentColor(e) {
   if (isMill(e)) return "#c9e9e3";
   if (isBrush(e)) return "#e6d5bd";
   let hash = 2166136261;
-  for (const char of String(e.id || e.plate || e.name)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
-  const hue = (hash * 137.508) % 360, saturation = 0.28 + (hash % 12) / 100, light = 0.87;
-  const chroma = (1 - Math.abs(2 * light - 1)) * saturation, x = chroma * (1 - Math.abs(hue / 60 % 2 - 1)), m = light - chroma / 2;
-  const rgb = hue < 60 ? [chroma,x,0] : hue < 120 ? [x,chroma,0] : hue < 180 ? [0,chroma,x] : hue < 240 ? [0,x,chroma] : hue < 300 ? [x,0,chroma] : [chroma,0,x];
-  return "#" + rgb.map(v => Math.round((v+m)*255).toString(16).padStart(2,"0")).join("");
+  for (const char of String(e.id || e.plate || e.name))
+    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+  const hue = (hash * 137.508) % 360,
+    saturation = 0.28 + (hash % 12) / 100,
+    light = 0.87;
+  const chroma = (1 - Math.abs(2 * light - 1)) * saturation,
+    x = chroma * (1 - Math.abs(((hue / 60) % 2) - 1)),
+    m = light - chroma / 2;
+  const rgb =
+    hue < 60
+      ? [chroma, x, 0]
+      : hue < 120
+        ? [x, chroma, 0]
+        : hue < 180
+          ? [0, chroma, x]
+          : hue < 240
+            ? [0, x, chroma]
+            : hue < 300
+              ? [x, 0, chroma]
+              : [chroma, 0, x];
+  return (
+    "#" +
+    rgb
+      .map((v) =>
+        Math.round((v + m) * 255)
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("")
+  );
 }
 export function fiveDayHours(machine, field, hours, doubleCrew) {
-  return Number(hours) * (isMill(machine) && field === "crewHours" && doubleCrew ? 2 : 1);
+  return (
+    Number(hours) *
+    (isMill(machine) && field === "crewHours" && doubleCrew ? 2 : 1)
+  );
 }
 export function crewLabel(e) {
   return (
@@ -159,10 +198,23 @@ export function rows(c, shifts) {
         .filter((p) => c.request.people.includes(p.id))
         .map((p) => [p.id, p]),
     );
+  const hired = new Map();
+  for (const e of machines.values())
+    if (e.ownership === "hired") hired.set(e.id + "|" + contractorKey(e), e);
   for (const d of shifts) {
     for (const e of d.equipment)
-      machines.set(e.id, { ...e, ...c.equipment.find(x=>x.id===e.id), pump: e.pump || machines.get(e.id)?.pump || c.equipment.find(x=>x.id===e.id)?.pump });
-    for (const p of d.people) people.set(p.id, {...p,...c.people.find(x=>x.id===p.id)});
+      if (e.ownership === "hired") hired.set(e.id + "|" + contractorKey(e), e);
+    for (const e of d.equipment)
+      machines.set(e.id, {
+        ...e,
+        ...c.equipment.find((x) => x.id === e.id),
+        pump:
+          e.pump ||
+          machines.get(e.id)?.pump ||
+          c.equipment.find((x) => x.id === e.id)?.pump,
+      });
+    for (const p of d.people)
+      people.set(p.id, { ...p, ...c.people.find((x) => x.id === p.id) });
   }
   const section = (name) =>
     result.push({
@@ -174,7 +226,12 @@ export function rows(c, shifts) {
   const equipment = (e) => {
     const color = equipmentColor(e);
     result.push({
-      id: e.id + ":hours",
+      id:
+        e.id +
+        ":hours" +
+        (e.ownership === "hired" ? "|" + contractorKey(e) : ""),
+      contractor: contractorKey(e),
+      contractorName: e.contractor || "Без контрагента",
       name: e.name,
       kind: "equipment",
       entity: e.id,
@@ -204,12 +261,18 @@ export function rows(c, shifts) {
   section("Своя техника");
   [...machines.values()]
     .filter((e) => e.ownership !== "hired")
-    .sort((a,b) => equipmentOrder(a)-equipmentOrder(b))
+    .sort((a, b) => equipmentOrder(a) - equipmentOrder(b))
     .forEach(equipment);
   section("Поступление");
-  [...machines.values()]
+  [...hired.values()]
     .filter((e) => e.ownership === "hired")
-    .forEach(equipment);
+    .forEach((e) =>
+      equipment({
+        ...e,
+        name: c.equipment.find((x) => x.id === e.id)?.name || e.name,
+        color: c.equipment.find((x) => x.id === e.id)?.color || e.color,
+      }),
+    );
   const material = (m, i) =>
     result.push({
       id: m.id,
@@ -258,11 +321,16 @@ export function value(row, d) {
   if (!d) return null;
   if (row.kind === "value") return d.values[row.entity]?.quantity ?? null;
   const e = d[row.kind].find((e) => e.id === row.entity);
+  if (
+    row.contractor !== undefined &&
+    row.contractor !== null &&
+    contractorKey(e || {}) !== row.contractor
+  )
+    return null;
   if (row.field === "pumpHours" && !e?.pump) return null;
   return e?.[row.field] ?? null;
 }
 export function setValue(row, d, raw) {
-
   if (d.date > today())
     throw Error(
       "Будущая смена — план. Фактические часы и объёмы вводятся после наступления дня.",
@@ -282,6 +350,11 @@ export function setValue(row, d, raw) {
     throw Error("Этой строки нет в составе смены. Добавьте её через «Состав».");
   if (row.field === "pumpHours" && !e.pump)
     throw Error("Помпа выключена в этой смене");
+  if (row.contractor !== undefined && row.contractor !== null) {
+    e.contractorId = row.contractor;
+    e.contractor =
+      row.contractorName === "Без контрагента" ? "" : row.contractorName;
+  }
   e[row.field] = n;
 }
 export function plate(s) {
@@ -442,16 +515,18 @@ export function formula(
       }
       if (a === "SUM") {
         if (t[i++] !== "(") throw Error("#ФОРМУЛА!");
-        let total=0;
-        while(t[i]!==')'){
-          if(/^[A-Z]+[1-9]\d*$/.test(t[i]||'')&&t[i+1]===':'){
-            const from=t[i];i+=2;const to=t[i++];
-            total+=range(from,to).reduce((n,k)=>n+ref(k),0);
-          }else total+=expr();
-          if(t[i]===')')break;
-          if(t[i++]!==';')throw Error('#ФОРМУЛА!');
+        let total = 0;
+        while (t[i] !== ")") {
+          if (/^[A-Z]+[1-9]\d*$/.test(t[i] || "") && t[i + 1] === ":") {
+            const from = t[i];
+            i += 2;
+            const to = t[i++];
+            total += range(from, to).reduce((n, k) => n + ref(k), 0);
+          } else total += expr();
+          if (t[i] === ")") break;
+          if (t[i++] !== ";") throw Error("#ФОРМУЛА!");
         }
-        if(t[i++]!==')')throw Error('#ФОРМУЛА!');
+        if (t[i++] !== ")") throw Error("#ФОРМУЛА!");
         return total;
       }
       if (/^[A-Z]+\d+$/.test(a || "")) return ref(a);
@@ -559,35 +634,109 @@ export function describeChange(before, after) {
   );
 }
 
-
-export const isWater = e => e.kind === "water" || /полив/i.test(e.name || "");
-export const equipmentOrder = e => isWater(e) ? 0 : isBrush(e) ? 1 : isMill(e) ? 2 : 3;
+export const isWater = (e) => e.kind === "water" || /полив/i.test(e.name || "");
+export const equipmentOrder = (e) =>
+  isWater(e) ? 0 : isBrush(e) ? 1 : isMill(e) ? 2 : 3;
 export function previousDay(shifts, date, shift) {
-  return shifts.filter(d => d.date < date || (d.date === date && shift === "night" && d.shift === "day"))
-    .sort((a,b) => a.date.localeCompare(b.date) || (a.shift === b.shift ? 0 : a.shift === "day" ? -1 : 1)).at(-1) || null;
+  return (
+    shifts
+      .filter(
+        (d) =>
+          d.date < date ||
+          (d.date === date && shift === "night" && d.shift === "day"),
+      )
+      .sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) ||
+          (a.shift === b.shift ? 0 : a.shift === "day" ? -1 : 1),
+      )
+      .at(-1) || null
+  );
 }
 export function totals(c, shifts) {
-  return ["works","materials"].flatMap(kind => c[kind].map(x => ({...x,kind,quantity:shifts.reduce((n,d)=>n+(d.values?.[x.id]?.quantity || 0),0)})));
+  return ["works", "materials"].flatMap((kind) =>
+    c[kind].map((x) => ({
+      ...x,
+      kind,
+      quantity: shifts.reduce(
+        (n, d) => n + (d.values?.[x.id]?.quantity || 0),
+        0,
+      ),
+    })),
+  );
 }
 
 // Read linked formulas for shift cards and reports from the same shared definitions
 // as the grid, so a changed source hour never leaves their displayed totals stale.
 export function linkedFormulaDays(c, shifts, sheet, deleted = new Set()) {
-  if(!Object.values(sheet?.cells||{}).some(x=>String(x.raw||'').startsWith('=')))return shifts;
-  const result=copy(shifts),rr=rows(c,result),last=c.end&&c.end<=today()?c.end:result.at(-1)?.date||c.start;
-  const dd=days(c.start,last).flatMap(date=>result.filter(d=>d.date===date).length?result.filter(d=>d.date===date):deleted.has(date)?[]:[{date,shift:'day',equipment:[],people:[],values:{}}]);
-  const cells={},targets=[];
-  for(let r=0;r<rr.length+2;r++)for(let col=0;col<dd.length+1;col++){
-    const row=rr[r-2],d=dd[col-1],k=cell(r,col),id=(row?.id||'header:'+r)+'|'+(d?dayKey(d.date,d.shift):'label');
-    const overlay=sheet.cells[id]?.raw;
-    const raw=overlay??(r===0?(col===0?'Адрес':col===1?c.name:''):r===1?(col===0?'Дата':display(d.date)) : col===0?row.name:row.section?'':fmt(value(row,d)));
-    cells[k]={raw};
-    if(String(overlay||'').startsWith('=')&&row&&!row.section&&d&&col>0)targets.push({row,d,k});
-  }
-  const size={rows:rr.length+2,cols:dd.length+1};
-  for(const {row,d,k}of targets){const n=formula(cells,k,size);if(typeof n!=='number')continue;
-    if(row.kind==='value')d.values[row.entity]={...d.values[row.entity],quantity:n};
-    else {const e=d[row.kind].find(e=>e.id===row.entity);if(e)e[row.field]=n;}
+  if (
+    !Object.values(sheet?.cells || {}).some((x) =>
+      String(x.raw || "").startsWith("="),
+    )
+  )
+    return shifts;
+  const result = copy(shifts),
+    rr = rows(c, result),
+    last = c.end && c.end <= today() ? c.end : result.at(-1)?.date || c.start;
+  const dd = days(c.start, last).flatMap((date) =>
+    result.filter((d) => d.date === date).length
+      ? result.filter((d) => d.date === date)
+      : deleted.has(date)
+        ? []
+        : [{ date, shift: "day", equipment: [], people: [], values: {} }],
+  );
+  const cells = {},
+    targets = [];
+  for (let r = 0; r < rr.length + 2; r++)
+    for (let col = 0; col < dd.length + 1; col++) {
+      const row = rr[r - 2],
+        d = dd[col - 1],
+        k = cell(r, col),
+        id =
+          (row?.id || "header:" + r) +
+          "|" +
+          (d ? dayKey(d.date, d.shift) : "label");
+      const overlay = sheet.cells[id]?.raw;
+      const raw =
+        overlay ??
+        (r === 0
+          ? col === 0
+            ? "Адрес"
+            : col === 1
+              ? c.name
+              : ""
+          : r === 1
+            ? col === 0
+              ? "Дата"
+              : display(d.date)
+            : col === 0
+              ? row.name
+              : row.section
+                ? ""
+                : fmt(value(row, d)));
+      cells[k] = { raw };
+      if (
+        String(overlay || "").startsWith("=") &&
+        row &&
+        !row.section &&
+        d &&
+        col > 0
+      )
+        targets.push({ row, d, k });
+    }
+  const size = { rows: rr.length + 2, cols: dd.length + 1 };
+  for (const { row, d, k } of targets) {
+    const n = formula(cells, k, size);
+    if (typeof n !== "number") continue;
+    if (row.kind === "value")
+      d.values[row.entity] = { ...d.values[row.entity], quantity: n };
+    else {
+      const e = d[row.kind].find((e) => e.id === row.entity);
+      if (e) e[row.field] = n;
+    }
   }
   return result;
 }
+
+export const contractorKey = (e) =>
+  e.ownership === "hired" ? String(e.contractorId || e.contractor || "").trim().replace(/\s+/g," ").toLocaleLowerCase() : null;

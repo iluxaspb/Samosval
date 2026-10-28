@@ -319,7 +319,7 @@ export async function mount(s, host) {
                       maximumFractionDigits: Number(nf),
                     });
             }
-            return `<td title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}</td>`;
+            return `<td title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}${sheetId==="linked"&&col===0&&r>1&&linkedRows[r-2]?.contractor!==undefined&&linkedRows[r-2]?.contractor!==null?`<small class="tn-grid-contractor">${esc(linkedRows[r-2].contractorName)}</small>`:""}</td>`;
           }).join("") +
           "</tr>"
         );

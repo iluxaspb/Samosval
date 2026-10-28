@@ -11,7 +11,10 @@ export async function mount(s, root) {
   const c = s.config(),
     key = s.key(D.dayKey(s.day, s.shift)),
     base = s.store.get(key),
-    d = base.data?.deleted ? null : s.days().find(d=>d.date===s.day&&d.shift===s.shift)||base.data;
+    d = base.data?.deleted
+      ? null
+      : s.days().find((d) => d.date === s.day && d.shift === s.shift) ||
+        base.data;
   root.innerHTML = `<div class="tn-date-nav">${btn("‹", "prev-date", 'aria-label="Предыдущая дата"')}<input type="date" data-day value="${s.day}" aria-label="Дата смены"><select data-shift aria-label="Смена"><option value="day">Дневная</option><option value="night" ${s.shift === "night" ? "selected" : ""}>Ночная</option></select>${btn("›", "next-date", 'aria-label="Следующая дата"')}${btn("Сегодня", "today")}</div><div class="tn-tools">${btn("Начать / добавить смену", "add-day")}${d ? btn("Выбрать состав", "choose-roster") + btn("Удалить смену", "delete-shift", 'class="tn-danger"') : ""}</div><section data-shift-content></section><div class="tn-shift-tabs" role="tablist">${tabs.map(([id, label]) => btn(label, "shift-tab", `data-tab="${id}" role="tab" aria-selected="${s.shiftTab === id}"`)).join("")}</div>`;
   const navigate = async (date, shift = s.shift) => {
     s.day = D.date(date);
@@ -102,8 +105,51 @@ export async function mount(s, root) {
   if (!equipment) {
     content.innerHTML = `<div class="tn-people-table">${list.map((e) => `<div class="tn-person-row"><span>${esc(e.name)}</span>${btn(D.fmt(e.hours) || "—", "hours", `data-entity="${esc(e.id)}" data-field="hours" aria-label="${esc(e.name + " · Часы за смену")}"`)}</div>`).join("") || "<p>Состав не выбран.</p>"}</div>`;
   } else {
-    content.innerHTML = `<div class="tn-cards">${list.map((e) => `<article class="tn-equipment-card" data-card="${esc(e.id)}" style="--tn-equipment-color:${D.equipmentColor(c.equipment.find(x => x.id === e.id) || e)}"><button class="tn-card-title" type="button" data-open="${esc(e.id)}"><span class="tn-machine-name">${esc(e.name)}</span>${equipment ? "<small>Последние 5 дней ›</small>" : ""}</button><div class="tn-card-hours">${(equipment ? equipmentFields(e) : [["hours", "Часы за смену"]]).map(([field, label]) => `<label>${esc(label)}${btn(D.fmt(e[field]) || "—", "hours", `data-entity="${esc(e.id)}" data-field="${field}" aria-label="${esc(e.name + " · " + label)}"`)}</label>`).join("")}</div></article>`).join("") || "<p>Состав не выбран.</p>"}</div>`;
+    content.innerHTML = `<div class="tn-cards">${list.map((e) => `<article class="tn-equipment-card" data-card="${esc(e.id)}" style="--tn-equipment-color:${D.equipmentColor(c.equipment.find((x) => x.id === e.id) || e)}"><button class="tn-card-title" type="button" data-open="${esc(e.id)}"><span class="tn-machine-name">${esc(e.name)}</span>${equipment ? "<small>Последние 5 дней ›</small>" : ""}</button><div class="tn-card-hours">${(equipment ? equipmentFields(e) : [["hours", "Часы за смену"]]).map(([field, label]) => `<label>${esc(label)}${btn(D.fmt(e[field]) || "—", "hours", `data-entity="${esc(e.id)}" data-field="${field}" aria-label="${esc(e.name + " · " + label)}"`)}</label>`).join("")}</div></article>`).join("") || "<p>Состав не выбран.</p>"}</div>`;
   }
+  if (equipment)
+    for (const e of list.filter((x) => x.ownership === "hired")) {
+      const card = content.querySelector('[data-card="' + e.id + '"]');
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "tn-contractor";
+      b.textContent = e.contractor || "Без контрагента";
+      card.querySelector(".tn-card-hours").append(b);
+      b.onclick = () => {
+        const registry = s.store.get("_catalog/config").data?.contractors || [];
+        const el = dialog(
+          "Контрагент этой смены",
+          field(
+            "Фирма",
+            `<input name="contractor" list="tn-contractors" value="${esc(e.contractor || "")}"><datalist id="tn-contractors">${registry.map((x) => `<option value="${esc(x.name)}">`).join("")}</datalist>`,
+          ),
+          async (f) => {
+            const name = String(f.get("contractor")).trim(),
+              next = D.copy(d),
+              machine = next.equipment.find((x) => x.id === e.id);
+            machine.contractor = name;
+            machine.contractorId = name.toLocaleLowerCase();
+            await s.save(key, next, base, "Контрагент за " + D.display(s.day));
+            const catBase = s.store.get("_catalog/config"),
+              cat = catBase.data || { equipment: [], people: [] };
+            cat.contractors ||= [];
+            if (
+              name &&
+              !cat.contractors.some((x) => x.id === machine.contractorId)
+            ) {
+              cat.contractors.push({ id: machine.contractorId, name });
+              await s.store.save(
+                "_catalog/config",
+                cat,
+                catBase,
+                "Справочник контрагентов",
+              );
+            }
+            await s.refresh();
+          },
+        );
+      };
+    }
   content.querySelectorAll("[data-open]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -230,7 +276,7 @@ export async function multi(s, id) {
     saving = Promise.resolve();
   const el = dialog(
     machine.name,
-    `${D.isMill(machine) && machine.ownership !== "hired" ? `<label class="tn-check tn-double-crew"><input type="checkbox" data-double-crew ${draft?.doubleCrew ? "checked" : ""}>×2 · Два машиниста</label><p class="tn-hint">Удваиваются часы машинистов: 13 → 26, 14 → 28. Часы техники вводятся отдельно.</p>` : ""}<table class="tn-five-days"><thead><tr><th></th>${dates.map((date) => `<th>${D.display(date).slice(0, 5)}</th>`).join("")}</tr></thead><tbody>${fields
+    `${D.isMill(machine) && machine.ownership !== "hired" ? `<label class="tn-check tn-double-crew"><input type="checkbox" data-double-crew ${(draft?.doubleCrew ?? machine.doubleCrew) ? "checked" : ""}>×2 · Два машиниста</label><p class="tn-hint">Удваиваются часы машинистов: 13 → 26, 14 → 28. Часы техники вводятся отдельно.</p>` : ""}<table class="tn-five-days"><thead><tr><th></th>${dates.map((date) => `<th>${D.display(date).slice(0, 5)}</th>`).join("")}</tr></thead><tbody>${fields
       .map(
         ([field, label]) =>
           `<tr><th>${esc(label)}</th>${snapshots
@@ -319,7 +365,29 @@ export async function multi(s, id) {
       );
     };
   });
-  el.querySelector("[data-double-crew]")?.addEventListener("change", cache);
+  el.querySelector("[data-double-crew]")?.addEventListener(
+    "change",
+    async (e) => {
+      cache();
+      try {
+        const config = s.config(),
+          before = s.store.get(s.key("config"));
+        config.equipment = config.equipment.map((x) =>
+          x.id === id ? { ...x, doubleCrew: e.target.checked } : x,
+        );
+        await s.saveConfig(config, before);
+        const cb = s.store.get("_catalog/config"),
+          cat = cb.data || { equipment: [], people: [] };
+        cat.equipment = [
+          ...(cat.equipment || []).filter((x) => x.id !== id),
+          config.equipment.find((x) => x.id === id),
+        ];
+        await s.store.save("_catalog/config", cat, cb, "Два машиниста");
+      } catch (err) {
+        error(err);
+      }
+    },
+  );
   el.querySelectorAll("[data-hour]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -327,7 +395,12 @@ export async function multi(s, id) {
           error("Сначала выберите ячейку");
           return;
         }
-        active.value = D.fiveDayHours(machine, active.name.split("|").at(-1), b.dataset.hour, !!el.querySelector("[data-double-crew]")?.checked);
+        active.value = D.fiveDayHours(
+          machine,
+          active.name.split("|").at(-1),
+          b.dataset.hour,
+          !!el.querySelector("[data-double-crew]")?.checked,
+        );
         cache();
       }),
   );
