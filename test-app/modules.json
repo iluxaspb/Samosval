@@ -387,6 +387,15 @@
       "sources": [
         "features/test-release.js"
       ]
+    },
+    {
+      "block": 100,
+      "kind": "script",
+      "name": "settings-hub",
+      "attributes": " id=\"test-settings-hub\"",
+      "sources": [
+        "features/settings-hub.js"
+      ]
     }
   ]
 }
