@@ -97,7 +97,10 @@ function fixture(options={}) {
     vm.createContext(ctx);contexts.push(ctx);sync();
     // Install the real wrapper once on this shared mock Firestore instance.
     if(contexts.length===1)vm.runInContext(fs.readFileSync('test-app/src/features/history-recorder.js','utf8'),ctx);
-    vm.runInContext(fs.readFileSync('test-app/src/core/18-shifts.js','utf8'),ctx);
+    if(options.shiftSource){
+      ctx.__loadMaterials=options.materialLoader;ctx.URL=URL;ctx.document.baseURI='https://example.test/';ctx.firebaseConfig={projectId:'samosval-offline'};
+      vm.runInContext(fs.readFileSync(options.shiftSource,'utf8').replace("await import(new URL('./test-app/tabel-v2/material-transfer.mjs',document.baseURI).href)","await __loadMaterials()"),ctx);
+    }else vm.runInContext(fs.readFileSync('test-app/src/core/18-shifts.js','utf8'),ctx);
     vm.runInContext(fs.readFileSync('test-app/src/core/14-archive.js','utf8'),ctx);
     return ctx;
   };

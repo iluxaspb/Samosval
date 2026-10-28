@@ -20,7 +20,7 @@ export function openSettings(s) {
       .map(([key, label]) => btn(label, key))
       .join(
         "",
-      )}</div>${field("Дата начала объекта", input("objectStart", s.config().start, 'type="date"'))}${btn("Сохранить дату начала", "save-start")}`,
+      )}</div>${field("Дата начала объекта", input("objectStart", s.config().start, 'type="date"'))}${btn("Сохранить дату начала", "save-start")}${field("Цветной табель",`<select data-table-mode><option value="simple">Только ввод часов</option><option value="full" ${s.config().tableMode === "full" ? "selected" : ""}>Полный интерфейс</option></select>`)}${btn("Сохранить режим таблицы","save-mode")}`,
   );
   for (const key of Object.keys(labels))
     el.querySelector(`[data-action="${key}"]`).onclick = () => {
@@ -41,6 +41,9 @@ export function openSettings(s) {
     } catch (e) {
       error(e);
     }
+  };
+  el.querySelector('[data-action=save-mode]').onclick=async()=>{
+    try{const c=s.config(),base=s.store.get(s.key("config"));c.tableMode=el.querySelector('[data-table-mode]').value;await s.saveConfig(c,base);el.close();await s.refresh();}catch(e){error(e);}
   };
   return el;
 }
@@ -110,8 +113,7 @@ export async function openCategory(s, kind) {
     html += `<div class="tn-tools">${[-2, -1, 0].map((n, i) => btn(["Позавчера", "Вчера", "Сегодня"][i], "quick", `data-offset="${n}"`)).join("")}</div>${field("Дата выполнения", input("actualDate", date, 'type="date"'))}${field("Смена выполнения", `<select name="actualShift"><option value="day" ${shift === "day" ? "selected" : ""}>День</option><option value="night" ${shift === "night" ? "selected" : ""}>Ночь</option></select>`)}${c.works.map((w) => field(w.name + " · " + w.unit, input("work:" + w.id, D.fmt(day.values[w.id]?.quantity), 'inputmode="decimal"'))).join("")}`;
   const el = dialog(labels[kind], html, async (f) => {
     s.require("settings", "edit");
-    if (kind !== "plan" && kind !== "actual" && day.closed)
-      throw Error("Смена закрыта. Откройте её перед изменением.");
+
     const next = D.copy(c);
     let target = D.copy(day),
       targetKey = key,
@@ -172,6 +174,7 @@ export async function openCategory(s, kind) {
         .split(",")
         .map((x) => x.trim())
         .filter(Boolean);
+      next.lineDestination=next.destinations.length===1 ? next.destinations[0] : next.destinations.includes(next.lineDestination) ? next.lineDestination : "";
       for (const m of c.materials) {
         const raw = f.get("material:" + m.id);
         if (raw !== D.fmt(day.values[m.id]?.quantity))

@@ -15,10 +15,12 @@ export async function mount(s, host) {
     allDays = s.days();
   let period = "all",
     week = "",
-    scale = 1;
+    scale = 0.7;
+  const simple = () => sheetId === "linked" && s.config().tableMode !== "full";
   let visibleDays = [],
     linkedRows = [];
-  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
+  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
+  host.querySelector(".tn-grid-tools").after(host.querySelector(".tn-sheets"));
   const table = host.querySelector("table"),
     scroll = host.querySelector(".tn-grid-scroll"),
     edit = host.querySelector("[data-editor]"),
@@ -69,7 +71,7 @@ export async function mount(s, host) {
           ),
         )
         .join("") +
-      btn("＋", "new-sheet", 'aria-label="Добавить лист"');
+      btn("＋ Лист", "new-sheet", 'aria-label="Добавить лист"');
     host
       .querySelectorAll("[data-action=sheet]")
       .forEach((b) => (b.onclick = () => load(b.dataset.id).catch(error)));
@@ -168,6 +170,10 @@ export async function mount(s, host) {
       .join(";");
   }
   function draw() {
+    host.classList.toggle("tn-simple-table",simple());
+    host.querySelector('.tn-formula').hidden=simple();
+    for(const action of ['format','menu']) host.querySelector(`[data-action=${action}]`).hidden=simple();
+    if(simple()) symbols.hidden=true;
     if (disposed) return;
     const dim = dimensions();
     host.querySelector("[data-period]").hidden = sheetId !== "linked";
@@ -183,7 +189,7 @@ export async function mount(s, host) {
         { length: dim.cols },
         (_, col) =>
           (sheet.widths[widthKey(col)] ||
-            (sheetId === "linked" ? (col === 0 ? 170 : autoWidth(col)) : 80)) *
+            (sheetId === "linked" ? (col === 0 ? 145 : autoWidth(col)) : 80)) *
           scale,
       ).reduce((a, b) => a + b, 0) +
       "px";
@@ -194,7 +200,7 @@ export async function mount(s, host) {
       Array.from(
         { length: dim.cols },
         (_, col) =>
-          `<col style="width:${(sheet.widths[widthKey(col)] || (sheetId === "linked" ? (col === 0 ? 170 : autoWidth(col)) : 80)) * scale}px">`,
+          `<col style="width:${(sheet.widths[widthKey(col)] || (sheetId === "linked" ? (col === 0 ? 145 : autoWidth(col)) : 80)) * scale}px">`,
       ).join("") +
       '</colgroup><thead><tr><th class="tn-corner"></th>' +
       Array.from(
@@ -273,7 +279,7 @@ export async function mount(s, host) {
       if (!row.section)
         length = Math.max(length, D.fmt(D.value(row, day)).length);
     }
-    return Math.max(64, Math.min(180, length * 7 + 12));
+    return Math.max(48, Math.min(150, length * 7 + 12));
   }
   function widthKey(col) {
     return sheetId === "linked"
@@ -299,7 +305,7 @@ export async function mount(s, host) {
       td.querySelector(".tn-fill")?.remove();
     });
     const td = table.querySelector(`[data-cell="${end}"]`);
-    if (td) {
+    if (td && !simple()) {
       const handle = document.createElement("span");
       handle.className = "tn-fill";
       handle.setAttribute("aria-label", "Маркер автозаполнения");
@@ -326,7 +332,7 @@ export async function mount(s, host) {
     const changes = new Map();
     for (const [k, rawValue] of updates) {
       const { row, day, p } = linkedAt(k);
-      if (!row || !day || row.section || p.c === 0)
+      if (!row || !day || row.section || p.c === 0 || (simple() && row.kind === "value"))
         throw Error(
           "Диапазон включает заголовок. Выберите только ячейки факта.",
         );
@@ -419,11 +425,31 @@ export async function mount(s, host) {
       edit.blur();
     }
   };
+  function openHours(k) {
+    const {row,day,p}=linkedAt(k);
+    if(!row || !day || row.section || p.c===0 || row.kind === "value") return;
+    try{s.require("table","edit");}catch(e){error(e);return;}
+    selected=end=k;mark();
+    let value=raw(k);
+    const el=dialog(row.name+" · "+D.display(day.date),`<output data-hours-value aria-live="polite">${esc(value || "0")}</output><div class="tn-numberpad">${['7','8','9','4','5','6','1','2','3',',','0','⌫'].map(x=>btn(x,'digit',`data-digit="${x}"`)).join('')}</div>${btn('Очистить','clear-hours')}`,async()=>{await linkedWrite([[k,value]],"Часы: цифровой ввод");});
+    el.classList.add('tn-hours-dialog');
+    el.querySelector('[type=submit]').textContent='Enter · Сохранить';
+    let replace=true;
+    const update=()=>el.querySelector('[data-hours-value]').textContent=value || '0';
+    el.querySelectorAll('[data-digit]').forEach(b=>b.onclick=()=>{
+      const digit=b.dataset.digit;
+      if(digit==='⌫')value=value.slice(0,-1);
+      else{if(replace)value='';if(digit!==',' || !/[.,]/.test(value))value+=digit;}
+      replace=false;update();
+    });
+    el.querySelector('[data-action=clear-hours]').onclick=()=>{value='';replace=false;update();};
+  }
   table.onclick = (e) => {
     if (e.target.closest("[class*=tn-resize]") || e.target.closest(".tn-fill"))
       return;
     const td = e.target.closest("[data-cell]");
     if (td) {
+      if(simple()) {openHours(td.dataset.cell);return;}
       selected = td.dataset.cell;
       end = selected;
       mark();
@@ -446,6 +472,7 @@ export async function mount(s, host) {
   };
   table.oncontextmenu = (e) => {
     e.preventDefault();
+    if(simple()) return;
     const td = e.target.closest("[data-cell]");
     if (td) {
       selected = end = td.dataset.cell;
@@ -455,6 +482,7 @@ export async function mount(s, host) {
   };
   let hold, origin;
   table.addEventListener("pointerdown", (e) => {
+    if(simple()) return;
     const target = e.target.closest("[data-resize-col],[data-resize-row]");
     if (target) {
       e.preventDefault();

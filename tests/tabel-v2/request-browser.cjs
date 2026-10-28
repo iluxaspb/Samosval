@@ -17,11 +17,11 @@ const server=spawn('python3',['-m','http.server','8793','--bind','127.0.0.1'],{s
  await p.locator('[data-view=catalog]').click();await p.locator('[data-person=itr]').click();await p.locator('dialog [name=phone]').fill('+79991234567');await p.locator('dialog [type=submit]').click();await p.locator('dialog').waitFor({state:'hidden'});
  await p.locator('[data-view=request]').click();assert.equal(await p.locator('[name=responsibleId]').inputValue(),'itr');
  await p.locator('[data-action=lunch]').click();assert.equal(await p.locator('[data-total]').innerText(),'4');
- await p.locator('[name=mechanic]').check();await p.locator('[name=spare]').check();assert.equal(await p.locator('[data-total]').innerText(),'6');
+ await p.locator('[name=mechanic]').check();await p.locator('[name=spare]').check();await p.locator('[name=workers]').fill('3');assert.equal(await p.locator('[data-total]').innerText(),'9');
  assert((await p.locator('dialog').innerText()).includes('+79991234567'));
  await p.locator('dialog [type=submit]').click();await p.locator('textarea').waitFor();const text=await p.locator('textarea').inputValue();
- for(const x of ['Невский проспект, 1','ночная','Количество обедов: 6','Иванов ИТР','+79991234567'])assert(text.includes(x),x);
- assert(!text.includes('12:00') && !text.includes('23:00'));
+ for(const x of ['Невский проспект, 1','ночная','Количество обедов: 9','Иванов ИТР','+79991234567'])assert(text.includes(x),x);
+ assert(!text.includes('12:00') && !text.includes('23:00'));assert(!text.includes('Дата:') && !text.includes('Объект:') && !text.includes('Адрес:'));assert.equal(text.split('Невский проспект, 1').length,2);
  await p.locator('dialog [data-action=close]').first().click();await p.locator('[data-action=send-request]').click();await p.locator('textarea').waitFor();const request=await p.locator('textarea').inputValue();assert(request.includes('Путиловская') && request.includes('07:15'));assert(!request.includes('Иван Петров'));
  await p.locator('dialog [data-action=close]').first().click();await p.locator('[data-action=exit]').click();await p.locator('#open').click();await p.locator('[name=metro]').waitFor();assert.equal(await p.locator('[name=metro]').inputValue(),'Путиловская');
  assert.deepEqual(errors,[]);console.log('PASS mobile requests: selected equipment only, no workers, metro/time persistence, ITR phone edit, lunch calculation/extras, night shift and share text');

@@ -1,0 +1,34 @@
+const assert=require('node:assert/strict'),{spawn}=require('node:child_process');
+const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES+'/playwright');
+const server=spawn('python3',['-m','http.server','8794','--bind','127.0.0.1'],{stdio:'ignore'});
+(async()=>{let b;try{
+ b=await chromium.launch({headless:true,executablePath:'/tmp/tabel-chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
+ const p=await b.newPage({viewport:{width:393,height:852},isMobile:true,hasTouch:true});p.setDefaultTimeout(8000);
+ const errors=[];p.on('pageerror',e=>errors.push(e.message));await p.clock.setFixedTime(new Date('2026-10-28T12:00:00+03:00'));
+ await p.goto('http://127.0.0.1:8794/tests/tabel-v2/harness.html');await p.waitForFunction(()=>ready);await p.evaluate(()=>seedLegacy());await p.locator('#open').click();await p.locator('[data-view=table]').click();await p.locator('.tn-grid').waitFor();
+ assert(await p.locator('.tn-formula').isHidden());assert(await p.locator('[data-action=format]').isHidden());
+ const rect=await p.locator('.tn-sheets').boundingBox();assert(rect.y>=0 && rect.y+rect.height<=852);
+ const count=await p.locator('tbody tr').nth(1).locator('td').evaluateAll(els=>els.slice(1).filter(e=>{const r=e.getBoundingClientRect();return r.left>=0 && r.right<=393;}).length);assert(count>=5,'visible dates '+count);
+ const headers=await p.locator('tbody tr').nth(1).locator('td').allTextContents();const col=headers.findIndex(x=>x.includes('27.10'));const cell=p.locator('tbody tr').nth(4).locator('td').nth(col);
+ await cell.scrollIntoViewIfNeeded();await cell.click();await p.locator('.tn-hours-dialog').waitFor();assert.equal(await p.locator('.tn-hours-dialog input').count(),0);
+ await p.locator('[data-digit="2"]').click();await p.locator('[data-digit="6"]').click();await p.locator('.tn-hours-dialog [type=submit]').click();await p.locator('.tn-hours-dialog').waitFor({state:'hidden'});assert.equal(await cell.innerText(),'26');
+ await p.locator('[data-action=new-sheet]').click();await p.locator('dialog [name=type]').selectOption('blank');await p.locator('dialog [type=submit]').click();await p.locator('dialog').waitFor({state:'hidden'});assert(await p.locator('.tn-formula').isVisible());assert(await p.locator('[data-action=format]').isVisible());
+ await p.locator('[data-cell=A1]').click();await p.locator('[data-editor]').fill('2');await p.locator('[data-action=apply]').click();await p.locator('[data-cell=B1]').click();await p.locator('[data-editor]').fill('=A1*3');await p.locator('[data-action=apply]').click();await p.waitForFunction(()=>document.querySelector('[data-cell=B1]').textContent==='6');
+ await p.locator('[data-id=linked]').click();assert(await p.locator('.tn-formula').isHidden());
+ await p.locator('[data-view=shift]').click();assert.equal(await p.locator('[data-action=close-day]').count(),0);
+ await p.locator('[data-action=exit]').click();
+ await p.evaluate(async()=>{
+  window.M=await import('../../test-app/tabel-v2/material-transfer.mjs');window.S=(await import('../../test-app/tabel-v2/store.mjs')).Store;
+  window.periodShift={id:'line1',objectId:'site-a',startDate:'27.10.2026',workShift:'night'};
+  const archive={totalTrips:10,totalVolume:300};await M.transferClosedLine(host,periodShift,archive);await M.transferClosedLine(host,periodShift,archive);
+  window.openStore=()=>new S(session.projectId+'_'+session.workspaceId+'_'+session.uid,null,()=>({uid:session.uid})).open();
+  const store=await openStore();const day=store.get('site-a/day:2026-10-27:night').data;window.materialId=day.lineImports.line1.materialId;window.importTotal=day.values[materialId].quantity;await store.close();
+ });
+ assert.equal(await p.evaluate(()=>importTotal),300);
+ await p.evaluate(async()=>{const s=await openStore(),key='site-a/config',base=s.get(key),c=base.data;c.currentMaterial='';c.destinations=[];c.lineDestination='';await s.save(key,c,base,'QA');await s.close();window.transferDone=false;window.transferError='';window.pending=M.transferClosedLine(host,{...periodShift,id:'line2'},{totalTrips:1,totalVolume:20}).then(()=>transferDone=true).catch(e=>transferError=e.message);});
+ await p.locator('dialog [name=material]').fill('Песок');await p.locator('dialog [name=direction]').fill('АБЗ 1');await p.locator('dialog [type=submit]').click();await p.waitForFunction(()=>transferDone || transferError);assert.equal(await p.evaluate(()=>transferError),'');
+ await p.evaluate(async()=>{await M.transferClosedLine(host,{...periodShift,id:'line3'},{totalTrips:1,totalVolume:25});const s=await openStore();const c=s.get('site-a/config').data,d=s.get('site-a/day:2026-10-27:night').data;window.summary={material:c.currentMaterial,direction:c.lineDestination,quantity:d.values[d.lineImports.line2.materialId].quantity};await s.close();});
+ assert.deepEqual(await p.evaluate(()=>summary),{material:'Песок',direction:'АБЗ 1',quantity:45});assert.equal(await p.locator('dialog').count(),0);
+ await p.locator('#open').click();await p.locator('[data-view=table]').click();await p.locator('.tn-grid').waitFor();await p.screenshot({path:'/tmp/tabel3431-mobile.png'});
+ assert.deepEqual(errors,[]);console.log('PASS compact/mobile: visible sheets and 5+ days, hours keypad/no keyboard, blank-sheet formulas, no day closing, archive material transfer, retry dedupe, missing-material prompt and remembered defaults');
+}finally{await b?.close();server.kill();}})().catch(e=>{console.error(e);process.exitCode=1;});

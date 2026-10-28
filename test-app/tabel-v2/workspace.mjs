@@ -21,7 +21,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     const l = document.createElement("link");
     l.rel = "stylesheet";
     l.href = new URL("./workspace.css", import.meta.url);
-    l.dataset.tabelNextCss = "";
+    l.dataset.tabelV2Css = "";
     document.head.append(l);
   }
   const root = document.createElement("section");
@@ -418,13 +418,13 @@ function request(s, main) {
   bind(main,"lunch",async()=>{
     const next=await saveRequest();await render(s);
     const x=R.lunch(next,s.object);
-    const el=dialog("Заказ обеда",`<p>Адрес: ${esc(x.address)}</p><div data-lunch-rows></div><label class="tn-check"><input name="mechanic" type="checkbox">Слесарь</label><label class="tn-check"><input name="spare" type="checkbox">Запасной обед</label><p>Всего: <b data-total></b></p><p>Ответственный: ${esc(x.person?.name || "не выбран")}</p><p>Телефон: ${esc(x.phone || "Добавьте номер в справочник ИТР")}</p>`,async f=>{
+    const el=dialog("Заказ обеда",`<p>Адрес: ${esc(x.address)}</p><div data-lunch-rows></div>${field("Количество рабочих",input("workers",0,'type="number" inputmode="numeric" min="0" max="10000" step="1"'))}<label class="tn-check"><input name="mechanic" type="checkbox">Слесарь</label><label class="tn-check"><input name="spare" type="checkbox">Запасной обед</label><p>Всего: <b data-total></b></p><p>Ответственный: ${esc(x.person?.name || "не выбран")}</p><p>Телефон: ${esc(x.phone || "Добавьте номер в справочник ИТР")}</p>`,async f=>{
       if(!x.person) throw Error("Выберите ответственного ИТР в заявке");
       if(!x.phone) throw Error("Добавьте телефон ответственного в справочник ИТР");
-      message("Заказ обеда",R.lunchText(next,s.object,D.display(next.request.date),{mechanic:f.has("mechanic"),spare:f.has("spare")}));
+      message("Заказ обеда",R.lunchText(next,s.object,D.display(next.request.date),{mechanic:f.has("mechanic"),spare:f.has("spare"),workers:f.get("workers")}));
     });
-    const update=()=>{const f=new FormData(el.querySelector("form")), result=R.lunch(next,s.object,{mechanic:f.has("mechanic"),spare:f.has("spare")});el.querySelector('[data-lunch-rows]').innerHTML=result.rows.map(row=>`<p>${esc(row.name)} — ${row.count} чел.</p>`).join("");el.querySelector('[data-total]').textContent=result.total;};
-    el.querySelectorAll('[type=checkbox]').forEach(i=>i.onchange=update);update();
+    const update=()=>{const f=new FormData(el.querySelector("form")), result=R.lunch(next,s.object,{mechanic:f.has("mechanic"),spare:f.has("spare"),workers:f.get("workers")});el.querySelector('[data-lunch-rows]').innerHTML=result.rows.map(row=>`<p>${esc(row.name)} — ${row.count} чел.</p>`).join("");el.querySelector('[data-total]').textContent=result.total;};
+    el.querySelectorAll('input').forEach(i=>i.oninput=()=>{try{update();el.querySelector('[role=alert]').textContent='';}catch(e){error(e);}});update();
     el.querySelector('[type=submit]').textContent="Подготовить текст";
   });
 }
@@ -549,9 +549,9 @@ function shift(s, main) {
     key = s.key(D.dayKey(s.day, s.shift)),
     base = s.store.get(key),
     d = base.data;
-  main.innerHTML = `<div class="tn-tools"><input type="date" data-day value="${s.day}"><select data-shift><option value="day" ${s.shift === "day" ? "selected" : ""}>Дневная</option><option value="night" ${s.shift === "night" ? "selected" : ""}>Ночная</option></select>${[-2, -1, 0].map((n, i) => btn(["Позавчера", "Вчера", "Сегодня"][i], "quick", `data-offset="${n}"`)).join("")}${btn("＋ День", "add-day")}</div><h3>${D.display(s.day)}${d?.date > D.today() ? " · ПЛАН" : ""}${d?.closed ? " · закрыта" : ""}</h3>${
+  main.innerHTML = `<div class="tn-tools"><input type="date" data-day value="${s.day}"><select data-shift><option value="day" ${s.shift === "day" ? "selected" : ""}>Дневная</option><option value="night" ${s.shift === "night" ? "selected" : ""}>Ночная</option></select>${[-2, -1, 0].map((n, i) => btn(["Позавчера", "Вчера", "Сегодня"][i], "quick", `data-offset="${n}"`)).join("")}${btn("＋ День", "add-day")}</div><h3>${D.display(s.day)}${d?.date > D.today() ? " · ПЛАН" : ""}</h3>${
     d
-      ? `<div class="tn-tools">${btn("Состав", "composition")}${btn(d.closed ? "Открыть для исправления" : "Закрыть смену", "close-day")}</div><form data-facts>${[
+      ? `<div class="tn-tools">${btn("Состав", "composition")}</div><form data-facts>${[
           ["equipment", "Техника"],
           ["people", "Люди"],
         ]
@@ -571,13 +571,13 @@ function shift(s, main) {
                                 ...(e.pump ? [["pumpHours", "Помпа"]] : []),
                               ]),
                         ];
-                  return `<section class="tn-item">${rows.map(([field, label]) => `<label>${esc(label)}${input(kind + ":" + e.id + ":" + field, D.fmt(e[field]), 'inputmode="decimal" placeholder="часы" ' + (d.closed ? "disabled" : ""))}</label>`).join("")}${kind === "equipment" ? btn("Ввод за 5 дней", "multi", `data-id="${e.id}"`) : ""}</section>`;
+                  return `<section class="tn-item">${rows.map(([field, label]) => `<label>${esc(label)}${input(kind + ":" + e.id + ":" + field, D.fmt(e[field]), 'inputmode="decimal" placeholder="часы" ' + "")}</label>`).join("")}${kind === "equipment" ? btn("Ввод за 5 дней", "multi", `data-id="${e.id}"`) : ""}</section>`;
                 })
                 .join("")}`,
           )
           .join(
             "",
-          )}<h3>Материалы и объёмы работ</h3>${[...c.works, ...c.materials].map((w) => field(w.name + " · " + w.unit, input("value:" + w.id, D.fmt(d.values[w.id]?.quantity), 'inputmode="decimal" ' + (d.closed ? "disabled" : ""))) + (c.materials.some((m) => m.id === w.id) ? field("Направление", input("direction:" + w.id, d.values[w.id]?.direction ?? w.direction, d.closed ? "disabled" : "")) : "")).join("")}<button type="submit" ${d.closed ? "disabled" : ""}>Сохранить факт</button></form>`
+          )}<h3>Материалы и объёмы работ</h3>${[...c.works, ...c.materials].map((w) => field(w.name + " · " + w.unit, input("value:" + w.id, D.fmt(d.values[w.id]?.quantity), 'inputmode="decimal" ' + "")) + (c.materials.some((m) => m.id === w.id) ? field("Направление", input("direction:" + w.id, d.values[w.id]?.direction ?? w.direction, d.closed ? "disabled" : "")) : "")).join("")}<button type="submit" >Сохранить факт</button></form>`
       : "<p>Смена пока не создана. Добавьте день здесь или в таблице.</p>"
   }`;
   main.querySelector("[data-day]").onchange = (e) => {
@@ -598,10 +598,7 @@ function shift(s, main) {
   bind(main, "add-day", s.addDay);
   if (!d) return;
   bind(main, "composition", s.composition);
-  bind(main, "close-day", async () => {
-    await s.save(key, { ...d, closed: !d.closed }, base, "Состояние смены");
-    await render(s);
-  });
+
   main
     .querySelectorAll("[data-action=multi]")
     .forEach((b) => (b.onclick = () => multi(s, b.dataset.id).catch(error)));
@@ -637,7 +634,7 @@ function composition(s) {
     base = s.store.get(key),
     d = base.data;
   if (!d) throw Error("Сначала создайте смену");
-  if (d.closed) throw Error("Смена закрыта");
+
   dialog(
     "Состав только этой смены",
     `<h3>Техника</h3>${c.equipment.map((e) => `<label class="tn-check"><input type="checkbox" name="equipment" value="${e.id}" ${d.equipment.some((x) => x.id === e.id) ? "checked" : ""}>${esc(e.name)}</label>${e.ownership === "own" ? `<label class="tn-check"><input type="checkbox" name="pump" value="${e.id}" ${(d.equipment.find((x) => x.id === e.id)?.pump ?? e.pump) ? "checked" : ""}>Помпа · ${esc(e.name)}</label>` : ""}`).join("")}<h3>Люди</h3>${c.people.map((p) => `<label class="tn-check"><input type="checkbox" name="people" value="${p.id}" ${d.people.some((x) => x.id === p.id) ? "checked" : ""}>${esc(p.name)}</label>`).join("")}<p>Исключение удалит строку из факта этой смены. Предыдущие значения сохранятся в истории.</p>`,

@@ -44,8 +44,8 @@ jobs:
           root=pathlib.Path('.')
           m=json.loads((root/'test-app/build-manifest.json').read_text())
           html=(root/'index-test.html').read_text()
-          assert 'name="test-app-version" content="3.4.30"' in html
-          assert m['channel'].startswith('test-3.4.30-')
+          assert 'name="test-app-version" content="3.4.31"' in html
+          assert m['channel'].startswith('test-3.4.31-')
           assert 'settings-hub.js' in html
           source=(root/'test-app/source/features/settings-hub.js').read_text()
           motion=(root/'test-app/source/features/line-motion-test.js').read_text()
@@ -73,7 +73,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add index-test.html sw-test.js test-app/build-manifest.json test-app/build/
           if ! git diff --cached --quiet; then
-            git commit -m "build(test): publish settings 3.4.30 hashed assets"
+            git commit -m "build(test): publish settings 3.4.31 hashed assets"
             git push origin HEAD:root
           else
             echo "Test build already up to date"

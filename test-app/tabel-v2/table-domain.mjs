@@ -248,8 +248,7 @@ export function value(row, d) {
   return e?.[row.field] ?? null;
 }
 export function setValue(row, d, raw) {
-  if (d.closed)
-    throw Error("Смена закрыта. Сначала откройте её для исправления.");
+
   if (d.date > today())
     throw Error(
       "Будущая смена — план. Фактические часы и объёмы вводятся после наступления дня.",
