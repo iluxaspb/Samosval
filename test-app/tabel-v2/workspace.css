@@ -1066,3 +1066,11 @@ dialog.tn :is(header, footer) {
 .tn-app > .tn-status {max-height:none;min-height:26px;height:auto;flex:0 0 auto;}
 .tn-status [data-status] {white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;font-size:11px;line-height:1.25;}
 .tn-app main {min-height:0!important;}
+
+.tn-conflict-dialog {width:min(760px,96vw);}
+.tn-conflict-dialog p {line-height:1.45;margin:8px 0;}
+.tn-conflict-scroll {overflow:auto;}
+.tn-conflict-table {width:100%;border-collapse:collapse;font-size:12px;}
+.tn-conflict-table th,.tn-conflict-table td {border:1px solid var(--tn-border);padding:7px;text-align:left;vertical-align:top;overflow-wrap:anywhere;}
+.tn-conflict-table small {display:block;font-weight:normal;color:var(--muted,#66757d);margin-top:4px;}
+.tn-conflict-dialog [data-action=server],.tn-conflict-dialog [data-action=local] {white-space:normal;min-height:42px;width:100%;margin:4px 0;}

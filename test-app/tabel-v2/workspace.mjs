@@ -981,25 +981,7 @@ function settings(s, main) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 }
-function conflicts(s) {
-  const jobs = s.store.state.jobs.filter((j) => j.status === "conflict");
-  if (!jobs.length) {
-    dialog("Конфликты", "<p>Конфликтов нет.</p>");
-    return;
-  }
-  const job = jobs[0];
-  const el = dialog(
-    "Конфликт — обе версии сохранены",
-    `<p>Объект: ${esc(s.config().name)}<br>Запись: ${esc(job.key)}<br>Правка: ${esc(job.label)}<br>Вы: ${esc(job.author.name)} · ${new Date(job.time).toLocaleString("ru-RU")}<br>Текущая версия: ${esc(job.remote.authorName || job.remote.author || "нет автора")} · ${job.remote.time ? new Date(job.remote.time).toLocaleString("ru-RU") : "время неизвестно"}</p><p>Применение заменит всю запись, включая часы, состав и связанные итоги таблицы и отчёта. Обе версии останутся в истории.</p><p><b>Текущие данные → предлагаемая замена:</b></p><pre>${esc(D.describeChange(job.remote.data, job.data))}</pre><details><summary>Было → текущее → моё</summary><pre>${esc(JSON.stringify({ before: job.before.data, current: job.remote.data, mine: job.data }, null, 2))}</pre></details>${btn("Оставить существующее", "theirs")}${btn("Применить моё изменение", "mine")}`,
-  );
-  for (const choice of ["theirs", "mine"])
-    bind(el, choice, async () => {
-      s.require("shift", "edit");
-      await s.store.resolve(job.id, choice);
-      el.close();
-      await render(s);
-    });
-}
+function conflicts(s) {return import('./conflict-view.mjs').then(m=>m.showConflicts(s)).catch(error);}
 function history(s, main) {
   main.innerHTML =
     "<h3>История подтверждений и решений</h3>" +
