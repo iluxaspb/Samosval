@@ -4,7 +4,7 @@ const sections=[
  {key:'hold',icon:'⏱️',label:'Удержание кнопок',desc:'Погрузка, прибытие, ТТН и сброс',ids:['settingHoldLoad','settingHoldArrive','settingHoldTtn','settingHoldResetCycle']},
  {key:'cycle',icon:'🚛',label:'Время ходки',desc:'Общий интервал рейсов',ids:['settingCycleMinutes']},
  {key:'vibration',icon:'📳',label:'Вибрация',desc:'Кнопки, интерфейс, сила отклика',ids:['hapticArrive','hapticLoad','hapticTtn','globalUiHaptics','globalUiHapticsLevel','soft-vib-Arrive','soft-vib-Load','soft-vib-Ttn']},
- {key:'motion',icon:'🎬',label:'Анимации',desc:'Анимация карточек на «Линии»',ids:['soft-motion-pace','soft-motion-spring'],blocks:['speed-settings-block','soft-motion-setting']},
+ {key:'motion',icon:'🎬',label:'Анимации',desc:'Анимация карточек на «Линии»',ids:['soft-motion-pace','soft-motion-spring','soft-motion-spring-speed'],blocks:['speed-settings-block','soft-motion-setting']},
  {key:'navigation',icon:'🔀',label:'Порядок вкладок',desc:'Нижнее меню на устройстве',blocks:['nav-sort-block']},
  {key:'pwa',icon:'📱',label:'Приложение',desc:'Версия, установка и обновления',blocks:['test-pwa-settings']},
  {key:'other',icon:'🧩',label:'Другие настройки',desc:'Параметры расширений'}
