@@ -1,12 +1,45 @@
+  const archiveExpandedObjects = new Set();
   function renderArchive() {
-    if (!hasTabAccess('archive')) return; // === SECURITY ===
-    let c = document.getElementById('archiveContainer'); let q = (document.getElementById('archiveSearchInput').value||'').toLowerCase();
-    let f = state.archive.filter(s=>s.date?.toLowerCase().includes(q) || s.objectName?.toLowerCase().includes(q));
-    if(!f.length) { c.innerHTML = '<div class="empty-state">Пусто</div>'; renderTrash(); return; }
-    let g = {}; f.forEach(s=>{ let k=s.objectName||'—'; if(!g[k]) g[k]=[]; g[k].push(s); });
-    c.innerHTML = Object.keys(g).map(k=>{ let l = g[k].sort((a,b)=>(b.closedAt||0)-(a.closedAt||0)); return `<div class="archive-group"><div class="archive-group-header">${escapeHtml(k)}</div><div class="archive-shifts-list">${l.map(s=>{ let stdL = (s.logs||[]).filter(x=>!x.isGAI); let gaiL = (s.logs||[]).filter(x=>x.isGAI); let gaiHtml = gaiL.length > 0 ? ` | <span style="color:#cbd5e1;">ГАИ: ${gaiL.length} рейс.</span>` : ''; return `<div class="archive-shift-item" onclick="openArchiveModal('${s.id}')"><div>${escapeHtml(s.date)}</div><div>${stdL.length} рейсов | <b>${stdL.reduce((x,y)=>x+y.volume,0)} м³</b>${gaiHtml}</div></div>`; }).join('')}</div></div>`; }).join('');
+    if (!hasTabAccess('archive')) return;
+    const container=document.getElementById('archiveContainer');
+    if (!container.__archiveToggleBound) {
+      container.addEventListener('click',event=>{
+        const toggle=event.target.closest?.('.archive-group-toggle');
+        if (!toggle || !container.contains(toggle)) return;
+        const key=toggle.getAttribute('data-archive-key');
+        const expanded=toggle.getAttribute('aria-expanded')!=='true';
+        if (expanded) archiveExpandedObjects.add(key);
+        else archiveExpandedObjects.delete(key);
+        toggle.setAttribute('aria-expanded',String(expanded));
+        const arrow=toggle.querySelector('.archive-group-arrow');
+        if (arrow) arrow.textContent=expanded?'▾':'▸';
+        const list=toggle.nextElementSibling;
+        if (list?.classList.contains('archive-shifts-list')) list.hidden=!expanded;
+      });
+      container.__archiveToggleBound=true;
+    }
+    const q=(document.getElementById('archiveSearchInput').value||'').toLowerCase();
+    const filtered=state.archive.filter(s=>s.date?.toLowerCase().includes(q)||s.objectName?.toLowerCase().includes(q));
+    if (!filtered.length){container.innerHTML='<div class="empty-state">Пусто</div>';renderTrash();return;}
+    const groups=Object.create(null);
+    filtered.forEach(shift=>{
+      const name=shift.objectName||'—';
+      if (!groups[name]) groups[name]=[];
+      groups[name].push(shift);
+    });
+    container.innerHTML=Object.keys(groups).map((name,index)=>{
+      const shifts=groups[name].sort((a,b)=>(b.closedAt||0)-(a.closedAt||0));
+      const expanded=archiveExpandedObjects.has(name)||!!q;
+      return `<div class="archive-group"><button type="button" class="archive-group-header archive-group-toggle" data-archive-key="${escapeHtml(name)}" aria-expanded="${expanded}" aria-controls="archive-shifts-${index}" style="width:100%;border:0;text-align:left;font-family:inherit;gap:10px;"><span class="archive-group-arrow" aria-hidden="true" style="min-width:14px;">${expanded?'▾':'▸'}</span><span style="min-width:0;flex:1;overflow-wrap:anywhere;">${escapeHtml(name)}</span></button><div class="archive-shifts-list" id="archive-shifts-${index}" ${expanded?'':'hidden'}>${shifts.map(s=>{
+        const stdLogs=(s.logs||[]).filter(log=>!log.isGAI);
+        return `<div class="archive-shift-item" onclick="openArchiveModal('${s.id}')"><div>${escapeHtml(s.date)}</div><div>${stdLogs.length} рейсов | <b>${stdLogs.reduce((sum,log)=>sum+log.volume,0)} м³</b></div></div>`;
+      }).join('')}</div></div>`;
+    }).join('');
     renderTrash();
-    if(viewingArchiveId) { let s=state.archive.find(x=>x.id===viewingArchiveId); if(s) openArchiveModal(viewingArchiveId); else closeArchiveModal(); }
+    if (viewingArchiveId){
+      const shift=state.archive.find(item=>item.id===viewingArchiveId);
+      if (shift) openArchiveModal(viewingArchiveId); else closeArchiveModal();
+    }
   }
   function renderTrash() { let c = document.getElementById('trashContainer'); if(!state.trash.length) { c.innerHTML=''; return; } let e = hasPermission('archive_edit'); c.innerHTML = `<div class="trash-group"><div class="trash-header">Корзина</div><div class="trash-list">${state.trash.map(i=>`<div class="trash-item"><div class="info"><b>${escapeHtml(i.shift.objectName)}</b> · ${escapeHtml(i.shift.date)}</div>${e?`<button class="btn-del" onclick="purgeFromTrash('${i.id}')">X</button>`:''}</div>`).join('')}</div></div>`; }
   async function purgeFromTrash(id) { if(!requireEdit('archive_delete') || !(await appConfirm('Удалить навсегда?'))) return; await tfAwait(refs.trash.doc(id).delete()); }
