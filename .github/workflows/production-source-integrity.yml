@@ -1,0 +1,29 @@
+name: Production source integrity
+on:
+  push:
+    branches: [root]
+    paths:
+      - 'app/src/**'
+      - 'app/modules.json'
+      - 'app/build-manifest.json'
+      - 'index.html'
+      - 'sw.js'
+      - 'tools/build-release.py'
+      - '.github/workflows/production-source-integrity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact production release without writing output
+        run: python3 tools/build-release.py --check
+      - name: Validate published JavaScript syntax
+        run: |
+          node --check app/build/d7399f63cbcbabc7/core.js
+          node --check app/build/d7399f63cbcbabc7/pwa.js
+          node --check app/build/d7399f63cbcbabc7/built-in-patches.js
+          node --check sw.js

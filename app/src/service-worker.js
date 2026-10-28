@@ -1,4 +1,4 @@
-/* Production shell only. Cache Storage holds application files, NEVER user data/API replies. */
+/* Production page only. Cache Storage holds application files, NEVER user data/API replies. */
 'use strict';
 const VERSION = '__BUILD_VERSION__';
 const PREFIX = 'samosval-shell-';
@@ -37,7 +37,7 @@ self.addEventListener('install', event => event.waitUntil((async () => {
 self.addEventListener('activate', event => event.waitUntil((async () => {
   const cache = await caches.open(CACHE);
   if (!await cache.match(COMPLETE)) throw Error('Incomplete production release');
-  // Activation waits for old production clients to close. Never touch test caches or IndexedDB.
+  // Activation waits for the old production clients to close. Never touch production caches or IndexedDB.
   for (const key of await caches.keys()) if (key.startsWith(PREFIX) && key !== CACHE) await caches.delete(key);
   await self.clients.claim();
 })()));
@@ -48,7 +48,7 @@ self.addEventListener('fetch', event => {
   if (url.origin !== BASE.origin) return; // Firebase/Auth/Storage/MAX keep their existing protocols.
   const isPage = url.pathname === new URL(PAGE).pathname || url.pathname === BASE.pathname;
   const key = isPage ? PAGE : url.href;
-  if (!ALLOWED.has(key)) return; // Test pages/assets and all API endpoints are outside this cache.
+  if (!ALLOWED.has(key)) return; // In particular: index.html and all other pages are outside this cache.
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const cached = await cache.match(key);
@@ -65,10 +65,19 @@ self.addEventListener('fetch', event => {
 });
 
 self.addEventListener('message', event => {
-  if (event.data?.type !== 'APP_PWA_STATUS' || !event.ports?.[0]) return;
+  const type = event.data?.type, port = event.ports?.[0];
+  if (!port || (type !== 'PROD_PWA_STATUS' && type !== 'PROD_PWA_APPLY')) return;
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
     const complete = !!await cache.match(COMPLETE);
-    event.ports[0].postMessage({type:'APP_PWA_STATUS',version:VERSION,complete});
+    if (type === 'PROD_PWA_STATUS') {
+      port.postMessage({type:'PROD_PWA_STATUS',version:VERSION,complete});
+      return;
+    }
+    // Only activate a complete, hash-verified release requested explicitly by
+    // the user. Never call skipWaiting during automatic installation.
+    const accepted = complete && event.data?.version === VERSION;
+    port.postMessage({type:'PROD_PWA_APPLY',version:VERSION,accepted});
+    if (accepted) await self.skipWaiting();
   })());
 });
