@@ -776,7 +776,7 @@ export async function mount(s, host) {
       return;
     }
     if (!simple()) {
-      try { s.require("table", "edit"); } catch (e) { error(e); return; }
+      try { s.require("table", "edit"); } catch { selectCell(k); return; }
       // Focus during the user gesture: Android will not open the keyboard after an awaited save.
       edit.readOnly = false;
       edit.focus({ preventScroll: true });
