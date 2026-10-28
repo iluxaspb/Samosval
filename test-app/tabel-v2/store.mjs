@@ -317,6 +317,13 @@ export const recordIdFor = (key) => {
     throw Error("Некорректный ключ нового табеля");
   return key.replace(/[/:]/g, "~");
 };
+// Firestore rejects undefined at any depth. Omit absent map fields; preserve array positions.
+export function firestoreData(value) {
+  if(Array.isArray(value))return value.map(item=>item===undefined?null:firestoreData(item));
+  if(value && typeof value==='object' && Object.getPrototypeOf(value)===Object.prototype)
+    return Object.fromEntries(Object.entries(value).filter(([,v])=>v!==undefined).map(([k,v])=>[k,firestoreData(v)]));
+  return value;
+}
 export function firestoreRemote(host, guard) {
   const collection = host.workspace.collection("tabelNextRecords"),
     receipts = host.workspace.collection("tabelNextOperations");
@@ -381,9 +388,9 @@ export function firestoreRemote(host, guard) {
             key: job.key,
             objectId: job.key.split("/")[0],
             revision: current.revision + 1,
-            data: job.data,
+            data: firestoreData(job.data),
             author: host.session().uid,
-            authorName: host.session().name,
+            authorName: host.session().name || host.session().uid,
             time: Date.now(),
             operationId: job.id,
           };
