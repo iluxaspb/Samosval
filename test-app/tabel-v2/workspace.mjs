@@ -295,7 +295,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   });
   observer.observe(container, { attributes: true, attributeFilter: ["class"] });
   return {
-    settings: () => s.openSettings(),
+    async settings(id){if(id&&s.object?.id!==id)await s.select(id);return s.openSettings();},
     refresh(){s.incoming=true;return refreshIncoming();},
     notice(text){s.store.error=text;s.status();},
     async connect(){if(s.store.closed)return;account();if(!s.remote){s.remote=firestoreRemote(host,guard);s.store.remote=s.remote;}void s.store.flush();await synchronize();},

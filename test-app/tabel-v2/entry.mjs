@@ -105,7 +105,7 @@ async function openInner(
   let timer;
   opened = {
     uid:initial.uid,
-    async show(settings=false){container.hidden=false;await runtime.show();if(settings)runtime.settings();},
+    async show(settings=false){container.hidden=false;await runtime.show();if(settings)await runtime.settings(host.session().objectId);},
     hide(){container.hidden=true;},
     async dispose() {
       disposed=true;globalThis.removeEventListener("online",connect);
