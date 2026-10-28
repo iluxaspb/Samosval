@@ -140,6 +140,17 @@
           onDispose: fn => { if (typeof fn === 'function') pluginDisposers.push(fn); },
           ledgerHost: {
             workspace: wsRef,
+            createObject: async (name, startDate) => {
+              if (firebaseConfig.projectId !== 'samosval-offline' || !hasPermission('manage_objects') || currentUserStatus !== 'active') throw new Error('Нет права создавать объекты');
+              name = String(name || '').trim();
+              if (!name || name.length > 180 || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) throw new Error('Проверьте название и дату начала');
+              const existing = state.objects.find(o => o.name.toLowerCase() === name.toLowerCase());
+              if (existing) return {...existing};
+              const ref = refs.objects.doc();
+              const data = {name, startDate, createdAt: Date.now(), createdBy: getUserName()};
+              await tfAwait(ref.set(data));
+              return {id: ref.id, ...data};
+            },
             session: () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
               uid: currentUid, name: getUserName(), role: currentUserRole, status: currentUserStatus,
               tabAccess: permissionsLoaded && currentUserStatus === 'active' && hasTabAccess('timesheet')
