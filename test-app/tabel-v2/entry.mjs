@@ -51,18 +51,13 @@ export async function open(
       return [];
     }
   };
-  const [equipment, people] = await Promise.all([
-    read("timesheetEquipment"),
-    read("timesheetPeople"),
-  ]);
-  const catalog = {
-    equipment: equipment.map((e) => ({
-      ...e,
-      ownership: e.ownership === "hired" ? "hired" : "own",
-      pump: !!e.pumpEnabled,
-      plate: e.number || e.plate || "",
-    })),
-    people,
+  const cacheKey=JSON.stringify(['tabel-v2-catalog',initial.projectId,initial.workspaceId,initial.uid]);
+  let cached={equipment:[],people:[]};try{cached=JSON.parse(localStorage.getItem(cacheKey))||cached;}catch{}
+  const catalog={equipment:cached.equipment||[],people:cached.people||[]};
+  const background=async()=>{
+    const [equipment,people]=await Promise.all([read('timesheetEquipment'),read('timesheetPeople')]);
+    if(!errors.length){catalog.equipment=equipment.map(e=>({...e,ownership:e.ownership==='hired'?'hired':'own',pump:!!e.pumpEnabled,plate:e.number||e.plate||''}));catalog.people=people;try{localStorage.setItem(cacheKey,JSON.stringify(catalog));}catch{}}
+    return host.transaction ? onlinePolicy(host) : false;
   };
   const ledgerHost = {
     session: () => {
@@ -89,7 +84,7 @@ export async function open(
       ],
       shift: host.shift || null,
     }),
-    requestObjectId: requestObject?.id,
+    requestObjectId: requestObject?.id || (settingsOnly ? initial.objectId : null),
     workspace: host.workspace,
     catalog,
     transaction: host.transaction,
@@ -103,24 +98,14 @@ export async function open(
       container.remove();
     },
   };
-  let remoteEnabled = false;
-  if (host.transaction) {
-    try {
-      remoteEnabled = await onlinePolicy(host);
-      if (!remoteEnabled)
-        errors.push(
-          "Firebase Табеля 2 ещё не включён: сначала опубликуйте правила доступа и настройку синхронизации. Данные сохранены на устройстве.",
-        );
-    } catch (e) {
-      errors.push("Не удалось проверить подключение Firebase: " + e.message);
-    }
-  }
-  const runtime = await mount({ ledgerHost, refs: host.refs }, container, {
-    remoteEnabled,
-  });
+  const runtime=await mount({ledgerHost,refs:host.refs},container,{remoteEnabled:false});
+  let disposed=false;
+  const connect=()=>{if(disposed)return;void background().then(async enabled=>{if(disposed)return;if(enabled)await runtime.connect();else {await runtime.refresh();runtime.notice('На устройстве: Firebase не включён');}}).catch(e=>{if(!disposed)runtime.notice('На устройстве · ошибка подключения Firebase: '+e.message);});};
+  connect();globalThis.addEventListener('online',connect);
   let timer;
   opened = {
     async dispose() {
+      disposed=true;globalThis.removeEventListener("online",connect);
       clearInterval(timer);
       await runtime.dispose();
       container.remove();

@@ -39,7 +39,7 @@ export async function mount(s, host) {
   async function load(id) {
     await chain;
     sheetId = id;
-    await s.store.pull(key());
+    // Server snapshots arrive through the object subscription; open cached sheet immediately.
     base = s.store.get(key());
     sheet = base.data || blank();
     undo = [];

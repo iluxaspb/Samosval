@@ -184,9 +184,14 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     );
   };
   s.root.innerHTML = "<p>Открываем новый табель…</p>";
+  const selectionKey=JSON.stringify(['tabel-v2-last-object',session.projectId,session.workspaceId,session.uid]);
+  let lastObject=null;try{lastObject=localStorage.getItem(selectionKey);}catch{}
+  const remember=()=>{if(s.object)try{localStorage.setItem(selectionKey,s.object.id);}catch{}};
+  s.remember=remember;
   const objects = host.data().objects || [];
   s.object =
     objects.find((o) => o.id === host.requestObjectId) ||
+    objects.find((o) => o.id === lastObject) ||
     objects.find((o) => o.id === host.data().shift?.objectId) ||
     objects[0] ||
     null;
@@ -222,25 +227,24 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     s.grid?.dispose();
     s.object = (host.data().objects || []).find((o) => o.id === id) || s.object;
     s.generation++;
-    if (account().permissions.edit) await s.store.prepareSync();
-    await s.store.pull("_catalog/config");
-    await s.store.pull("_defaults/config");
-    await loadObject();
-    await host.prepare?.(s.store, s.object);
-    if (account().permissions.edit) await s.store.prepareSync();
+    remember();
+    await host.prepare?.(s.store,s.object);
     await render(s);
-    watch();
-    void s.store.flush();
+    void synchronize();
   };
-  if (account().permissions.edit) await s.store.prepareSync();
-  await s.store.pull("_catalog/config");
-  await s.store.pull("_defaults/config");
-  await loadObject();
-  await host.prepare?.(s.store, s.object);
-  if (account().permissions.edit) await s.store.prepareSync();
+  remember();
+  await host.prepare?.(s.store,s.object);
   await render(s);
-  if (host.errors?.length) error(host.errors.join("\n"));
-  void s.store.flush();
+  async function synchronize(){
+    if(!s.remote||s.store.closed)return;
+    if(account().permissions.edit)await s.store.prepareSync();
+    const object=s.object?.id;
+    await s.store.pull('_catalog/config');await s.store.pull('_defaults/config');
+    await loadObject();
+    if(s.store.closed||s.object?.id!==object)return;
+    watch();void s.store.flush();s.incoming=true;await refreshIncoming();
+  }
+  if(s.remote)void synchronize();
   async function refreshIncoming(){
     if(!s.incoming||s.root.hidden)return;
     const active=document.activeElement;
@@ -280,6 +284,9 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   observer.observe(container, { attributes: true, attributeFilter: ["class"] });
   return {
     settings: () => s.openSettings(),
+    refresh(){s.incoming=true;return refreshIncoming();},
+    notice(text){s.store.error=text;s.status();},
+    async connect(){if(s.store.closed)return;account();if(!s.remote){s.remote=firestoreRemote(host,guard);s.store.remote=s.remote;}await synchronize();},
     show() {
       account();
       root.hidden = false;
@@ -297,6 +304,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   };
 }
 async function render(s) {
+  s.remember?.();
   s.grid?.dispose();
   s.grid = null;
   const c = s.object ? s.config() : null;
