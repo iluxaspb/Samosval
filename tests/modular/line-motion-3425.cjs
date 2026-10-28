@@ -7,8 +7,8 @@ const source=fs.readFileSync(path.join(root,'test-app/source/features/line-motio
 const hub=fs.readFileSync(path.join(root,'test-app/source/features/settings-hub.js'),'utf8');
 const modules=JSON.parse(fs.readFileSync(path.join(root,'test-app/modules.json'),'utf8'));
 assert.doesNotThrow(()=>new Function(source),'test-only motion script syntax');
-const module=modules.modules.find(m=>m.name==='settings-hub');
-assert(module.sources.includes('features/line-motion-test.js'),'physics runs in the hashed offline settings module');
+const settingsModule=modules.modules.find(m=>m.name==='settings-hub');
+assert(settingsModule.sources.includes('features/line-motion-test.js'),'physics runs in the hashed offline settings module');
 assert(source.includes("if(!old||old.version!=='1.0.0')return;"),'only upgrade existing motion patch');
 assert(source.includes("if(window.__lineSoftMotionV1?.version!=='1.1.0-test')"),'upgrade version is verified');
 assert(source.includes("localStorage.getItem(KEY) !== 'off'"),'user-disabled animation remains disabled');
