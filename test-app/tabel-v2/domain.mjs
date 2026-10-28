@@ -12,6 +12,12 @@ export function calendarDate(value) {
   if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) fail('Неверная дата');
   return value;
 }
+// Adapt the Line calendar string without timezone conversion or guessing today.
+export function lineCalendarDate(value) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  const ru = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(text);
+  return calendarDate(ru ? `${ru[3]}-${ru[2].padStart(2, '0')}-${ru[1].padStart(2, '0')}` : text);
+}
 export function shiftKey(objectId, date, kind) {
   required(objectId, 'Объект'); calendarDate(date);
   if (!['day', 'night'].includes(kind)) fail('Выберите дневную или ночную смену');

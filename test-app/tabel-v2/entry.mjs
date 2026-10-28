@@ -1,3 +1,4 @@
+import {lineCalendarDate} from './domain.mjs';
 import {mount} from './ui.mjs';
 let opened=null;
 export async function open(host,settingsOnly=false){
@@ -19,5 +20,5 @@ export async function open(host,settingsOnly=false){
   const close=document.createElement('button');close.textContent='Закрыть';close.onclick=()=>dialog.close();root.querySelector('header').append(close);
   document.body.append(dialog);opened=dialog;let timer;
   dialog.addEventListener('close',()=>{clearInterval(timer);dialog.remove();if(opened===dialog)opened=null},{once:true});
-  try{const ui=mount(root,{object,date:host.shift.startDate,startDate:'2000-01-01',equipment:equipment.map(x=>({...x,ownership:x.ownership==='hired'?'hired':'owned'})),people,load,save:data=>{check(true);localStorage.setItem(key,JSON.stringify(data))},check,canEdit:initial.edit});dialog.showModal();if(settingsOnly)ui.openSettings();timer=setInterval(()=>{try{check()}catch{dialog.close()}},500)}catch(e){dialog.remove();opened=null;throw e}
+  try{const ui=mount(root,{object,date:lineCalendarDate(host.shift?.startDate),startDate:'2000-01-01',equipment:equipment.map(x=>({...x,ownership:x.ownership==='hired'?'hired':'owned'})),people,load,save:data=>{check(true);localStorage.setItem(key,JSON.stringify(data))},check,canEdit:initial.edit});dialog.showModal();if(settingsOnly)ui.openSettings();timer=setInterval(()=>{try{check()}catch{dialog.close()}},500)}catch(e){dialog.remove();opened=null;throw e}
 }
