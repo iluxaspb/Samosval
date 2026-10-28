@@ -1174,7 +1174,8 @@ const firebaseConfig = {
     let tIds = new Set(aIds); stdLogs.forEach(l=>tIds.add(l.truckId));
     let rTrucks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?f:{id, brand:'Машина', number:'', defaultVol:0}; });
     let fTime = {}; stdLogs.forEach(l=>{ if(fTime[l.truckId]===undefined || l.timestamp<fTime[l.truckId]) fTime[l.truckId]=l.timestamp; });
-    rTrucks.sort((a,b)=> (fTime[a.id]||0) - (fTime[b.id]||0));
+    // Эталон «Сводка»: первым идёт самосвал с самой ранней погрузкой; машины без рейсов — внизу.
+    rTrucks.sort((a,b)=> ((fTime[a.id] === undefined) - (fTime[b.id] === undefined)) || ((fTime[a.id]||0) - (fTime[b.id]||0)));
     let maxT = 8; rTrucks.forEach(t=>{ let c=stdLogs.filter(l=>l.truckId===t.id).length; if(c>maxT) maxT=c; });
     let hHtml = '<th>№</th><th style="text-align:left;">Самосвал</th>'; for(let i=1; i<=maxT; i++) hHtml += `<th>Рейс ${i}</th>`; mH.innerHTML = hHtml;
     mB.innerHTML = rTrucks.map((t, idx)=>{
@@ -1202,7 +1203,7 @@ const firebaseConfig = {
     let gaiTIds = new Set(gaiLineIds); gaiLogs.forEach(l=>gaiTIds.add(l.truckId));
     let gaiTrucks = Array.from(gaiTIds).map(id=>{ let f=findTruck(id); return f?f:{id, brand:'Машина', number:'', defaultVol:0}; });
     let gaiFirstTime = {}; gaiLogs.forEach(l=>{ if(gaiFirstTime[l.truckId]===undefined || l.timestamp<gaiFirstTime[l.truckId]) gaiFirstTime[l.truckId]=l.timestamp; });
-    gaiTrucks.sort((a,b)=> (gaiFirstTime[a.id]||0) - (gaiFirstTime[b.id]||0));
+    gaiTrucks.sort((a,b)=> ((gaiFirstTime[a.id] === undefined) - (gaiFirstTime[b.id] === undefined)) || ((gaiFirstTime[a.id]||0) - (gaiFirstTime[b.id]||0)));
     let gaiMaxT = 8; gaiTrucks.forEach(t=>{ let c=gaiLogs.filter(l=>l.truckId===t.id).length; if(c>gaiMaxT) gaiMaxT=c; });
     let gaiHHtml = '<th>№</th><th style="text-align:left;">Самосвал</th>'; for(let i=1; i<=gaiMaxT; i++) gaiHHtml += `<th>Рейс ${i}</th>`; gaiH.innerHTML = gaiHHtml;
     gaiB.innerHTML = gaiTrucks.map((t, idx)=>{
