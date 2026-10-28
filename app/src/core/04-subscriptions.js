@@ -121,11 +121,12 @@
 
   // === ПЛАГИНЫ ===
   let pluginDisposers = [];
+  function retiredTabelPlugin(p){return p.id==='builtin-tabel'||(/табель/i.test(p.name||'')&&/1\.1\.0-test\.3/.test((p.version||'')+' '+(p.code||'')));}
   function getPluginRecords() {
-    const bundled = []; // Disable test-only bundled plugins in production.
+    const bundled = firebaseConfig.projectId === 'samosval-test' ? (window.SamosvalBundledPlugins || []) : [];
     const ids = new Set(bundled.map(p => p.id));
     return [...bundled.map(p => ({...p, ...(state.plugins.find(x => x.id === p.id) || {}), bundled: true})),
-      ...state.plugins.filter(p => !ids.has(p.id))];
+      ...state.plugins.filter(p => !ids.has(p.id))].filter(p=>!retiredTabelPlugin(p));
   }
   function initPlugins() {
     const activePlugin = Object.keys(pluginTabs).find(id => pluginTabs[id].container.classList.contains('active'));
@@ -141,7 +142,11 @@
           ledgerHost: {
             workspace: wsRef,
             session: () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
-               uid: currentUid, name: getUserName(), role: currentUserRole, status: currentUserStatus}),
+              uid: currentUid, name: getUserName(), role: currentUserRole, status: currentUserStatus,
+              tabAccess: permissionsLoaded && currentUserStatus === 'active' && hasTabAccess('timesheet')
+                && (!p.allowedRoles || !p.allowedRoles.length || p.allowedRoles.includes(currentUserRole)),
+              manage: hasPermission('timesheet_manage'),
+              permissions: {view: hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit')}}),
             data: () => ({objects: state.objects, shift: state.shift, trucks: state.trucks,
               statuses: state.truckStatus, logs: state.logs, audit: state.audit, archive: state.archive}),
             transaction: fn => (window.__historyRawTransaction || db.runTransaction.bind(db))(fn),
@@ -309,11 +314,13 @@
 
   function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
   function applyRoleUI() {
+    startTabelBackground();
     const versionAllowed = permissionsLoaded && canAdmin();
     if (versionAllowed) document.body.setAttribute('data-release-admin', '1'); else document.body.removeAttribute('data-release-admin');
     if (!versionAllowed) document.getElementById('releaseHistoryDialog')?.close();
     const viewBanner = document.getElementById('viewOnlyBanner'); const canDoAnything = hasPermission('start_shift') || hasPermission('edit_line') || hasPermission('action_load');
     if (viewBanner) viewBanner.style.display = (!canDoAnything && state.shift) ? 'block' : 'none';
+    const requestBtn=document.getElementById('tabelCreateRequestBtn');if(requestBtn)requestBtn.style.display=hasTabAccess('timesheet')?'':'none';
     const startBtn = document.getElementById('startShiftBtn'); if (startBtn) startBtn.style.display = hasPermission('start_shift') ? '' : 'none';
     const truckForm = document.getElementById('truckFormCard'); if (truckForm) truckForm.style.display = hasPermission('manage_trucks') ? '' : 'none';
     const objectForm = document.getElementById('objectFormCard'); if (objectForm) objectForm.style.display = hasPermission('manage_objects') ? '' : 'none';

@@ -1,10 +1,10 @@
 {
-  "release": "3.4.21",
+  "release": "3.4.48",
   "locked_release": "3.4.21",
   "locked_build": "d7399f63cbcbabc7",
-  "source_commit": "1688d0ad9a54470e39714ec6c2467c07542cd708",
-  "source_test_build": "9580be34b9aa55d4",
-  "channel": "production-no-timesheet",
+  "source_commit": "40dc13cad9da52c674a946e4c3d16aa2566ceef2",
+  "source_test_build": "4c7262d7ecc74f2f",
+  "channel": "production-with-timesheet",
   "modules": [
     {
       "name": "core",
@@ -37,7 +37,7 @@
       "name": "history-recorder",
       "file": "history-recorder.js",
       "sources": [
-        "modules/history-recorder.js"
+        "features/history-recorder.js"
       ],
       "tag": "<script src=\"./app/build/{build}/history-recorder.js\"></script>"
     },
@@ -53,7 +53,7 @@
       "name": "line-card-layers",
       "file": "line-card-layers.js",
       "sources": [
-        "modules/line-card-layers.js"
+        "features/line-card-layers.js"
       ],
       "tag": "<script src=\"./app/build/{build}/line-card-layers.js\"></script>"
     },
@@ -61,7 +61,7 @@
       "name": "closed-shift-duplicates",
       "file": "closed-shift-duplicates.js",
       "sources": [
-        "modules/closed-shift-duplicates.js"
+        "features/closed-shift-duplicates.js"
       ],
       "tag": "<script src=\"./app/build/{build}/closed-shift-duplicates.js\"></script>"
     },
@@ -69,7 +69,7 @@
       "name": "paper-viewer",
       "file": "paper-viewer.js",
       "sources": [
-        "modules/paper-viewer.js"
+        "features/paper-viewer.js"
       ],
       "tag": "<script src=\"./app/build/{build}/paper-viewer.js\"></script>"
     },
@@ -77,7 +77,7 @@
       "name": "gai-report-toggle",
       "file": "gai-report-toggle.js",
       "sources": [
-        "modules/gai-report-toggle.js"
+        "features/gai-report-toggle.js"
       ],
       "tag": "<script src=\"./app/build/{build}/gai-report-toggle.js\"></script>"
     },
@@ -85,7 +85,7 @@
       "name": "trip-analytics",
       "file": "trip-analytics.js",
       "sources": [
-        "modules/trip-analytics.js"
+        "features/trip-analytics.js"
       ],
       "tag": "<script src=\"./app/build/{build}/trip-analytics.js\"></script>"
     },
@@ -93,7 +93,7 @@
       "name": "offline-feedback",
       "file": "offline-feedback.js",
       "sources": [
-        "modules/offline-feedback.js"
+        "features/offline-feedback.js"
       ],
       "tag": "<script src=\"./app/build/{build}/offline-feedback.js\"></script>"
     },
@@ -101,7 +101,7 @@
       "name": "release-history",
       "file": "release-history.js",
       "sources": [
-        "modules/release-history.js"
+        "features/release-history.js"
       ],
       "tag": "<script src=\"./app/build/{build}/release-history.js\"></script>"
     },
@@ -109,7 +109,7 @@
       "name": "confirm-bridge",
       "file": "confirm-bridge.js",
       "sources": [
-        "modules/confirm-bridge.js"
+        "features/confirm-bridge.js"
       ],
       "tag": "<script src=\"./app/build/{build}/confirm-bridge.js\"></script>"
     },
@@ -117,7 +117,7 @@
       "name": "reset-settings",
       "file": "reset-settings.js",
       "sources": [
-        "modules/reset-settings.js"
+        "features/reset-settings.js"
       ],
       "tag": "<script src=\"./app/build/{build}/reset-settings.js\"></script>"
     },
@@ -125,7 +125,7 @@
       "name": "game-coins-v2",
       "file": "game-coins-v2.js",
       "sources": [
-        "modules/game-coins-v2.js"
+        "features/game-coins-v2.js"
       ],
       "tag": "<script id=\"game-coins-v2\" src=\"./app/build/{build}/game-coins-v2.js\"></script>"
     },
@@ -133,7 +133,7 @@
       "name": "road-shop-v1",
       "file": "road-shop-v1.js",
       "sources": [
-        "modules/road-shop-v1.js"
+        "features/road-shop-v1.js"
       ],
       "tag": "<script id=\"road-shop-v1\" src=\"./app/build/{build}/road-shop-v1.js\"></script>"
     },
@@ -141,7 +141,7 @@
       "name": "road-jokes-v1",
       "file": "road-jokes-v1.js",
       "sources": [
-        "modules/road-jokes-v1.js"
+        "features/road-jokes-v1.js"
       ],
       "tag": "<script id=\"road-jokes-v1\" src=\"./app/build/{build}/road-jokes-v1.js\"></script>"
     },
@@ -149,7 +149,7 @@
       "name": "road-season-effects-v1",
       "file": "road-season-effects-v1.js",
       "sources": [
-        "modules/road-season-effects-v1.js"
+        "features/road-season-effects-v1.js"
       ],
       "tag": "<script id=\"road-season-effects-v1\" src=\"./app/build/{build}/road-season-effects-v1.js\"></script>"
     },
@@ -157,7 +157,7 @@
       "name": "road-arcade-core",
       "file": "road-arcade-core.js",
       "sources": [
-        "modules/road-arcade-core.js"
+        "features/road-arcade-core.js"
       ],
       "tag": "<script id=\"road-arcade-core\" src=\"./app/build/{build}/road-arcade-core.js\"></script>"
     },
@@ -165,7 +165,7 @@
       "name": "road-arcade-runtime",
       "file": "road-arcade-runtime.js",
       "sources": [
-        "modules/road-arcade-runtime.js"
+        "features/road-arcade-runtime.js"
       ],
       "tag": "<script id=\"road-arcade-runtime\" src=\"./app/build/{build}/road-arcade-runtime.js\"></script>"
     },
@@ -173,7 +173,7 @@
       "name": "road-arcade-ui",
       "file": "road-arcade-ui.js",
       "sources": [
-        "modules/road-arcade-ui.js"
+        "features/road-arcade-ui.js"
       ],
       "tag": "<script id=\"road-arcade-ui\" src=\"./app/build/{build}/road-arcade-ui.js\"></script>"
     },
@@ -181,7 +181,7 @@
       "name": "global-interface-haptics",
       "file": "global-interface-haptics.js",
       "sources": [
-        "modules/global-interface-haptics.js"
+        "features/global-interface-haptics.js"
       ],
       "tag": "<script id=\"global-interface-haptics\" src=\"./app/build/{build}/global-interface-haptics.js\"></script>"
     },
@@ -189,9 +189,18 @@
       "name": "prod-release",
       "file": "prod-release.js",
       "sources": [
-        "modules/prod-release.js"
+        "features/prod-release.js"
       ],
       "tag": "<script src=\"./app/build/{build}/prod-release.js\"></script>"
+    },
+    {
+      "name": "settings-hub",
+      "file": "settings-hub.js",
+      "sources": [
+        "features/settings-hub.js",
+        "features/line-motion-test.js"
+      ],
+      "tag": "<script id=\"test-settings-hub\" src=\"./app/build/{build}/settings-hub.js\"></script>"
     },
     {
       "name": "pwa",
@@ -206,14 +215,58 @@
     "./index.html",
     "./manifest.json",
     "./icon.svg",
-    "./app/vendor/caveat-0.ttf",
-    "./app/vendor/caveat-1.ttf",
-    "./app/vendor/caveat.css",
+    "./manifest-test.webmanifest",
     "./app/vendor/firebase-app-compat-10.8.0.js",
     "./app/vendor/firebase-auth-compat-10.8.0.js",
     "./app/vendor/firebase-firestore-compat-10.8.0.js",
-    "./app/vendor/firebase-storage-compat-10.8.0.js",
     "./app/vendor/html2pdf-0.10.1.bundle.min.js",
+    "./app/vendor/caveat.css",
+    "./app/vendor/caveat-0.ttf",
+    "./app/vendor/caveat-1.ttf",
+    "./app/icons/icon-192.png",
+    "./app/icons/icon-512.png",
+    "./app/tabel-v2/catalog.mjs",
+    "./app/tabel-v2/color-palette.mjs",
+    "./app/tabel-v2/conflict-view.mjs",
+    "./app/tabel-v2/domain.mjs",
+    "./app/tabel-v2/entry.mjs",
+    "./app/tabel-v2/grid.mjs",
+    "./app/tabel-v2/history-view.mjs",
+    "./app/tabel-v2/legacy-equipment.mjs",
+    "./app/tabel-v2/line.mjs",
+    "./app/tabel-v2/material-transfer.mjs",
+    "./app/tabel-v2/messages.mjs",
+    "./app/tabel-v2/migration.mjs",
+    "./app/tabel-v2/number-input.mjs",
+    "./app/tabel-v2/online-policy.mjs",
+    "./app/tabel-v2/permissions.mjs",
+    "./app/tabel-v2/request-domain.mjs",
+    "./app/tabel-v2/settings-menu.mjs",
+    "./app/tabel-v2/sheet-access.mjs",
+    "./app/tabel-v2/shift-cards.mjs",
+    "./app/tabel-v2/store.mjs",
+    "./app/tabel-v2/summary.mjs",
+    "./app/tabel-v2/table-domain.mjs",
+    "./app/tabel-v2/ui.css",
+    "./app/tabel-v2/ui.mjs",
+    "./app/tabel-v2/view.html",
+    "./app/tabel-v2/workspace.css",
+    "./app/tabel-v2/workspace.mjs",
+    "./app/tabel/app.mjs",
+    "./app/tabel/catalog.mjs",
+    "./app/tabel/domain.mjs",
+    "./app/tabel/editor.mjs",
+    "./app/tabel/entry.mjs",
+    "./app/tabel/forms.mjs",
+    "./app/tabel/plugin.js",
+    "./app/tabel/report.mjs",
+    "./app/tabel/request.mjs",
+    "./app/tabel/service.mjs",
+    "./app/tabel/settings.mjs",
+    "./app/tabel/shift.mjs",
+    "./app/tabel/storage-core.mjs",
+    "./app/tabel/tabel.css",
+    "./app/tabel/ui.mjs",
     "./app/build/{build}/core.js",
     "./app/build/{build}/history-recorder.js",
     "./app/build/{build}/built-in-patches.js",
@@ -235,6 +288,7 @@
     "./app/build/{build}/road-arcade-ui.js",
     "./app/build/{build}/global-interface-haptics.js",
     "./app/build/{build}/prod-release.js",
+    "./app/build/{build}/settings-hub.js",
     "./app/build/{build}/pwa.js"
   ]
 }

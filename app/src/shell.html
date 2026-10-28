@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0f172a">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-  <title>Учёт самосвалов</title>
+  <title>Учет самосвалов и Табель</title>
 
   <script src="./app/vendor/firebase-app-compat-10.8.0.js"></script>
   <script src="./app/vendor/firebase-auth-compat-10.8.0.js"></script>
@@ -369,8 +369,11 @@
       margin-bottom: 14px;
     }
 
-  </style>
-  <meta name="app-version" content="3.4.21">
+
+.tabel-object-gear{box-sizing:border-box!important;width:22px!important;height:22px!important;min-width:22px!important;min-height:22px!important;flex:0 0 22px!important;border:1px solid var(--border);border-radius:50%!important;padding:0!important;margin:0!important;line-height:20px!important;font-size:13px!important;background:var(--card);color:var(--text);align-self:center;}
+</style>
+  <style>.version-text { color: #22c55e !important; }</style>
+  <meta name="app-version" content="3.4.48">
   <meta name="app-build" content="__BUILD_VERSION__">
 </head>
 <body>
@@ -414,7 +417,7 @@
           <span id="syncDot" class="sync-dot init"></span>
           <span id="syncBadge" class="sync-badge"></span>
         </span>
-        <span class="version-text">Версия 3.4.21</span>
+        <span class="version-text">Версия 3.4.48</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -424,6 +427,7 @@
       <div class="header-main-row" style="margin-top: 4px;">
         <div class="object-banner-compact">
           <span id="headerObject">Объект: Не выбран</span>
+          <button class="tabel-object-gear" onclick="openTabelV2(true)" title="Настройки объекта нового табеля">⚙</button>
           <button class="btn btn-secondary btn-small" id="changeObjBtn" style="padding: 2px 6px; font-size: 10px; min-height: 22px; display:none;" onclick="openChangeObjectModal()">Изменить</button>
         </div>
         <div class="shift-title-compact" id="shiftDate">Смена не начата</div>
@@ -445,11 +449,13 @@
       <div style="font-size: 18px; font-weight: 700; margin-bottom: 16px; color: var(--text);">Смена еще не начата</div>
       <p style="color: var(--muted); font-size: 13px; margin-bottom: 24px;">Нажмите кнопку ниже, чтобы выбрать или создать объект и начать новую смену.</p>
       <button class="btn btn-quick" id="startShiftBtn" style="width: 100%; font-size: 16px; padding: 16px;" onclick="openStartShiftModal()">🚀 Начать смену</button>
+      <button class="btn btn-secondary" id="tabelCreateRequestBtn" style="width:100%;margin-top:8px" onclick="openTabelV2(false,true)">＋ Создать заявку</button>
     </div>
     <div id="activeShiftContainer" style="display: none;">
       <div style="display: flex; gap: 10px; margin-bottom: 14px;">
         <button class="btn btn-secondary btn-small" id="selectTrucksBtn" style="flex:1;" onclick="openSelectorModal()">🔍 Выбрать машины из базы на смену</button>
       </div>
+      <div id="tabelV2Counts" hidden style="font-size:12px;padding:4px 0"></div>
       <div id="trucksLineList"></div>
     </div>
   </div>
@@ -863,6 +869,7 @@
 <div id="toast" class="toast">Сохранено</div>
 
 <nav id="bottomNav">
+  <button class="nav-btn" id="nav-tabel-v2" onclick="openTabelV2(false)"><span class="nav-icon">▦</span><span class="nav-text">Табель</span></button>
   <button class="nav-btn active" id="nav-line" onclick="switchTab('line', this)"><span class="nav-icon">🚛</span><span class="nav-text">Линия</span></button>
   <button class="nav-btn" id="nav-report" onclick="switchTab('report', this)"><span class="nav-icon">📊</span><span class="nav-text">Сводка</span></button>
   <button class="nav-btn" id="nav-archive" onclick="switchTab('archive', this)"><span class="nav-icon">🗄</span><span class="nav-text">Архив</span></button>
@@ -872,6 +879,7 @@
   <button class="nav-btn" id="nav-backup" onclick="switchTab('backup', this)"><span class="nav-icon">☁️</span><span class="nav-text">Резерв</span></button>
 </nav>
 
+<script id="tabel-plugin" src="./app/tabel/plugin.js"></script>
 <!-- PROD-MODULE:core -->
 
 <!-- PROD-MODULE:history-recorder -->
@@ -1012,9 +1020,11 @@ body[data-road-season="winter"] :is(.btn,.nav-btn,.sample-btn)>.season-snow-cap{
 <!-- Test-only, stand-alone Timesheet module. The production HTML is not modified. -->
 <!-- PROD-MODULE:prod-release -->
 <!-- PROD-MODULE:pwa -->
+<!-- PROD-MODULE:settings-hub -->
 <!-- Shared paper viewer is installed with Summary. -->
 </body>
 </html>
+
 
 
 

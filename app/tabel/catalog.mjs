@@ -1,0 +1,14 @@
+import * as D from './domain.mjs';
+import {esc,button,field,input,formDialog,showError} from './ui.mjs';
+export async function mount(s,host){
+  const groups={worker:'Рабочие',itr:'ИТР',operator:'Машинисты / водители',equipment:'Техника'};
+  const group=s.catalogGroup||'worker',isEquipment=group==='equipment',col=isEquipment?'timesheetEquipment':'timesheetPeople',list=s.api.catalog(col).filter(r=>isEquipment||r.group===group),manage=s.api.context().actor.manage||s.api.context().actor.role==='admin';
+  host.innerHTML=`<h2>Справочники</h2><div class="tb-tools">${Object.entries(groups).map(([key,title])=>button(title,'catalog-group',`data-group="${key}" aria-pressed="${key===group}"`)).join('')}</div><p class="tb-small">Существующие сотрудники и техника сохранены. Экипаж назначается на конкретную смену, а не в справочнике.</p>${manage?button('+ Добавить','catalog-new'):''}<div class="tb-card">${list.map(r=>`<div class="tb-list-row"><strong>${esc(r.name)}</strong>${isEquipment?'<span>'+esc(r.ownership==='hired'?'Наёмная · '+r.contractor:'Своя')+'</span>':''}${manage?button('Изменить','catalog-edit',`data-id="${esc(r.id)}"`):''}</div>`).join('')||'<p>Пока пусто.</p>'}</div><p data-error role="alert"></p>`;
+  host.querySelectorAll('[data-group]').forEach(b=>b.onclick=()=>{s.catalogGroup=b.dataset.group;mount(s,host);});
+  const edit=old=>formDialog(old?'Изменить запись':groups[group],field(isEquipment?'Название техники':'Фамилия и имя',input('name',old?.name||'','required maxlength="160"'))+(isEquipment?field('Принадлежность',`<select name="ownership"><option value="own" ${old?.ownership!=='hired'?'selected':''}>Своя</option><option value="hired" ${old?.ownership==='hired'?'selected':''}>Наёмная</option></select>`)+field('Организация',input('contractor',old?.contractor||'','maxlength="160"')):field('Категория',`<select name="group">${Object.entries(groups).filter(([k])=>k!=='equipment').map(([k,t])=>`<option value="${k}" ${k===(old?.group||group)?'selected':''}>${t}</option>`).join('')}</select>`))+(old?'<label class="tb-check"><input type="checkbox" name="archive">Убрать из справочника, историю сохранить</label>':''),async f=>{
+    const name=String(f.get('name')).trim();if(!name)throw Error('Введите название');if(s.api.catalog(col).some(x=>x.id!==old?.id&&x.name.toLowerCase()===name.toLowerCase()))throw Error('Такое название уже есть');
+    const data=isEquipment?{name,ownership:f.get('ownership'),contractor:String(f.get('contractor')||'').trim(),crewIds:old?.crewIds||[],deleted:f.has('archive')}:{name,group:f.get('group'),deleted:f.has('archive')};
+    await s.save([s.change(col,old?.id||crypto.randomUUID(),data,old)],'Справочник: '+name);await mount(s,host);
+  });
+  host.querySelector('[data-t=catalog-new]')?.addEventListener('click',()=>edit(null));host.querySelectorAll('[data-t=catalog-edit]').forEach(b=>b.onclick=()=>edit(list.find(x=>x.id===b.dataset.id)));
+}

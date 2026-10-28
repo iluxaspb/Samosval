@@ -77,6 +77,11 @@
       }
       if(archived&&archived.sourceShiftId!==shiftId)throw Error('Архив относится к другой смене. Очистка отменена.');
       if(archived&&logs.some(log=>!(archived.logs||[]).some(saved=>saved.id===log.id)))throw Error('Есть рейсы, отсутствующие в сохранённом архиве. Очистка отменена.');
+      phase='перенос материала в Табель 2';
+      if(archived){
+        const module=await import(new URL('./app/tabel-v2/material-transfer.mjs',document.baseURI).href);
+        await module.transferClosedLine({workspace:wsRef,transaction:fn=>db.runTransaction(fn),documentId:()=>firebase.firestore.FieldPath.documentId(),objects:state.objects,session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,name:getUserName(),active:currentUserStatus==='active',edit:hasPermission('timesheet_edit')})},shift,archived);
+      }
       phase='очистка сохранённых рейсов';
       await cleanupOldShiftData(shiftId);
       phase='завершение смены';

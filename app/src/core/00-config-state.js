@@ -91,15 +91,17 @@ const firebaseConfig = {
     viewer: { label: 'Наблюдатель', icon: '👁', color: 'viewer' }
   };
 
-  const ALL_TABS = ['line', 'report', 'archive', 'trucks', 'analytics', 'backup', 'admin'];
-  const TAB_LABELS = { line: 'Линия', report: 'Сводка', archive: 'Архив', trucks: 'База', analytics: 'Аналитика', backup: 'Резерв', admin: 'Админ' };
+  const ALL_TABS = ['line', 'timesheet', 'report', 'archive', 'trucks', 'analytics', 'backup', 'admin'];
+  const TAB_LABELS = { timesheet: 'Табель', line: 'Линия', report: 'Сводка', archive: 'Архив', trucks: 'База', analytics: 'Аналитика', backup: 'Резерв', admin: 'Админ' };
 
   const ALL_ACTIONS = [
+    'timesheet_edit', 'timesheet_manage', 'timesheet_export',
     'start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'undo_action',
     'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'import_backup',
     'view_card_stats', 'view_header', 'undo_any', 'view_gai_report', 'view_reis_in_ticker'
   ];
   const ACTION_LABELS = {
+    timesheet_edit: 'Табель: часы и материалы', timesheet_manage: 'Табель: справочники и экипажи', timesheet_export: 'Табель: выгрузка CSV',
     start_shift: 'Начать смену', close_shift: 'Закрыть смену', edit_line: 'Изменять линию',
     action_arrive: 'Кнопка «Приехал»', action_load: 'Кнопка «Погрузка»', action_ttn: 'Кнопка «ТТН»',
     undo_action: 'Отменять СВОИ действия', undo_any: 'Отменять действия ЛЮБОГО пользователя',
@@ -129,7 +131,7 @@ const firebaseConfig = {
   window.TestStorageState={persistent:false,error:null};
   try { db.enablePersistence({ synchronizeTabs: true }).then(()=>{window.TestStorageState.persistent=true;}).catch(e=>{window.TestStorageState.error=e?.code||e?.message;}); } catch (e) {window.TestStorageState.error=e?.message;}
 
-  // Production database guard.
+  // Isolated test connection: production project must never be used here.
   const PRODUCTION_FIREBASE_PROJECT_ID = 'samosval-test';
   if (firebase.app().options.projectId !== PRODUCTION_FIREBASE_PROJECT_ID) {
     throw new Error('Защита рабочей версии: подключён неверный Firebase-проект');

@@ -32,6 +32,10 @@ def render():
     else:
         material = release.encode() + b'\0' + shell.encode() + b'\0' + sw_template.encode()
         material += b'\0'.join(combined)
+        # Static timesheet modules are part of the immutable release identity too.
+        for url in spec['precache']:
+            if '{build}' not in url and url != './index.html':
+                material += b'\0' + url.encode() + (ROOT / url[2:]).read_bytes()
         build = digest(material)[:16]
     generated = {}
     for module, code in sources:

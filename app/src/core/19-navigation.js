@@ -26,3 +26,43 @@
   setInterval(updateSyncUI, 3000);
   setInterval(offlineReplayJournal, 8000);
   setInterval(() => { if (maxQueue.length && !maxSenderRunning) runMaxQueue(); }, 20000);
+
+  // Built-in test module. No plugin installation or production writes.
+  let tabelV2Opening = false;
+  async function openTabelV2(settingsOnly, requestFirst = false) {
+    if (tabelV2Opening) return;
+    tabelV2Opening = true;
+    try {
+      const module = await import(new URL('./app/tabel-v2/entry.mjs', document.baseURI).href);
+      await module.open(tabelV2Host(), settingsOnly, {requestFirst});
+    } catch (error) { showError(error.message); } finally { tabelV2Opening = false; }
+  }
+
+
+  function tabelV2Host(){
+      const session = () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
+        uid: currentUid, name: getUserName(), role: currentUserRole, active: currentUserStatus === 'active',
+        view: permissionsLoaded && hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit'),
+        objectId: state.shift && state.shift.objectId});
+      return {session, workspace: wsRef, refs,
+        users:async()=>state.users.length?state.users:(await usersRef.get()).docs.map(d=>({...d.data(),id:d.id})),
+        transaction:fn=>db.runTransaction(fn),
+        documentId:()=>firebase.firestore.FieldPath.documentId(),
+        get shift(){return state.shift;}, get objects(){return state.objects;},
+        snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,archive:state.archive}),
+        createObject:async(name,startDate)=>{
+          if(!hasPermission('manage_objects')||currentUserStatus!=='active')throw Error('Нет права создавать объекты');
+          name=String(name||'').trim();if(!name||name.length>180)throw Error('Введите название объекта');
+          const existing=state.objects.find(o=>o.name.toLowerCase()===name.toLowerCase());if(existing)return {...existing};
+          const ref=refs.objects.doc(),data={name,startDate,createdAt:Date.now(),createdBy:getUserName()};
+          await tfAwait(ref.set(data));return {id:ref.id,...data};
+        }
+
+      };
+  }
+  let tabelBackgroundStarting=false;
+  function startTabelBackground(){
+    if(tabelBackgroundStarting||tabelV2Opening||!permissionsLoaded||currentUserStatus!=='active'||!hasTabAccess('timesheet'))return;
+    tabelBackgroundStarting=true;
+    import(new URL('./app/tabel-v2/entry.mjs',document.baseURI).href).then(m=>m.background(tabelV2Host())).catch(e=>console.warn('Табель: фоновая очередь',e.message)).finally(()=>{tabelBackgroundStarting=false;});
+  }

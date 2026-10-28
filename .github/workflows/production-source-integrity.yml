@@ -21,9 +21,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify exact production release without writing output
         run: python3 tools/build-release.py --check
-      - name: Validate published JavaScript syntax
+      - name: Verify production promotion and offline routing
         run: |
-          node --check app/build/d7399f63cbcbabc7/core.js
-          node --check app/build/d7399f63cbcbabc7/pwa.js
-          node --check app/build/d7399f63cbcbabc7/built-in-patches.js
+          node tests/production-promotion/build.cjs
+          node tests/production-promotion/service-worker.cjs
           node --check sw.js

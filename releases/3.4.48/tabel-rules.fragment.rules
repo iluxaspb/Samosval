@@ -1,0 +1,75 @@
+// DRAFT: insert within match /workspaces/main_workspace in current LIVE production rules.
+// First exclude tabelNextRecords, tabelNextOperations and tabelNextMeta from ANY generic wildcard.
+// Do not replace unrelated production rules with test rules.
+      // Табель 2: dedicated collections, revision checks and atomic operation receipts.
+      // These matches MUST be excluded from the generic admin/active wildcard above.
+      function nextView() { return tabelTab() || (active() && account().get('role','') == 'foreman'); }
+      function nextManager() { return admin() || (active() && account().get('role','') == 'foreman'); }
+      function nextSheet(objectId, sheetId) {
+        let config = get(/databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(objectId + '~config')).data.data;
+        let acl = config.get('sheetAccess',{}).get(sheetId,{});
+        return acl.get('users',{}).get(request.auth.uid,false) == true
+          || acl.get('roles',{}).get(account().get('role',''),false) == true;
+      }
+      function nextRecordRead(d) {
+        return nextManager() || d.key == d.objectId + '/config'
+          || (d.key >= d.objectId + '/day:' && d.key < d.objectId + '/day;' && nextSheet(d.objectId,'linked'))
+          || (d.key.matches(d.objectId + '/sheet:[A-Za-z0-9_-]+') && nextSheet(d.objectId,d.key.split(':')[1]));
+      }
+      function nextRecordWrite(d,old) {
+        return nextManager() || (d.key == d.objectId + '/config'
+          ? old != null && d.data.get('sheetAccess',{}) == old.data.get('sheetAccess',{})
+          : nextRecordRead(d) && (old == null || (!d.data.diff(old.data).affectedKeys().hasAny(['name','deleted']))));
+      }
+      function nextEdit() { return nextView() && tabelHostEdit(); }
+      function nextEnvelope(d, id) {
+        return d.keys().hasOnly(['recordId','key','objectId','revision','data','author','authorName','time','operationId'])
+          && d.recordId == id && d.key is string && d.objectId is string
+          && id == d.key.replace('[/:]','~')
+          && d.objectId.matches('[A-Za-z0-9_-]+')
+          && (d.key == d.objectId + '/config'
+            || d.key.matches(d.objectId + '/day:[0-9]{4}-[0-9]{2}-[0-9]{2}:(day|night)')
+            || d.key.matches(d.objectId + '/sheet:[A-Za-z0-9_-]+'))
+          && d.revision is int && d.revision > 0 && d.data is map
+          && d.author == request.auth.uid && d.authorName is string
+          && d.authorName.size() <= 160 && d.time is number && d.operationId is string;
+      }
+      function nextReceipt(d, old) {
+        let path = /databases/$(database)/documents/workspaces/main_workspace/tabelNextOperations/$(d.operationId);
+        let receipt = getAfter(path).data;
+        return !exists(path) && receipt.key == d.key && receipt.objectId == d.objectId
+          && receipt.author == request.auth.uid && receipt.after == d
+          && (old == null ? receipt.before.revision == 0 && receipt.before.data == null : receipt.before == old);
+      }
+      match /tabelNextMeta/{id} {
+        allow read: if nextView();
+        allow create, update: if admin() && id == 'config'
+          && request.resource.data.keys().hasOnly(['enabled','schema'])
+          && request.resource.data.enabled is bool && request.resource.data.schema == 1;
+      }
+      match /tabelNextRecords/{id} {
+        allow get: if nextView() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(id)) || nextRecordRead(resource.data));
+        allow list: if nextView() && nextRecordRead(resource.data);
+        allow create: if nextEdit() && nextRecordWrite(request.resource.data,null) && nextEnvelope(request.resource.data,id)
+          && request.resource.data.revision == 1 && nextReceipt(request.resource.data,null);
+        allow update: if nextEdit() && nextRecordWrite(request.resource.data,resource.data) && nextEnvelope(request.resource.data,id)
+          && request.resource.data.key == resource.data.key
+          && request.resource.data.objectId == resource.data.objectId
+          && request.resource.data.revision == resource.data.revision + 1
+          && nextReceipt(request.resource.data,resource.data);
+        // Deletions use revisioned data/tombstones, preserving audit and conflicts.
+      }
+      match /tabelNextOperations/{id} {
+        allow get: if nextView() && (!exists(/databases/$(database)/documents/workspaces/main_workspace/tabelNextOperations/$(id)) || nextRecordRead(resource.data));
+        allow list: if nextView() && nextManager();
+        allow create: if nextEdit()
+          && request.resource.data.keys().hasOnly(['key','objectId','before','after','author','time','label'])
+          && request.resource.data.author == request.auth.uid
+          && request.resource.data.after.operationId == id
+          && request.resource.data.after.key == request.resource.data.key
+          && request.resource.data.after.objectId == request.resource.data.objectId
+          && getAfter(/databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(request.resource.data.after.recordId)).data == request.resource.data.after;
+      }
+
+    function tabelTab() { return active() && (admin() || 'timesheet' in get(/databases/$(database)/documents/settings/permissions).data.get(account().role,{}).get('tabs',[])); }
+    function tabelHostEdit() { return admin() || 'timesheet_edit' in get(/databases/$(database)/documents/settings/permissions).data.get(account().role,{}).get('actions',[]); }
