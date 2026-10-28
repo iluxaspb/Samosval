@@ -41,20 +41,20 @@
     const truckIds = new Set(activeIds); filteredLogs.forEach(l => truckIds.add(l.truckId));
     const trucks = Array.from(truckIds).map(id => { const t = findTruck(id); if (t) return t; const ref = filteredLogs.find(l => l.truckId === id); return { id, brand: (ref && ref.truckName) || 'Машина', number: '', defaultVol: 0 }; });
     const firstTime = {}; filteredLogs.forEach(l => { if (firstTime[l.truckId] === undefined || l.timestamp < firstTime[l.truckId]) firstTime[l.truckId] = l.timestamp; });
-    trucks.sort((a, b) => (firstTime[a.id] || 0) - (firstTime[b.id] || 0));
+    trucks.sort((a, b) => ((firstTime[a.id] === undefined) - (firstTime[b.id] === undefined)) || ((firstTime[a.id] || 0) - (firstTime[b.id] || 0)) || String(a.id).localeCompare(String(b.id)));
     let maxTrips = 8; trucks.forEach(t => { const c = filteredLogs.filter(l => l.truckId === t.id).length; if (c > maxTrips) maxTrips = c; });
     const totalVol = filteredLogs.reduce((s, l) => s + l.volume, 0);
     let html = `<div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectName || '—')}${type === 'gai' ? ' (ГАИ)' : ''}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(date || '')}</div><div class="paper-total-info">${type === 'gai' ? `Всего рейсов ГАИ: <b>${filteredLogs.length}</b>` : `Общий объем: <b>${totalVol} м³</b>`}</div></div></div><table class="paper-table"><thead><tr><th>№</th><th style="text-align:left;">Самосвал</th>`;
     for (let i = 1; i <= maxTrips; i++) html += `<th>Рейс ${i}</th>`;
     html += `</tr></thead><tbody>`;
     trucks.forEach((t, idx) => {
-      const tLogs = filteredLogs.filter(l => l.truckId === t.id).slice().reverse();
+      const tLogs = filteredLogs.filter(l => l.truckId === t.id).slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) || String(a.id||'').localeCompare(String(b.id||'')));
       const sum = tLogs.reduce((s, l) => s + l.volume, 0);
       let st = state.truckStatus[t.id] || {};
       let savedTtn = reportTtnStatus ? reportTtnStatus[t.id] : st.ttnStatus;
       let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (isClosed && tLogs.length > 0 && savedTtn !== true && savedTtn !== 'pending') : (tLogs.length > 0 && st.ttnStatus !== true);
       let dupHtml = isDup ? ' <span style="color:red; font-size:10px; font-weight:bold;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
-      const brandCell = type === 'gai' ? `${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tLogs.length}</span>${dupHtml}` : `${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³</span>${dupHtml}`;
+      const brandCell = type === 'gai' ? `${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tLogs.length}</span>${dupHtml}` : `${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³ / ${tLogs.length} р</span>${dupHtml}`;
       html += `<tr><td style="font-weight:bold;">${idx + 1}</td><td class="truck-cell"><div class="paper-truck-brand">${brandCell}</div>${t.number ? renderRussianPlate(t.number) : ''}</td>`;
       for (let i = 0; i < maxTrips; i++) {
         const l = tLogs[i];
