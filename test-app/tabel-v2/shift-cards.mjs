@@ -125,7 +125,10 @@ export async function mount(s, root) {
           "Контрагент этой смены",
           field(
             "Фирма",
-            `<input name="contractor" list="tn-contractors" value="${esc(e.contractor || "")}"><datalist id="tn-contractors">${registry.map((x) => `<option value="${esc(x.name)}">`).join("")}</datalist>`,
+            `<input name="contractor" list="tn-contractors" value="${esc(e.contractor || "")}"><datalist id="tn-contractors">${registry
+              .filter((x) => !x.deleted)
+              .map((x) => `<option value="${esc(x.name)}">`)
+              .join("")}</datalist>`,
           ),
           async (f) => {
             const name = String(f.get("contractor")).trim(),

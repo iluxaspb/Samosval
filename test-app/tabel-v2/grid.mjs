@@ -195,7 +195,9 @@ export async function mount(s, host) {
                 ];
         })
         .filter((d) => period !== "week" || D.monday(d.date) === week);
-      linkedRows = D.rows(config, allDays);
+      linkedRows = D.rows(config, allDays).filter(
+        (row) => !(sheet.hiddenRows || []).includes(row.id),
+      );
       return { rows: linkedRows.length + 2, cols: visibleDays.length + 1 };
     }
     return sheet;
@@ -1130,6 +1132,10 @@ export async function mount(s, host) {
       rename: sheetId !== "linked" && s.sheetManager(),
       "add-col": writable,
       "add-row": writable,
+      "delete-row":
+        writable &&
+        !simple() &&
+        (sheetId !== "linked" || !!linkedAt(selected).row),
     };
     const el = dialog(
       "Ячейки " + rangeInput.value,
@@ -1148,6 +1154,7 @@ export async function mount(s, host) {
         ["rename", "Переименовать лист"],
         ["add-col", "Добавить столбцы"],
         ["add-row", "Добавить строки"],
+        ["delete-row", "Удалить строку целиком"],
       ]
         .map(([a, l]) => btn(l, a))
         .join("")}</div>`,
@@ -1191,6 +1198,7 @@ export async function mount(s, host) {
       },
       "add-col": () => grow("cols"),
       "add-row": () => grow("rows"),
+      "delete-row": deleteRows,
     };
     for (const [action, fn] of Object.entries(actions)) {
       const button = el.querySelector("[data-action=" + action + "]");
@@ -1200,6 +1208,48 @@ export async function mount(s, host) {
         queue(fn);
       };
     }
+  }
+  function deleteRows() {
+    const first = Math.min(D.coords(selected).r, D.coords(end).r),
+      last = Math.max(D.coords(selected).r, D.coords(end).r),
+      rows = linkedRows.slice(Math.max(0, first - 2), last - 1);
+    if (sheetId === "linked" && first < 2)
+      throw Error("Заголовки адреса и даты удалять нельзя");
+    const el = dialog(
+      "Удалить строки " + (first + 1) + "–" + (last + 1) + "?",
+      "<p>Строки будут удалены из этого листа целиком." +
+        (sheetId === "linked"
+          ? " Данные смен сохранятся в истории. Действие можно отменить кнопкой ↶."
+          : " Действие можно отменить кнопкой ↶.") +
+        "</p>",
+      async () => {
+        if (dirty) await commit();
+        const next = D.copy(sheet);
+        if (sheetId === "linked")
+          next.hiddenRows = [
+            ...new Set([...(next.hiddenRows || []), ...rows.map((r) => r.id)]),
+          ];
+        else {
+          const count = last - first + 1,
+            cells = {},
+            heights = {};
+          for (const [key, value] of Object.entries(next.cells)) {
+            const p = D.coords(key);
+            if (p.r < first || p.r > last)
+              cells[D.cell(p.r > last ? p.r - count : p.r, p.c)] = value;
+          }
+          for (const [r, value] of Object.entries(next.heights))
+            if (+r < first || +r > last)
+              heights[+r > last ? +r - count : r] = value;
+          next.cells = cells;
+          next.heights = heights;
+          next.rows = Math.max(1, next.rows - count);
+        }
+        selected = end = "A1";
+        await persist(next, "Удаление строк целиком");
+      },
+    );
+    el.querySelector("[type=submit]").textContent = "Удалить";
   }
   async function restore(from, to) {
     if (!from.length) return;

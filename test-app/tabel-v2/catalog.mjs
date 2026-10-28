@@ -103,25 +103,15 @@ export async function mount(s, root) {
     ...new Map(
       [...(c[key] || []), ...(registry[key] || [])].map((x) => [x.id, x]),
     ).values(),
-  ].filter((x) => key !== "people" || x.group === section);
+  ].filter((x) => !x.deleted && (key !== "people" || x.group === section));
   root.innerHTML = `<div class="tn-catalog-list"><h3>${sections.find((x) => x[0] === section)[1]}</h3><div class="tn-tools">${btn("＋ Добавить", "add-catalog")}</div><input data-search placeholder="Поиск" aria-label="Поиск в справочнике">${
     rankChoices(list)
       .map(
         (x) =>
-          `<div class="tn-catalog-row"><span>${esc(x.name)}<small>${esc(x.plate || x.unit || x.phone || "")}</small></span>${btn("Изменить", "edit-catalog", `data-id="${esc(x.id)}"`)}</div>`,
+          `<div class="tn-catalog-row"><span>${esc(x.name)}<small>${esc(x.plate || x.unit || x.phone || "")}</small></span>${btn("Изменить", "edit-catalog", `data-id="${esc(x.id)}"`)}${btn("Удалить", "delete-catalog", `data-id="${esc(x.id)}"`)}</div>`,
       )
       .join("") || "<p>Пока нет записей</p>"
   }</div><div class="tn-catalog-tabs">${sections.map(([id, label]) => btn(label, "catalog-tab", `data-tab="${id}" aria-pressed="${id === section}"`)).join("")}</div>`;
-  if (key === "equipment") {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = "Убрать старую щётку";
-    root.querySelector(".tn-tools").append(button);
-    button.onclick = () =>
-      import("./legacy-equipment.mjs")
-        .then((m) => m.cleanupBrush(s))
-        .catch(error);
-  }
   root.querySelectorAll("[data-tab]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -157,6 +147,34 @@ export async function mount(s, root) {
           list.find((x) => x.id === b.dataset.id),
         ).catch(error)),
   );
+  root.querySelectorAll("[data-action=delete-catalog]").forEach((b) => {
+    b.onclick = () => {
+      const item = list.find((x) => x.id === b.dataset.id);
+      const el = dialog(
+        "Удалить из справочника?",
+        "<p>Удалить «" +
+          esc(item.name) +
+          "»? Запись исчезнет из справочника и выбора в новых заявках. Ранее введённые смены и часы сохранятся.</p>",
+        async () => {
+          s.require("settings", "edit");
+          const base = s.store.get("_catalog/config"),
+            next = base.data || {};
+          next[key] = [
+            ...(next[key] || []).filter((x) => x.id !== item.id),
+            { ...item, deleted: true },
+          ];
+          await s.store.save(
+            "_catalog/config",
+            next,
+            base,
+            "Удаление из справочника: " + item.name,
+          );
+          await s.refresh();
+        },
+      );
+      el.querySelector("[type=submit]").textContent = "Удалить";
+    };
+  });
 }
 async function editItem(s, key, item) {
   s.require("settings", "edit");
@@ -281,6 +299,7 @@ function addContractor(s) {
         c = base.data || { equipment: [], people: [] };
       c.contractors ||= [];
       const id = name.toLocaleLowerCase();
+      c.contractors = c.contractors.filter((x) => x.id !== id || !x.deleted);
       if (!c.contractors.some((x) => x.id === id))
         c.contractors.push({ id, name });
       await s.store.save(key, c, base, "Добавление контрагента");

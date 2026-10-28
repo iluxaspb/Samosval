@@ -79,6 +79,7 @@ export function workProgress(work, shifts, objectId) {
   return { plan, actual: entries ? units / 1000 : null, remaining: (Math.round(plan * 1000) - units) / 1000 };
 }
 export function rankChoices(items, query = '', usage = {}) {
+  items = items.filter(x => !x.deleted);
   const normalize = text => String(text || '').toLocaleLowerCase('ru').replaceAll('ё', 'е').trim();
   const terms = normalize(query).split(/\s+/).filter(Boolean);
   return items.filter(item => {

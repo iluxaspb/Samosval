@@ -56,8 +56,75 @@ const server = spawn(
     await p.locator("button[data-view=table]").click();
     await p.locator(".tn-grid").waitFor();
     assert(await p.locator(".tn-cell-tools").isVisible());
-    await p.evaluate(async()=>{const cb=qaStore.get('_catalog/config'),catalog=cb.data||{equipment:[],people:[]};catalog.equipment.push({id:'real-brush',name:'МТЗ щётка',kind:'brush',ownership:'own'});await qaStore.save('_catalog/config',catalog,cb,'Registered brush');const key='site-a/day:2026-10-27:night',base=qaStore.get(key),d=base.data;d.equipment.push({id:'legacy-brush',name:'Щётка старая',ownership:'hired',hours:5});await qaStore.save(key,d,base,'Legacy brush');});
-    await p.locator('button[data-view=catalog]').click();await p.getByRole('button',{name:'Убрать старую щётку',exact:true}).click();await p.locator('dialog[open] [name=legacy][value=legacy-brush]').check();await p.locator('dialog[open] [type=submit]').click();await p.locator('dialog[open]').waitFor({state:'hidden'});assert(await p.evaluate(()=>qaStore.get('site-a/config').data.hiddenEquipmentIds.includes('legacy-brush')));assert.equal(await p.evaluate(()=>qaStore.get('site-a/day:2026-10-27:night').data.equipment.find(e=>e.id==='legacy-brush').hours),5);
+    await p.locator("[data-range]").fill("A4");
+    await p.locator("[data-range]").dispatchEvent("change");
+    const label = await p.locator("[data-cell=A4]").textContent();
+    await p.locator("[data-action=menu]").click();
+    await p
+      .getByRole("button", { name: "Удалить строку целиком", exact: true })
+      .click();
+    await p.locator("dialog[open] [type=submit]").click();
+    await p.locator("dialog[open]").waitFor({ state: "hidden" });
+    assert.notEqual(await p.locator("[data-cell=A4]").textContent(), label);
+    await p.locator("[data-action=undo]").click();
+    await p.waitForFunction(
+      (label) =>
+        document.querySelector("[data-cell=A4]")?.textContent === label,
+      label,
+    );
+    await p.locator("button[data-view=catalog]").click();
+    assert.equal(
+      await p
+        .getByRole("button", { name: "Убрать старую щётку", exact: true })
+        .count(),
+      0,
+    );
+    await p.evaluate(async () => {
+      const base = qaStore.get("_catalog/config"),
+        c = base.data || {};
+      for (const key of ["works", "materials", "contractors"])
+        c[key] = [{ id: key + "-qa", name: "Удаляемая запись", unit: "м³" }];
+      await qaStore.save("_catalog/config", c, base, "QA deletion");
+    });
+    for (const [tab, id] of [
+      ["equipment", "mill"],
+      ["worker", "w1"],
+      ["itr", "itr"],
+      ["works", "works-qa"],
+      ["materials", "materials-qa"],
+      ["contractors", "contractors-qa"],
+    ]) {
+      await p.locator("[data-tab=" + tab + "]").click();
+      await p
+        .locator("[data-action=delete-catalog][data-id=" + id + "]")
+        .click();
+      await p.locator("dialog[open] [type=submit]").click();
+      await p.locator("dialog[open]").waitFor({ state: "hidden" });
+      assert.equal(
+        await p
+          .locator("[data-action=edit-catalog][data-id=" + id + "]")
+          .count(),
+        0,
+      );
+      assert(
+        await p.evaluate(
+          ({ tab, id }) =>
+            qaStore
+              .get("_catalog/config")
+              .data[
+                ["worker", "itr"].includes(tab) ? "people" : tab
+              ].find((x) => x.id === id).deleted,
+          { tab, id },
+        ),
+      );
+    }
+    await p.locator("button[data-view=table]").click();
+    await p.locator("button[data-view=catalog]").click();
+    await p.locator("[data-tab=equipment]").click();
+    assert.equal(
+      await p.locator("[data-action=edit-catalog][data-id=mill]").count(),
+      0,
+    );
     assert.deepEqual(errors, []);
     console.log(
       "PASS touch: simple-mode tap/repeated tap opens numeric panel; lower tools hidden only in simple mode",

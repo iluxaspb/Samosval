@@ -118,15 +118,17 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         [
           ...(host.catalog?.equipment || []),
           ...c.equipment,
-          ...catalog.equipment,
+          ...(catalog.equipment || []),
         ].map((e) => [e.id, e]),
       ).values(),
     ];
     c.people = [
       ...new Map(
-        [...(host.catalog?.people || []), ...c.people, ...catalog.people].map(
-          (e) => [e.id, e],
-        ),
+        [
+          ...(host.catalog?.people || []),
+          ...c.people,
+          ...(catalog.people || []),
+        ].map((e) => [e.id, e]),
       ).values(),
     ];
     if (!c.equipment.some(D.isWater))
@@ -143,6 +145,13 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
         ...e,
         pump: D.isWater(e) && e.ownership !== "hired" && !!e.pump,
       }));
+    c.people = c.people.filter((p) => !p.deleted);
+    for (const key of ["works", "materials", "contractors"]) {
+      const deleted = new Set(
+        (catalog[key] || []).filter((x) => x.deleted).map((x) => x.id),
+      );
+      c[key] = (c[key] || []).filter((x) => !x.deleted && !deleted.has(x.id));
+    }
     return c;
   };
   s.require = (area, mode = "view") => {
