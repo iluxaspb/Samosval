@@ -19,7 +19,7 @@ test('shift start carries worker roster without hours, ITR hours default/copy, n
 });
 test('fixed own-equipment order and pump restricted to water, quantities aggregated by definition',()=>{
  const c=D.config({id:'a',name:'a',startDate:'2026-01-01'});c.equipment=[{id:'m1',name:'Фреза 1',ownership:'own'},{id:'x',name:'Каток',ownership:'own',pump:true},{id:'w',name:'Поливомоечная',ownership:'own',pump:true},{id:'m2',name:'Фреза 2',ownership:'own'},{id:'b',name:'МТЗ-щётка',ownership:'own'}];c.request.equipment=c.equipment.map(e=>e.id);
- assert.deepEqual(D.rows(c,[]).filter(r=>r.field==='hours').map(r=>r.entity),['w','m1','m2','b','x']);assert.deepEqual(D.rows(c,[]).filter(r=>r.field==='pumpHours').map(r=>r.entity),['w']);
+ assert.deepEqual(D.rows(c,[]).filter(r=>r.field==='hours').map(r=>r.entity),['w','b','m1','m2','x']);assert.deepEqual(D.rows(c,[]).filter(r=>r.field==='pumpHours').map(r=>r.entity),['w']);
  c.works=[{id:'work',name:'Работа',unit:'м²'}];c.materials=[{id:'mat',name:'Материал',unit:'т'}];
  assert.deepEqual(D.totals(c,[{values:{work:{quantity:50},mat:{quantity:40}}},{values:{work:{quantity:20},mat:{quantity:10}}}]).map(x=>[x.unit,x.quantity]),[['м²',70],['т',50]]);
 });
