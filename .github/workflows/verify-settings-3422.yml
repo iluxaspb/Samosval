@@ -1,0 +1,50 @@
+name: Test settings 3.4.22 build verification
+on:
+  push:
+    branches: [feature/test-settings-categories-20261028]
+    paths:
+      - .github/workflows/verify-settings-3422.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify source and compile fresh test release
+        run: |
+          node --check test-app/source/features/settings-hub.js
+          python3 tools/build-test.py
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('.')
+          m=json.loads((root/'test-app/build-manifest.json').read_text())
+          html=(root/'index-test.html').read_text()
+          assert m['channel'].startswith('test-3.4.22-')
+          assert 'name="test-app-version" content="3.4.22"' in html
+          assert 'settings-hub.js' in html
+          for a in m['assets']:
+              p=root/a['url']
+              assert p.is_file(),str(p)
+              assert hashlib.sha256(p.read_bytes()).hexdigest()==a['sha256'],str(p)
+          for key in ['index-test.html','sw-test.js','test-app/build-manifest.json']:
+              print('BUILD_HASH '+key+' '+hashlib.sha256((root/key).read_bytes()).hexdigest())
+          print('BUILD_VERSION '+m['version'])
+          print('BUILD_ASSETS '+str(len(m['assets'])))
+          PY
+          node --check sw-test.js
+          test -z "$(git diff --name-only -- index.html sw.js manifest.json app/)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: settings3422-verified-build
+          path: |
+            index-test.html
+            sw-test.js
+            test-app/build-manifest.json
+            test-app/build/
+          retention-days: 1
