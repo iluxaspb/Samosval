@@ -15,7 +15,9 @@ export async function mount(s, host) {
     startRow = 0;
   let dirty = false,
     hasSelection = false,
-    suppressClick = false;
+    suppressClick = false,
+    referencePick = null,
+    pickingReference = false;
   const c = s.config(),
     allDays = s.days();
   s.gridUndo ||= {};
@@ -34,14 +36,16 @@ export async function mount(s, host) {
   const simple = () => sheetId === "linked" && s.config().tableMode !== "full";
   let visibleDays = [],
     linkedRows = [];
-  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("↶", "undo", 'aria-label="Отменить действие" title="Отменить действие"')}${btn("↷", "redo", 'aria-label="Повторить действие" title="Повторить действие"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><output class="tn-selection-total" data-selection-total aria-live="polite">Сумма: 0</output><div class="tn-cell-tools" role="toolbar" aria-label="Инструменты ячеек"></div><div class="tn-sheets"></div><div class="tn-symbols" hidden>${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div>`;
+  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("↶", "undo", 'aria-label="Отменить действие" title="Отменить действие"')}${btn("↷", "redo", 'aria-label="Повторить действие" title="Повторить действие"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><output class="tn-selection-total" data-selection-total aria-live="polite">Сумма: 0</output><div class="tn-cell-tools" role="toolbar" aria-label="Инструменты ячеек"></div><div class="tn-sheets"></div><div class="tn-input-dock"><div class="tn-formula-suggestions" hidden></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-symbols">${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div></div>`;
 
   const table = host.querySelector("table"),
     scroll = host.querySelector(".tn-grid-scroll"),
     edit = host.querySelector("[data-editor]"),
     selectionBox = document.createElement("div"),
     rangeInput = host.querySelector("[data-range]"),
-    symbols = host.querySelector(".tn-symbols");
+    symbols = host.querySelector(".tn-symbols"),
+    dock = host.querySelector(".tn-input-dock"),
+    suggestions = host.querySelector(".tn-formula-suggestions");
   selectionBox.className = "tn-selection-box";
   selectionBox.setAttribute("aria-hidden", "true");
   scroll.append(selectionBox);
@@ -77,7 +81,7 @@ export async function mount(s, host) {
     heights: {},
   });
   async function load(id) {
-    if (dirty) await queue(commit);
+    if (dirty) await queueCommit();
     await chain;
     saveStacks();
     sheetId = id;
@@ -94,6 +98,8 @@ export async function mount(s, host) {
     activeStack = true;
     startRow = 0;
     selected = end = "A1";
+    referencePick = null;
+    hasSelection = false;
     const draft = s.store.get(s.key("draft:grid:" + id)).data;
     if (draft) {
       selected = end = draft.cell;
@@ -259,31 +265,71 @@ export async function mount(s, host) {
         values.length;
     } catch {}
   }
+  const formulaMode = () => dirty && edit.value.startsWith("=");
   function expectsReference() {
-    return (
-      dirty &&
-      /^=/.test(edit.value) &&
-      /(?:^=|[+*/(:−-]|СУММ(?:А)?|SUM)\s*$/i.test(edit.value)
-    );
+    const prefix = edit.value.slice(0, edit.selectionStart ?? edit.value.length);
+    return formulaMode() && /(?:^=|[+*/(:;,−-]|[A-ZА-ЯЁ]+)\s*$/i.test(prefix);
   }
   function referenceParts() {
-    let prefix = edit.value;
-    if (/(?:СУММ(?:А)?|SUM)\s*$/i.test(prefix)) prefix += "(";
-    return { prefix, suffix: /\(\s*$/.test(prefix) ? ")" : "" };
+    const pos = edit.selectionStart ?? edit.value.length,
+      to = edit.selectionEnd ?? pos;
+    let prefix = edit.value.slice(0, pos), suffix = edit.value.slice(to);
+    if (/[A-ZА-ЯЁ]+\s*$/i.test(prefix)) prefix += "(";
+    const text = prefix + suffix,
+      balance = (text.match(/\(/g) || []).length - (text.match(/\)/g) || []).length;
+    if (/\(\s*$/.test(prefix) && balance > 0) suffix = ")" + suffix;
+    return { prefix, suffix };
+  }
+  function paintReference() {
+    if (!referencePick) return;
+    const { a, b } = referencePick, keys = new Set(D.range(a, b));
+    table.querySelectorAll("[data-cell]").forEach(td => {
+      td.classList.toggle("tn-formula-ref", keys.has(td.dataset.cell));
+      if (!s.gridDragging) td.querySelector(".tn-fill")?.remove();
+    });
+    if (!s.gridDragging) {
+      const td = table.querySelector(`[data-cell="${b}"]`);
+      if (td) {
+        const handle = document.createElement("span");
+        handle.className = "tn-fill tn-reference-handle";
+        handle.setAttribute("aria-label", "Потянуть для диапазона формулы");
+        td.append(handle);
+      }
+    }
+    outline(keys);
   }
   function pickReference(a, b, parts) {
-    edit.value = parts.prefix + a + (a === b ? "" : ":" + b) + parts.suffix;
-    dirty = true;
+    const ref = a + (a === b ? "" : ":" + b);
+    edit.value = parts.prefix + ref + parts.suffix;
+    edit.setSelectionRange(parts.prefix.length + ref.length, parts.prefix.length + ref.length);
+    referencePick = { a, b, parts };
+    pickingReference = true;
     edit.dispatchEvent(new Event("input"));
-    const keys = new Set(D.range(a, b));
-    table
-      .querySelectorAll("[data-cell]")
-      .forEach((td) =>
-        td.classList.toggle("tn-formula-ref", keys.has(td.dataset.cell)),
-      );
+    pickingReference = false;
+    paintReference();
   }
-  async function selectCell(k) {
-    if (dirty) await commit();
+  // Offer only functions supported by the evaluator; picking references is function-independent.
+  const functions = [{ name: "SUM", aliases: ["SUM", "СУМ", "СУММ", "СУММА"], label: "SUM( · Сумма" }];
+  function suggestFormula() {
+    const pos = edit.selectionStart ?? edit.value.length,
+      token = edit.value.slice(0, pos).match(/[A-ZА-ЯЁ]+$/i),
+      query = token?.[0].toUpperCase();
+    const matches = formulaMode() && query
+      ? functions.filter(f => f.aliases.some(a => a.startsWith(query))) : [];
+    suggestions.hidden = !matches.length;
+    suggestions.innerHTML = matches.map(f => btn(esc(f.label), "suggest-formula", `data-function="${f.name}"`)).join("");
+    suggestions.querySelectorAll("button").forEach(b => {
+      b.onpointerdown = e => e.preventDefault();
+      b.onclick = () => {
+        edit.setRangeText(b.dataset.function + "(", pos - token[0].length, pos, "end");
+        edit.dispatchEvent(new Event("input"));
+        edit.focus({ preventScroll: true });
+      };
+    });
+    viewport();
+  }
+  function selectCell(k) {
+    if (dirty) void queueCommit();
     selected = end = k;
     hasSelection = true;
     mark();
@@ -338,11 +384,11 @@ export async function mount(s, host) {
       host.querySelector(`[data-action=${action}]`).disabled = !stack.length;
     const previousScroll = { top: scroll.scrollTop, left: scroll.scrollLeft };
     host.classList.toggle("tn-simple-table", simple());
-    host.querySelector(".tn-formula").hidden = simple();
+    dock.hidden = simple();
     for (const action of ["format", "menu"])
       host.querySelector(`[data-action=${action}]`).hidden = simple();
     host.querySelector(".tn-cell-tools").hidden = simple();
-    if (simple()) symbols.hidden = true;
+    symbols.hidden = simple();
     if (disposed) return;
     const dim = dimensions();
     host.querySelector("[data-period]").hidden = sheetId !== "linked";
@@ -509,6 +555,7 @@ export async function mount(s, host) {
     if (!dirty) edit.value = raw(selected);
     outline(keys);
     selectionTotal();
+    paintReference();
   }
   async function persist(next, label) {
     s.require("table", "edit");
@@ -635,35 +682,45 @@ export async function mount(s, host) {
       }
     }
   }
-  async function apply() {
-    const rawValue = edit.value;
-    dirty = false;
+  async function apply(target, rawValue) {
     if (sheetId === "linked") {
-      await linkedWrite([[selected, rawValue]], "Ввод из таблицы");
+      await linkedWrite([[target, rawValue]], "Ввод из таблицы");
     } else {
       const next = D.copy(sheet);
-      next.cells[selected] = { ...next.cells[selected], raw: rawValue };
-      await persist(next, "Ячейка " + selected);
+      next.cells[target] = { ...next.cells[target], raw: rawValue };
+      await persist(next, "Ячейка " + target);
     }
   }
-  const commit = async () => {
-    if (!dirty && edit.value === raw(selected)) return;
-    try {
-      await apply();
-    } catch (e) {
-      dirty = true;
-      throw e;
-    }
-    table
-      .querySelectorAll(".tn-formula-ref")
-      .forEach((td) => td.classList.remove("tn-formula-ref"));
-    await s.store.serialize(async () => {
-      delete s.store.state.records[s.key("draft:grid:" + sheetId)];
-      await s.store.persist();
+  // Capture the cell and its input before waiting for storage. New keystrokes belong
+  // to the new selection, even when a previous IndexedDB/Firebase save is pending.
+  function queueCommit() {
+    const target = selected, rawValue = edit.value;
+    dirty = false;
+    referencePick = null;
+    suggestions.hidden = true;
+    table.querySelectorAll(".tn-formula-ref").forEach(td => td.classList.remove("tn-formula-ref"));
+    return queue(async () => {
+      try { await apply(target, rawValue); }
+      catch (e) {
+        if (selected === target && edit.value === rawValue) dirty = true;
+        throw e;
+      }
+      await s.store.serialize(async () => {
+        const draftKey = s.key("draft:grid:" + sheetId),
+          draft = s.store.state.records[draftKey]?.data;
+        if (draft?.cell === target && draft.raw === rawValue) delete s.store.state.records[draftKey];
+        await s.store.persist();
+      });
     });
-  };
+  }
   edit.oninput = () => {
     dirty = true;
+    if (!pickingReference) {
+      referencePick = null;
+      table.querySelectorAll(".tn-formula-ref").forEach(td => td.classList.remove("tn-formula-ref"));
+      mark();
+    }
+    suggestFormula();
     const data = { cell: selected, raw: edit.value },
       draftKey = s.key("draft:grid:" + sheetId);
     queue(() =>
@@ -673,15 +730,19 @@ export async function mount(s, host) {
       }),
     );
   };
-  host.querySelector("[data-action=apply]").onclick = () => queue(commit);
+  host.querySelector("[data-action=apply]").onclick = () => queueCommit();
   edit.onkeydown = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      queue(commit);
+      queueCommit();
     }
     if (e.key === "Escape") {
       dirty = false;
+      referencePick = null;
+      table.querySelectorAll(".tn-formula-ref").forEach(td => td.classList.remove("tn-formula-ref"));
+      suggestions.hidden = true;
       edit.value = raw(selected);
+      mark();
       edit.blur();
     }
   };
@@ -714,15 +775,17 @@ export async function mount(s, host) {
       menu();
       return;
     }
-    edit.readOnly = true;
-    queue(async () => {
-      try {
-        await selectCell(k);
-      } finally {
-        edit.readOnly = false;
-      }
-    });
+    if (!simple()) {
+      try { s.require("table", "edit"); } catch (e) { error(e); return; }
+      // Focus during the user gesture: Android will not open the keyboard after an awaited save.
+      edit.readOnly = false;
+      edit.focus({ preventScroll: true });
+    }
+    selectCell(k);
   }
+  table.onmousedown = (e) => {
+    if (e.target.closest("[data-cell]")) e.preventDefault();
+  };
   table.onclick = (e) => {
     if (suppressClick) {
       suppressClick = false;
@@ -766,7 +829,6 @@ export async function mount(s, host) {
     }
     menu();
   };
-  let hold, origin;
   table.addEventListener("pointerdown", (e) => {
     suppressClick = false;
     const target = e.target.closest("[data-resize-col],[data-resize-row]");
@@ -806,8 +868,9 @@ export async function mount(s, host) {
     if (e.target.closest(".tn-fill")) {
       e.preventDefault();
       suppressClick = false;
-      const seed = selected,
-        previousEnd = end,
+      const parts = referencePick?.parts,
+        seed = referencePick?.a || selected,
+        previousEnd = referencePick?.b || end,
         handle = e.target.closest(".tn-fill");
       s.gridDragging = true;
       handle.setPointerCapture(e.pointerId);
@@ -821,7 +884,8 @@ export async function mount(s, host) {
         if (!td || !table.contains(td)) return;
         try {
           const keys = new Set(D.range(seed, td.dataset.cell));
-          end = td.dataset.cell;
+          if (parts) pickReference(seed, td.dataset.cell, parts);
+          else end = td.dataset.cell;
           table
             .querySelectorAll("[data-cell]")
             .forEach((cell) =>
@@ -831,7 +895,7 @@ export async function mount(s, host) {
               ),
             );
           outline(keys);
-          preview.textContent = seed + ":" + end + " · ячеек: " + keys.size;
+          preview.textContent = seed + ":" + td.dataset.cell + " · ячеек: " + keys.size;
         } catch {}
       };
       const cleanup = () => {
@@ -847,14 +911,14 @@ export async function mount(s, host) {
       const finish = (event) => {
         move(event);
         cleanup();
-        hasSelection = true;
-        mark();
+        if (parts) paintReference();
+        else { hasSelection = true; mark(); }
         suppressClick = true;
       };
       const cancel = () => {
         cleanup();
-        end = previousEnd;
-        mark();
+        if (parts) pickReference(seed, previousEnd, parts);
+        else { end = previousEnd; mark(); }
       };
       handle.addEventListener("pointermove", move);
       handle.addEventListener("pointerup", finish);
@@ -862,7 +926,7 @@ export async function mount(s, host) {
       return;
     }
     const td = e.target.closest("[data-cell]");
-    if (td && !expectsReference() && e.pointerType !== "mouse") {
+    if (td && e.pointerType !== "mouse") {
       const anchor = td.dataset.cell,
         x = e.clientX,
         y = e.clientY;
@@ -878,110 +942,17 @@ export async function mount(s, host) {
       const up = () => {
         cleanup();
         suppressClick = true;
-        if (!moved) activateCell(anchor);
+        if (!moved) {
+          if (expectsReference()) pickReference(anchor, anchor, referenceParts());
+          else activateCell(anchor);
+        }
       };
       table.addEventListener("pointermove", move);
       table.addEventListener("pointerup", up);
       table.addEventListener("pointercancel", cleanup);
       return;
     }
-    if (td && expectsReference() && e.button === 0) {
-      e.preventDefault();
-      const anchor = td.dataset.cell,
-        parts = expectsReference() ? referenceParts() : null;
-      let moved = false,
-        targetCell = anchor,
-        ready = !dirty || !!parts;
-      const previous = { selected, end };
-      if (dirty && !parts) edit.readOnly = true;
-      origin = { x: e.clientX, y: e.clientY };
-      s.gridDragging = true;
-      table.setPointerCapture(e.pointerId);
-      const preparing = parts
-        ? Promise.resolve()
-        : dirty
-          ? queue(async () => {
-              await commit();
-              ready = true;
-            })
-          : Promise.resolve();
-      const move = (event) => {
-        if (
-          Math.hypot(event.clientX - origin.x, event.clientY - origin.y) < 6 &&
-          !moved
-        )
-          return;
-        const cell = document
-          .elementFromPoint(event.clientX, event.clientY)
-          ?.closest("[data-cell]");
-        if (!cell || !table.contains(cell) || !ready) return;
-        moved = true;
-        targetCell = cell.dataset.cell;
-        try {
-          if (parts) pickReference(anchor, targetCell, parts);
-          else {
-            selected = anchor;
-            end = targetCell;
-            mark();
-          }
-        } catch (errorValue) {
-          error(errorValue);
-        }
-      };
-      const cleanup = () => {
-        s.gridDragging = false;
-        table.removeEventListener("pointermove", move);
-        table.removeEventListener("pointerup", finish);
-        table.removeEventListener("pointercancel", cancel);
-        if (table.hasPointerCapture(e.pointerId))
-          table.releasePointerCapture(e.pointerId);
-      };
-      const finish = (event) => {
-        move(event);
-        cleanup();
-        if (parts) {
-          pickReference(anchor, targetCell, parts);
-          suppressClick = true;
-          return;
-        }
-        if (moved) {
-          edit.readOnly = false;
-          hasSelection = true;
-          suppressClick = true;
-          return;
-        }
-        // Pointer capture retargets click to the table, so handle taps here.
-        suppressClick = true;
-        void preparing
-          .then(() => {
-            if (
-              hasSelection &&
-              !dirty &&
-              (!simple() || previous.selected !== previous.end) &&
-              D.range(previous.selected, previous.end).includes(anchor)
-            ) {
-              menu();
-              return;
-            }
-            return queue(() => selectCell(anchor));
-          })
-          .catch(error)
-          .finally(() => {
-            edit.readOnly = false;
-          });
-      };
-      const cancel = () => {
-        cleanup();
-        edit.readOnly = false;
-        selected = previous.selected;
-        end = previous.end;
-        mark();
-        suppressClick = true;
-      };
-      table.addEventListener("pointermove", move);
-      table.addEventListener("pointerup", finish);
-      table.addEventListener("pointercancel", cancel);
-    }
+
   });
   rangeInput.onchange = async () => {
     try {
@@ -993,7 +964,7 @@ export async function mount(s, host) {
           throw Error("Диапазон вне листа");
       }
       D.range(a, b);
-      if (dirty) await queue(commit);
+      if (dirty) await queueCommit();
       selected = a;
       end = b;
       hasSelection = true;
@@ -1257,7 +1228,7 @@ export async function mount(s, host) {
           : " Действие можно отменить кнопкой ↶.") +
         "</p>",
       async () => {
-        if (dirty) await commit();
+        if (dirty) await queueCommit();
         const next = D.copy(sheet);
         if (sheetId === "linked")
           next.hiddenRows = [
@@ -1701,24 +1672,35 @@ export async function mount(s, host) {
     scale = Number(e.target.value);
     draw();
   };
+  let viewportHeight = globalThis.visualViewport?.height || innerHeight;
   const viewport = () => {
-    const v = visualViewport;
-    symbols.style.bottom =
-      Math.max(0, v ? innerHeight - v.height - v.offsetTop : 0) +
-      (s.root.querySelector("nav")?.getBoundingClientRect().height || 40) +
-      (s.root.querySelector(".tn-status")?.getBoundingClientRect().height ||
-        32) +
-      4 +
-      "px";
-    symbols.hidden = document.activeElement !== edit;
+    if (disposed) return;
+    const focused = document.activeElement === edit && !simple(),
+      v = globalThis.visualViewport;
+    const inset = Math.max(0, v ? innerHeight - v.height - v.offsetTop : 0);
+    if (!focused) viewportHeight = v?.height || innerHeight;
+    const raised = focused && (inset > 100 || viewportHeight - (v?.height || innerHeight) > 100);
+    dock.classList.toggle("tn-keyboard-dock", raised);
+    dock.style.bottom = inset + "px";
+    if (raised) {
+      const rect = host.getBoundingClientRect();
+      dock.style.left = rect.left + "px";
+      dock.style.width = rect.width + "px";
+    } else {
+      dock.style.left = dock.style.width = "";
+      if (!focused) suggestions.hidden = true;
+    }
+    host.style.paddingBottom = raised ? dock.getBoundingClientRect().height + "px" : "";
   };
   edit.onfocus = viewport;
   edit.onblur = () => {
     setTimeout(viewport, 0);
-    if (dirty && !expectsReference()) void queue(commit);
+    // Picking a reference must keep the draft and its destination intact.
+    if (dirty && !formulaMode()) void queueCommit();
   };
   globalThis.visualViewport?.addEventListener("resize", viewport);
   globalThis.visualViewport?.addEventListener("scroll", viewport);
+  globalThis.addEventListener("resize", viewport);
   symbols.querySelectorAll("button").forEach((b) => {
     b.onpointerdown = (e) => e.preventDefault();
     b.onclick = () => {
@@ -1744,7 +1726,7 @@ export async function mount(s, host) {
     scroll.scrollLeft = position.left;
   }
   return {
-    finish: () => (dirty ? queue(commit) : chain),
+    finish: () => (dirty ? queueCommit() : chain),
     snapshot() {
       return {
         sheetId,
@@ -1759,7 +1741,8 @@ export async function mount(s, host) {
     },
     dispose() {
       disposed = true;
-      clearTimeout(hold);
+      host.style.paddingBottom = "";
+      globalThis.removeEventListener("resize", viewport);
       saveStacks();
       globalThis.visualViewport?.removeEventListener("resize", viewport);
       globalThis.visualViewport?.removeEventListener("scroll", viewport);

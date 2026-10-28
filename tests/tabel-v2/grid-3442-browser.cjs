@@ -73,9 +73,8 @@ const server = spawn(
         if (await p.locator("dialog[open]").count())
           await p.locator("dialog[open] footer [data-action=close]").click();
       }
-      const x = formula
-          ? await cell(a).boundingBox()
-          : await p.locator(".tn-fill").boundingBox(),
+      if (formula) await cell(a).click();
+      const x = await p.locator(".tn-fill").boundingBox(),
         y = await cell(b).boundingBox();
       await p.mouse.move(x.x + x.width / 2, x.y + x.height / 2);
       await p.mouse.down();

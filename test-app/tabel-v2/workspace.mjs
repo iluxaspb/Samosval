@@ -1,3 +1,4 @@
+import { bindEquipmentOwnership } from "./catalog.mjs";
 import * as R from "./request-domain.mjs";
 import { arrivals } from "./line.mjs";
 import * as D from "./table-domain.mjs";
@@ -845,7 +846,7 @@ function bind(root, action, fn) {
     ?.addEventListener("click", () => Promise.resolve().then(fn).catch(error));
 }
 function addEquipment(s) {
-  dialog(
+  const el = dialog(
     "Добавить технику в базу",
     field("Контрагент (для наёмной)", input("contractor")) +
       field("Название", input("name", "", "required")) +
@@ -908,6 +909,8 @@ function addEquipment(s) {
       await render(s);
     },
   );
+  bindEquipmentOwnership(el);
+  return el;
 }
 function addPerson(s, group = "worker") {
   dialog(

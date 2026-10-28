@@ -639,7 +639,7 @@ export function describeChange(before, after) {
 
 export const isWater = (e) => e.kind === "water" || /полив/i.test(e.name || "");
 export const equipmentOrder = (e) =>
-  isWater(e) ? 0 : isBrush(e) ? 1 : isMill(e) ? 2 : 3;
+  isWater(e) ? 0 : isMill(e) ? 1 : isBrush(e) ? 2 : 3;
 export function previousDay(shifts, date, shift) {
   return (
     shifts

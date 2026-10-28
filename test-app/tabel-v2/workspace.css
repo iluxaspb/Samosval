@@ -1148,3 +1148,13 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 
 /* Dragging the corner selects only; edits are explicit menu actions. */
 .tn .tn-grid .tn-fill { width:12px; height:12px; border-radius:50%; background:radial-gradient(circle, #8799aa 0 4px, transparent 5px); border:0; cursor:crosshair; }
+
+/* Input rows stay together: formula above symbols, immediately over the keyboard. */
+.tn-input-dock { flex:0 0 auto; background:var(--tn-card); box-sizing:border-box; }
+.tn-input-dock[hidden], .tn-formula-suggestions[hidden] { display:none!important; }
+.tn-table .tn-input-dock .tn-symbols { position:static; height:34px; width:100%; box-sizing:border-box; }
+.tn-keyboard-dock { position:fixed; z-index:12000; box-shadow:0 -2px 8px #0002; }
+.tn-input-dock [data-editor] { font-size:16px; }
+.tn-formula-suggestions { display:flex; gap:4px; padding:3px 4px; }
+.tn-formula-suggestions button { min-height:30px; }
+.tn label[hidden] { display:none!important; }

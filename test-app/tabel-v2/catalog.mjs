@@ -284,6 +284,7 @@ async function editItem(s, key, item) {
     },
   );
   bindColorFields(el);
+  if (key === "equipment") bindEquipmentOwnership(el);
   return el;
 }
 
@@ -306,4 +307,16 @@ function addContractor(s) {
       await s.refresh();
     },
   );
+}
+
+export function bindEquipmentOwnership(el) {
+  const ownership = el.querySelector("[name=ownership]"),
+    contractor = el.querySelector("[name=contractor]");
+  const update = () => {
+    const hired = ownership.value === "hired";
+    contractor.closest("label").hidden = !hired;
+    contractor.disabled = !hired;
+  };
+  ownership.addEventListener("change", update);
+  update();
 }
