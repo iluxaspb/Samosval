@@ -28,6 +28,7 @@ jobs:
       - name: Check modified source scripts
         run: |
           node --check test-app/source/features/settings-hub.js
+          node --check test-app/source/features/line-motion-test.js
           node --check test-app/source/features/release-history.js
           node --check test-app/src/pwa.js
           node --check test-app/source/features/test-release.js
@@ -40,13 +41,16 @@ jobs:
           root=pathlib.Path('.')
           m=json.loads((root/'test-app/build-manifest.json').read_text())
           html=(root/'index-test.html').read_text()
-          assert 'name="test-app-version" content="3.4.24"' in html
-          assert m['channel'].startswith('test-3.4.24-')
+          assert 'name="test-app-version" content="3.4.25"' in html
+          assert m['channel'].startswith('test-3.4.25-')
           assert 'settings-hub.js' in html
           source=(root/'test-app/source/features/settings-hub.js').read_text()
-          assert "input.min='-0.4'" in source
+          motion=(root/'test-app/source/features/line-motion-test.js').read_text()
+          assert 'features/line-motion-test.js' in (root/'test-app/modules.json').read_text()
+          assert 'Math.min(7.2' in motion and "version:'1.1.0-test'" in motion
+          assert 'previewAnimations.forEach(a=>a.cancel())' in motion
           assert "margin:12px 16px 14px!important" in source
-          assert "input.dispatchEvent(new Event('input',{bubbles:true}))" in source
+          assert 'extendCalmTempo' not in source
           for asset in m['assets']:
               p=root/asset['url']
               assert p.is_file(),str(p)
@@ -55,6 +59,7 @@ jobs:
           print('TEST_BUILD_OK',m['version'],len(m['assets']))
           PY
           node --check sw-test.js
+          node tests/modular/line-motion-3425.cjs
           test -z "$(git diff HEAD --name-only -- index.html sw.js manifest.json app/)"
       - name: Publish test-only files
         run: |
@@ -62,7 +67,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add index-test.html sw-test.js test-app/build-manifest.json test-app/build/
           if ! git diff --cached --quiet; then
-            git commit -m "build(test): publish settings 3.4.24 hashed assets"
+            git commit -m "build(test): publish settings 3.4.25 hashed assets"
             git push origin HEAD:root
           else
             echo "Test build already up to date"
