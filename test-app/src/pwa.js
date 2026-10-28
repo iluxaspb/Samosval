@@ -7,14 +7,16 @@
     || document.querySelector('meta[name="test-app-build"]')?.content || '';
   const releaseVersion = window.TEST_APP_RELEASE?.version || document.querySelector('meta[name="test-app-version"]')?.content || '';
   let registration, installPrompt, shellReady = false, registrationError = '', statusError = '', installed = false;
+  let manualUpdateBusy = false;
   let activeVersion = '', waitingVersion = '', updateReady = false, checking = false, statusEpoch = 0, checkInFlight, confirmedActive, confirmedWaiting;
   const watchedWorkers = new WeakSet();
   const group = document.createElement('div');
   group.id = 'test-pwa-settings'; group.className = 'form-group';
   group.style.cssText = 'border-top:1px solid var(--border);padding-top:12px;margin-top:12px';
-  group.innerHTML = '<label>📲 Приложение на телефоне</label><p id="test-pwa-version" class="version-text" hidden style="font-size:12px;line-height:1.5;overflow-wrap:anywhere;text-decoration:none;cursor:default"></p><p id="test-pwa-state" role="status" style="font-size:13px;line-height:1.5"></p><button type="button" class="btn btn-primary btn-small" id="test-pwa-install">Установить приложение</button><button type="button" class="btn btn-secondary btn-small" id="test-pwa-check" style="margin-left:6px">Проверить обновление</button><p style="font-size:12px;color:var(--muted);line-height:1.5">Перед работой без сети войдите и откройте нужную смену с интернетом. Прибытие, погрузка и ТТН сохраняются на устройстве. После возвращения сети открытое приложение отправит очередь с обычной проверкой повторов и конфликтов; если оно закрыто — при следующем запуске. Вход в новую учётную запись, серверные операции и общие мини-игры требуют связи.</p>';
+  group.innerHTML = '<label>📲 Приложение на телефоне</label><p id="test-pwa-version" class="version-text" hidden style="font-size:12px;line-height:1.5;overflow-wrap:anywhere;text-decoration:none;cursor:default"></p><p id="test-pwa-state" role="status" style="font-size:13px;line-height:1.5"></p><button type="button" class="btn btn-primary btn-small" id="test-pwa-install">Установить приложение</button><button type="button" class="btn btn-secondary btn-small" id="test-pwa-check" style="margin-left:6px">🔄 Проверить и установить</button><a id="test-pwa-recovery-link" href="./update-test.html" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:10px;font-size:13px;color:var(--primary)">Не обновляется? Открыть страницу восстановления обновления ↗</a><p id="test-pwa-update-message" role="status" style="font-size:12px;line-height:1.5;margin:8px 0"></p><p style="font-size:12px;color:var(--muted);line-height:1.5">Перед работой без сети войдите и откройте нужную смену с интернетом. Прибытие, погрузка и ТТН сохраняются на устройстве. После возвращения сети открытое приложение отправит очередь с обычной проверкой повторов и конфликтов; если оно закрыто — при следующем запуске. Вход в новую учётную запись, серверные операции и общие мини-игры требуют связи.</p>';
   document.querySelector('#settingsModal .modal-body')?.append(group);
   const status = group.querySelector('#test-pwa-state'), version = group.querySelector('#test-pwa-version'), install = group.querySelector('#test-pwa-install'), check = group.querySelector('#test-pwa-check');
+  const updateMessage = group.querySelector('#test-pwa-update-message');
   const standalone = () => installed || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   function state() {
     const activeConfirmed = registration?.active === confirmedActive, waitingConfirmed = registration?.waiting === confirmedWaiting;
@@ -27,7 +29,7 @@
   function render() {
     const s = state();
     install.hidden = s.installed;
-    check.disabled = checking || !eligible || !('serviceWorker' in navigator) || !window.isSecureContext || !navigator.onLine;
+    check.disabled = checking || manualUpdateBusy || !eligible || !('serviceWorker' in navigator) || !window.isSecureContext || !navigator.onLine;
     const releaseAdmin = typeof permissionsLoaded !== 'undefined' && permissionsLoaded && typeof canAdmin === 'function' && canAdmin();
     version.hidden = !releaseAdmin;
     version.textContent = releaseAdmin ? 'Открыта: '+(releaseVersion || 'версия не определена')+' · сборка '+(buildVersion || 'не определена')
@@ -113,7 +115,112 @@
       render();
     } else appNotice('Android: откройте эту страницу в Chrome → меню ⋮ → «Установить приложение» или «Добавить на главный экран».\n\niPhone: Safari → «Поделиться» → «На экран Домой».\n\nДождитесь надписи о готовности без интернета в настройках.');
   };
-  check.onclick = checkForUpdates;
+  // A real, explicitly requested update: confirm the published release, wait
+  // for the full offline bundle to pass SHA-256 checks, then activate/reload.
+  // Never purge localStorage, IndexedDB, Firebase state or pending trip actions.
+  function pendingActivity() {
+    try {
+      if (typeof offlinePendingCount !== 'function' || typeof pendingOps !== 'number') return true;
+      if (offlinePendingCount() > 0 || pendingOps > 0) return true;
+      return typeof syncState !== 'undefined' && !!syncState.pendingWrites &&
+        Object.values(syncState.pendingWrites).some(Boolean);
+    } catch (_) { return true; }
+  }
+  async function publishedManifest() {
+    const response = await fetch('./test-app/build-manifest.json?manual=' + Date.now(),{cache:'no-store'});
+    if (!response.ok) throw Error('Сайт не ответил: HTTP ' + response.status);
+    const data = await response.json();
+    if (!/^[a-f0-9]{16}$/.test(data.version) ||
+        !Array.isArray(data.assets) || !data.assets.some(item => item.url === './index-test.html')) {
+      throw Error('На сайте нет полного манифеста новой версии.');
+    }
+    return data;
+  }
+  async function waitForVerifiedBuild(expected) {
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      const ready = registration?.waiting;
+      if (ready) {
+        const result = await workerStatus(ready);
+        if (result?.version === expected && result?.complete === true) return ready;
+      }
+      const active = registration?.active;
+      if (active) {
+        const result = await workerStatus(active);
+        if (result?.version === expected && result?.complete === true) return null;
+      }
+      await new Promise(resolve => setTimeout(resolve,450));
+    }
+    throw Error('Не удалось полностью скачать новую сборку. Откройте страницу восстановления.');
+  }
+  function applyVerifiedBuild(worker,expected) {
+    return new Promise((resolve,reject) => {
+      const channel = new MessageChannel();
+      const finish = (err,ok) => {clearTimeout(timer);channel.port1.close();channel.port2.close();err?reject(err):resolve(ok);};
+      const timer = setTimeout(() => finish(Error('Новая версия не подтвердила активацию.')),5000);
+      channel.port1.onmessage = event => {
+        const value = event.data;
+        if (value?.type === 'TEST_PWA_APPLY' && value.version === expected && value.accepted === true) finish(null,true);
+        else finish(Error('Новая версия не прошла проверку.'));
+      };
+      try {worker.postMessage({type:'TEST_PWA_APPLY',version:expected},[channel.port2]);}
+      catch(error) {finish(error);}
+    });
+  }
+  async function waitForActivation(expected) {
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      const active = registration?.active;
+      if (active?.state === 'activated') {
+        const result = await workerStatus(active);
+        if (result?.version === expected && result?.complete === true &&
+            (!navigator.serviceWorker.controller || navigator.serviceWorker.controller === active)) return;
+      }
+      await new Promise(resolve => setTimeout(resolve,250));
+    }
+    throw Error('Сборка загружена, но ещё ожидает активации. Закройте другие окна тестовой версии.');
+  }
+  async function installPublishedUpdate() {
+    if (manualUpdateBusy) return;
+    manualUpdateBusy = true;
+    render();
+    const message = text => {updateMessage.textContent = text;};
+    try {
+      if (!eligible || !navigator.onLine || !window.isSecureContext) throw Error('Для обновления нужен интернет.');
+      message('Проверяю последнюю версию непосредственно на сайте…');
+      const latest = await publishedManifest();
+      if (latest.version === buildVersion) {
+        message('Уже открыта актуальная версия ' + (releaseVersion || buildVersion) + '.');
+        return;
+      }
+      if (pendingActivity()) throw Error('Есть несинхронизированные рейсы или незавершённые записи. Дождитесь сохранения, затем повторите обновление.');
+      const question = 'На сайте есть новая тестовая сборка. Установить и перезапустить приложение? Сначала закройте несохранённые формы. Данные и очередь рейсов не удаляются.';
+      const agreed = typeof appConfirm === 'function' ? await appConfirm(question) : window.confirm(question);
+      if (!agreed) {message('Обновление отменено.');return;}
+      if (pendingActivity()) throw Error('Появились незавершённые действия, перезапуск отменён.');
+      message('Загружаю новую версию, проверяю целостность файлов…');
+      if (!registration) await register();
+      if (!registration) throw Error('Не удалось подключить служебный файл обновления.');
+      await registration.update();
+      const waiting = await waitForVerifiedBuild(latest.version);
+      if (pendingActivity()) throw Error('Найдены незавершённые действия. Обновление скачано, но перезапуск отменён.');
+      if (waiting) {
+        message('Новая сборка проверена. Применяю обновление…');
+        await applyVerifiedBuild(waiting,latest.version);
+      }
+      await waitForActivation(latest.version);
+      if (pendingActivity()) throw Error('Есть несохранённые действия: перезапуск отменён.');
+      message('Обновление установлено. Перезапускаю…');
+      location.replace('./index-test.html?update=' + encodeURIComponent(latest.version));
+    } catch(error) {
+      message('Обновление не установлено: ' + String(error?.message || error) +
+        ' Можно воспользоваться ссылкой восстановления в этом разделе.');
+    } finally {
+      manualUpdateBusy = false;
+      render();
+    }
+  }
+  check.onclick = installPublishedUpdate;
   const resume = () => {
     render();
     if (navigator.onLine && !document.hidden) {

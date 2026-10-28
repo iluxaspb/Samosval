@@ -65,10 +65,19 @@ self.addEventListener('fetch', event => {
 });
 
 self.addEventListener('message', event => {
-  if (event.data?.type !== 'TEST_PWA_STATUS' || !event.ports?.[0]) return;
+  const type = event.data?.type, port = event.ports?.[0];
+  if (!port || (type !== 'TEST_PWA_STATUS' && type !== 'TEST_PWA_APPLY')) return;
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
     const complete = !!await cache.match(COMPLETE);
-    event.ports[0].postMessage({type:'TEST_PWA_STATUS',version:VERSION,complete});
+    if (type === 'TEST_PWA_STATUS') {
+      port.postMessage({type:'TEST_PWA_STATUS',version:VERSION,complete});
+      return;
+    }
+    // Only activate a complete, hash-verified release requested explicitly by
+    // the user. Never call skipWaiting during automatic installation.
+    const accepted = complete && event.data?.version === VERSION;
+    port.postMessage({type:'TEST_PWA_APPLY',version:VERSION,accepted});
+    if (accepted) await self.skipWaiting();
   })());
 });

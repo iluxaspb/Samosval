@@ -1,147 +1,74 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0f172a">
-<title>Обновление тестовой версии — Самосвал</title>
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Восстановление обновления — Самосвалы</title>
 <style>
-:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}*{box-sizing:border-box}body{margin:0;padding:24px 16px}main{max-width:560px;margin:24px auto;background:#1e293b;border:1px solid #475569;border-radius:20px;padding:24px}h1{font-size:24px;margin-top:0}p{line-height:1.6}#state{padding:16px;background:#0f172a;border-radius:12px;white-space:pre-line}#build{font-size:12px;color:#cbd5e1;overflow-wrap:anywhere}button{width:100%;min-height:48px;border:0;border-radius:12px;padding:12px;font:inherit;font-weight:650;cursor:pointer;background:#38bdf8;color:#082f49;margin:6px 0}button:disabled{opacity:.45;cursor:default}.secondary{background:#334155;color:#e2e8f0}.note{font-size:14px;color:#cbd5e1}a{color:#7dd3fc}[hidden]{display:none!important}
-</style>
-</head>
-<body>
-<main>
+:root{color-scheme:dark}*{box-sizing:border-box}body{background:#111827;color:#f9fafb;font:16px system-ui,-apple-system,sans-serif;margin:0;padding:28px 16px}
+main{max-width:520px;margin:0 auto}.muted{color:#cbd5e1;font-size:14px;line-height:1.55}
+h1{font-size:23px}button{font:inherit;display:block;width:100%;margin:20px 0 8px;background:#2563eb;color:#fff;padding:16px;border-radius:12px;border:0;font-weight:700}
+button:disabled{opacity:.5}a{color:#93c5fd}#status{min-height:42px;white-space:pre-line;line-height:1.6}
+</style></head><body><main>
 <h1>Обновление тестовой версии</h1>
-<p>Эта страница открывается отдельно от сохранённой копии приложения и проверяет, какая сборка действительно включена.</p>
-<p id="release">Проверяем опубликованную версию…</p>
-<p id="state" role="status" aria-live="polite">Подключаемся…</p>
-<p id="build"></p>
-<button id="open" hidden disabled>Открыть обновлённую тестовую</button>
-<button id="retry" class="secondary">Проверить ещё раз</button>
-<p class="note"><strong>Данные сайта очищать не нужно.</strong> Обновление не удаляет смены, локальную очередь, фотографии или настройки. Рабочая версия не изменяется. Дождитесь сохранения текущего редактирования; закрывать смену не требуется.</p>
-<p id="close-hint" class="note" hidden><strong>Оставьте открытой только эту страницу.</strong> Закройте другие вкладки с тестовой версией и установленное тестовое приложение через список последних приложений Android. Здесь проверка продолжится автоматически. Если открыли эту страницу внутри приложения, откройте её в обычном Chrome и закройте старое окно приложения. Не удаляйте приложение и его данные.</p>
-<noscript>Для проверки обновления необходим JavaScript.</noscript>
-</main>
-<script>
+<p class="muted">Эта страница открывается отдельно от старого офлайн-кеша тестовой версии. Она поможет, если приложение всё ещё показывает старый номер.</p>
+<button id="repair" type="button">🔄 Проверить сайт и восстановить обновление</button>
+<p id="status" role="status">Для проверки нужен интернет.</p>
+<p class="muted">Обновляем только программные файлы. <strong>Не удаляем</strong> данные Firebase, авторизацию, табель, IndexedDB и очередь рейсов. Если есть несинхронизированные действия, обновление будет остановлено. Сначала закройте другие окна тестовой версии.</p>
+<a href="./index-test.html">Вернуться в тестовую версию</a>
+</main><script>
 (function () {
   'use strict';
-  const base = new URL('./', location.href);
-  const page = new URL('index-test.html', base);
-  const state = document.getElementById('state');
-  const release = document.getElementById('release');
-  const build = document.getElementById('build');
-  const open = document.getElementById('open');
-  const retry = document.getElementById('retry');
-  const hint = document.getElementById('close-hint');
-  let registration, target, label, timer, generation = 0, checking = false, failed = false;
-  const watched = new WeakSet();
-  const setState = (name, text) => { state.dataset.state = name; state.textContent = text; };
-  const digest = async bytes => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
-  async function network(url) {
-    const response = await fetch(url, {cache:'no-store', credentials:'same-origin', signal:AbortSignal.timeout(30000)});
-    if (!response.ok) throw Error('Не загружен ' + new URL(url).pathname.split('/').pop() + ' (HTTP ' + response.status + ')');
+  const button=document.getElementById('repair'),status=document.getElementById('status');
+  const show=message=>{status.textContent=message;};
+  async function fresh(url) {
+    const response=await fetch(url+(url.includes('?')?'&':'?')+'check='+Date.now(),{cache:'no-store'});
+    if (!response.ok) throw Error('Сервер не ответил: '+url+' ('+response.status+').');
     return response;
   }
-  function status(worker) {
-    if (!worker) return Promise.resolve(null);
-    return new Promise(resolve => {
-      const channel = new MessageChannel();
-      let timeout;
-      const finish = data => { clearTimeout(timeout); channel.port1.close(); resolve(data); };
-      timeout = setTimeout(() => finish(null), 3000);
-      channel.port1.onmessage = event => finish(event.data);
-      try { worker.postMessage({type:'TEST_PWA_STATUS'}, [channel.port2]); }
-      catch (_) { finish(null); }
-    });
+  async function digest(text) {
+    const binary=new TextEncoder().encode(text);
+    return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',binary)),b=>b.toString(16).padStart(2,'0')).join('');
   }
-  function watch(worker) {
-    if (!worker || watched.has(worker)) return;
-    watched.add(worker);
-    worker.addEventListener('statechange', () => {
-      if (worker.state === 'redundant') failed = true;
-      poll();
-    });
+  function pendingJournal() {
+    let count=0;
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(!key || !key.startsWith('samosval_offline_v1_'))continue;
+      const raw=JSON.parse(localStorage.getItem(key)||'[]');
+      if (!Array.isArray(raw)) throw Error('Не удалось прочитать очередь рейсов.');
+      count+=raw.filter(entry=>entry && entry.status==='pending').length;
+    }
+    return count;
   }
-  async function poll() {
-    if (checking || !registration || !target) return;
-    checking = true;
-    const run = generation;
+  button.onclick=async()=>{
+    button.disabled=true;
     try {
-      watch(registration.installing);
-      const active = await status(registration.active);
-      if (run !== generation) return;
-      build.textContent = 'На сайте: ' + target + '\nАктивна на устройстве: ' + (active?.version || 'ещё не определена');
-      if (active?.version === target && active.complete === true && registration.active?.state === 'activated') {
-        hint.hidden = true;
-        setState('ready', label + ' включена. Можно открыть тестовую версию.');
-        open.textContent = 'Открыть ' + label;
-        open.hidden = false; open.disabled = false;
-        clearInterval(timer);
-      } else if (registration.waiting) {
-        const waiting = await status(registration.waiting);
-        if (run !== generation) return;
-        hint.hidden = false;
-        if (waiting?.version === target && waiting.complete === true) {
-          setState('waiting', label + ' загружена и проверена, но пока работает старая копия.\nЗакройте остальные окна тестовой версии. Эту страницу оставьте открытой.');
-        } else {
-          setState('waiting', 'Другая сборка ожидает включения. Закройте остальные окна тестовой версии и нажмите «Проверить ещё раз».');
-        }
-      } else if (registration.installing) {
-        setState('installing', 'Загружаем и проверяем все файлы приложения. Не закрывайте эту страницу.');
-      } else if (failed) {
-        hint.hidden = true;
-        setState('error', 'Новая сборка не установилась: загрузка прервалась или сервер ещё отдаёт разные версии файлов. Старая копия сохранена. Проверьте интернет и нажмите «Проверить ещё раз».');
-      } else {
-        setState('checking', 'Ждём подтверждения включения новой сборки…');
+      if (!navigator.onLine || !window.isSecureContext)throw Error('Нужен интернет по защищённому адресу.');
+      const pending=pendingJournal();
+      if (pending>0)throw Error('В очереди '+pending+' несинхронизированных действий. Сначала дождитесь их отправки.');
+      show('Проверяю версию и файлы на сайте…');
+      const data=await (await fresh('./test-app/build-manifest.json')).json();
+      if (!/^[a-f0-9]{16}$/.test(data.version) || !Array.isArray(data.assets))throw Error('Некорректный манифест обновления.');
+      const html=await (await fresh('./index-test.html')).text();
+      const record=data.assets.find(item=>item.url==='./index-test.html');
+      if (!record || !html.includes('name="test-app-build" content="'+data.version+'"') ||
+          (await digest(html))!==record.sha256) throw Error('На сайте пока не совпадают контрольные суммы. Попробуйте повторить проверку.');
+      const sw=await (await fresh('./sw-test.js')).text();
+      if (!sw.includes("const VERSION = '"+data.version+"';")) throw Error('Служебный файл обновления пока не опубликован.');
+      const version=(html.match(/name="test-app-version" content="([^"]+)"/)||[])[1]||data.version;
+      show('На сайте доступна тестовая '+version+'.');
+      if (!window.confirm('Обновить тестовую '+version+'? Старая офлайн-регистрация будет отключена. Данные и очередь рейсов сохранятся. Закройте другие окна тестовой версии.')) {
+        show('Отменено. Данные не изменены.');return;
       }
-    } catch (error) {
-      if (run === generation) setState('error', 'Проверка не завершена: ' + error.message);
-    } finally { checking = false; }
-  }
-  async function start() {
-    if (retry.disabled) return;
-    const run = ++generation;
-    clearInterval(timer); target = null; failed = false;
-    open.hidden = true; open.disabled = true; hint.hidden = true; retry.disabled = true;
-    setState('checking', 'Проверяем файлы на сайте, а не номер из сохранённой копии…');
-    try {
-      if (!window.isSecureContext || !('serviceWorker' in navigator) || !crypto.subtle) throw Error('Откройте эту HTTPS-ссылку в обычном Chrome');
-      if (!navigator.onLine) throw Error('Для обновления подключитесь к интернету');
-      const manifestUrl = new URL('test-app/build-manifest.json', base);
-      manifestUrl.searchParams.set('check', String(Date.now()));
-      const manifest = await (await network(manifestUrl)).json();
-      if (!/^[a-f0-9]{16}$/.test(manifest.version) || !Array.isArray(manifest.assets)) throw Error('Некорректный список файлов сборки');
-      const record = manifest.assets.find(item => item.url === './index-test.html');
-      if (!record || !/^[a-f0-9]{64}$/.test(record.sha256)) throw Error('В сборке отсутствует тестовая страница');
-      const bytes = await (await network(page)).arrayBuffer();
-      if (await digest(bytes) !== record.sha256) throw Error('Публикация ещё обновляется: HTML не совпадает со списком файлов. Повторите проверку чуть позже');
-      const html = new TextDecoder().decode(bytes);
-      const parsed = new DOMParser().parseFromString(html, 'text/html');
-      label = parsed.querySelector('.version-text')?.textContent.trim() || 'Тестовая версия';
-      if (/^test-\d+\.\d+\.\d+-standalone-plus-timesheet$/.test(manifest.channel || '')) {
-        if (manifest.channel !== 'test-3.4.8-standalone-plus-timesheet' && parsed.querySelector('meta[name="test-app-build"]')?.content !== manifest.version) throw Error('Страница и список файлов относятся к разным сборкам');
-        if (!html.includes('id="global-interface-haptics"') || !html.includes('Исправлены лишние виброотклики') || !html.includes('src="./test-app/src/pwa.js"')) throw Error('В тестовой странице отсутствуют необходимые компоненты');
-      } else if (!html.includes('./test-app/build/' + manifest.version + '/')) throw Error('Страница и модули относятся к разным сборкам');
-      if (run !== generation) return;
-      target = manifest.version;
-      release.textContent = 'Опубликована: ' + label;
-      registration = await navigator.serviceWorker.register(new URL('sw-test.js', base), {scope:page.href, updateViaCache:'none'});
-      registration.addEventListener('updatefound', () => { failed = false; watch(registration.installing); poll(); });
-      watch(registration.installing);
-      await registration.update();
-      if (run !== generation) return;
-      timer = setInterval(poll, 1500);
-      await poll();
-    } catch (error) {
-      setState('error', 'Обновление не подтверждено. ' + error.message + '. Данные не очищались.');
-    } finally { retry.disabled = false; }
-  }
-  open.onclick = () => { if (!open.disabled) location.replace(page.href); };
-  retry.onclick = start;
-  window.addEventListener('online', () => { if (!retry.disabled) start(); });
-  window.addEventListener('pagehide', () => clearInterval(timer));
-  start();
+      if (pendingJournal()>0)throw Error('Появились ожидающие рейсы. Обновление отменено.');
+      show('Отключаю старую офлайн-регистрацию, не затрагивая данные…');
+      const reg=await navigator.serviceWorker.getRegistration('./index-test.html');
+      if (reg && !(await reg.unregister()))throw Error('Не удалось отключить старую офлайн-регистрацию.');
+      // The next worker verifies the new release and removes only old
+      // samosval-test-shell-* caches after successful activation.
+      show('Открываю актуальную тестовую версию…');
+      location.replace('./index-test.html?repair='+Date.now());
+    } catch(error) {
+      show('Обновление не выполнено: '+String(error?.message||error)+' Данные не удалялись.');
+    } finally {button.disabled=false;}
+  };
 })();
-</script>
-</body>
-</html>
+</script></body></html>

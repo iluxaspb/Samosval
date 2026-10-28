@@ -1,11 +1,11 @@
 {
-  "version": "4f728da03d93f808",
-  "channel": "test-3.4.18-modular-plus-timesheet",
+  "version": "bb193dcc3648747b",
+  "channel": "test-3.4.19-modular-plus-timesheet",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index-test.html",
-      "sha256": "b29bbac53041e216a702956d722d0ab72b4d91096361db7c99e8a7f4d88613c0"
+      "sha256": "b596cbb6722ec304466e2321e177a4bc149f48160c4343c517a7dcb597e51054"
     },
     {
       "url": "./manifest-test.webmanifest",
@@ -13,7 +13,7 @@
     },
     {
       "url": "./test-app/src/pwa.js",
-      "sha256": "cb529c5e4374b1b4398b8d9ab95e313b971cce8a1e600db14f1f161a62462ef5"
+      "sha256": "dd2298c03ef49dbb6ef7d265e4c1a5da60021507417423a6c3bfea17ff14c733"
     },
     {
       "url": "./test-app/vendor/firebase-app-compat-10.8.0.js",
@@ -96,8 +96,8 @@
       "sha256": "4ae0a1ebb39d64df2a41a284b8651ee2c698fe2472e843debc5aafc4b956a151"
     },
     {
-      "url": "./test-app/build/4f728da03d93f808/release-history.js",
-      "sha256": "a30595100641a7fc5589f83df54f9c892d9b44b0e7997d06cade54a4201f69e3"
+      "url": "./test-app/build/bb193dcc3648747b/release-history.js",
+      "sha256": "5fa18f372aa80e07664af1082f37c90ee555d3a98df2db2ed278acd92b79a29b"
     },
     {
       "url": "./test-app/build/45e428003253a236/reset-settings.js",
@@ -128,8 +128,8 @@
       "sha256": "6331cb853a83b2a025650ce9272e20f46cc796a4c4ce17b100b1a7b652a94ff2"
     },
     {
-      "url": "./test-app/build/4f728da03d93f808/test-release.js",
-      "sha256": "3654b0de7d98767b8bab9ae25c93a147b4f85b23163796398743ea10bd302af5"
+      "url": "./test-app/build/bb193dcc3648747b/test-release.js",
+      "sha256": "5a321481f32bbcabb3e2aa20009a0cda4cef3b2b34a4e96b7b7922908482ccbd"
     },
     {
       "url": "./test-app/build/45e428003253a236/trip-analytics.js",

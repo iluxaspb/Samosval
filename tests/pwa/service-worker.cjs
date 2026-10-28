@@ -25,7 +25,7 @@ function harness({fail='',storage=new Map(),version=code}={}){
  const failed=harness({fail:'firebase-auth',storage:h.storage,version:code.replace(/const VERSION = '[^']+'/,'const VERSION = \'failed-release\'')});await assert.rejects(()=>failed.event('install'));assert(!h.storage.has('samosval-test-shell-failed-release'));assert(h.storage.has('production-shell-v3'));assert(h.storage.has('samosval-test-shell-'+JSON.parse(fs.readFileSync('test-app/build-manifest.json')).version));
  const corrupt=harness();corrupt.scope.fetch=async()=>new Response('wrong release');await assert.rejects(()=>corrupt.event('install'));assert.equal(corrupt.storage.size,0);
  console.log('PASS failed/inconsistent update cannot replace cached app; no IndexedDB/localStorage deletion or skipWaiting');
- assert(!/skipWaiting\s*\(/.test(code));assert(!/indexedDB|localStorage\./.test(code));
+ assert(!/skipWaiting\s*\(/.test(code.slice(0,code.indexOf("self.addEventListener('message'"))));assert(code.includes('TEST_PWA_APPLY'));assert(!/indexedDB|localStorage\./.test(code));
  const second=harness({storage:h.storage,version:code.replace(/const VERSION = '[^']+'/,'const VERSION = \'next-release\'')});await second.event('install');assert.equal(second.deleted.length,0);await second.event('activate');assert(h.storage.has('production-shell-v3'));assert(h.storage.has('samosval-test-shell-next-release'));
  console.log('PASS update waits for activation and cleans only its own shell caches');
 })().catch(e=>{console.error(e);process.exitCode=1});
