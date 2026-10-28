@@ -101,8 +101,7 @@ function upgrade(){
         residual=Math.exp(-damping*omega*t) *
           (Math.cos(omega*oscillation*t)+(damping/oscillation)*Math.sin(omega*oscillation*t));
         if(residual<0) {
-          const scale=Math.min(1,maxBounce/Math.max(.27*distance,1));
-          residual*=scale;
+          residual=-maxBounce*Math.tanh(-residual*distance/Math.max(1,maxBounce))/Math.max(1,distance);
         }
       }
       if(i===60) residual=0;
