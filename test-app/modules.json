@@ -394,7 +394,8 @@
       "name": "settings-hub",
       "attributes": " id=\"test-settings-hub\"",
       "sources": [
-        "features/settings-hub.js"
+        "features/settings-hub.js",
+        "features/line-motion-test.js"
       ]
     }
   ]
