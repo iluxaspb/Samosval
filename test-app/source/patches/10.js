@@ -12,10 +12,10 @@
       if (!raw) return { ...DEFAULTS };
       const s = JSON.parse(raw);
       return {
-        overall: clamp(s.overall ?? 1, 0.3, 2.5),
-        fill: clamp(s.fill ?? 1, 0.3, 2.5),
-        shake: clamp(s.shake ?? 1, 0.3, 2.5),
-        wave: clamp(s.wave ?? 1, 0.3, 2.5),
+        overall: clamp(s.overall ?? 1, 0.2, 4.0),
+        fill: clamp(s.fill ?? 1, 0.2, 4.0),
+        shake: clamp(s.shake ?? 1, 0.2, 4.0),
+        wave: clamp(s.wave ?? 1, 0.2, 4.0),
       };
     } catch(e) { return { ...DEFAULTS }; }
   }
@@ -607,7 +607,8 @@
     block.style.cssText = 'margin-top: 20px; border-top: 2px solid var(--border); padding-top: 16px;';
 
     block.innerHTML = `
-      <div class="settings-label" style="margin-bottom: 12px;">🎬 Скорости анимаций</div>
+      <div class="settings-label" style="margin-bottom: 6px;">🎬 Анимация карточек на «Линии»</div>
+      <p style="font-size:12px;line-height:1.5;color:var(--muted);margin:0 0 12px">Диапазон 0,2–4,0×: меньше значение — быстрее, больше — медленнее. Только для карточек на вкладке «Линия».</p>
       <div class="speed-presets">
         <button class="btn btn-secondary speed-preset-btn" data-preset="slow">🐢<br>Медленно</button>
         <button class="btn btn-quick speed-preset-btn" data-preset="normal">🚀<br>Обычно</button>
@@ -616,10 +617,10 @@
 
       <div class="speed-slider-row">
         <div class="speed-label-row">
-          <span class="speed-label">Общая скорость</span>
+          <span class="speed-label">Общий темп карточек</span>
           <span class="speed-value" id="sv-overall">1.0×</span>
         </div>
-        <input type="range" min="0.3" max="2.5" step="0.1" class="speed-slider" id="sl-overall">
+        <input type="range" min="0.2" max="4.0" step="0.1" class="speed-slider" id="sl-overall">
       </div>
 
       <div class="speed-slider-row">
@@ -627,7 +628,7 @@
           <span class="speed-label">Заполнение пустоты (погрузка)</span>
           <span class="speed-value" id="sv-fill">1.0×</span>
         </div>
-        <input type="range" min="0.3" max="2.5" step="0.1" class="speed-slider" id="sl-fill">
+        <input type="range" min="0.2" max="4.0" step="0.1" class="speed-slider" id="sl-fill">
       </div>
 
       <div class="speed-slider-row">
@@ -635,7 +636,7 @@
           <span class="speed-label">Дрожание перед действием</span>
           <span class="speed-value" id="sv-shake">1.0×</span>
         </div>
-        <input type="range" min="0.3" max="2.5" step="0.1" class="speed-slider" id="sl-shake">
+        <input type="range" min="0.2" max="4.0" step="0.1" class="speed-slider" id="sl-shake">
       </div>
 
       <div class="speed-slider-row">
@@ -643,7 +644,7 @@
           <span class="speed-label">Волна домино (приехал)</span>
           <span class="speed-value" id="sv-wave">1.0×</span>
         </div>
-        <input type="range" min="0.3" max="2.5" step="0.1" class="speed-slider" id="sl-wave">
+        <input type="range" min="0.2" max="4.0" step="0.1" class="speed-slider" id="sl-wave">
       </div>
 
       <button class="btn btn-secondary btn-small" style="width: 100%; margin-top: 12px;" id="speed-reset">↺ Сбросить по умолчанию</button>
