@@ -219,12 +219,14 @@
   }
   function renderArchiveSheet(snapshot, gai) {
     const logs=snapshot.logs.filter(log=>!!log.isGAI===gai);
-    // Deterministic chronological ordering, not server insertion order.
+    // A closed shift keeps Firestore's arbitrary log order. Rebuild the same
+    // chronological trip columns as Summary, irrespective of storage order.
     const orderedLogs=logs.slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) ||
       String(a.id||'').localeCompare(String(b.id||'')));
     const active=snapshot.activeIds.filter(id=>snapshot.trucks.has(id) && !!snapshot.trucks.get(id).isGAI===gai);
     const ids=[...new Set([...active,...orderedLogs.map(log=>log.truckId)])];
     const first={}; orderedLogs.forEach(log=>{if(first[log.truckId]===undefined)first[log.truckId]=Number(log.timestamp)||0;});
+    // Summary benchmark: earliest first load leads; trucks with no trips last.
     ids.sort((a,b)=>((first[a]===undefined)-(first[b]===undefined)) ||
       ((first[a]||0)-(first[b]||0)) || String(a).localeCompare(String(b)));
     const max=Math.max(8,...ids.map(id=>logs.filter(log=>log.truckId===id).length));

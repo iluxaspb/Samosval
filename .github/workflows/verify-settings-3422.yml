@@ -1,4 +1,4 @@
-name: Test settings 3.4.22 build verification
+name: Test settings 3.4.22 exact source verification
 on:
   push:
     branches: [feature/test-settings-categories-20261028]

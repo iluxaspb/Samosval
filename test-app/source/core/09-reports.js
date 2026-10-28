@@ -17,6 +17,7 @@
     let tIds = new Set(aIds); stdLogs.forEach(l=>tIds.add(l.truckId));
     let rTrucks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?f:{id, brand:'Машина', number:'', defaultVol:0}; });
     let fTime = {}; stdLogs.forEach(l=>{ if(fTime[l.truckId]===undefined || l.timestamp<fTime[l.truckId]) fTime[l.truckId]=l.timestamp; });
+    // Эталон «Сводка»: первым идёт самосвал с самой ранней погрузкой; машины без рейсов — внизу.
     rTrucks.sort((a,b)=> ((fTime[a.id] === undefined) - (fTime[b.id] === undefined)) || ((fTime[a.id]||0) - (fTime[b.id]||0)) || String(a.id).localeCompare(String(b.id)));
     let maxT = 8; rTrucks.forEach(t=>{ let c=stdLogs.filter(l=>l.truckId===t.id).length; if(c>maxT) maxT=c; });
     let hHtml = '<th>№</th><th style="text-align:left;">Самосвал</th>'; for(let i=1; i<=maxT; i++) hHtml += `<th>Рейс ${i}</th>`; mH.innerHTML = hHtml;
