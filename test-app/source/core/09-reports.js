@@ -17,11 +17,11 @@
     let tIds = new Set(aIds); stdLogs.forEach(l=>tIds.add(l.truckId));
     let rTrucks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?f:{id, brand:'Машина', number:'', defaultVol:0}; });
     let fTime = {}; stdLogs.forEach(l=>{ if(fTime[l.truckId]===undefined || l.timestamp<fTime[l.truckId]) fTime[l.truckId]=l.timestamp; });
-    rTrucks.sort((a,b)=> (fTime[a.id]||0) - (fTime[b.id]||0));
+    rTrucks.sort((a,b)=> ((fTime[a.id] === undefined) - (fTime[b.id] === undefined)) || ((fTime[a.id]||0) - (fTime[b.id]||0)) || String(a.id).localeCompare(String(b.id)));
     let maxT = 8; rTrucks.forEach(t=>{ let c=stdLogs.filter(l=>l.truckId===t.id).length; if(c>maxT) maxT=c; });
     let hHtml = '<th>№</th><th style="text-align:left;">Самосвал</th>'; for(let i=1; i<=maxT; i++) hHtml += `<th>Рейс ${i}</th>`; mH.innerHTML = hHtml;
     mB.innerHTML = rTrucks.map((t, idx)=>{
-      let tL = stdLogs.filter(l=>l.truckId===t.id).slice().reverse(), st = state.truckStatus[t.id]||{}, sum = tL.reduce((s,l)=>s+l.volume,0);
+      let tL = stdLogs.filter(l=>l.truckId===t.id).slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) || String(a.id||'').localeCompare(String(b.id||''))), st = state.truckStatus[t.id]||{}, sum = tL.reduce((s,l)=>s+l.volume,0);
       let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
       let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
       let cells = '';
@@ -38,18 +38,18 @@
         else if(i===tL.length && st.arriveStatus) cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div></div></td>`;
         else cells += '<td></td>';
       }
-      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³</span>${dupHtml}</div>${t.number?renderRussianPlate(t.number):''}</td>${cells}</tr>`;
+      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³ / ${tL.length} р</span>${dupHtml}</div>${t.number?renderRussianPlate(t.number):''}</td>${cells}</tr>`;
     }).join('');
     gaiV.textContent = gaiLogs.length;
     let gaiLineIds = getActiveLineIds().filter(id => { let t = findTruck(id); return t && t.isGAI; });
     let gaiTIds = new Set(gaiLineIds); gaiLogs.forEach(l=>gaiTIds.add(l.truckId));
     let gaiTrucks = Array.from(gaiTIds).map(id=>{ let f=findTruck(id); return f?f:{id, brand:'Машина', number:'', defaultVol:0}; });
     let gaiFirstTime = {}; gaiLogs.forEach(l=>{ if(gaiFirstTime[l.truckId]===undefined || l.timestamp<gaiFirstTime[l.truckId]) gaiFirstTime[l.truckId]=l.timestamp; });
-    gaiTrucks.sort((a,b)=> (gaiFirstTime[a.id]||0) - (gaiFirstTime[b.id]||0));
+    gaiTrucks.sort((a,b)=> ((gaiFirstTime[a.id] === undefined) - (gaiFirstTime[b.id] === undefined)) || ((gaiFirstTime[a.id]||0) - (gaiFirstTime[b.id]||0)) || String(a.id).localeCompare(String(b.id)));
     let gaiMaxT = 8; gaiTrucks.forEach(t=>{ let c=gaiLogs.filter(l=>l.truckId===t.id).length; if(c>gaiMaxT) gaiMaxT=c; });
     let gaiHHtml = '<th>№</th><th style="text-align:left;">Самосвал</th>'; for(let i=1; i<=gaiMaxT; i++) gaiHHtml += `<th>Рейс ${i}</th>`; gaiH.innerHTML = gaiHHtml;
     gaiB.innerHTML = gaiTrucks.map((t, idx)=>{
-      let tL = gaiLogs.filter(l=>l.truckId===t.id).slice().reverse();
+      let tL = gaiLogs.filter(l=>l.truckId===t.id).slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) || String(a.id||'').localeCompare(String(b.id||'')));
       let st = state.truckStatus[t.id] || {};
       let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
       let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
