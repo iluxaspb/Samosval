@@ -4,6 +4,7 @@ on:
     branches: [root]
     paths:
       - 'test-app/source/**'
+      - 'tests/modular/line-motion-3425.cjs'
       - 'test-app/src/pwa.js'
       - 'test-app/modules.json'
       - 'tools/build-test.py'
