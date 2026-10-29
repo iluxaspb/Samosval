@@ -117,6 +117,7 @@ def main():
                 grid=app.locator("table.tn-grid:not(.tn-linked)")
                 grid.wait_for()
                 for handle,dx,dy,selector in [('[data-resize-col="0"]',35.6,0,'.tn-resize-guide-col'),('[data-resize-row="0"]',0,15.8,'.tn-resize-guide-row')]:
+                    grid.locator(handle).scroll_into_view_if_needed()
                     box=grid.locator(handle).bounding_box()
                     assert box,(handle,"resize handle missing")
                     x,y=box['x']+box['width']/2,box['y']+box['height']/2
