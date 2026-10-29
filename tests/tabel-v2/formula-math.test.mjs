@@ -67,4 +67,5 @@ test("Excel export translates common formulas and preserves decimal precision",(
   assert.equal(toExcelFormula("=ОКРУГЛ(1,255;2)"),"ROUND(1.255,2)");
   assert.equal(toExcelFormula("=СУММ(A1:A3;ОКРУГЛ(B1;0))"),"SUM(A1:A3,ROUND(B1,0))");
   assert.equal(toExcelFormula("=SUM(A1:A3)"),"SUM(A1:A3)");
+  assert.equal(toExcelFormula('=ЕСЛИ(A1>0;"День";"Выходной")'),'IF(A1>0,"День","Выходной")');
 });
