@@ -265,7 +265,7 @@ export function toExcelFormula(source) {
   let formula=String(source??"").replace(/^=/,"");
   const isRussian=/[А-ЯЁ]|;/.test(formula.toUpperCase());
   if(isRussian)formula=formula.replace(/(\d),(\d)/g,"$1.$2");
-  formula=formula.replace(/\b[A-ZА-ЯЁ_][A-ZА-ЯЁ_0-9.]*/gi,
+  formula=formula.replace(/[A-ZА-ЯЁ_][A-ZА-ЯЁ_0-9.]*/gi,
     word=>aliases[word.toUpperCase()]||word.toUpperCase());
   return formula.replace(/;/g,",");
 }
