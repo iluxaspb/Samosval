@@ -1,3 +1,4 @@
+import { createLineTransport } from './line-transport.mjs?v=20261030.6';
 import { firebaseTestConfig } from './firebase-test-config.mjs';
 import { validateMigrationSnapshot, stableSnapshot } from './migration-snapshot.mjs?v=20261030.5';
 
@@ -79,4 +80,38 @@ $('check-api').addEventListener('click',async()=>{
     tell('Synology: ответ подтверждён по HTTPS.\nСмена: '+(snapshot.shift?.id||'закрыта')+'\nМашин в справочнике: '+snapshot.trucks.length+'\nСтатусов: '+snapshot.statuses.length+'\nЗаписей рейсов: '+snapshot.logs.length+'\nИнтервал: '+snapshot.cycleMinutes+' мин.\nОсновная страница приложения пока не переключена.');
   }catch(error){tell('Проверка Synology: '+error.message);}
   finally{$('check-api').disabled=false;}
+});
+
+$('probe').addEventListener('click',async()=>{
+  $('probe').disabled=true;
+  const truckId='synology_probe_20261030';
+  try{
+    const user=await requireAdmin(),baseUrl='https://iluxa.synology.me:18443';
+    const token=force=>user.getIdToken(force);
+    const read=async()=>{const response=await fetch(baseUrl+'/api/v1/line/snapshot',{headers:{Authorization:'Bearer '+await token(false)},cache:'no-store',redirect:'error',credentials:'omit',signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error('Чтение: HTTP '+response.status);return response.json();};
+    const before=await read(),status=before.statuses.find(s=>s.id===truckId);
+    if(!before.shift?.isActive||!status||Number(status.cycleRevision||0)!==0||status.lastLoadTimestamp)throw new Error('Нужна отдельная подготовленная тестовая машина NAS. Реальные машины не изменены.');
+    const make=(type,st)=>({id:'nas_probe_20261030_'+crypto.randomUUID().replaceAll('-',''),type,truckId,shiftId:before.shift.id,createdAt:Date.now(),expectedRevision:Number(st.cycleRevision||0),expectedTtnRevision:Number(st.ttnRevision||0),arrivalTimestamp:Number(st.arriveTimestamp||0),lastLoadTimestamp:Number(st.lastLoadTimestamp||0),wantArrived:type==='arrive',collect:false,cycleMinutes:before.cycleMinutes});
+    const transport=createLineTransport({baseUrl,getIdToken:token});
+    const arrival=await transport.submit(make('arrive',status));
+    if(arrival.outcome!=='confirmed')throw new Error('Приезд отклонён: '+arrival.reason);
+    tell('Приезд сохранён. Отправка двух одновременных погрузок…');
+    const operations=[make('load',arrival.status),make('load',arrival.status)];
+    const results=await Promise.all(operations.map(op=>transport.submit(op)));
+    if(results.filter(r=>r.outcome==='confirmed').length!==1||results.filter(r=>r.outcome==='rejected').length!==1)throw new Error('Нарушена защита от двух погрузок');
+    const winner=operations[results.findIndex(r=>r.outcome==='confirmed')];
+    const replay=await transport.submit(winner);
+    if(replay.outcome!=='confirmed'||replay.replayed!==true)throw new Error('Повтор не вернул прежнюю квитанцию');
+    const lostResponse=createLineTransport({baseUrl,getIdToken:token,fetchImpl:async(...args)=>{await fetch(...args);throw new TypeError('simulated-response-loss');}});
+    let retained=false;try{await lostResponse.submit(winner);}catch(error){retained=error.uncertain===true;}
+    if(!retained)throw new Error('Потеря ответа ошибочно отмечена как сохранение');
+    const recovered=await transport.submit(winner);
+    if(recovered.replayed!==true)throw new Error('Повтор после потери ответа не распознан');
+    let conflict=false;try{await transport.submit({...winner,createdAt:winner.createdAt+1});}catch(error){conflict=error.status===409;}
+    if(!conflict)throw new Error('Разное содержимое с тем же ID не отклонено');
+    const after=await read(),logs=after.logs.filter(log=>log.truckId===truckId),current=after.statuses.find(s=>s.id===truckId);
+    if(logs.length!==1||current?.loadedAfterArrive!==true||Number(current.cycleRevision)!==2)throw new Error('Итоговый статус или число рейсов не совпали');
+    tell('ПРОВЕРКА ЗАПИСИ НА NAS ПРОШЛА\nПриезд сохранён.\nДве одновременные погрузки: засчитана одна.\nПовтор вернул прежнюю квитанцию.\nПосле имитации потери ответа повтор не создал дубль.\nИзменённая операция с тем же ID отклонена (409).\nВ базе один тестовый рейс, статус согласован.\nИспользована только отдельная тестовая машина NAS.');
+  }catch(error){tell('Проверка остановлена: '+error.message);}
+  finally{$('probe').disabled=false;}
 });
