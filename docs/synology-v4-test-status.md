@@ -67,3 +67,24 @@ const receipt = await transport.submit(existingQueuedOperation);
 Добавлен `GET /api/v1/line/snapshot` с Firebase ID token и проверкой профиля/прав на сервере. Чтение выполняется одной транзакцией REPEATABLE READ READ ONLY. CORS разрешает GET в дополнение к POST/OPTIONS.
 
 Перед заменой исходников создана копия на NAS: `/volume2/docker/samosval-test/src-before-api-snapshot-20261030-0118.zip`. Новый маршрут и модуль загружены в `src` через File Station. Развёртывание API и внешнее HTTPS-подключение клиента требуют отдельной проверки; наличие файлов не подтверждает их выполнение в запущенном контейнере.
+
+### Фактическая установка API
+
+Образ `samosval-test-api:read-v1-20261030` собран на NAS (image `93763e7dad54`) и запущен с существующим томом PostgreSQL. Контейнер API пересоздан; DSM временно показывает устаревшее имя `f1e338de1de6_samosval-test-api-1`, его прямой терминал не открывается. Проверки выполнены по внутренней сети из PostgreSQL-контейнера.
+
+- `GET /health/ready`: 200, подключение к PostgreSQL.
+- `GET /api/v1/line/snapshot` без авторизации: 401 (до установки маршрута был бы 404).
+- `POST /api/v1/line/operations` без авторизации: 401.
+- CORS OPTIONS для `https://iluxaspb.github.io`: 204; разрешены GET, POST, Authorization.
+- Чтение с посторонним Origin: 403.
+- Уже существующий reverse proxy: `https://iluxa.synology.me:18443` -> `http://192.168.1.171:18080`. Маршрут не создавался и не менялся. Внешний `GET /health/ready` проверен браузером: `{status: ready, database: connected}`.
+
+Тестовая страница при проверке — версия 3.4.62, сборка `49e1c337a8fe2c98`, Firebase `samosval-offline`, workspace `main_workspace`. Основная страница TEST не переключена на Synology; production не изменён.
+
+### Экспорт и импорт
+
+Обнаружен дефект штатного расширенного бэкапа: список коллекций сохраняется, но обязательные документы `shift/current`, `settings/permissions` и `settings/appConfig` пропускаются из-за некорректного построения document reference. Старую копию нельзя считать полным источником для миграции.
+
+В `root` опубликован отдельный инструмент `test-app/synology/migration-export.html`: серверное чтение обязательных документов, справочников и табеля с проверкой администратора, целостности и стабильности линии. Основные HTML/JS приложения не менялись. Наследуемый `settings/appConfig_test` не используется действующей сборкой, закрыт правилами и явно исключён. Firebase Rules не менялись.
+
+Генератор `server/scripts/prepare-test-import.mjs` формирует атомарный импорт только в пустую `samosval_test`; отказывается перезаписывать существующие данные. Цикл рейсов берётся из экспортированной серверной настройки или задаётся явно. Документы дополнительно сохраняются в `migration_documents` без потери исходных полей. Фактический импорт ещё не выполнен.
