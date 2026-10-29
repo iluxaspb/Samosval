@@ -406,7 +406,27 @@ export async function mount(s, host) {
     paintReference();
   }
   // Offer only functions supported by the evaluator; picking references is function-independent.
-  const functions = [{ name: "SUM", aliases: ["SUM", "СУМ", "СУММ", "СУММА"], label: "SUM( · Сумма" }];
+  const functions = [
+    {name:"SUM",aliases:["SUM","СУМ","СУММ","СУММА"],label:"SUM( · Сумма"},
+    {name:"AVERAGE",aliases:["AVERAGE","СРЗНАЧ"],label:"AVERAGE( · Среднее"},
+    {name:"MIN",aliases:["MIN","МИН"],label:"MIN( · Минимум"},
+    {name:"MAX",aliases:["MAX","МАКС"],label:"MAX( · Максимум"},
+    {name:"COUNT",aliases:["COUNT","СЧЁТ","СЧЕТ"],label:"COUNT( · Количество чисел"},
+    {name:"ROUND",aliases:["ROUND","ОКРУГЛ"],label:"ROUND( · Округление"},
+    {name:"ROUNDUP",aliases:["ROUNDUP","ОКРУГЛВВЕРХ"],label:"ROUNDUP( · Вверх"},
+    {name:"ROUNDDOWN",aliases:["ROUNDDOWN","ОКРУГЛВНИЗ"],label:"ROUNDDOWN( · Вниз"},
+    {name:"ABS",aliases:["ABS"],label:"ABS( · Модуль"},
+    {name:"INT",aliases:["INT","ЦЕЛОЕ"],label:"INT( · Целая часть"},
+    {name:"MOD",aliases:["MOD","ОСТАТ"],label:"MOD( · Остаток"},
+    {name:"POWER",aliases:["POWER","СТЕПЕНЬ"],label:"POWER( · Степень"},
+    {name:"SQRT",aliases:["SQRT","КОРЕНЬ"],label:"SQRT( · Корень"},
+    {name:"PRODUCT",aliases:["PRODUCT","ПРОИЗВЕД"],label:"PRODUCT( · Произведение"},
+    {name:"MEDIAN",aliases:["MEDIAN","МЕДИАНА"],label:"MEDIAN( · Медиана"},
+    {name:"IF",aliases:["IF","ЕСЛИ"],label:"IF( · Условие"},
+    {name:"IFERROR",aliases:["IFERROR","ЕСЛИОШИБКА"],label:"IFERROR( · Если ошибка"},
+    {name:"SUMIF",aliases:["SUMIF","СУММЕСЛИ"],label:"SUMIF( · Условная сумма"},
+    {name:"COUNTIF",aliases:["COUNTIF","СЧЕТЕСЛИ","СЧЁТЕСЛИ"],label:"COUNTIF( · Условный счёт"}
+  ];
   function suggestFormula() {
     const pos = edit.selectionStart ?? edit.value.length,
       token = edit.value.slice(0, pos).match(/[A-ZА-ЯЁ]+$/i),
