@@ -425,18 +425,31 @@ async function responsiveCase(mobile) {
     await page.locator('#game-ranking .game-head button').click();
   });
   await step('settings-theme-preview-and-game-toggle-persistence', async () => {
-    await page.locator('#mainHeader .gear-btn').click(); await page.locator('#settingsModal.open').waitFor({state:'visible'});
-    await page.locator('#settingHoldLoad').fill('0.5'); await page.locator('#settingHoldLoad').press('Tab');
+    await page.locator('#mainHeader .gear-btn').click();
+    await page.locator('#settingsModal.open').waitFor({state:'visible'});
+    // Current Settings Hub separates the old flat controls into real category
+    // dialogs. Open each category with real user clicks before editing.
+    await page.locator('#settingsModal [data-category="hold"]').click();
+    await page.locator('#settingsCategoryModal.open #settingHoldLoad').fill('0.5');
+    await page.locator('#settingsCategoryModal #settingHoldLoad').press('Tab');
+    await page.locator('#settingsCategoryModal [data-back]').first().click();
+    await page.locator('#settingsModal [data-category="vibration"]').click();
     await toggleCheckbox('hapticLoad',false);
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('dt_settings_test347')).hapticLoad), false);
-    assert(await page.locator('#test-pwa-settings').isVisible());
-    await page.locator('#settingsModal').getByRole('button',{name:'🛍 Лавка дорожника',exact:true}).click();
+    await page.locator('#settingsCategoryModal [data-back]').first().click();
+    await page.locator('#settingsModal [data-category="pwa"]').click();
+    assert(await page.locator('#settingsCategoryModal.open #test-pwa-settings').isVisible());
+    await page.locator('#settingsCategoryModal [data-back]').first().click();
+    await page.locator('#settingsModal [data-category="other"]').click();
+    await page.locator('#settingsCategoryModal').getByRole('button',{name:'🛍 Лавка дорожника',exact:true}).click();
     await page.locator('#road-shop-dialog[open]').waitFor({state:'visible'});
     await page.locator('#road-shop-preview').selectOption('road');
     await wait(() => RoadShop.getAppliedTheme() === 'road');
-    await page.locator('#road-shop-dialog [data-step="1"]').click(); assert.notEqual(await page.evaluate(() => RoadShop.getAppliedTheme()), 'road');
-    await page.locator('#road-shop-dialog .shop-close').click(); await wait(() => RoadShop.getAppliedTheme() === '');
-    await page.locator('#mainHeader .gear-btn').click(); await page.locator('#settingsModal button[onclick="closeSettingsModal()"]').last().click();
+    await page.locator('#road-shop-dialog [data-step="1"]').click();
+    assert.notEqual(await page.evaluate(() => RoadShop.getAppliedTheme()), 'road');
+    await page.locator('#road-shop-dialog .shop-close').click();
+    await wait(() => RoadShop.getAppliedTheme() === '');
+    await page.locator('#settingsCategoryModal [data-close]').click();
     await nav('admin'); await page.locator('button[onclick="switchAdminTab(\'appsettings\', this)"]').click();
     await page.locator('#game-admin > summary').click(); await toggleCheckbox('game_mode',false);
     await wait(() => appConfig.testReviewFlags.game_mode === false && document.getElementById('game-wallet').hidden);
