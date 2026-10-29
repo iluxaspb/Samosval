@@ -1,3 +1,4 @@
+import { readFlight } from "./read-flight.mjs";
 import {sheetManager,sheetVisible} from './sheet-access.mjs';
 import { copy, uid } from "./table-domain.mjs";
 // All local snapshots and pending operations are committed in one IndexedDB transaction.
@@ -332,10 +333,12 @@ export function firestoreRemote(host, guard) {
   const actor=()=>{const a=host.session();return {...a,status:a.status||(a.active?'active':''),tabAccess:a.tabAccess??a.view};};
   const dayQuery=objectId=>collection.where('objectId','==',objectId).where('key','>=',objectId+'/day:').where('key','<',objectId+'/day;');
   const sheetIds=config=>Object.keys(config.sheetAccess||{}).filter(id=>sheetVisible(actor(),config,id));
+  const reads = readFlight(() => host.session());
+  const get = (key, query) => reads.run(key, () => query.get({source: "server"}));
 
   return {
     async read(key) {
-      const s = await ref(key).get({ source: "server" });
+      const s = await get("record:" + key, ref(key));
       return s.exists ? s.data() : { revision: 0, data: null };
     },
     async list(objectId) {
@@ -344,7 +347,7 @@ export function firestoreRemote(host, guard) {
         const keys=sheetIds(config.data||{}).map(id=>objectId+'/sheet:'+id);
         if(sheetVisible(actor(),config.data,'linked')){
           if(!keys.includes(objectId+'/sheet:linked'))keys.push(objectId+'/sheet:linked');
-          const snap=await dayQuery(objectId).get({source:'server'});rows.push(...snap.docs.map(d=>[d.data().key,d.data()]));
+          const snap=await get('days:'+objectId, dayQuery(objectId));rows.push(...snap.docs.map(d=>[d.data().key,d.data()]));
         }
         for(const key of keys){const row=await this.read(key);if(row.data)rows.push([key,row]);}
         return rows;
@@ -357,24 +360,25 @@ export function firestoreRemote(host, guard) {
       let cursor = null;
       for (;;) {
         const query = (cursor ? base.startAfter(cursor) : base).limit(200);
-        const snapshot = await query.get({source: "server"});
+        const snapshot = await get("object:" + objectId + ":after:" + (cursor?.id || ""), query);
         rows.push(...snapshot.docs.map(d => [d.data().key, d.data()]));
         if (snapshot.docs.length < 200) return rows;
         cursor = snapshot.docs.at(-1);
       }
     },
     watch(objectId, from, to, onData, onError) {
+      const receive = records => { reads.invalidate(); onData(records); };
       if(!sheetManager(actor())){
         let children=[],closed=false,signature='';
         const stop=ref(objectId+'/config').onSnapshot(snapshot=>{
           if(snapshot.metadata.fromCache||closed)return;
-          const config=snapshot.exists?snapshot.data():{revision:0,data:null};onData([[objectId+'/config',config]]);
+          const config=snapshot.exists?snapshot.data():{revision:0,data:null};receive([[objectId+'/config',config]]);
           const ids=sheetIds(config.data||{}),linked=sheetVisible(actor(),config.data,'linked');
           if(linked&&!ids.includes('linked'))ids.push('linked');
           const next=JSON.stringify([ids,linked]);if(next===signature)return;signature=next;
           children.forEach(stop=>stop());children=[];
-          for(const id of ids)children.push(ref(objectId+'/sheet:'+id).onSnapshot(snap=>{if(!snap.metadata.fromCache&&snap.exists)onData([[objectId+'/sheet:'+id,snap.data()]]);},onError));
-          if(linked)children.push(dayQuery(objectId).onSnapshot(snap=>{if(!snap.metadata.fromCache)onData(snap.docs.map(d=>[d.data().key,d.data()]));},onError));
+          for(const id of ids)children.push(ref(objectId+'/sheet:'+id).onSnapshot(snap=>{if(!snap.metadata.fromCache&&snap.exists)receive([[objectId+'/sheet:'+id,snap.data()]]);},onError));
+          if(linked)children.push(dayQuery(objectId).onSnapshot(snap=>{if(!snap.metadata.fromCache)receive(snap.docs.map(d=>[d.data().key,d.data()]));},onError));
         },onError);
         return ()=>{closed=true;stop();children.forEach(stop=>stop());};
       }
@@ -385,16 +389,16 @@ export function firestoreRemote(host, guard) {
       const stop = collection.orderBy(field).startAt(prefix).endAt(prefix + "\uf8ff")
         .onSnapshot(snapshot => {
           if (!snapshot.metadata.fromCache)
-            onData(snapshot.docs.map(d => [d.data().key, d.data()]));
+            receive(snapshot.docs.map(d => [d.data().key, d.data()]));
         }, onError);
       const globals = ["_catalog/config", "_defaults/config"].map(key => ref(key).onSnapshot(snapshot => {
-        if (!snapshot.metadata.fromCache && snapshot.exists) onData([[key, snapshot.data()]]);
+        if (!snapshot.metadata.fromCache && snapshot.exists) receive([[key, snapshot.data()]]);
       }, onError));
       return () => { stop(); globals.forEach(fn => fn()); };
     },
     async history(objectId) {
       if(!sheetManager(actor()))return [];
-      const snapshot = await receipts.where("objectId", "==", objectId).get({source: "server"});
+      const snapshot = await get("history:" + objectId, receipts.where("objectId", "==", objectId));
       return snapshot.docs.map(d => {
         const row = d.data();
         return {id:d.id, key:row.key, before:row.before, after:row.after, data:row.after.data,
@@ -406,6 +410,7 @@ export function firestoreRemote(host, guard) {
       guard(job);
       if (new TextEncoder().encode(JSON.stringify(job.data)).length > 350000)
         throw Error("Запись превышает 350 КБ; локальная версия сохранена");
+      reads.invalidate();
       return host
         .transaction(async (tx) => {
           guard(job);
@@ -452,7 +457,7 @@ export function firestoreRemote(host, guard) {
             }
           }
           throw error;
-        });
+        }).finally(() => reads.invalidate());
     },
   };
 }
