@@ -4,7 +4,7 @@ export function validateMigrationSnapshot(payload){
   if(!data||!Array.isArray(data.shift)||data.shift.length!==1||data.shift[0].id!=='current'||typeof data.shift[0].data?.id!=='string'||!data.shift[0].data.id)throw new Error('Текущая смена отсутствует или повреждена');
   if(!Array.isArray(data.permissions)||data.permissions.length!==1||data.permissions[0].id!=='permissions')throw new Error('Права доступа не попали в копию');
   const counts={};
-  for(const name of ['trucks','objects','archive','trash','logs','truckStatus','notifications','audit','plugins','patches','coinTransactions','tabelNextRecords','tabelNextMeta','users','registrationRequests','permissions','appConfig','appConfig_test','shift']){
+  for(const name of ['trucks','objects','archive','trash','logs','truckStatus','notifications','audit','plugins','patches','coinTransactions','tabelNextRecords','tabelNextMeta','users','registrationRequests','permissions','appConfig','shift']){
     if(!Array.isArray(data[name]))throw new Error('Не прочитан раздел: '+name);
     const ids=new Set();
     for(const record of data[name]){

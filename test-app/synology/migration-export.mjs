@@ -54,12 +54,11 @@ exportButton.addEventListener('click',async()=>{
     data.registrationRequests=await collection('registration_requests');
     data.permissions=await documentRecord('settings/permissions');
     data.appConfig=await documentRecord('settings/appConfig',false);
-    data.appConfig_test=await documentRecord('settings/appConfig_test',false);
     const after=await lineSnapshot();
     if(JSON.stringify(before)!==JSON.stringify(after))throw new Error('Во время экспорта изменились рейсы или смена. Повторите экспорт, когда операторы закончат действие.');
     if(auth.currentUser?.uid!==user.uid)throw new Error('Учётная запись изменилась во время экспорта');
     await requireAdmin();
-    const payload={format:'samosval-test-migration',version:1,firebaseProjectId:EXPECTED_PROJECT,workspaceId:WORKSPACE,exportedAt:Date.now(),exportedBy:user.uid,excluded:['Firebase Storage files','tabelNextPresence','backups'],data};
+    const payload={format:'samosval-test-migration',version:1,firebaseProjectId:EXPECTED_PROJECT,workspaceId:WORKSPACE,exportedAt:Date.now(),exportedBy:user.uid,excluded:['Firebase Storage files','tabelNextPresence','backups','legacy settings/appConfig_test (not used by active build)'],data};
     const counts=validateMigrationSnapshot(payload);
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
     const link=document.createElement('a'),url=URL.createObjectURL(blob);
@@ -67,4 +66,17 @@ exportButton.addEventListener('click',async()=>{
     tell('Копия проверена и скачана.\n'+Object.entries(counts).map(([key,value])=>key+': '+value).join('\n')+'\nFirebase Storage требует отдельного переноса. Приложение пока не переключено.');
   }catch(error){tell('Экспорт остановлен: '+error.message);}
   finally{exportButton.disabled=false;}
+});
+
+$('check-api').addEventListener('click',async()=>{
+  $('check-api').disabled=true;
+  try{
+    const user=await requireAdmin();
+    const response=await fetch('https://iluxa.synology.me:18443/api/v1/line/snapshot',{headers:{Authorization:'Bearer '+await user.getIdToken()},cache:'no-store',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(15000)});
+    if(!response.ok)throw new Error('Synology HTTP '+response.status);
+    const snapshot=await response.json();
+    if(snapshot.format!=='samosval-line-snapshot'||snapshot.source!=='synology')throw new Error('Неверный ответ API');
+    tell('Synology: ответ подтверждён по HTTPS.\nСмена: '+(snapshot.shift?.id||'закрыта')+'\nМашин в справочнике: '+snapshot.trucks.length+'\nСтатусов: '+snapshot.statuses.length+'\nЗаписей рейсов: '+snapshot.logs.length+'\nИнтервал: '+snapshot.cycleMinutes+' мин.\nОсновная страница приложения пока не переключена.');
+  }catch(error){tell('Проверка Synology: '+error.message);}
+  finally{$('check-api').disabled=false;}
 });
