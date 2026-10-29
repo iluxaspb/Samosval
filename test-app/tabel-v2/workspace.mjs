@@ -7,6 +7,7 @@ import { esc, btn, input, field, dialog, message, error } from "./messages.mjs";
 import { sheetVisible, sheetManager } from "./sheet-access.mjs";
 import { autoConflicts } from "./conflict-view.mjs";
 import { historyRows } from "./history-view.mjs";
+import { preferredObjectId, lastClosedKey } from "./object-default.mjs";
 const areas = [
   "request",
   "shift",
@@ -92,6 +93,50 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     s.remote,
     () => ({ uid: account().uid, name: account().name }),
   ).open();
+  // Consent is only for this tab visit, not persistent user data.
+  s.foreignWriteConsents = new Set();
+  s.confirmForeignWrite = async (targetId = s.object?.id, targetLabel = "") => {
+    const active = host.data().shift;
+    if (!active?.isActive || !active.objectId || !targetId || active.objectId === targetId) return;
+    const key = JSON.stringify([active.id, active.objectId, targetId]);
+    if (s.foreignWriteConsents.has(key)) return;
+    const objects = host.data().objects || [];
+    const activeName = objects.find((o) => o.id === active.objectId)?.name || active.objectName || active.objectId;
+    const otherName = targetLabel || objects.find((o) => o.id === targetId)?.name || s.object?.name || targetId;
+    const accepted = await new Promise((resolve) => {
+      const confirm = dialog(
+        "Изменение другого адреса",
+        "<p>Активная смена на вкладке «Линия» сейчас открыта по адресу <b>" +
+          esc(activeName) + "</b>.</p><p>Вы точно хотите изменить данные по другому адресу <b>" +
+          esc(otherName) + "</b>?</p>",
+        async () => { resolve(true); },
+      );
+      confirm.querySelector('[type="submit"]').textContent = "Да";
+      const no = confirm.querySelector('footer [data-action="close"]');
+      if (no) no.textContent = "Нет";
+      confirm.addEventListener("close", () => resolve(false), { once: true });
+    });
+    if (!accepted) throw Error("Изменение другого адреса отменено.");
+    const latest = host.data().shift;
+    if (!latest || latest.id !== active.id || latest.objectId !== active.objectId || !latest.isActive) {
+      return s.confirmForeignWrite(targetId, targetLabel);
+    }
+    s.foreignWriteConsents.add(key);
+  };
+  // Central protection: all table, shift, request, settings and catalog writes
+  // pass through Store.save; explicit conflict resolution also changes records.
+  const storeSave = s.store.save.bind(s.store);
+  s.store.save = async (key, ...args) => {
+    const targetId = key.startsWith("_") ? s.object?.id : key.split("/")[0];
+    await s.confirmForeignWrite(targetId);
+    return storeSave(key, ...args);
+  };
+  const storeResolve = s.store.resolve.bind(s.store);
+  s.store.resolve = async (id, choice) => {
+    const job = s.store.state.jobs.find((j) => j.id === id);
+    if (job) await s.confirmForeignWrite(job.key.startsWith("_") ? s.object?.id : job.key.split("/")[0]);
+    return storeResolve(id, choice);
+  };
   s.key = (suffix) => s.object.id + "/" + suffix;
   s.config = () => {
     const stored = s.store.get(s.key("config")).data,
@@ -271,9 +316,10 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     session.workspaceId,
     session.uid,
   ]);
-  let lastObject = null;
+  let lastObject = null, lastClosed = null;
   try {
     lastObject = localStorage.getItem(selectionKey);
+    lastClosed = JSON.parse(localStorage.getItem(lastClosedKey(session.projectId, session.workspaceId)) || "null");
   } catch {}
   const remember = () => {
     if (s.object)
@@ -283,12 +329,17 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   };
   s.remember = remember;
   const objects = host.data().objects || [];
-  s.object =
-    objects.find((o) => o.id === host.requestObjectId) ||
-    objects.find((o) => o.id === lastObject) ||
-    objects.find((o) => o.id === host.data().shift?.objectId) ||
-    objects[0] ||
-    null;
+  s.defaultObject = () => {
+    let recentlyClosed = null;
+    try { recentlyClosed = JSON.parse(localStorage.getItem(lastClosedKey(session.projectId, session.workspaceId)) || "null"); } catch {}
+    const snap = host.data();
+    return (snap.objects || []).find((o) => o.id === preferredObjectId({
+      objects: snap.objects, requestObjectId: host.requestObjectId,
+      shift: snap.shift, archive: snap.archive,
+      recentlyClosed, lastObject: s.object?.id || lastObject,
+    })) || null;
+  };
+  s.object = s.defaultObject();
   s.status = () => {
     const target = root.querySelector("[data-status]");
     if (!target) return;
@@ -432,12 +483,13 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     async show() {
       account();
       root.hidden = false;
+      s.foreignWriteConsents.clear();
       s.view = "shift";
       s.day = D.today();
-      if (!s.object) {
-        const objects = host.data().objects || [];
-        const id = localStorage.getItem(selectionKey);
-        s.object = objects.find((o) => o.id === id) || objects[0] || null;
+      const preferred = s.defaultObject();
+      if (preferred && preferred.id !== s.object?.id) await s.select(preferred.id);
+      else if (!s.object && preferred) {
+        s.object = preferred;
         await host.prepare?.(s.store, s.object);
         void synchronize();
       }
@@ -445,6 +497,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       s.conflictUI.check();
     },
     async dispose() {
+      s.foreignWriteConsents.clear();
       globalThis.removeEventListener('line-equipment-change', updateEquipmentCounts);
       s.unwatch?.();
       observer.disconnect();
@@ -495,6 +548,7 @@ async function render(s) {
     )}</nav><p role="alert"></p><main></main><footer class="tn-status"><span data-status></span>${btn("↻", "sync", 'aria-label="Синхронизировать"')}${btn("Конфликты", "conflicts")}</footer>`;
   s.root.querySelector(".tn-status").before(s.root.querySelector("nav"));
   s.root.querySelector("[data-action=exit]").onclick = () => {
+    s.foreignWriteConsents.clear();
     s.root.hidden = true;
     s.host.leave();
   };
@@ -589,10 +643,13 @@ function newObject(s) {
     async (form) => {
       if (!s.host.createObject)
         throw Error("Оболочка не предоставляет создание объектов");
-      const object = await s.host.createObject(
-        String(form.get("name")).trim(),
-        form.get("start"),
-      );
+      const name = String(form.get("name")).trim();
+      await s.confirmForeignWrite("__new__:" + name, name);
+      const active = s.host.data().shift;
+      const object = await s.host.createObject(name, form.get("start"));
+      if (active?.isActive && s.host.data().shift?.id === active.id &&
+          s.host.data().shift?.objectId === active.objectId)
+        s.foreignWriteConsents.add(JSON.stringify([active.id, active.objectId, object.id]));
       s.object = object;
       const saved = s.store.get("_defaults/config").data;
       const c = saved
