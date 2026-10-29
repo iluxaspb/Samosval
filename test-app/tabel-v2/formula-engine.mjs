@@ -39,7 +39,7 @@ function lex(source) {
   return tokens;
 }
 function parse(source) {
-  const t=lex(source.toUpperCase()), len=t.length;
+  const t=lex(source), len=t.length;
   let i=0, depth=0;
   const peek=()=>t[i], pop=()=>t[i++], expect=s=>{if(pop()!==s)error("#ФОРМУЛА!");};
   const node=(type,a,b)=>({type,a,b});
@@ -50,14 +50,14 @@ function parse(source) {
       if(v===undefined)error("#ФОРМУЛА!");
       if(v==="("){const x=comparison();expect(")");return x;}
       if(v[0]==='"')return node("text",v.slice(1,-1).replace(/""/g,'"'));
-      if(/^(?:\d+(?:\.\d*)?|\.\d+)(?:E[+-]?\d+)?$/.test(v))
+      if(/^(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?$/.test(v))
         return node("number",Number(v));
-      if(/^[A-Z]+[1-9]\d*$/.test(v)){
-        if(peek()===":"){pop();const to=pop();if(!/^[A-Z]+[1-9]\d*$/.test(to||""))error("#ССЫЛКА!");return node("range",v,to);}
-        return node("ref",v);
+      if(/^[A-Z]+[1-9]\d*$/i.test(v)){
+        if(peek()===":"){pop();const to=pop();if(!/^[A-Z]+[1-9]\d*$/i.test(to||""))error("#ССЫЛКА!");return node("range",v.toUpperCase(),to.toUpperCase());}
+        return node("ref",v.toUpperCase());
       }
-      if(/^[A-ZА-ЯЁ_][A-ZА-ЯЁ_0-9.]*$/.test(v)){
-        const name=aliases[v]||v;
+      if(/^[A-ZА-ЯЁ_][A-ZА-ЯЁ_0-9.]*$/i.test(v)){
+        const name=aliases[v.toUpperCase()]||v.toUpperCase();
         if(name==="TRUE" || name==="ИСТИНА")return node("number",1);
         if(name==="FALSE" || name==="ЛОЖЬ")return node("number",0);
         if(peek()!=="(")error("#ИМЯ?");
