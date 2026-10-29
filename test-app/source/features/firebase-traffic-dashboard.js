@@ -54,7 +54,7 @@ function init(){
  panel.querySelector('#ftExportCsv').onclick=()=>exportCSV();
  panel.querySelector('#ftClear').onclick=clearHistory;
  window.addEventListener('firebase-traffic-change',()=>{if(isVisible())render(false);});
- setInterval(()=>{if(isVisible())render(false);},1000);
+ setInterval(()=>{if(isVisible())render(false);},2000);
  render(true);
 }
 function isVisible(){
@@ -80,6 +80,8 @@ function render(force){
  select.value=selected||now;
  const key=select.value,stat=T.data.days[key]||{calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,listens:0,unsubscribes:0,snapshots:0,events:0,byPath:{},byType:{},hours:[]};
  const curQuota=T.quotaDay(Date.now());
+ const nextReset=T.nextQuotaReset();
+ const mskReset=nextReset?new Date(nextReset+10800000).toISOString().slice(0,16).replace('T',' ')+' МСК':'—';
  const q=T.data.quota[curQuota]||{reads:0,writes:0,deletes:0};
  const isNow=key===now;
  const rate=Object.entries(stat.byPath||{}).sort((a,b)=>b[1].reads-a[1].reads||b[1].calls-a[1].calls).slice(0,25);
@@ -100,7 +102,7 @@ function render(force){
  box('Ошибки',fmt(stat.failed),'ошибки SDK')+
  '</div>'+
  '<div class="ft-section">Использование бесплатного лимита Firestore (приближённо)</div>'+
- '<p class="ft-note">Лимит Firebase сбрасывается около полуночи по тихоокеанскому времени США, а не в 10:00 МСК. Для процентов используется день Firebase ('+esc(curQuota)+', America/Los_Angeles), отдельно от нашего отчётного дня. Счётчики только этого устройства, а не всей базы. Это НЕ официальная статистика биллинга.</p>'+
+ '<p class="ft-note">Следующий сброс квоты: <b>'+esc(mskReset)+'</b> (летом обычно 10:00 МСК, зимой 11:00 МСК). Для процентов используется день Firebase ('+esc(curQuota)+', America/Los_Angeles), отдельно от нашего отчётного дня. Счётчики только этого устройства, а не всей базы. Это НЕ официальная статистика биллинга.</p>'+
  bar('Чтения',q.reads,T.free.reads)+bar('Записи',q.writes,T.free.writes)+bar('Удаления',q.deletes,T.free.deletes)+
  '<div class="ft-section">Чтения по часам (МСК)</div>'+chart+'<div style="height:18px"></div>'+
  '<div class="ft-section">Какие разделы создают нагрузку</div>'+
