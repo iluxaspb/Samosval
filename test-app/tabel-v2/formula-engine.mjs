@@ -52,7 +52,7 @@ function parse(source) {
       if(v[0]==='"')return node("text",v.slice(1,-1).replace(/""/g,'"'));
       if(/^(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?$/.test(v))
         return node("number",Number(v));
-      if(/^[A-Z]+[1-9]\d*$/i.test(v)){
+      if(/^[A-Z]+[1-9]\d*$/i.test(v) && peek()!=="("){
         if(peek()===":"){pop();const to=pop();if(!/^[A-Z]+[1-9]\d*$/i.test(to||""))error("#ССЫЛКА!");return node("range",v.toUpperCase(),to.toUpperCase());}
         return node("ref",v.toUpperCase());
       }
