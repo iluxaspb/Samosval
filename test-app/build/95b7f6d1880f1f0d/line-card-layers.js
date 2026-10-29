@@ -1,0 +1,1 @@
+(function(){const style=document.createElement('style');style.id='line-card-layers-fix';style.textContent='#tab-line {position:relative;z-index:0;isolation:isolate}';document.head.appendChild(style);})();
