@@ -71,6 +71,25 @@ def main():
                 materials.locator('[type=submit]').click()
                 materials.wait_for(state="hidden")
                 assert "Щебень тестовый" in app.locator('[data-values]').inner_text()
+                # Regression: entering a real numeric volume and pressing the
+                # Save button must complete, not leave the tab stuck/spinner dim.
+                quantity = app.locator('form[data-values] input[name^="value:"]').first
+                quantity.click()
+                keypad = page.locator('dialog.tn-hours-dialog[open]')
+                keypad.wait_for()
+                keypad.locator('[data-digit="8"]').click()
+                keypad.locator('button[type="submit"]').click()
+                keypad.wait_for(state='hidden')
+                app.locator('form[data-values] button[type="submit"]').click()
+                page.wait_for_function("""() => {
+                  const field=document.querySelector('.tn-app form[data-values] input[name^="value:"]');
+                  return field?.value==='8' && !!document.querySelector('.tn-app [data-status]');
+                }""", timeout=10000)
+                app.locator('[data-view="table"]').click()
+                app.locator('.tn-grid').wait_for()
+                app.locator('[data-view="shift"]').click()
+                app.locator('[data-tab="values"]').click()
+                assert app.locator('form[data-values] input[name^="value:"]').first.input_value()=='8', 'Saved quantity must survive tab round trip'
 
                 app.locator('[data-view="catalog"]').click()
                 app.locator('[data-tab="materials"]').click()
