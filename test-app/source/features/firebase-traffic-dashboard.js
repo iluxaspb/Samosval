@@ -42,7 +42,7 @@ function init(){
  const panel=document.createElement('div');panel.id='admin-sub-firebase-traffic';panel.className='admin-section ft-panel';
  panel.innerHTML='<div class="section-title">📡 Монитор запросов Firebase <small style="color:var(--warning)">ТЕСТ</small></div>'+
  '<p class="ft-note">Учёт обращений Firestore на этом устройстве. Никаких данных базы, номеров машин, имён или паролей не записываем. Мониторинг не выполняет дополнительных запросов к Firebase.</p>'+
- '<div class="ft-toolbar"><select class="form-control" id="ftDay" aria-label="Отчётные сутки по Москве"></select>'+
+ '<div class="ft-toolbar"><select class="form-control" id="ftDay" aria-label="Сутки квоты Firebase, время отображается по Москве"></select>'+
  '<button class="btn btn-secondary btn-small" id="ftExportJson">⬇️ JSON за все дни</button>'+
  '<button class="btn btn-secondary btn-small" id="ftExportCsv">⬇️ CSV событий</button></div>'+
  '<div id="ftDashboard"></div>'+
@@ -69,7 +69,7 @@ const rows=(names,values)=>'<div class="ft-scroll"><table><thead><tr>'+names.map
 function render(force){
  if(!ready)return;
  if(!force&&Date.now()-lastRender<850)return;
- lastRender=Date.now();const now=T.todayMsk();
+ lastRender=Date.now();const now=T.today();
  const d=selected||now;
  const select=document.querySelector('#ftDay');
  if(!select)return;
@@ -79,18 +79,17 @@ function render(force){
  if(!days.includes(d))selected=now;
  select.value=selected||now;
  const key=select.value,stat=T.data.days[key]||{calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,listens:0,unsubscribes:0,snapshots:0,events:0,byPath:{},byType:{},hours:[]};
- const curQuota=T.quotaDay(Date.now());
  const nextReset=T.nextQuotaReset();
- const mskReset=nextReset?new Date(nextReset+10800000).toISOString().slice(0,16).replace('T',' ')+' МСК':'—';
- const q=T.data.quota[curQuota]||{reads:0,writes:0,deletes:0};
+ const mskReset=nextReset?T.mskTime(nextReset)+' МСК':'—';
  const isNow=key===now;
  const rate=Object.entries(stat.byPath||{}).sort((a,b)=>b[1].reads-a[1].reads||b[1].calls-a[1].calls).slice(0,25);
  const types=Object.entries(stat.byType||{}).sort((a,b)=>b[1].events-a[1].events);
  const hourly=stat.hours||[],peak=Math.max(1,...hourly.map(h=>h.reads||0));
- const chart='<div class="ft-chart">'+Array.from({length:24},(_,h)=>{const v=hourly[h]?.reads||0;return '<div class="ft-col" title="'+h+':00 МСК · '+fmt(v)+' оценочных чтений"><i style="height:'+Math.max(1,100*v/peak).toFixed(2)+'%"></i>'+(h%3===0?'<span>'+h+'</span>':'')+'</div>';}).join('')+'</div>';
+ const length=T.periodHours(key),start=T.periodStartUTC(key);
+ const chart='<div class="ft-chart">'+Array.from({length},(_,h)=>{const v=hourly[h]?.reads||0;const clock=T.mskTime(start+h*3600000).slice(11);return '<div class="ft-col" title="'+clock+' МСК · '+fmt(v)+' оценочных чтений"><i style="height:'+Math.max(1,100*v/peak).toFixed(2)+'%"></i>'+(h%3===0?'<span>'+clock+'</span>':'')+'</div>';}).join('')+'</div>';
  const recent=T.data.events.filter(e=>e.day===key).slice(-100).reverse();
  const html=
- '<div class="ft-note">Отчётные сутки: <b>'+esc(T.startMsk(key))+'</b>. Обновление автоматически, без запросов к серверу. '+(isNow?'<span class="ft-accent">● Сейчас</span>':'Архивный период')+'</div>'+
+ '<div class="ft-note">Отчётные сутки Firebase: <b>'+esc(T.startMsk(key))+'</b>. Обновление автоматически, без запросов к серверу. '+(isNow?'<span class="ft-accent">● Сейчас</span>':'Архивный период')+'</div>'+
  '<div class="ft-grid">'+
  box('Вызовы SDK',fmt(stat.calls),'get, listen, запись, транзакции')+
  box('Чтения, оценка',fmt(stat.reads),'по серверным снимкам')+
@@ -102,13 +101,15 @@ function render(force){
  box('Ошибки',fmt(stat.failed),'ошибки SDK')+
  '</div>'+
  '<div class="ft-section">Использование бесплатного лимита Firestore (приближённо)</div>'+
- '<p class="ft-note">Следующий сброс квоты: <b>'+esc(mskReset)+'</b> (летом обычно 10:00 МСК, зимой 11:00 МСК). Для процентов используется день Firebase ('+esc(curQuota)+', America/Los_Angeles), отдельно от нашего отчётного дня. Счётчики только этого устройства, а не всей базы. Это НЕ официальная статистика биллинга.</p>'+
- bar('Чтения',q.reads,T.free.reads)+bar('Записи',q.writes,T.free.writes)+bar('Удаления',q.deletes,T.free.deletes)+
+ '<p class="ft-note">Единые отчётные сутки: Firebase (America/Los_Angeles), даты и часы показаны по Москве. Следующий сброс: <b>'+esc(mskReset)+'</b>. Учитывается только этот телефон; цифры — оценки SDK, не официальный биллинг Firebase.</p>'+
+ bar('Чтения',stat.reads,T.free.reads)+bar('Записи',stat.writes,T.free.writes)+bar('Удаления',stat.deletes,T.free.deletes)+
  '<div class="ft-section">Чтения по часам (МСК)</div>'+chart+'<div style="height:18px"></div>'+
  '<div class="ft-section">Какие разделы создают нагрузку</div>'+
  rows(['Коллекция / путь','Вызовы','Чтения','Записи','Ошибки'],rate.map(([path,o])=>'<tr><td>'+esc(path)+'</td><td>'+fmt(o.calls)+'</td><td>'+fmt(o.reads)+'</td><td>'+fmt(o.writes)+'</td><td>'+fmt(o.failed)+'</td></tr>'))+
  '<div class="ft-section">Операции и типы обращений</div>'+
  rows(['Тип','События','Вызовы','Чтения','Записи / удаления'],types.map(([name,o])=>'<tr><td>'+esc(name)+'</td><td>'+fmt(o.events)+'</td><td>'+fmt(o.calls)+'</td><td>'+fmt(o.reads)+'</td><td>'+fmt(o.writes)+' / '+fmt(o.deletes)+'</td></tr>'))+
+ '<div class="ft-section">Оценка нагрузки других операторов по журналу аудита</div>'+ 
+ '<p class="ft-note">Одно событие журнала аудита не равно одному запросу Firebase. По общему журналу можно подсчитать действия всех операторов и применить измеренные на этом устройстве коэффициенты, но фоновые подписки, открытия вкладок, повторные подключения, ошибки и обращения других устройств без телеметрии останутся неизвестны. Для точной общей картины необходимы официальная статистика Firestore и/или локальные отчёты с других устройств. Автоматически не обращаемся к журналу: мониторинг не создаёт дополнительных чтений.</p>'+
  '<div class="ft-section">Последние 100 событий выбранных суток</div>'+
  rows(['МСК','Операция','Путь','Чтения','Записи','Статус'],recent.map(e=>'<tr><td>'+esc(new Date(e.ts+10800000).toISOString().slice(11,19))+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.path)+'</td><td>'+fmt(e.reads)+'</td><td>'+fmt(e.writes)+'</td><td>'+esc(e.code||e.source||'—')+'</td></tr>'))+
  '<p class="ft-note">Учитываются вызовы совместимого SDK Firestore, подтверждённые записи и видимые обновления подписок. Оценка чтений не включает точный учёт индексов, серверных операций других устройств, повторных подключений и инфраструктурных расходов. Для точных общих цифр сравни с Firebase Console → Firestore → Usage или Google Cloud Billing.</p>';
@@ -120,20 +121,20 @@ function download(name,content,mime){
  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),45000);
 }
 async function exportJSON(){
- await T.flush();const body={format:'samosval-firebase-traffic/v1',generatedAt:new Date().toISOString(),scope:'single-device',reportDay:'Europe/Moscow 10:00–10:00',quotaDay:'America/Los_Angeles midnight',quota:T.free,hooks:T.hooks,notes:['SDK-observed estimates, not billed totals','Offline cache excluded from server-read estimate','No document contents, user identifiers, API keys or parameters saved'],daily:T.data.days,quotaDaily:T.data.quota,events:T.data.events};
- download('samosval-firebase-traffic-'+T.todayMsk()+'.json',JSON.stringify(body,null,2),'application/json;charset=utf-8');
+ await T.flush();const body={format:'samosval-firebase-traffic/v1',generatedAt:new Date().toISOString(),scope:'single-device',reportDay:'America/Los_Angeles midnight (displayed Europe/Moscow)',quota:T.free,hooks:T.hooks,notes:['SDK-observed estimates, not billed totals','Offline cache excluded from server-read estimate','No document contents, user identifiers, API keys or parameters saved'],daily:T.data.days,events:T.data.events};
+ download('samosval-firebase-traffic-'+T.today()+'.json',JSON.stringify(body,null,2),'application/json;charset=utf-8');
 }
 async function exportCSV(){
  await T.flush();
  const fields=['ts','day','quotaDay','kind','path','calls','reads','cached','writes','deletes','failed','ms','source','code'];
  const csv=[fields.join(';'),...T.data.events.map(e=>fields.map(k=>'"'+String(e[k]??'').replace(/"/g,'""')+'"').join(';'))].join('\r\n');
- download('samosval-firebase-events-'+T.todayMsk()+'.csv','\ufeff'+csv,'text/csv;charset=utf-8');
+ download('samosval-firebase-events-'+T.today()+'.csv','\ufeff'+csv,'text/csv;charset=utf-8');
 }
 async function clearHistory(){
  if(!confirm('Удалить ВСЮ локальную статистику Firebase на этом телефоне? Это нельзя отменить.'))return;
  const db=await new Promise(resolve=>{try{const r=indexedDB.open('samosval_firebase_traffic_v1',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>resolve(null);}catch(_){resolve(null);}});
  if(db)await new Promise(resolve=>{const tx=db.transaction(['daily','events'],'readwrite');tx.objectStore('daily').clear();tx.objectStore('events').clear();tx.oncomplete=resolve;tx.onerror=resolve;});
- T.data.days={};T.data.quota={};T.data.events=[];T.data.totalEvents=0;selected='';
+ T.data.days={};T.data.events=[];T.data.totalEvents=0;selected='';
  render(true);
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
