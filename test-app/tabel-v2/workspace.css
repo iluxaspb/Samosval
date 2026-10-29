@@ -1158,3 +1158,14 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 .tn-formula-suggestions { display:flex; gap:4px; padding:3px 4px; }
 .tn-formula-suggestions button { min-height:30px; }
 .tn label[hidden] { display:none!important; }
+
+.tn-transfer-tools{display:flex;gap:5px;flex-wrap:wrap;padding:4px 0;flex-shrink:0}
+.tn-transfer-tools button{font-size:12px;padding:5px 9px}
+.tn-presence{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:3px 0 5px;flex-shrink:0;font-size:12px}
+.tn-presence>span{border:1px solid;border-radius:12px;padding:2px 7px;font-weight:700;background:#fff}
+.tn-presence small{font-size:10px;color:#646b73}
+.tn-grid [data-cell]{position:relative}
+.tn-grid .tn-selected{outline-color:var(--tn-own-color,#1466cc)!important}
+.tn-peer-tag{position:absolute;bottom:100%;left:0;z-index:6;color:#fff;font:10px Arial;padding:2px 4px;border-radius:3px;white-space:nowrap;pointer-events:none}
+.tn-grid [data-peer]{overflow:visible}
+.tn-selection-box{border-color:var(--tn-own-color,#1466cc)!important}

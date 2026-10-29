@@ -1,0 +1,35 @@
+      // Transient selection only; no hours, formulas or access grants are stored here.
+      function presenceAccess(d) {
+        let config = get(/databases/$(database)/documents/workspaces/main_workspace/tabelNextRecords/$(d.objectId + '~config')).data.data;
+        let acl = config.get('sheetAccess',{}).get(d.sheetId,{});
+        return active() && (admin() || account().get('role','') == 'foreman'
+          || (tabelTab() && (acl.get('users',{}).get(request.auth.uid,false) == true
+            || acl.get('roles',{}).get(account().get('role',''),false) == true)));
+      }
+      match /tabelNextPresence/{id} {
+        allow read: if presenceAccess(resource.data);
+        allow create, update: if active()
+          && request.resource.data.keys().hasOnly(['uid','sessionId','name','objectId','sheetId','selection','seen'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.sessionId is string
+          && request.resource.data.sessionId.matches('[A-Za-z0-9-]{36}')
+          && id == request.auth.uid + '_' + request.resource.data.sessionId
+          && request.resource.data.name is string && request.resource.data.name.size() <= 160
+          && request.resource.data.objectId is string && request.resource.data.objectId.matches('[A-Za-z0-9_-]+')
+          && request.resource.data.sheetId is string && request.resource.data.sheetId.matches('[A-Za-z0-9_-]+')
+          && request.resource.data.seen is number
+          && request.resource.data.seen >= request.time.toMillis() - 60000
+          && request.resource.data.seen <= request.time.toMillis() + 60000
+          && (request.resource.data.selection == null || (
+            request.resource.data.selection is map
+            && request.resource.data.selection.keys().hasOnly(['a','b','rowKeys','colKeys'])
+            && (!request.resource.data.selection.keys().hasAny(['rowKeys','colKeys']) || (
+              request.resource.data.selection.rowKeys is list && request.resource.data.selection.rowKeys.size() <= 10000
+              && request.resource.data.selection.colKeys is list && request.resource.data.selection.colKeys.size() <= 10000
+              && request.resource.data.selection.rowKeys.size() * request.resource.data.selection.colKeys.size() <= 10000))
+            && request.resource.data.selection.a is string && request.resource.data.selection.a.matches('[A-Z]{1,3}[1-9][0-9]{0,3}')
+            && request.resource.data.selection.b is string && request.resource.data.selection.b.matches('[A-Z]{1,3}[1-9][0-9]{0,3}')))
+          && presenceAccess(request.resource.data);
+        allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      }
+
