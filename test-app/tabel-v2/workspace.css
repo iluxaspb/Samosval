@@ -1193,8 +1193,9 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
               inset -1px 0 rgba(72, 91, 132, .2);
 }
 .tn .tn-grid.tn-linked td.tn-weekend-date {
-  /* Same text height / line breaks as ordinary dates. The badge is absolute
-     inside the existing sticky cell, so it never expands the header row. */
+  /* Keep the second row sticky even if other calendar styles are applied.
+     A weekday and a weekend must use identical positioning rules. */
+  position: sticky;
   white-space: pre-line;
 }
 .tn .tn-grid.tn-linked td.tn-weekend-date[data-rest-label]::before {
