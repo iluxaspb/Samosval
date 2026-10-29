@@ -1198,24 +1198,6 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
   position: sticky;
   white-space: pre-line;
 }
-.tn .tn-grid.tn-linked td.tn-weekend-date[data-rest-label]::before {
-  content: attr(data-rest-label);
-  position: absolute;
-  top: 1px;
-  right: 2px;
-  z-index: 2;
-  pointer-events: none;
-  background: rgba(255, 255, 255, .74);
-  border-radius: 3px;
-  padding: 0 2px;
-  line-height: 1.1;
-  font: 700 8px/1.1 system-ui, sans-serif;
-  color: #354766;
-}
-.tn .tn-grid.tn-linked td.tn-explicit-day-off[data-rest-label]::before {
-  background: rgba(255, 255, 255, .8);
-  color: #644b86;
-}
 .tn .tn-grid.tn-linked td.tn-weekend-date::after {
   background: rgba(48, 66, 100, .18);
   box-shadow: inset 0 3px rgba(60, 80, 122, .45),
@@ -1243,4 +1225,84 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
   border-radius: 7px;
   font-weight: 650;
   line-height: 1.4;
+}
+
+/* Resize handles: touch-friendly, with an explicit drag target.
+   The table does not resize until the pointer is released. */
+.tn-grid .tn-resize-col {
+  width: 16px;
+  right: -8px;
+  z-index: 9;
+  cursor: col-resize;
+  touch-action: none;
+}
+.tn-grid .tn-resize-row {
+  height: 14px;
+  bottom: -7px;
+  z-index: 9;
+  cursor: row-resize;
+  touch-action: none;
+}
+.tn-grid .tn-resize-col::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 20%;
+  height: 60%;
+  width: 2px;
+  border-radius: 4px;
+  background: #537fbd;
+  opacity: .75;
+}
+.tn-grid .tn-resize-row::after {
+  content: "";
+  position: absolute;
+  left: 20%;
+  top: 6px;
+  height: 2px;
+  width: 60%;
+  border-radius: 4px;
+  background: #537fbd;
+  opacity: .75;
+}
+.tn-simple-table .tn-resize-col,
+.tn-simple-table .tn-resize-row {
+  display: block !important;
+}
+.tn-resize-preview {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  box-sizing: border-box;
+  border-color: #245fce;
+  border-style: dashed;
+  filter: drop-shadow(0 0 2px #ffffff);
+}
+.tn-resize-preview[data-axis="col"] {
+  border-left-width: 2px;
+  border-right-width: 0;
+  border-top-width: 0;
+  border-bottom-width: 0;
+}
+.tn-resize-preview[data-axis="row"] {
+  border-top-width: 2px;
+  border-right-width: 0;
+  border-left-width: 0;
+  border-bottom-width: 0;
+}
+.tn-resize-preview-label {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  padding: 3px 5px;
+  background: #245fce;
+  border-radius: 4px;
+  color: #ffffff;
+  font: 700 11px/1.1 system-ui, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 1px 5px #0005;
+}
+.tn-resize-preview[data-axis="row"] .tn-resize-preview-label {
+  top: -24px;
+  left: 3px;
 }
