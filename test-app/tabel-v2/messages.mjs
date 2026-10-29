@@ -12,7 +12,7 @@ export const input = (name, value = "", extra = "") =>
   `<input name="${esc(name)}" value="${esc(value)}" ${extra}>`;
 export const field = (label, html) => `<label>${esc(label)}${html}</label>`;
 export function error(e) {
-  const open = [...document.querySelectorAll("dialog.tn")].at(-1);
+  const open = [...document.querySelectorAll("dialog.tn[open]")].at(-1);
   const target =
     open?.querySelector("[role=alert]") ||
     document.querySelector(".tn-app [role=alert]");
