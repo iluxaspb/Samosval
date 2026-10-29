@@ -264,8 +264,13 @@ export function evaluateWorkbookFormula(cells,key,size,stack,memo,coords,range) 
 export function toExcelFormula(source) {
   let formula=String(source??"").replace(/^=/,"");
   const isRussian=/[А-ЯЁ]|;/.test(formula.toUpperCase());
-  if(isRussian)formula=formula.replace(/(\d),(\d)/g,"$1.$2");
-  formula=formula.replace(/[A-ZА-ЯЁ_][A-ZА-ЯЁ_0-9.]*/gi,
-    word=>aliases[word.toUpperCase()]||word.toUpperCase());
-  return formula.replace(/;/g,",");
+  // Translate only code spans. String literals must not be uppercased or
+  // have decimal commas changed (e.g. IF(A1>0;"День";"Выходной")).
+  return formula.split(/("(?:[^"]|"")*")/g).map((part,index)=>{
+    if(index%2)return part;
+    let code=isRussian ? part.replace(/(\d),(\d)/g,"$1.$2") : part;
+    code=code.replace(/[A-ZА-ЯЁ_][A-ZА-ЯЁ_0-9.]*/gi,
+      word=>aliases[word.toUpperCase()]||word.toUpperCase());
+    return code.replace(/;/g,",");
+  }).join("");
 }
