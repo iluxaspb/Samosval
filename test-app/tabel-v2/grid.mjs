@@ -1,4 +1,7 @@
 import { chooseColor, colorField, bindColorFields } from "./color-palette.mjs";
+import {FORMULAS} from "./formula-catalog.mjs";
+import {openFormulaGuide} from "./formula-help.mjs";
+import {syntaxParts,formulaReferences} from "./formula-syntax.mjs";
 import { numberInput } from "./number-input.mjs";
 import * as D from "./table-domain.mjs";
 import { esc, btn, input, field, dialog, error } from "./messages.mjs";
@@ -37,11 +40,12 @@ export async function mount(s, host) {
   const simple = () => sheetId === "linked" && s.config().tableMode !== "full";
   let visibleDays = [],
     linkedRows = [];
-  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("↶", "undo", 'aria-label="Отменить действие" title="Отменить действие"')}${btn("↷", "redo", 'aria-label="Повторить действие" title="Повторить действие"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><output class="tn-selection-total" data-selection-total aria-live="polite">Сумма: 0</output><div class="tn-cell-tools" role="toolbar" aria-label="Инструменты ячеек"></div><div class="tn-sheets"></div><div class="tn-input-dock"><div class="tn-formula-suggestions" hidden></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><input data-editor aria-label="Значение / формула" autocomplete="off">${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-symbols">${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div></div>`;
+  host.innerHTML = `<div class="tn-grid-tools">${btn("‹", "back", 'title="К смене"')}${btn("↶", "undo", 'aria-label="Отменить действие" title="Отменить действие"')}${btn("↷", "redo", 'aria-label="Повторить действие" title="Повторить действие"')}${btn("＋ День", "day")}${btn("Состав", "roster")}${btn("Формат", "format")}${btn("⋯", "menu")}<select data-period aria-label="Период"><option value="all">Весь объект</option><option value="week">Неделя</option></select><select data-week aria-label="Неделя"></select><select data-zoom aria-label="Масштаб"><option value="0.55">55%</option><option value="0.7" selected>70%</option><option value="1">100%</option><option value="0.85">85%</option><option value="1.2">120%</option></select></div><div class="tn-grid-scroll" tabindex="0"><table class="tn-grid"></table></div><output class="tn-selection-total" data-selection-total aria-live="polite">Сумма: 0</output><div class="tn-cell-tools" role="toolbar" aria-label="Инструменты ячеек"></div><div class="tn-sheets"></div><div class="tn-input-dock"><div class="tn-formula-suggestions" hidden></div><div class="tn-formula"><input data-range value="A1" aria-label="Диапазон"><span>ƒx</span><div class="tn-formula-editor"><div class="tn-formula-render" aria-hidden="true"></div><input data-editor aria-label="Значение / формула" autocomplete="off" spellcheck="false"></div>${btn("?", "formula-help", 'class="tn-formula-help-trigger" title="Справка по формулам" aria-label="Справка по формулам"')}${btn("✓", "apply", 'aria-label="Применить"')}</div><div class="tn-symbols">${["=", "+", "−", "*", "/", "(", ")", ",", ":", "СУММ("].map((x) => btn(esc(x), "symbol", `data-symbol="${esc(x)}"`)).join("")}</div></div>`;
 
   const table = host.querySelector("table"),
     scroll = host.querySelector(".tn-grid-scroll"),
     edit = host.querySelector("[data-editor]"),
+    formulaMirror = host.querySelector(".tn-formula-render"),
     selectionBox = document.createElement("div"),
     rangeInput = host.querySelector("[data-range]"),
     symbols = host.querySelector(".tn-symbols"),
@@ -206,6 +210,7 @@ export async function mount(s, host) {
     if (draft) {
       edit.value = draft.raw;
       dirty = true;
+      renderFormulaSyntax();
     }
   }
   function visibleIds() {
@@ -405,14 +410,52 @@ export async function mount(s, host) {
     pickingReference = false;
     paintReference();
   }
+  // The native text input remains active for cursor, selection, accessibility
+  // and Android IME. A visually aligned mirror adds token coloring without
+  // altering the typed formula or changing its scroll position.
+  function renderFormulaSyntax() {
+    const source=edit.value||"",
+      active=source.startsWith("="),
+      wrapper=edit.closest(".tn-formula-editor");
+    wrapper.classList.toggle("tn-syntax-active",active);
+    formulaMirror.innerHTML=active ? syntaxParts(source).map(token=>
+      `<span class="tn-syntax-${token.kind}"${token.color?` style="color:${token.color}"`:""}>${esc(token.text)}</span>`
+    ).join("") : "";
+    formulaMirror.scrollLeft=edit.scrollLeft;
+    const colorByCell=new Map();
+    if(active)for(const group of formulaReferences(source)){
+      try {
+        const refs=D.range(group.from,group.to);
+        for(const key of refs.slice(0,1000))colorByCell.set(key,group.color);
+      }catch{}
+    }
+    table.querySelectorAll("[data-cell]").forEach(td=>{
+      const color=colorByCell.get(td.dataset.cell);
+      td.classList.toggle("tn-syntax-reference",!!color);
+      if(color)td.style.setProperty("--tn-syntax-reference-color",color);
+      else td.style.removeProperty("--tn-syntax-reference-color");
+    });
+  }
+  edit.addEventListener("scroll",()=>{formulaMirror.scrollLeft=edit.scrollLeft;});
+  host.querySelector('[data-action="formula-help"]').onclick=()=>{
+    openFormulaGuide((example)=>{
+      edit.value=example;
+      edit.focus({preventScroll:true});
+      edit.setSelectionRange(edit.value.length,edit.value.length);
+      edit.dispatchEvent(new Event("input",{bubbles:true}));
+    });
+  };
   // Offer only functions supported by the evaluator; picking references is function-independent.
-  const functions = [{ name: "SUM", aliases: ["SUM", "СУМ", "СУММ", "СУММА"], label: "SUM( · Сумма" }];
+  const functions = FORMULAS.map(f=>({
+    name:f.name,aliases:f.aliases,
+    label:f.name+"( · "+f.description
+  }));
   function suggestFormula() {
     const pos = edit.selectionStart ?? edit.value.length,
       token = edit.value.slice(0, pos).match(/[A-ZА-ЯЁ]+$/i),
       query = token?.[0].toUpperCase();
     const matches = formulaMode() && query
-      ? functions.filter(f => f.aliases.some(a => a.startsWith(query))) : [];
+      ? functions.filter(f => f.aliases.some(a => a.startsWith(query))).slice(0,8) : [];
     suggestions.hidden = !matches.length;
     suggestions.innerHTML = matches.map(f => btn(esc(f.label), "suggest-formula", `data-function="${f.name}"`)).join("");
     suggestions.querySelectorAll("button").forEach(b => {
@@ -666,6 +709,7 @@ export async function mount(s, host) {
     outline(keys);
     selectionTotal();
     paintReference();
+    renderFormulaSyntax();
     announceSelection();
   }
   async function persist(next, label) {
@@ -832,6 +876,7 @@ export async function mount(s, host) {
       mark();
     }
     suggestFormula();
+    renderFormulaSyntax();
     const data = { cell: selected, raw: edit.value },
       draftKey = s.key("draft:grid:" + sheetId);
     queue(() =>

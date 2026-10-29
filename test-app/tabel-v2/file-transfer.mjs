@@ -1,4 +1,5 @@
 import * as D from './table-domain.mjs';
+import {toExcelFormula} from './formula-engine.mjs';
 const clone = x => JSON.parse(JSON.stringify(x));
 let loading;
 export function excel() {
@@ -80,7 +81,7 @@ export function toWorksheet(book, sheet, name=sheet.name) {
     const cell = ws.getCell(k), raw = data.raw ?? '';
     cell.style = clone(data.excelStyle || {});
     if (String(raw).startsWith('=')) {
-      const formula = String(raw).slice(1).replace(/СУММА?/gi,'SUM').replace(/;/g,',');
+      const formula = toExcelFormula(raw);
       const result = D.formula(sheet.cells,k,sheet);
       cell.value = {formula, ...(typeof result === 'number' ? {result} : {})};
     } else if(data.excelValue !== undefined && raw === data.importedRaw) cell.value = data.excelDate ? new Date(data.excelValue) : clone(data.excelValue);
