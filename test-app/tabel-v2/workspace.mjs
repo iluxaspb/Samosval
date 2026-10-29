@@ -1,4 +1,5 @@
 import { bindEquipmentOwnership } from "./catalog.mjs";
+import { colorField, bindColorFields } from "./color-palette.mjs";
 import * as R from "./request-domain.mjs";
 import { arrivals } from "./line.mjs";
 import * as D from "./table-domain.mjs";
@@ -975,9 +976,10 @@ function addEquipment(s) {
         input("crewLabel", "", 'placeholder="Определится по названию"'),
       ) +
       field(
-        "Тип техники",
-        '<select name="kind"><option value="other">Другая техника</option><option value="water">Поливомоечная</option><option value="mill">Фреза</option><option value="brush">МТЗ-щётка</option></select>',
-      ),
+        "Категория техники",
+        '<select name="kind"><option value="other">Другая техника</option><option value="water">Поливомойка</option><option value="mill">Фреза — 2 человека на обед</option><option value="brush">Щётка</option></select>',
+      ) +
+      colorField("color", "#e2e8f0", "Цвет техники — выбрать"),
     async (f) => {
       const c = s.config(),
         base = s.store.get(s.key("config"));
@@ -1001,7 +1003,9 @@ function addEquipment(s) {
             : "",
       };
       if (!e.name) throw Error("Введите название");
-      e.color = D.equipmentColor(e);
+      const chosenColor = String(f.get("color") || "");
+      e.color = /^#[0-9a-f]{6}$/i.test(chosenColor)
+        ? chosenColor : D.equipmentColor(e);
       const catalogKey = "_catalog/config",
         catalogBase = s.store.get(catalogKey),
         catalog = catalogBase.data || { equipment: [], people: [] };
@@ -1025,6 +1029,7 @@ function addEquipment(s) {
     },
   );
   bindEquipmentOwnership(el);
+  bindColorFields(el);
   return el;
 }
 function addPerson(s, group = "worker") {
