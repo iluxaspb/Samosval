@@ -1,6 +1,7 @@
 import { readFlight } from "./read-flight.mjs";
 import {sheetManager,sheetVisible} from './sheet-access.mjs';
 import { copy, uid } from "./table-domain.mjs";
+import {mergeRecord} from "./merge-record.mjs";
 // All local snapshots and pending operations are committed in one IndexedDB transaction.
 export class Store {
   constructor(name, remote, actor) {
@@ -101,11 +102,15 @@ export class Store {
       );
     return this.serialize(async () => {
       const current = this.get(key);
+      let savedData = data;
       if (
         (current.localId !== base.localId ||
           current.revision !== base.revision) &&
         JSON.stringify(current.data) !== JSON.stringify(base.data)
       ) {
+        const candidate = mergeRecord(base.data, data, current.data, key);
+        if (!candidate.conflicts.length) savedData = candidate.merged;
+        else {
         const conflict = {
           id: uid(),
           key,
@@ -120,11 +125,12 @@ export class Store {
         this.state.jobs.push(conflict);
         await this.persist();
         return false;
+        }
       }
       const job = {
         id: uid(),
         key,
-        data: copy(data),
+        data: copy(savedData),
         before: current,
         status: "queued",
         label,
@@ -134,7 +140,7 @@ export class Store {
       this.state.jobs.push(job);
       this.state.records[key] = {
         ...current,
-        data: copy(data),
+        data: copy(savedData),
         localId: job.id,
       };
       await this.persist();
@@ -210,6 +216,39 @@ export class Store {
       this.emit();
     }
   }
+  // Resolve old false-positive conflicts that were stored by prior builds.
+  // Numeric disagreements remain intact and continue to require a choice.
+  async recoverBenignConflicts() {
+    return this.serialize(async () => {
+      const keys=[...new Set(this.state.jobs.filter(j=>j.status==="conflict"&&j.remote).map(j=>j.key))];
+      let changed=false;
+      for(const key of keys) {
+        const related=this.state.jobs.filter(j=>j.key===key);
+        const disputed=related.find(j=>j.status==="conflict"&&j.remote);
+        const latest=related.at(-1);
+        if(!disputed||!latest)continue;
+        const combined=mergeRecord(disputed.before?.data,latest.data,disputed.remote.data,key);
+        if(combined.conflicts.length)continue;
+        const replacement={
+          id:uid(),key,data:copy(combined.merged),
+          before:copy(disputed.remote),status:"queued",
+          label:"Автоматически объединены независимые изменения",
+          author:this.actor(),time:Date.now()
+        };
+        for(const job of related) this.state.history.push({
+          ...copy(job),resolution:"auto-nonoverlap",resolvedAt:Date.now()
+        });
+        this.state.jobs=this.state.jobs.filter(j=>j.key!==key);
+        this.state.jobs.push(replacement);
+        this.state.records[key]={
+          ...copy(disputed.remote),data:copy(combined.merged),
+          localId:replacement.id
+        };
+        changed=true;
+      }
+      if(changed)await this.persist();
+    });
+  }
   async flush() {
     if (
       this.busy ||
@@ -226,6 +265,7 @@ export class Store {
       // serialization queue. Otherwise one slow Firebase request blocks the
       // Save button in every Tabel view, including material selection.
       // Only short reads and applying server acknowledgements take the lock.
+      await this.recoverBenignConflicts();
       const ids = await this.serialize(async () =>
         this.state.jobs.filter(j => j.status === "queued").map(j => j.id)
       );
@@ -266,12 +306,29 @@ export class Store {
             this.state.history.push({
               ...active, confirmed: Date.now(), after: result
             });
-            const next = this.state.jobs.find(j =>
-              j.key === job.key && j.before.localId === job.id);
-            if (next) next.before = {...result, localId: job.id};
-            // A newer local edit must win over an older server acknowledgement.
-            if (this.state.records[job.key]?.localId === job.id)
-              this.state.records[job.key] = result;
+            // If the server auto-merged an unrelated edit, rebase every
+            // queued local successor onto that merged result as well.
+            // Otherwise the next operation could overwrite the remote data.
+            let parentId=job.id,rebased=result;
+            while(true) {
+              const next=this.state.jobs.find(j=>j.key===job.key &&
+                j.before.localId===parentId && j.status==="queued");
+              if(!next)break;
+              const merged=mergeRecord(next.before?.data,next.data,rebased.data,job.key);
+              if(merged.conflicts.length){
+                next.status="conflict";
+                next.remote=copy(rebased);
+                break;
+              }
+              next.before={...copy(rebased),localId:parentId};
+              next.data=copy(merged.merged);
+              parentId=next.id;
+              rebased={...copy(rebased),localId:parentId,data:copy(next.data)};
+            }
+            if(this.state.records[job.key]?.localId===parentId)
+              this.state.records[job.key]={
+                ...copy(rebased),localId:parentId
+              };
             await this.persist();
           });
           this.error = "";
@@ -443,14 +500,19 @@ export function firestoreRemote(host, guard) {
           if (receipt.exists) return receipt.data().after;
           const s = await tx.get(ref(job.key)),
             current = s.exists ? s.data() : { revision: 0, data: null };
-          if (current.revision !== job.before.revision)
-            return { conflict: true, current };
+          let outgoing=job.data;
+          if (current.revision !== job.before.revision) {
+            const merged=mergeRecord(job.before?.data,job.data,current.data,job.key);
+            if(merged.conflicts.length)
+              return { conflict: true, current, fields:merged.conflicts };
+            outgoing=merged.merged;
+          }
           const after = {
             recordId: recordIdFor(job.key),
             key: job.key,
             objectId: job.key.split("/")[0],
             revision: current.revision + 1,
-            data: firestoreData(job.data),
+            data: firestoreData(outgoing),
             author: host.session().uid,
             authorName: host.session().name || host.session().uid,
             time: Date.now(),
