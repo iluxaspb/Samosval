@@ -421,7 +421,12 @@ async function responsiveCase(mobile) {
     await wait(()=>document.querySelector('.game-ledger-admin [role="status"]')?.textContent.includes('Начислено'));
     const rows=await readRows('coinTransactions');
     assert.equal(rows.length,1);assert.equal(rows[0].amount,25);assert.equal(rows[0].targetUid,'qa-viewer');
-    assert(await page.locator('.game-ledger-table').innerText().then(t=>t.includes('Компенсация для проверки')));
+    // The Firestore transaction can commit before the wallet UI rerenders.
+    // Wait for the actual ledger row rather than racing its async refresh.
+    await page.waitForFunction(
+      () => document.querySelector('.game-ledger-table')?.textContent?.includes('Компенсация для проверки'),
+      null, {timeout:15000}
+    );
     await page.locator('#game-ranking .game-head button').click();
   });
   await step('settings-theme-preview-and-game-toggle-persistence', async () => {
