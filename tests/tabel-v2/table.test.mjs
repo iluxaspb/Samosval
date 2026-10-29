@@ -37,7 +37,7 @@ assert.equal(
   "#ЦИКЛ!",
 );
 assert.equal(D.formula({ A1: { raw: "=1/0" } }, "A1"), "#ДЕЛ/0!");
-assert.equal(D.formula({ A1: { raw: "=alert(1)" } }, "A1"), "#ФОРМУЛА!");
+assert.equal(D.formula({ A1: { raw: "=alert(1)" } }, "A1"), "#ИМЯ?"); // Excel-style unsupported function error
 assert.equal(
   D.formula(
     { A1: { raw: "1,5" }, A2: { raw: "2" }, B1: { raw: "=СУММ(A1:A2)" } },
