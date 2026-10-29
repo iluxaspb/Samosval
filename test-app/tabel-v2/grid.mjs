@@ -568,18 +568,7 @@ export async function mount(s, host) {
               ? "tn-weekend" + (dateColumn.dayOff === true ? " tn-explicit-day-off" : "") +
                 (r === 1 ? " tn-weekend-date" : "")
               : "";
-            // Keep the date cell exactly two lines like regular workdays.
-            // A tiny corner badge marks Saturday/Sunday or a manually added
-            // weekday off without altering row height or sticky positioning.
-            const dayOffBadge = dateColumn && r === 1 && D.isRestDay(dateColumn)
-              ? (D.isWeekendDate(dateColumn.date)
-                  ? (new Date(dateColumn.date + "T12:00:00Z").getUTCDay() === 6 ? "Сб" : "Вс")
-                  : "Вых.")
-              : "";
-            const restBadgeAttribute = dayOffBadge
-              ? ` data-rest-label="${esc(dayOffBadge)}" aria-label="${esc(D.display(dateColumn.date) + ", " + (dateColumn.dayOff ? "выходной день" : dayOffBadge))}"`
-              : "";
-            return `<td ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} class="${calendarHighlight}"${restBadgeAttribute} title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}${sheetId === "linked" && col === 0 && r > 1 && linkedRows[r - 2]?.contractor !== undefined && linkedRows[r - 2]?.contractor !== null ? `<small class="tn-grid-contractor">${esc(linkedRows[r - 2].contractorName)}</small>` : ""}</td>`;
+            return `<td ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} class="${calendarHighlight}" title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}${sheetId === "linked" && col === 0 && r > 1 && linkedRows[r - 2]?.contractor !== undefined && linkedRows[r - 2]?.contractor !== null ? `<small class="tn-grid-contractor">${esc(linkedRows[r - 2].contractorName)}</small>` : ""}</td>`;
           }).join("") +
           "</tr>"
         );
