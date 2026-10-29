@@ -1,11 +1,14 @@
 name: TEST update recovery checks
 on:
   push:
-    branches: [root, repair/test-update-recovery-20261026, repair/standalone-ci-20261027]
+    branches: [root, 'audit/**', repair/test-update-recovery-20261026, repair/standalone-ci-20261027]
     paths:
       - update-test.html
       - tests/pwa/update-browser.py
       - tests/photo-removal/build.cjs
+      - tests/shift-close/**
+      - tests/png-export/**
+      - tools/read-test-html.cjs
       - .github/workflows/test-update-recovery.yml
   workflow_dispatch:
 permissions:
@@ -25,7 +28,6 @@ jobs:
       - name: Existing business and offline regressions
         run: |
           set -eu
-          git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
           python3 tools/verify-test-modules.py
           for test in tests/coins/admin-settings.cjs tests/coins/test-parity.cjs tests/coins/standalone.cjs tests/photo-removal/core.cjs tests/pwa/service-worker.cjs tests/shift-close/regression.cjs tests/shift-close/max-text.cjs tests/png-export/regression.cjs; do
             node "$test"

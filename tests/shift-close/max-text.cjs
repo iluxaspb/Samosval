@@ -1,6 +1,11 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const html=fs.readFileSync('index.html','utf8');
-const take=(a,b)=>html.slice(html.indexOf(a),html.indexOf(b,html.indexOf(a)));
+const html=fs.readFileSync('test-app/source/core/07-max-notifications.js','utf8');
+const plate=fs.readFileSync('test-app/source/features/reset-settings.js','utf8');
+const take=(a,b,from=html)=>{
+  const first=from.indexOf(a),last=from.indexOf(b,first);
+  assert(first>=0&&last>first,'MAX module boundaries missing: '+a);
+  return from.slice(first,last);
+};
 const calls=[],storage=new Map([['dt_max_queue',JSON.stringify([{id:'text',type:'text',text:'Arrival'},{id:'pdf',type:'document',base64:'old-report'},{id:'image',type:'image',text:'old-image'},null])],['samosval_offline_v1_live','PRESERVE']]);
 const config={maxEnabled:true,maxUrl:'https://relay.invalid',maxToken:'fixture',maxChatId:'123',maxPlateMode:'png'};
 const ctx={console,appConfig:config,localStorage:{getItem:k=>storage.get(k)||String(Date.now()),setItem:(k,v)=>storage.set(k,v)},MAX_QUEUE_KEY:'dt_max_queue',maxQueue:[],fetch:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return{ok:true};},AbortController,setTimeout,clearTimeout,window:{},firebase:{firestore:()=>({collection:()=>({doc:()=>({get:async()=>({exists:true,data:()=>config})})})})}};
@@ -8,7 +13,8 @@ vm.createContext(ctx);
 vm.runInContext(take('  function loadMaxQueue()', '  function enqueueMax('),ctx);
 ctx.loadMaxQueue();assert.equal(ctx.maxQueue.length,1);assert.equal(ctx.maxQueue[0].id,'text');assert.equal(storage.get('samosval_offline_v1_live'),'PRESERVE');
 vm.runInContext(take('  async function sendMaxOnce(', '  async function runMaxQueue('),ctx);
-const retry=[...html.matchAll(/try \{ \(0, eval\)\(("(?:[^"\\]|\\.)*")\);/g)].map(m=>JSON.parse(m[1])).find(s=>s.includes('__maxRetryV1'));
+const retry=fs.readFileSync('test-app/source/patches/11.js','utf8');
+assert(retry.includes('__maxRetryV1'));
 (async()=>{
   assert.equal(await ctx.sendMaxOnce({type:'document',base64:'forbidden'}),'drop');assert.equal(calls.length,0);
   await ctx.sendMaxOnce({type:'text',text:'Arrival'});assert.deepEqual(calls[0].body,{chat_id:'123',text:'Arrival'});
@@ -16,7 +22,7 @@ const retry=[...html.matchAll(/try \{ \(0, eval\)\(("(?:[^"\\]|\\.)*")\);/g)].ma
   assert.equal(await ctx.window.sendMaxOnce({type:'document',base64:'forbidden'}),'drop');assert.equal(calls.length,1);
   await ctx.window.sendMaxOnce({type:'text',text:'Loaded'});assert.deepEqual(calls[1].body,{chat_id:'123',text:'Loaded'});
   ctx.textItem=item=>({...item,text:'Plate '+item.text});
-  vm.runInContext(take("    if (typeof window.sendMaxOnce === 'function' && !window.sendMaxOnce.__maxPlate)","    if (typeof window.applyAllPatches"),ctx);
+  vm.runInContext(take("    if (typeof window.sendMaxOnce === 'function' && !window.sendMaxOnce.__maxPlate)","    if (typeof window.applyAllPatches",plate),ctx);
   await ctx.window.sendMaxOnce({type:'text',text:'Truck'});assert.deepEqual(calls[2].body,{chat_id:'123',text:'Plate Truck'});
   assert.equal(await ctx.window.sendMaxOnce({type:'image'}),'drop');assert.equal(calls.length,3);
   assert(!/sendShiftReportToMax|sendActiveReportToMax|enqueueMaxDocument|notifyPdfMain|notifyPdfGai|outputPdf\(/.test(html));

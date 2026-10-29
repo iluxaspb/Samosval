@@ -1,5 +1,7 @@
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
-const source = fs.readFileSync('index.html', 'utf8');
+const source = fs.readFileSync('test-app/source/core/08-png-export.js', 'utf8');
+const pluginSource = fs.readFileSync('test-app/source/core/04-subscriptions.js', 'utf8');
+const shell = fs.readFileSync('test-app/source/shell.html', 'utf8');
 const helper = source.slice(source.indexOf('  async function generatePNGFromHTML('), source.indexOf('  // === STYLUS ==='));
 assert(helper.includes("'image/png'"));
 function dom(height = 1000) {
@@ -103,10 +105,11 @@ function functionCode(name) {
   assert.equal(saveButton.disabled, false, 'button re-enabled after export');
   const pluginHost = f.element('div'); f.elements.set('pluginPdfButtonsContainer', pluginHost);
   f.context.pluginPdfButtons = [{label: 'PDF plugin', generateHtmlFn: () => '<p>plugin</p>'}];
-  const begin = source.indexOf('  function renderPluginPdfButtons()'), end = source.indexOf('  function renderPluginsList()', begin);
-  vm.runInContext(source.slice(begin, end), f.context); f.context.renderPluginPdfButtons();
+  const begin = pluginSource.indexOf('  function renderPluginPdfButtons()'), end = pluginSource.indexOf('  function renderPluginsList()', begin);
+  assert(begin>=0 && end>begin, 'Plugin PNG source boundaries missing');
+  vm.runInContext(pluginSource.slice(begin, end), f.context); f.context.renderPluginPdfButtons();
   assert.equal(pluginHost.children[0].textContent, '🖼 PNG plugin'); await pluginHost.children[0].onclick();
   assert(f.downloads.at(-1).filename.startsWith('plugin_')); assert(f.downloads.at(-1).filename.endsWith('.png'));
-  assert(!source.includes('onclick="exportCurrentReportPDF')); assert(!source.includes('onclick="exportArchivePDF'));
+  assert(!shell.includes('onclick="exportCurrentReportPDF')); assert(!shell.includes('onclick="exportArchivePDF'));
   console.log('PASS PNG exports: main/GAI/archive/plugin filenames and MIME; full-width canvas without PDF pagination; bounded long image, font/render failures and DOM cleanup');
 })().catch(error => { console.error(error); process.exitCode = 1; });

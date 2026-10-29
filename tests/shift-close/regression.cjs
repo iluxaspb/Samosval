@@ -2,9 +2,19 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 
-const html = fs.readFileSync('index.html', 'utf8');
-const source = html.slice(html.indexOf('  async function cleanupOldShiftData('), html.indexOf('  function openStartShiftModal('));
+// Always exercise the TEST release's actual modular shift code, not the
+// obsolete inline HTML from before the module split.
+const moduleSource = fs.readFileSync('test-app/source/core/15-shifts.js', 'utf8');
+const first = moduleSource.indexOf('  async function cleanupOldShiftData(');
+const last = moduleSource.indexOf('  function openStartShiftModal(', first);
+assert(first >= 0 && last > first, 'Shift lifecycle module boundaries missing');
+let source = moduleSource.slice(first, last);
 assert(source.includes('async function closeShift()'));
+// Only the separately tested material transfer service is substituted: the
+// shift transaction, archive and destructive cleanup remain the real code.
+const transfer = /const module=await import\(new URL\('\.\/test-app\/tabel-v2\/material-transfer\.mjs',document\.baseURI\)\.href\);\s*await module\.transferClosedLine\([^;]+\);/;
+assert(transfer.test(source), 'Expected material transfer invocation missing');
+source = source.replace(transfer, 'await testTransferClosedLine(shift, archived);');
 const copy = x => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
 
 function fixture({count = 3, role = 'admin', failBatch = 0, failArchive = false, pending = 0, addDuringConfirm = false, concurrentArchive = false} = {}) {
@@ -16,7 +26,8 @@ function fixture({count = 3, role = 'admin', failBatch = 0, failArchive = false,
   rows.set('truckStatus/t1',{shiftId:'s1',onLine:true,ttnStatus:true,arriveTimestamp:2000});
   rows.set('logs/foreign',{shiftId:'s2',truckId:'foreign',volume:99,timestamp:3000});
   rows.set('truckStatus/foreign',{shiftId:'s2',onLine:true});
-  let batchNumber=0, archiveSets=0, maxCalls=0, confirms=0;
+  let batchNumber=0, archiveSets=0, maxCalls=0, confirms=0, transfers=0;
+  const storage = new Map();
   const button={textContent:'Close shift',disabled:false};
   let ctx;
   const snap = path => {const data=copy(rows.get(path));return {id:path.split('/').at(-1),ref:ref(path),exists:rows.has(path),data:()=>copy(data)};};
@@ -71,6 +82,9 @@ function fixture({count = 3, role = 'admin', failBatch = 0, failArchive = false,
     document:{getElementById:()=>button},appConfirm:async()=>{confirms++;if(addDuringConfirm){rows.set('logs/during-confirm',log(5000));addDuringConfirm=false;}return true;},
     tfAwait:p=>p,getUserName:()=> 'Operator',showError:s=>errors.push(s),appNotice:s=>errors.push(s),showToastEl:s=>events.push(s),
     addAudit:async()=>{},clearAllNotifications:async()=>{},offlineProjectState(){},renderAll(){},
+    testTransferClosedLine:async(shift, archived)=>{assert.equal(shift.id,'s1');assert.equal(archived.sourceShiftId,'s1');transfers++;events.push('material-transfer');},
+    localStorage:{setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k)||null},
+    firebaseConfig:{projectId:'samosval-offline'},WORKSPACE_ID:'fixture',
     sendShiftReportToMax:()=>{maxCalls++;return new Promise(()=>{});},appConfig:{maxEnabled:true,maxUrl:'https://unused.invalid',notifyPdfMain:true},
     console:{error(){}},Date,Math,Map,Set};
   vm.createContext(ctx);vm.runInContext(source,ctx);
@@ -79,7 +93,7 @@ function fixture({count = 3, role = 'admin', failBatch = 0, failArchive = false,
     try {await Promise.race([ctx.closeShift(),new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('Closing blocked on report or another pending task')),1000))]);}
     finally{clearTimeout(timer);}
   };
-  return {ctx,rows,archives,errors,events,commits,button,close,stats:()=>({archiveSets,maxCalls,confirms}),liveLogs:()=>[...rows.keys()].filter(p=>p.startsWith('logs/')&&rows.get(p).shiftId==='s1')};
+  return {ctx,rows,archives,errors,events,commits,button,storage,close,stats:()=>({archiveSets,maxCalls,confirms,transfers}),liveLogs:()=>[...rows.keys()].filter(p=>p.startsWith('logs/')&&rows.get(p).shiftId==='s1')};
 }
 
 (async()=>{
@@ -91,7 +105,10 @@ function fixture({count = 3, role = 'admin', failBatch = 0, failArchive = false,
   assert.equal(large.liveLogs().length,0);assert(large.rows.has('logs/foreign'));assert(large.rows.has('truckStatus/foreign'));
   assert(large.commits.every(n=>n<=20));assert.equal(large.stats().maxCalls,0);assert(!large.button.disabled);
   assert(large.events.indexOf('freeze')<large.events.indexOf('archive'));
-  assert(large.events.indexOf('archive')<large.events.indexOf('delete-record'));
+  assert(large.events.indexOf('archive')<large.events.indexOf('material-transfer'));
+  assert(large.events.indexOf('material-transfer')<large.events.indexOf('delete-record'));
+  assert.equal(large.stats().transfers,1);
+  assert.deepEqual(JSON.parse(large.storage.get('tabel-v2-last-closed:samosval-offline:fixture')), {objectId:'o1',closedAt:large.ctx.state.shift?.closingStartedAt || JSON.parse(large.storage.get('tabel-v2-last-closed:samosval-offline:fixture')).closedAt});
   console.log('PASS close: freezes shift, archives server-confirmed records including confirmation-window trip, cleans 522 trips in bounded chunks, preserves other shifts, no MAX report wait');
 
   const retry=fixture({count:55,failBatch:2});await retry.close();
@@ -115,5 +132,11 @@ function fixture({count = 3, role = 'admin', failBatch = 0, failArchive = false,
 
   const guarded=fixture({pending:1});await guarded.close();assert.equal(guarded.archives.size,0);assert.equal(guarded.stats().confirms,0);assert(guarded.ctx.state.shift.isActive);
   const conflict=fixture({count:2});const expected='archive/closed_s1';conflict.rows.set(expected,{sourceShiftId:'other',logs:[]});await conflict.close();assert.equal(conflict.liveLogs().length,2);assert.equal(conflict.commits.length,0);assert(conflict.errors.length);
-  console.log('PASS pending queue and unrelated pre-existing archive block destructive cleanup');
+  assert.equal(guarded.storage.size,0, 'No successful close must not save a last address');
+  const empty=fixture({count:0});await empty.close();
+  assert.equal(empty.errors.length,0);
+  const lastClosed=JSON.parse(empty.storage.get('tabel-v2-last-closed:samosval-offline:fixture'));
+  assert.equal(lastClosed.objectId,'o1', 'Even a zero-trip shift records its last address');
+  assert.equal(empty.archives.size,0, 'Zero-trip closure does not invent an archive');
+  console.log('PASS pending queue and unrelated pre-existing archive block destructive cleanup; zero-trip address retained');
 })().catch(error=>{console.error(error);process.exitCode=1;});
