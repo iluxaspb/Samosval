@@ -490,7 +490,8 @@ export function formula(
   stack.add(key);
   let result;
   try {
-    const src = raw
+    const source = cells[key]?.importedRaw !== undefined ? raw.replace(/,/g,';').replace(/\$/g,'') : raw;
+    const src = source
         .slice(1)
         .toUpperCase()
         .replace(/СУММА?/g, "SUM")

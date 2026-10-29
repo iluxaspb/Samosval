@@ -2,6 +2,7 @@ import { chooseColor, colorField, bindColorFields } from "./color-palette.mjs";
 import { numberInput } from "./number-input.mjs";
 import * as D from "./table-domain.mjs";
 import { esc, btn, input, field, dialog, error } from "./messages.mjs";
+import { presence, userColors, selectionContains } from './presence.mjs';
 export async function mount(s, host) {
   let sheetId = "linked",
     selected = "A1",
@@ -46,6 +47,102 @@ export async function mount(s, host) {
     symbols = host.querySelector(".tn-symbols"),
     dock = host.querySelector(".tn-input-dock"),
     suggestions = host.querySelector(".tn-formula-suggestions");
+  const transferTools=document.createElement('div');
+  transferTools.className='tn-transfer-tools';
+  transferTools.innerHTML=btn('Импорт Excel','import-excel')+btn('Экспорт Excel','export-excel')+btn('Поделиться PDF','pdf');
+  host.querySelector('.tn-grid-tools').after(transferTools);
+  const onlineUsers=document.createElement('div');onlineUsers.className='tn-presence';onlineUsers.setAttribute('aria-label','Пользователи этого листа');
+  transferTools.after(onlineUsers);
+  let others=[],presenceError='',lastPresence='';
+  const actor=s.host.session();
+  function paintPresence(){
+    if(disposed)return;
+    const people=new Map([[actor.uid,{...actor,name:actor.nickname||actor.name||actor.uid}]]);
+    for(const peer of others)people.set(peer.uid,peer);
+    const colors=userColors([...people.keys()]);
+    onlineUsers.replaceChildren();
+    for(const [id,person] of people){const name=document.createElement('span');name.style.color=colors[id];name.style.borderColor=colors[id];name.textContent=person.name+(id===actor.uid?' (вы)':'');onlineUsers.append(name);}
+    const note=document.createElement('small');note.textContent=presenceError||(navigator.onLine===false?'Офлайн · присутствие не обновляется':'Сейчас на листе: '+people.size);onlineUsers.append(note);
+    table.style.setProperty('--tn-own-color',colors[actor.uid]);
+    host.style.setProperty('--tn-own-color',colors[actor.uid]);
+    table.querySelectorAll('.tn-peer-tag').forEach(n=>n.remove());
+    const tagged=new Set();
+    table.querySelectorAll('[data-cell]').forEach(td=>{
+      td.style.removeProperty('box-shadow');td.removeAttribute('data-peer');
+      const {row,day,p}=linkedAt(td.dataset.cell);
+      const peers=others.filter(peer=>peer.selection&&selectionContains(peer.selection,td.dataset.cell,row?.id||'header:'+p.r,day?D.dayKey(day.date,day.shift):'label'));
+      if(!peers.length)return;
+      td.dataset.peer='';
+      td.style.boxShadow=peers.map((p,i)=>`inset 0 0 0 ${2+i*2}px ${colors[p.uid]}`).join(',');
+      for(const peer of peers){if(tagged.has(peer.id))continue;tagged.add(peer.id);
+        const tag=document.createElement('span');tag.className='tn-peer-tag';tag.style.background=colors[peer.uid];tag.textContent=peer.name;td.append(tag);}
+    });
+  }
+  const live=presence(s,(peers,failure)=>{others=peers;presenceError=failure;paintPresence();});
+  function announceSelection(){
+    let stable={};
+    if(sheetId==='linked'&&hasSelection){
+      const a=D.coords(selected),b=D.coords(end),rowKeys=[],colKeys=[];
+      for(let r=Math.min(a.r,b.r);r<=Math.max(a.r,b.r);r++)rowKeys.push(linkedRows[r-2]?.id||'header:'+r);
+      for(let col=Math.min(a.c,b.c);col<=Math.max(a.c,b.c);col++){const day=visibleDays[col-1];colKeys.push(day?D.dayKey(day.date,day.shift):'label');}
+      stable={rowKeys,colKeys};
+    }
+    const signature=JSON.stringify([sheetId,selected,end,hasSelection,stable]);
+    if(signature!==lastPresence){lastPresence=signature;live.update(sheetId,selected,end,hasSelection,stable);}
+    paintPresence();
+  }
+  function snapshotSheet(){
+    const dim=dimensions(), cells={},widths={},heights={};
+    let rows=dim.rows,cols=dim.cols;
+    if(sheetId!=='linked'){
+      const used=Object.keys(sheet.cells).filter(k=>/^[A-Z]+[1-9]\d*$/.test(k)).map(D.coords);
+      for(const merge of sheet.merges||[])used.push(...merge.split(':').map(D.coords));
+      rows=Math.max(1,...used.map(p=>p.r+1));cols=Math.max(1,...used.map(p=>p.c+1));
+    }
+    for(let r=0;r<rows;r++){
+      heights[r]=sheet.heights[heightKey(r)]||(sheetId==='linked'&&r===1?36:27);
+      for(let col=0;col<cols;col++){
+        const k=D.cell(r,col);const entry=sheet.cells[styleKey(k)];
+        cells[k]={...D.copy(entry||{}),raw:raw(k),style:cellStyle(k)};
+      }
+    }
+    for(let col=0;col<cols;col++)widths[col]=sheet.widths[widthKey(col)]||(sheetId==='linked'?(col===0?145:autoWidth(col)):80);
+    if(sheetId==='linked')cells.A1.raw=s.object.address||s.object.location||c.name;
+    return {...D.copy(sheet),name:sheetId==='linked'?'Табель '+c.name:sheet.name,rows,cols,cells,widths,heights,merges:sheetId==='linked'&&cols>1?['A1:'+D.cell(0,cols-1)]:sheet.merges||[]};
+  }
+  transferTools.querySelector('[data-action=import-excel]').hidden=!s.sheetManager();
+  transferTools.querySelector('[data-action=import-excel]').onclick=()=>{
+    try{s.require('table','edit');if(!s.sheetManager())throw Error('Импорт доступен прорабу и администратору');
+      const el=dialog('Импорт Excel','<p>Каждый лист книги будет добавлен как новый свободный лист. Основной табель сохраняется.</p><input type="file" name="excel" accept=".xlsx" required><p>Сохраняются формулы и оформление. Редактор вычисляет арифметику и SUM; остальные формулы сохраняются для Excel, но здесь показывают ошибку вычисления. Диаграммы, макросы и условное форматирование не импортируются.</p>',async(f)=>{
+        const {readExcel}=await import('./file-transfer.mjs');
+        const sheets=await readExcel(f.get('excel'));
+        if(dirty)await queueCommit();await chain;if(dirty)throw Error('Сначала исправьте значение текущей ячейки');
+        s.require('table','edit');if(!s.sheetManager())throw Error('Доступ изменился');
+        const importGroup=D.uid();
+        const imports=sheets.map(data=>({id:D.uid(),data:{...data,importGroup}}));
+        const config=D.copy(s.config());config.sheetAccess||={};
+        for(const {id} of imports)config.sheetAccess[id]={roles:{},users:{}};
+        await s.saveConfig(config,s.store.get(s.key('config')));
+        let count=0;
+        try{for(const {id,data} of imports){const k=s.key('sheet:'+id);await s.save(k,data,s.store.get(k),'Импорт Excel: '+data.name,'table');if(!s.store.get(k).data)throw Error('Лист не сохранён');count++;}}
+        catch(e){throw Error('Добавлено листов: '+count+' из '+imports.length+'. '+e.message);}
+        await load(imports[0].id);
+      });el.querySelector('[type=submit]').textContent='Импортировать';
+    }catch(e){error(e);}
+  };
+  transferTools.querySelector('[data-action=export-excel]').onclick=async()=>{try{
+    if(dirty)await queueCommit();await chain;if(dirty)throw Error('Сначала исправьте значение текущей ячейки');s.require('table');if(!s.sheetVisible(sheetId))throw Error('Нет доступа к листу');
+    const {writeExcel,download}=await import('./file-transfer.mjs');
+    const data=snapshotSheet();
+    const book=sheet.importGroup?s.store.list(s.key('sheet:')).filter(r=>r.data?.importGroup===sheet.importGroup&&!r.data.deleted):[];
+    if(book.some(r=>!s.sheetVisible(r.key.slice(s.key('sheet:').length))))throw Error('Для экспорта всей импортированной книги нужен доступ ко всем её листам');
+    const sheets=book.length?book.map(r=>r.key===key()?data:r.data):[data];
+    download(await writeExcel(sheets),data.name.replace(/[\\/:*?"<>|]/g,'_')+'.xlsx');
+  }catch(e){error(e);}};
+  transferTools.querySelector('[data-action=pdf]').onclick=async()=>{try{
+    if(dirty)await queueCommit();await chain;if(dirty)throw Error('Сначала исправьте значение текущей ячейки');s.require('table');if(!s.sheetVisible(sheetId))throw Error('Нет доступа к листу');
+    const {preparePdf}=await import('./pdf-transfer.mjs');await preparePdf(snapshotSheet());
+  }catch(e){error(e);}};
   selectionBox.className = "tn-selection-box";
   selectionBox.setAttribute("aria-hidden", "true");
   scroll.append(selectionBox);
@@ -394,9 +491,14 @@ export async function mount(s, host) {
     host.querySelector("[data-period]").hidden = sheetId !== "linked";
     host.querySelector("[data-week]").hidden =
       sheetId !== "linked" || period !== "week";
+    const merged = new Map();
+    if(sheetId!=='linked')for(const merge of sheet.merges||[]){
+      const [from,to]=merge.split(':'),a=D.coords(from),b=D.coords(to||from);
+      for(let r=a.r;r<=b.r;r++)for(let col=a.c;col<=b.c;col++)merged.set(D.cell(r,col),{master:from,rows:b.r-a.r+1,cols:b.c-a.c+1});
+    }
     const max =
-        sheetId === "linked" ? dim.rows : Math.min(dim.rows, startRow + 80),
-      first = sheetId === "linked" ? 0 : startRow;
+        sheetId === "linked" || merged.size ? dim.rows : Math.min(dim.rows, startRow + 80),
+      first = sheetId === "linked" || merged.size ? 0 : startRow;
     const memo = new Map(),
       displayCells = formulaCells();
     table.style.width =
@@ -447,6 +549,8 @@ export async function mount(s, host) {
             : `<th data-row="${r}">${r + 1}<span class="tn-resize-row" data-resize-row="${r}"></span></th>`) +
           Array.from({ length: dim.cols }, (_, col) => {
             const k = D.cell(r, col);
+            const merge=merged.get(k);
+            if(merge&&merge.master!==k)return '';
             let v = D.formula(displayCells, k, dim, new Set(), memo);
             const nf = sheet.cells[styleKey(k)]?.numberFormat;
             if (nf && v !== "" && !isNaN(Number(String(v).replace(",", ".")))) {
@@ -459,7 +563,7 @@ export async function mount(s, host) {
                       maximumFractionDigits: Number(nf),
                     });
             }
-            return `<td title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}${sheetId === "linked" && col === 0 && r > 1 && linkedRows[r - 2]?.contractor !== undefined && linkedRows[r - 2]?.contractor !== null ? `<small class="tn-grid-contractor">${esc(linkedRows[r - 2].contractorName)}</small>` : ""}</td>`;
+            return `<td ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}${sheetId === "linked" && col === 0 && r > 1 && linkedRows[r - 2]?.contractor !== undefined && linkedRows[r - 2]?.contractor !== null ? `<small class="tn-grid-contractor">${esc(linkedRows[r - 2].contractorName)}</small>` : ""}</td>`;
           }).join("") +
           "</tr>"
         );
@@ -556,6 +660,7 @@ export async function mount(s, host) {
     outline(keys);
     selectionTotal();
     paintReference();
+    announceSelection();
   }
   async function persist(next, label) {
     s.require("table", "edit");
@@ -1140,7 +1245,7 @@ export async function mount(s, host) {
       "delete-row":
         writable &&
         !simple() &&
-        (sheetId !== "linked" || !!linkedAt(selected).row),
+      (sheetId !== "linked" || !!linkedAt(selected).row),
     };
     const el = dialog(
       "Ячейки " + rangeInput.value,
@@ -1741,6 +1846,7 @@ export async function mount(s, host) {
     },
     dispose() {
       disposed = true;
+      live.dispose();
       host.style.paddingBottom = "";
       globalThis.removeEventListener("resize", viewport);
       saveStacks();

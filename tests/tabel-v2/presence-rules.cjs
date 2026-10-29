@@ -1,0 +1,28 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),{createRequire}=require('node:module');
+const qa=createRequire(process.env.TABEL_SYNC_QA+'/package.json');
+const {initializeTestEnvironment,assertSucceeds,assertFails}=qa('@firebase/rules-unit-testing');
+const {doc,setDoc,deleteDoc,collection,query,where,getDocs}=qa('firebase/firestore');
+(async()=>{const env=await initializeTestEnvironment({projectId:'demo-tabel-next',firestore:{host:'127.0.0.1',port:8080,rules:fs.readFileSync(process.env.PRESENCE_RULES||'releases/3.4.51/firestore-test.rules','utf8')}});try{
+ await env.clearFirestore();
+ await env.withSecurityRulesDisabled(async c=>{const db=c.firestore();
+  for(const [id,role,status] of [['admin','admin','active'],['editor','master','active'],['other','lopater','active'],['off','master','disabled']])await setDoc(doc(db,'users/'+id),{role,status});
+  await setDoc(doc(db,'settings/permissions'),{master:{tabs:['timesheet'],actions:['timesheet_edit']},lopater:{tabs:['timesheet'],actions:[]}});
+  await setDoc(doc(db,'workspaces/main_workspace/tabelNextRecords/site~config'),{data:{sheetAccess:{one:{roles:{master:true}},two:{users:{other:true}}}}});
+ });
+ const db=uid=>env.authenticatedContext(uid).firestore(),sessionId=crypto.randomUUID();
+ const data={uid:'editor',sessionId,name:'Мастер',objectId:'site',sheetId:'one',selection:{a:'B2',b:'D4'},seen:Date.now()};
+ const ref=uid=>doc(db(uid),'workspaces/main_workspace/tabelNextPresence/editor_'+sessionId);
+ await assertSucceeds(setDoc(ref('editor'),data));
+ await assertSucceeds(setDoc(ref('editor'),{...data,selection:{a:'B2',b:'D4',rowKeys:['water'],colKeys:['day:2026-10-29:day']}}));
+ await assertFails(setDoc(ref('other'),{...data,uid:'other'}));
+ await assertFails(setDoc(ref('off'),{...data,uid:'off'}));
+ await assertFails(setDoc(ref('editor'),{...data,sheetId:'two'}));
+ await assertFails(setDoc(ref('editor'),{...data,selection:{a:'B2',b:'D4',hours:12}}));
+ await assertFails(setDoc(ref('editor'),{...data,seen:Date.now()+3600000}));
+ const list=(uid,sheet)=>getDocs(query(collection(db(uid),'workspaces/main_workspace/tabelNextPresence'),where('objectId','==','site'),where('sheetId','==',sheet)));
+ assert.equal((await assertSucceeds(list('editor','one'))).size,1);
+ await assertFails(list('other','one'));await assertFails(list('off','one'));
+ await assertFails(getDocs(collection(db('editor'),'workspaces/main_workspace/tabelNextPresence')));
+ await assertFails(deleteDoc(ref('other')));await assertSucceeds(deleteDoc(ref('editor')));
+ console.log('PASS presence rules: same-sheet reads; owner-only writes/deletes; denied spoofing, disabled users, unrelated sheets, broad queries, invalid payloads and future timestamps');
+ }finally{await env.cleanup()}})().catch(e=>{console.error(e);process.exitCode=1});
