@@ -12,6 +12,14 @@
     return p.year+'-'+p.month+'-'+p.day;
   }
   const todayMsk=()=>dayMsk(Date.now());
+  function nextQuotaReset(now=Date.now()){
+    const day=quotaDay(now),hour=Math.floor(now/3600000);
+    for(let i=1;i<=27;i++){
+      const tick=(hour+i)*3600000;
+      if(quotaDay(tick)!==day)return tick;
+    }
+    return 0;
+  }
   const startMsk=day=>day+' 10:00 МСК — '+new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString().slice(0,10)+' 10:00 МСК';
   const fresh=()=>({events:0,calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,listens:0,unsubscribes:0,snapshots:0,tx:0,batches:0,byType:{},byPath:{},hours:Array.from({length:24},()=>({calls:0,reads:0,writes:0,deletes:0}))});
   const loaded={days:{},quota:{},events:[],totalEvents:0,active:0,ready:false,persisted:true,notice:''};
@@ -228,7 +236,7 @@
     return timedPromise(out,()=>record({kind:'transaction',path,calls:1,writes:latest.writes,deletes:latest.deletes,reads:latest.reads,ms:performance.now()-started}),
       e=>record({kind:'transaction',path,calls:1,failed:true,code:errCode(e)}));
   });
-  const api={version:VERSION,free:FREE,data:loaded,dayMsk,quotaDay,startMsk,todayMsk,record,flush,hooks:wraps,refresh:dispatch};
+  const api={version:VERSION,free:FREE,data:loaded,dayMsk,quotaDay,nextQuotaReset,startMsk,todayMsk,record,flush,hooks:wraps,refresh:dispatch};
   window.FirebaseTraffic=api;
   initStore().catch(()=>{loaded.ready=true;loaded.persisted=false;dispatch();});
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flush().catch(()=>{});});
