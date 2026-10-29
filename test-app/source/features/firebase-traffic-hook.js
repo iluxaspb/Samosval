@@ -1,74 +1,97 @@
-/* TEST ONLY — local Firestore traffic recorder. No documents, UIDs, query values or API keys are retained. */
+/* TEST ONLY — local Firestore telemetry. One reporting day: Pacific (Firebase), displayed in Moscow. */
 (function(){
   'use strict';
-  if (window.FirebaseTraffic) return;
-  const VERSION='1.0.0', FREE={reads:50000,writes:20000,deletes:20000};
-  const MAX_EVENTS=10000, MAX_DAYS=180;
-  const MSK_OFFSET=3*3600000, MSK_CUTOVER=10*3600000;
-  const dayMsk=ts=>new Date(ts+MSK_OFFSET-MSK_CUTOVER).toISOString().slice(0,10);
+  if(window.FirebaseTraffic)return;
+  const VERSION='1.1.0',FREE={reads:50000,writes:20000,deletes:20000};
+  const MAX_EVENTS=10000,MAX_DAYS=180,HOUR=3600000,MSK_OFFSET=3*HOUR;
   const quotaFmt=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'});
   function quotaDay(ts){
-    const p=Object.fromEntries(quotaFmt.formatToParts(new Date(ts)).filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));
+    const p=Object.fromEntries(quotaFmt.formatToParts(new Date(ts)).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
     return p.year+'-'+p.month+'-'+p.day;
   }
-  const todayMsk=()=>dayMsk(Date.now());
-  function nextQuotaReset(now=Date.now()){
-    const day=quotaDay(now),hour=Math.floor(now/3600000);
-    for(let i=1;i<=27;i++){
-      const tick=(hour+i)*3600000;
-      if(quotaDay(tick)!==day)return tick;
+  const tomorrow=day=>new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString().slice(0,10);
+  const today=()=>quotaDay(Date.now());
+  const startCache=new Map();
+  function periodStartUTC(day){
+    if(startCache.has(day))return startCache.get(day);
+    const midnight=Date.parse(day+'T00:00:00Z');
+    for(let i=0;i<=12;i++){
+      const tick=midnight+i*HOUR;
+      if(quotaDay(tick)===day&&quotaDay(tick-HOUR)!==day){
+        startCache.set(day,tick);return tick;
+      }
     }
-    return 0;
+    return NaN;
   }
-  const startMsk=day=>day+' 10:00 МСК — '+new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString().slice(0,10)+' 10:00 МСК';
-  const fresh=()=>({events:0,calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,listens:0,unsubscribes:0,snapshots:0,tx:0,batches:0,byType:{},byPath:{},hours:Array.from({length:24},()=>({calls:0,reads:0,writes:0,deletes:0}))});
-  const loaded={days:{},quota:{},events:[],totalEvents:0,active:0,ready:false,persisted:true,notice:''};
+  const periodHours=day=>Math.round((periodStartUTC(tomorrow(day))-periodStartUTC(day))/HOUR);
+  const mskTime=ts=>new Date(ts+MSK_OFFSET).toISOString().slice(0,16).replace('T',' ');
+  const startMsk=day=>mskTime(periodStartUTC(day))+' МСК — '+mskTime(periodStartUTC(tomorrow(day)))+' МСК';
+  const nextQuotaReset=(now=Date.now())=>periodStartUTC(tomorrow(quotaDay(now)));
+  const hourInPeriod=(ts,day)=>Math.max(0,Math.min(24,Math.floor((ts-periodStartUTC(day))/HOUR)));
+  const fresh=()=>({events:0,calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,listens:0,unsubscribes:0,snapshots:0,tx:0,batches:0,byType:{},byPath:{},hours:Array.from({length:25},()=>({calls:0,reads:0,writes:0,deletes:0}))});
+  const loaded={days:{},events:[],totalEvents:0,active:0,ready:false,persisted:true,notice:''};
   let flushTimer=0,dirtyEvents=[],dbPromise=null,busy=false;
   const safeNum=x=>Number.isFinite(x)&&x>=0?Math.round(x):0;
-  const hourMsk=ts=>new Date(ts+MSK_OFFSET).getUTCHours();
   function safePath(ref){
     let path='';
-    try {
+    try{
       if(typeof ref.path==='string')path=ref.path;
-      else if(ref._query&&ref._query.path)path=String(ref._query.path.canonicalString?.()||ref._query.path.toString?.()||'');
+      else if(ref._query?.path)path=String(ref._query.path.canonicalString?.()||ref._query.path.toString?.()||'');
       else if(ref._delegate?.path)path=String(ref._delegate.path);
     }catch(_){}
     if(!path)return '(неизвестный путь)';
     return path.replace(/^\/+/,'').split('/').slice(0,10).map((part,i)=>i%2?':id':part.replace(/[^a-zA-Z0-9_а-яА-ЯёЁ-]/g,'_').slice(0,65)).join('/');
   }
   const dispatch=()=>{try{window.dispatchEvent(new CustomEvent('firebase-traffic-change'));}catch(_){}};
-  function record(input){
-    try {
-      const ts=Date.now(),d=dayMsk(ts),q=quotaDay(ts);
-      const e={ts,day:d,quotaDay:q,kind:String(input.kind||'other'),path:String(input.path||'(служебное)'),reads:safeNum(input.reads),cached:safeNum(input.cached),writes:safeNum(input.writes),deletes:safeNum(input.deletes),calls:safeNum(input.calls),failed:input.failed?1:0,ms:safeNum(input.ms),source:input.source||'',code:input.code||''};
-      for(const [map,key] of [[loaded.days,d],[loaded.quota,q]]){
-        const a=map[key]||(map[key]=fresh());a.events++;
-        for(const k of ['calls','reads','cached','writes','deletes','failed'])a[k]+=e[k];
-        if(e.kind==='listen')a.listens++;
-        if(e.kind==='unlisten')a.unsubscribes++;
-        if(e.kind==='snapshot')a.snapshots++;
-        if(e.kind==='transaction')a.tx++;
-        if(e.kind==='batch')a.batches++;
-        const t=a.byType[e.kind]||(a.byType[e.kind]={calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,events:0});
-        t.events++;for(const k of ['calls','reads','cached','writes','deletes','failed'])t[k]+=e[k];
-        const p=a.byPath[e.path]||(a.byPath[e.path]={calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,events:0});
-        p.events++;for(const k of ['calls','reads','cached','writes','deletes','failed'])p[k]+=e[k];
-        const h=a.hours[hourMsk(ts)];for(const k of ['calls','reads','writes','deletes'])h[k]+=e[k];
+  const counters=['calls','reads','cached','writes','deletes','failed'];
+  function add(a,b,keys){for(const key of keys)a[key]=(a[key]||0)+(b[key]||0);}
+  function mergeStored(stored,live){
+    const out=structuredClone(stored);
+    add(out,live,[...counters,'events','listens','unsubscribes','snapshots','tx','batches']);
+    for(const field of ['byType','byPath']){
+      out[field]=out[field]||{};
+      for(const [key,values] of Object.entries(live[field]||{})){
+        if(!out[field][key])out[field][key]=structuredClone(values);
+        else add(out[field][key],values,[...counters,'events']);
       }
+    }
+    if(!out.hours)out.hours=[];
+    for(let i=0;i<(live.hours?.length||0);i++){
+      if(!out.hours[i])out.hours[i]={calls:0,reads:0,writes:0,deletes:0};
+      add(out.hours[i],live.hours[i],['calls','reads','writes','deletes']);
+    }
+    return out;
+  }
+  function record(input){
+    try{
+      const ts=Date.now(),day=quotaDay(ts);
+      const e={ts,day,kind:String(input.kind||'other'),path:String(input.path||'(служебное)'),reads:safeNum(input.reads),cached:safeNum(input.cached),writes:safeNum(input.writes),deletes:safeNum(input.deletes),calls:safeNum(input.calls),failed:input.failed?1:0,ms:safeNum(input.ms),source:input.source||'',code:input.code||''};
+      const a=loaded.days[day]||(loaded.days[day]=fresh());a.events++;
+      add(a,e,counters);
+      if(e.kind==='listen')a.listens++;
+      if(e.kind==='unlisten')a.unsubscribes++;
+      if(e.kind==='snapshot')a.snapshots++;
+      if(e.kind==='transaction')a.tx++;
+      if(e.kind==='batch')a.batches++;
+      for(const [field,key] of [['byType',e.kind],['byPath',e.path]]){
+        const o=a[field][key]||(a[field][key]={calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,events:0});
+        o.events++;add(o,e,counters);
+      }
+      const h=a.hours[hourInPeriod(ts,day)];
+      add(h,e,['calls','reads','writes','deletes']);
       loaded.events.push(e);loaded.totalEvents++;dirtyEvents.push(e);
       if(loaded.events.length>MAX_EVENTS)loaded.events.splice(0,loaded.events.length-MAX_EVENTS);
       prune();schedule();dispatch();
-    } catch(_){/* Telemetry must never affect app logic. */}
+    }catch(_){/* Never change Firestore behavior for telemetry. */}
   }
   function prune(){
-    const days=Object.keys(loaded.days).sort(),quota=Object.keys(loaded.quota).sort();
+    const days=Object.keys(loaded.days).sort();
     for(const k of days.slice(0,Math.max(0,days.length-MAX_DAYS)))delete loaded.days[k];
-    for(const k of quota.slice(0,Math.max(0,quota.length-MAX_DAYS)))delete loaded.quota[k];
   }
   function openDB(){
     if(dbPromise)return dbPromise;
     dbPromise=new Promise(resolve=>{
-      try {
+      try{
         const r=indexedDB.open('samosval_firebase_traffic_v1',1);
         r.onupgradeneeded=()=>{const db=r.result;db.createObjectStore('daily',{keyPath:'key'});const store=db.createObjectStore('events',{keyPath:'id',autoIncrement:true});store.createIndex('ts','ts');};
         r.onsuccess=()=>resolve(r.result);
@@ -83,47 +106,56 @@
     await new Promise(resolve=>{
       try{
         const tx=db.transaction(['daily','events'],'readonly');
-        const daily=tx.objectStore('daily').getAll();
-        const recent=tx.objectStore('events').getAll();
+        const daily=tx.objectStore('daily').getAll(),recent=tx.objectStore('events').getAll();
         daily.onsuccess=()=>{
           for(const row of daily.result||[]){
-            const map=row.kind==='quota'?loaded.quota:loaded.days;
-            if(!map[row.day])map[row.day]=row.data;
+            if(row.kind!=='day')continue;
+            loaded.days[row.day]=loaded.days[row.day]?mergeStored(row.data,loaded.days[row.day]):row.data;
           }
+          prune();
         };
         recent.onsuccess=()=>{
           const old=(recent.result||[]).slice(-MAX_EVENTS);
-          const seen=new Set(loaded.events.map(x=>x.ts+'|'+x.kind+'|'+x.path+'|'+x.ms));
-          for(const e of old){const k=e.ts+'|'+e.kind+'|'+e.path+'|'+e.ms;if(!seen.has(k))loaded.events.unshift(e);}
+          const seen=new Set(loaded.events.map(e=>e.ts+'|'+e.kind+'|'+e.path+'|'+e.ms));
+          for(const e of old){const key=e.ts+'|'+e.kind+'|'+e.path+'|'+e.ms;if(!seen.has(key))loaded.events.unshift(e);}
           loaded.events.sort((a,b)=>a.ts-b.ts);
           if(loaded.events.length>MAX_EVENTS)loaded.events.splice(0,loaded.events.length-MAX_EVENTS);
         };
-        tx.oncomplete=resolve;tx.onerror=resolve;
+        tx.oncomplete=resolve;tx.onerror=resolve;tx.onabort=resolve;
       }catch(_){resolve();}
     });
-    loaded.ready=true;dispatch();
+    loaded.ready=true;if(dirtyEvents.length)schedule();dispatch();
   }
-  function schedule(){if(flushTimer)return;flushTimer=setTimeout(()=>{flushTimer=0;flush().catch(()=>{});},1800);}
+  function schedule(){
+    if(flushTimer)return;
+    flushTimer=setTimeout(()=>{flushTimer=0;flush().catch(()=>{});},1800);
+  }
   async function flush(){
+    if(!loaded.ready){schedule();return;}
     if(busy){schedule();return;}
     busy=true;
     const batch=dirtyEvents.splice(0);
     const days=Object.entries(loaded.days).map(([day,data])=>({key:'day:'+day,kind:'day',day,data:JSON.parse(JSON.stringify(data))}));
-    const quotas=Object.entries(loaded.quota).map(([day,data])=>({key:'quota:'+day,kind:'quota',day,data:JSON.parse(JSON.stringify(data))}));
     const db=await openDB();
     if(!db){busy=false;return;}
     await new Promise(resolve=>{
       try{
         const tx=db.transaction(['daily','events'],'readwrite'),ds=tx.objectStore('daily'),es=tx.objectStore('events');
-        for(const a of [...days,...quotas])ds.put(a);
+        const allowed=new Set(days.map(d=>d.key));
+        for(const entry of days)ds.put(entry);
         for(const e of batch)es.add(e);
+        ds.getAllKeys().onsuccess=function(){
+          for(const key of this.result)if(!allowed.has(key))ds.delete(key);
+        };
+        es.getAllKeys().onsuccess=function(){
+          for(const key of this.result.slice(0,Math.max(0,this.result.length+batch.length-MAX_EVENTS)))es.delete(key);
+        };
         tx.oncomplete=resolve;
         tx.onerror=()=>{loaded.persisted=false;loaded.notice='Ошибка сохранения на устройстве';dirtyEvents.unshift(...batch);resolve();};
         tx.onabort=()=>{loaded.persisted=false;loaded.notice='Сохранение прервано';dirtyEvents.unshift(...batch);resolve();};
       }catch(_){dirtyEvents.unshift(...batch);resolve();}
     });
-    busy=false;
-    if(dirtyEvents.length)schedule();
+    busy=false;if(dirtyEvents.length)schedule();
   }
   function estimate(snap,first){
     const cache=!!snap?.metadata?.fromCache, pending=!!snap?.metadata?.hasPendingWrites;
@@ -236,7 +268,7 @@
     return timedPromise(out,()=>record({kind:'transaction',path,calls:1,writes:latest.writes,deletes:latest.deletes,reads:latest.reads,ms:performance.now()-started}),
       e=>record({kind:'transaction',path,calls:1,failed:true,code:errCode(e)}));
   });
-  const api={version:VERSION,free:FREE,data:loaded,dayMsk,quotaDay,nextQuotaReset,startMsk,todayMsk,record,flush,hooks:wraps,refresh:dispatch};
+  const api={version:VERSION,free:FREE,data:loaded,quotaDay,today,periodStartUTC,periodHours,mskTime,nextQuotaReset,startMsk,record,flush,hooks:wraps,refresh:dispatch};
   window.FirebaseTraffic=api;
   initStore().catch(()=>{loaded.ready=true;loaded.persisted=false;dispatch();});
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flush().catch(()=>{});});
