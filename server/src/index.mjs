@@ -1,60 +1,82 @@
 import http from 'node:http';
 import { Pool } from 'pg';
+import { verifyFirebaseUser } from './auth.mjs';
+import { submitLineOperation } from './line-store.mjs';
 
-// Foundation only: no user data endpoints, no Firestore migration, no writes.
-const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD'];
+const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
-  if (!process.env[key] || process.env[key] === 'REPLACE_WITH_A_LONG_RANDOM_SECRET') {
+  if (!process.env[key] || process.env[key] === 'REPLACE_WITH_A_LONG_RANDOM_SECRET')
     throw new Error(`Missing or unsafe configuration: ${key}`);
-  }
 }
-
+const permittedOrigins = new Set(String(process.env.ALLOWED_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean));
 const pool = new Pool({
-  host: process.env.PGHOST ?? 'postgres',
-  port: Number(process.env.PGPORT ?? 5432),
-  database: process.env.POSTGRES_DB,
-  user: process.env.POSTGRES_USER,
-  password: process.env.POSTGRES_PASSWORD,
-  max: 5,
-  connectionTimeoutMillis: 2000,
-  idleTimeoutMillis: 30000,
+  host:process.env.PGHOST||'postgres', port:Number(process.env.PGPORT||5432),
+  database:process.env.POSTGRES_DB, user:process.env.POSTGRES_USER,
+  password:process.env.POSTGRES_PASSWORD, max:5,
+  connectionTimeoutMillis:2000, idleTimeoutMillis:30000
 });
-
-const send = (res, status, body) => {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+function send(res,status,body) {
+  res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
   res.end(JSON.stringify(body));
-};
-
-const server = http.createServer(async (req, res) => {
-  const path = new URL(req.url ?? '/', 'http://localhost').pathname;
-  if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' });
-  if (path === '/health/live') return send(res, 200, { status: 'ok' });
-  if (path === '/health/ready') {
-    try {
-      await pool.query('SELECT 1');
-      return send(res, 200, { status: 'ready', database: 'connected' });
-    } catch {
-      return send(res, 503, { status: 'unavailable' });
+}
+function readJson(req,limit=32768) {
+  return new Promise((resolve,reject)=>{
+    const chunks=[];let bytes=0,aborted=false;
+    req.on('data',chunk=>{
+      bytes+=chunk.length;
+      if(bytes>limit){aborted=true;reject(Object.assign(new Error('body-too-large'),{status:413}));req.destroy();}
+      else if(!aborted)chunks.push(chunk);
+    });
+    req.on('end',()=>{
+      if(aborted)return;
+      try{resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));}
+      catch{reject(Object.assign(new Error('invalid-json'),{status:400}));}
+    });
+    req.on('error',reject);
+  });
+}
+const server=http.createServer(async(req,res)=>{
+  const origin=req.headers.origin;
+  if(origin){
+    if(!permittedOrigins.has(origin)) return send(res,403,{error:'origin-not-allowed'});
+    res.setHeader('Access-Control-Allow-Origin',origin);
+    res.setHeader('Vary','Origin');
+    res.setHeader('Access-Control-Allow-Methods','POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type');
+    res.setHeader('Access-Control-Max-Age','600');
+  }
+  const path=new URL(req.url||'/', 'http://localhost').pathname;
+  if(req.method==='OPTIONS')return send(res,204,{});
+  if(req.method==='GET' && path==='/health/live')return send(res,200,{status:'ok'});
+  if(req.method==='GET' && path==='/health/ready'){
+    try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
+    catch{return send(res,503,{status:'unavailable'});}
+  }
+  if(path==='/api/v1/line/operations'&&req.method==='POST'){
+    if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))
+      return send(res,415,{error:'unsupported-media-type'});
+    const uid=await verifyFirebaseUser(req);
+    if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      const op=await readJson(req);
+      const outcome=await submitLineOperation(pool,uid,op);
+      return send(res,200,outcome);
+    }catch(e){
+      const status=[400,403,409,413].includes(e.status)?e.status:500;
+      if(status===500)console.error('[line-api] operation failed',e?.code||e?.name||'unknown');
+      return send(res,status,{error:status===500?'server-error':e.code||e.message||'invalid'});
     }
   }
-  return send(res, 404, { error: 'not_found' });
+  return send(res,404,{error:'not-found'});
 });
-
-const port = Number(process.env.PORT ?? 8080);
-server.listen(port, '0.0.0.0', () => {
-  console.info(`Samosval API test bootstrap listening on port ${port}`);
-});
-
-let shuttingDown = false;
-async function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
+const port=Number(process.env.PORT||8080);
+server.listen(port,'0.0.0.0',()=>console.info(`Samosval TEST API listening on ${port}`));
+let stopping=false;
+async function shutdown(){
+  if(stopping)return;
+  stopping=true;
   server.close();
-  try {
-    await pool.end();
-  } finally {
-    process.exit(0);
-  }
+  try{await pool.end();}finally{process.exit(0);}
 }
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+process.on('SIGTERM',shutdown);
+process.on('SIGINT',shutdown);
