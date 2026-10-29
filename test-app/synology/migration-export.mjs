@@ -1,5 +1,5 @@
 import { firebaseTestConfig } from './firebase-test-config.mjs';
-import { validateMigrationSnapshot } from './migration-snapshot.mjs';
+import { validateMigrationSnapshot } from './migration-snapshot.mjs?v=20261030.4';
 
 const EXPECTED_PROJECT='samosval-offline', WORKSPACE='main_workspace';
 if(firebaseTestConfig.projectId!==EXPECTED_PROJECT)throw new Error('Неверный Firebase-проект');
