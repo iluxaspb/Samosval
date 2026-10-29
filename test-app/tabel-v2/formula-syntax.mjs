@@ -24,6 +24,10 @@ export function syntaxParts(raw){
     const segment={text,kind};
     if(kind==="ref"){
       const id=text.replace(/\$/g,"").toUpperCase();
+      const previous=parts.length>=2 && parts.at(-1).text===":" &&
+        parts.at(-2).kind==="ref" ? parts.at(-2) : null;
+      if(previous&&!ids.has(id))
+        ids.set(id,FORMULA_REF_COLORS.indexOf(previous.color));
       if(!ids.has(id))ids.set(id,ids.size%FORMULA_REF_COLORS.length);
       segment.color=FORMULA_REF_COLORS[ids.get(id)];
     }
