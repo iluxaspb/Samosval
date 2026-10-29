@@ -50,7 +50,7 @@ def main():
                     page.locator('dialog.tn [data-action="save-mode"]').click()
 
                 save_mode()
-                warning = page.locator('dialog.tn:has-text("Изменение другого адреса")')
+                warning = page.locator('dialog.tn:has(> form > header > b:text-is("Изменение другого адреса"))')
                 warning.wait_for()
                 assert 'Объект Б' in warning.inner_text() and 'Объект А' in warning.inner_text()
                 warning.locator('footer [data-action="close"]').click()
