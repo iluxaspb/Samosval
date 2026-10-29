@@ -61,13 +61,13 @@ def main():
                 warning.wait_for()
                 warning.locator('[type="submit"]').click()
                 warning.wait_for(state="hidden")
-                page.locator('dialog.tn').wait_for(state="hidden")
+                page.locator('dialog.tn:has(.tn-settings-menu)').wait_for(state="hidden")
 
                 # Same foreign object: first 'Да' grants consent only for this visit.
                 save_mode()
                 page.wait_for_timeout(250)
                 assert warning.count() == 0, "Consent should avoid repeated warnings"
-                page.locator('dialog.tn [data-action="close"]').first.click()
+                page.locator('dialog.tn[open] [data-action="close"]').first.click()
                 page.locator('.tn-app [data-action="exit"]').click()
 
                 # Re-enter the table: return to active Line object and reset consent.
@@ -78,7 +78,7 @@ def main():
                 save_mode()
                 warning.wait_for()
                 warning.locator('footer [data-action="close"]').click()
-                page.locator('dialog.tn [data-action="close"]').first.click()
+                page.locator('dialog.tn[open] [data-action="close"]').first.click()
                 page.locator('.tn-app [data-action="exit"]').click()
 
                 # With no active shift, choose the latest closed shift from archive.
