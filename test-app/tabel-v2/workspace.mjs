@@ -329,17 +329,17 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   };
   s.remember = remember;
   const objects = host.data().objects || [];
-  s.defaultObject = () => {
+  s.defaultObject = (explicitRequest = false) => {
     let recentlyClosed = null;
     try { recentlyClosed = JSON.parse(localStorage.getItem(lastClosedKey(session.projectId, session.workspaceId)) || "null"); } catch {}
     const snap = host.data();
     return (snap.objects || []).find((o) => o.id === preferredObjectId({
-      objects: snap.objects, requestObjectId: host.requestObjectId,
+      objects: snap.objects, requestObjectId: explicitRequest ? host.requestObjectId : null,
       shift: snap.shift, archive: snap.archive,
       recentlyClosed, lastObject: s.object?.id || lastObject,
     })) || null;
   };
-  s.object = s.defaultObject();
+  s.object = s.defaultObject(true);
   s.status = () => {
     const target = root.querySelector("[data-status]");
     if (!target) return;
