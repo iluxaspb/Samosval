@@ -14,7 +14,7 @@ async function testFixture() {
     initializeApp:(config,name) => { initialized.push({config,name}); const db=makeDb(); return {options:config,firestore:() => db}; }};
   const ctx = {window:{firebase:original,addEventListener:(type,callback)=>events[type]=callback,__auditReport:(type,detail)=>streamed.push({type,detail})},document:{addEventListener:(type,callback) => {if(type === 'load') loaded.push(callback);else events[type]=callback;}},
     localStorage:{getItem:key => stores.get(key) || null,setItem:(key,value) => stores.set(key,value),removeItem:key => stores.delete(key)},
-    setTimeout:callback => callback()};
+    location:{protocol:'http:'},setTimeout:callback => callback()};
   vm.createContext(ctx); vm.runInContext('(' + installBrowserFixture.toString() + ')(' + JSON.stringify({port:8099,uid:'qa',project:PROJECT,config:DEMO_CONFIG}) + ')',ctx);
   assert.equal(loaded.length,1); loaded[0]({target:{tagName:'SCRIPT',src:'http://127.0.0.1/html2pdf-local.js'}});
   assert.equal(ctx.window.__auditFixture.ready,true);
