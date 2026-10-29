@@ -195,12 +195,18 @@ async function editItem(s, key, item) {
             "Собственность",
             `<select name="ownership"><option value="own">Своя</option><option value="hired" ${item.ownership === "hired" ? "selected" : ""}>Наёмная</option></select>`,
           ) +
+          field("Категория техники",
+            '<select name="kind" aria-label="Категория техники">' +
+            [["mill","Фреза — 2 человека на обед"],["brush","Щётка — 1 человек"],
+             ["water","Поливомойка — 1 человек"],["other","Другая техника — 1 человек"]]
+              .map(([id,label]) =>
+                '<option value="'+id+'" '+(D.equipmentCategory(item)===id?'selected':'')+'>'+label+'</option>'
+              ).join("") + '</select>') +
           field("Подпись персонала", input("crewLabel", item.crewLabel || "")) +
-          (D.isWater(item)
-            ? '<label class="tn-check"><input name="pump" type="checkbox" ' +
-              (item.pump ? "checked" : "") +
-              ">Есть помпа</label>"
-            : "")
+          '<label class="tn-check" data-pump-option ' +
+            (D.equipmentCategory(item)==="water" && item.ownership !== "hired" ? "" : "hidden") +
+            '><input name="pump" type="checkbox" ' +
+            (item.pump ? "checked" : "") + '>Есть помпа</label>'
         : key === "people"
           ? field("Телефон", input("phone", item.phone || "", 'type="tel"'))
           : (key === "contractors"
@@ -233,9 +239,9 @@ async function editItem(s, key, item) {
           plate: String(f.get("plate")).trim(),
           ownership: f.get("ownership"),
           crewLabel: String(f.get("crewLabel")).trim(),
-          kind: D.isWater(item) ? "water" : item.kind,
+          kind: f.get("kind"),
           pump:
-            D.isWater(item) && f.get("ownership") !== "hired" && f.has("pump"),
+            f.get("kind") === "water" && f.get("ownership") !== "hired" && f.has("pump"),
         });
       if (key === "people") next.phone = String(f.get("phone")).trim();
       if (["works", "materials"].includes(key)) {
@@ -311,12 +317,21 @@ function addContractor(s) {
 
 export function bindEquipmentOwnership(el) {
   const ownership = el.querySelector("[name=ownership]"),
-    contractor = el.querySelector("[name=contractor]");
+    contractor = el.querySelector("[name=contractor]"),
+    category = el.querySelector("[name=kind]"),
+    pumpLine = el.querySelector("[data-pump-option]");
   const update = () => {
     const hired = ownership.value === "hired";
     contractor.closest("label").hidden = !hired;
     contractor.disabled = !hired;
+    if (pumpLine) {
+      const enabled = !hired && category?.value === "water";
+      pumpLine.hidden = !enabled;
+      const checkbox = pumpLine.querySelector("[name=pump]");
+      checkbox.disabled = !enabled;
+    }
   };
   ownership.addEventListener("change", update);
+  category?.addEventListener("change", update);
   update();
 }
