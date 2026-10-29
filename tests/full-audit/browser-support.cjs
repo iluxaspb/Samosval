@@ -15,7 +15,7 @@ const FIRESTORE_PROBE_FIXTURE = Object.freeze({
 // data URL/cache hit, so offline image failure remains genuine.
 const PROBE_GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7','base64');
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8',
-  '.css':'text/css; charset=utf-8','.webmanifest':'application/manifest+json',
+  '.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.webmanifest':'application/manifest+json',
   '.png':'image/png','.ttf':'font/ttf','.json':'application/json'};
 
 async function readWithRulesDisabled(environment, read) {
@@ -87,7 +87,9 @@ function createLocalServer(root, firestorePort, requestLog) {
     const bytes = fs.readFileSync(file), relative = path.relative(root,file).split(path.sep).join('/');
     if (relative === 'index-test.html') return Buffer.from(rewriteDemoSource(bytes.toString(),bytes.includes('const firebaseConfig')));
     if (relative === FIRESTORE_PROBE_FIXTURE.asset) return rewriteConnectivityProbe(bytes);
-    if ((relative.startsWith('test-app/build/') || relative.startsWith('test-app/src/')) && relative.endsWith('.js'))
+    if ((relative.startsWith('test-app/build/') || relative.startsWith('test-app/src/') ||
+         relative.startsWith('test-app/tabel/') || relative.startsWith('test-app/tabel-v2/')) &&
+        (relative.endsWith('.js') || relative.endsWith('.mjs')))
       return Buffer.from(rewriteDemoSource(bytes.toString(),relative.endsWith('/core.js')));
     if (relative === 'sw-test.js') {
       // The production worker verifies every response hash. Preserve that check
@@ -129,7 +131,7 @@ function createLocalServer(root, firestorePort, requestLog) {
       const file = path.resolve(root, relative);
       if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()
           || !fs.realpathSync(file).startsWith(root + path.sep)
-          || !/^(?:index-test\.html|manifest-test\.webmanifest|sw-test\.js|test-app\/(?:build|vendor|icons|src)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
+          || !/^(?:index-test\.html|manifest-test\.webmanifest|sw-test\.js|test-app\/(?:build|vendor|icons|src|tabel|tabel-v2)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
         res.writeHead(404); res.end(); return;
       }
       res.setHeader('Content-Type', types[path.extname(file)] || 'application/octet-stream');

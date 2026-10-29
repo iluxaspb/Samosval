@@ -51,6 +51,17 @@ async function testServer() {
     assert(html.headers.get('content-security-policy').includes("img-src 'self' data: blob:;"));
     assert(!html.headers.get('content-security-policy').includes('google.com'));
     assert.equal(html.headers.get('permissions-policy'),'camera=(), microphone=(), geolocation=()');
+    // The browser must fetch real .mjs imports during shift closure.
+    // Previously 404s here left an already-archived shift stuck at closing:true.
+    for (const moduleName of ['entry.mjs','workspace.mjs','material-transfer.mjs']) {
+      const response=await fetch(origin + '/Samosval/test-app/tabel-v2/' + moduleName);
+      assert.equal(response.status,200,'Missing Tabel module '+moduleName);
+      assert(response.headers.get('content-type').startsWith('text/javascript'));
+      const code=await response.text();
+      assert(!code.includes('samosval-offline'),'Demo rewrite absent: '+moduleName);
+      assert(code.length>500,'Unexpected empty test module '+moduleName);
+    }
+    assert.equal((await fetch(origin + '/Samosval/test-app/tabel-v2/unknown.mjs')).status,404);
     assert.equal((await fetch(origin + '/Samosval/unserved-file.txt')).status,404);
     assert.equal((await fetch(origin + '/Samosval/index-test.html',{method:'POST'})).status,405);
     const worker=await (await fetch(origin + '/Samosval/sw-test.js')).text();
