@@ -31,6 +31,10 @@ jobs:
         run: |
           npm install --prefix /tmp/samosval-browser-qa --no-audit --no-fund firebase@10.8.0 @firebase/rules-unit-testing@3.0.4 firebase-tools@14.20.0 playwright@1.56.1
           /tmp/samosval-browser-qa/node_modules/.bin/playwright install --with-deps chromium
+          # Download the pinned Firestore emulator JAR before the standalone
+          # browser harness boots it on its own isolated random port.
+          printf '%s\n' '{"emulators":{"firestore":{"port":8080},"ui":{"enabled":false}}}' > /tmp/samosval-browser-firebase.json
+          /tmp/samosval-browser-qa/node_modules/.bin/firebase emulators:exec --config /tmp/samosval-browser-firebase.json --project demo-samosval-browser-audit --only firestore 'echo firestore-emulator-ready'
       - name: End-to-end acceptance with demo Firebase only
         env:
           NODE_PATH: /tmp/samosval-browser-qa/node_modules
