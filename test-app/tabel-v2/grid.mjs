@@ -107,7 +107,7 @@ export async function mount(s, host) {
       }
     }
     for(let col=0;col<cols;col++)widths[col]=sheet.widths[widthKey(col)]||(sheetId==='linked'?(col===0?145:autoWidth(col)):80);
-    if(sheetId==='linked')cells.A1.raw=s.object.address||s.object.location||c.name;
+    if(sheetId==='linked')cells.A1.raw=c.name||s.object.address||s.object.location;
     return {...D.copy(sheet),name:sheetId==='linked'?'Табель '+c.name:sheet.name,rows,cols,cells,widths,heights,merges:sheetId==='linked'&&cols>1?['A1:'+D.cell(0,cols-1)]:sheet.merges||[]};
   }
   transferTools.querySelector('[data-action=import-excel]').hidden=!s.sheetManager();
@@ -541,7 +541,7 @@ export async function mount(s, host) {
             (sheet.heights[heightKey(r)] ||
               (sheetId === "linked" && r === 1 ? 36 : 27)) * scale;
         if (sheetId === "linked" && r === 0)
-          return `<tr class="tn-address"><td data-cell="A1" colspan="${dim.cols}" style="background:#ff9900"><div>${esc(s.object.address || s.object.location || c.name)}</div></td></tr>`;
+          return `<tr class="tn-address"><td data-cell="A1" colspan="${dim.cols}" style="background:#ff9900"><div>${esc(c.name || s.object.address || s.object.location)}</div></td></tr>`;
         return (
           `<tr style="height:${height}px">` +
           (sheetId === "linked"
