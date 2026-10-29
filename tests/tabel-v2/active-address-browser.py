@@ -67,7 +67,6 @@ def main():
                 save_mode()
                 page.wait_for_timeout(250)
                 assert warning.count() == 0, "Consent should avoid repeated warnings"
-                page.locator('dialog.tn[open] [data-action="close"]').first.click()
                 page.locator('.tn-app [data-action="exit"]').click()
 
                 # Re-enter the table: return to active Line object and reset consent.
