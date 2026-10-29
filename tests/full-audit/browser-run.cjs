@@ -379,6 +379,15 @@ async function responsiveCase(mobile) {
     await page.locator('#closeShiftBtn').click();
     await confirm(false,/Перед закрытием смены создать резервную копию/);
     await confirm(true,/^Закрыть смену\?$/,true);
+    // A completed Line shift with trips requires an explicit material/destination
+    // decision before the transfer can finish. Older tests waited without
+    // answering this real dialog, so closing remained in progress.
+    const transferDialog=page.locator('dialog.tn[open]').filter({has:page.locator('input[name="material"]')});
+    await transferDialog.waitFor({state:'visible',timeout:15000});
+    await transferDialog.locator('input[name="material"]').fill('Гранулят');
+    await transferDialog.locator('input[name="direction"]').fill('Конус QA');
+    await transferDialog.locator('button[type="submit"]').click();
+    await transferDialog.waitFor({state:'hidden'});
     await wait(() => !state.shift && state.archive.length === 1 && !closeShiftInFlight);
     assert.equal((await readRows('archive')).length, 1); assert.equal((await readRows('logs')).length, 0);
     await wait(()=>window.__gameEconomy.snapshot().records.some(e=>e.history?.operations.some(o=>o.collection==='logs'&&o.before&&!o.after)));
@@ -416,18 +425,36 @@ async function responsiveCase(mobile) {
     await page.locator('#game-ranking .game-head button').click();
   });
   await step('settings-theme-preview-and-game-toggle-persistence', async () => {
-    await page.locator('#mainHeader .gear-btn').click(); await page.locator('#settingsModal.open').waitFor({state:'visible'});
-    await page.locator('#settingHoldLoad').fill('0.5'); await page.locator('#settingHoldLoad').press('Tab');
+    await page.locator('#mainHeader .gear-btn').click();
+    await page.locator('#settingsModal.open').waitFor({state:'visible'});
+    // Current Settings Hub separates the old flat controls into real category
+    // dialogs. Open each category with real user clicks before editing.
+    await page.locator('#settingsModal [data-category="hold"]').click();
+    await page.locator('#settingsCategoryModal.open #settingHoldLoad').fill('0.5');
+    await page.locator('#settingsCategoryModal #settingHoldLoad').press('Tab');
+    await page.locator('#settingsCategoryModal [data-back]').first().click();
+    await page.locator('#settingsModal [data-category="vibration"]').click();
     await toggleCheckbox('hapticLoad',false);
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('dt_settings_test347')).hapticLoad), false);
-    assert(await page.locator('#test-pwa-settings').isVisible());
-    await page.locator('#settingsModal').getByRole('button',{name:'🛍 Лавка дорожника',exact:true}).click();
+    await page.locator('#settingsCategoryModal [data-back]').first().click();
+    await page.locator('#settingsModal [data-category="pwa"]').click();
+    assert(await page.locator('#settingsCategoryModal.open #test-pwa-settings').isVisible());
+    await page.locator('#settingsCategoryModal [data-back]').first().click();
+    await page.locator('#settingsModal [data-category="other"]').click();
+    await page.locator('#settingsCategoryModal').getByRole('button',{name:'🛍 Лавка дорожника',exact:true}).click();
     await page.locator('#road-shop-dialog[open]').waitFor({state:'visible'});
     await page.locator('#road-shop-preview').selectOption('road');
     await wait(() => RoadShop.getAppliedTheme() === 'road');
-    await page.locator('#road-shop-dialog [data-step="1"]').click(); assert.notEqual(await page.evaluate(() => RoadShop.getAppliedTheme()), 'road');
-    await page.locator('#road-shop-dialog .shop-close').click(); await wait(() => RoadShop.getAppliedTheme() === '');
-    await page.locator('#mainHeader .gear-btn').click(); await page.locator('#settingsModal button[onclick="closeSettingsModal()"]').last().click();
+    await page.locator('#road-shop-dialog [data-step="1"]').click();
+    assert.notEqual(await page.evaluate(() => RoadShop.getAppliedTheme()), 'road');
+    await page.locator('#road-shop-dialog .shop-close').click();
+    await wait(() => RoadShop.getAppliedTheme() === '');
+    // The shop closes the Settings Hub as well in current builds. Do not
+    // attempt to click the hidden category-close button a second time.
+    if (await page.locator('#settingsCategoryModal.open').count())
+      await page.locator('#settingsCategoryModal.open [data-close]').click();
+    if (await page.locator('#settingsModal.open').count())
+      await page.locator('#settingsModal button[onclick="closeSettingsModal()"]').last().click();
     await nav('admin'); await page.locator('button[onclick="switchAdminTab(\'appsettings\', this)"]').click();
     await page.locator('#game-admin > summary').click(); await toggleCheckbox('game_mode',false);
     await wait(() => appConfig.testReviewFlags.game_mode === false && document.getElementById('game-wallet').hidden);
@@ -455,36 +482,22 @@ async function responsiveCase(mobile) {
     assert.deepEqual(await page.evaluate(()=>{const rates=window.__gameCoinsCore.rewardsAt(appConfig);return {load:rates.load,arrive:rates.arrive,ttn:rates.ttn};}),{load:2,arrive:3,ttn:4});
     assert.equal(await page.evaluate(() => appConfig.testReviewFlags.arcade_enabled), true); await evidence('settings-reloaded');
   });
-  await step('timesheet-crew-hours-material-repeat-month-and-history', async () => {
-    await nav('timesheet'); await wait(() => document.querySelector('.ts-sync')?.textContent.includes('Данные подтверждены'));
-    await page.locator('#tab-timesheet [data-action="add-equipment"]').click();
-    await page.locator('.ts-dialog select[name="machine"]').selectOption('m1');
-    for (const checkbox of await page.locator('.ts-dialog input[name="operatorIds"]').all()) await checkbox.check();
-    await page.locator('.ts-dialog button[type="submit"]').dblclick(); await page.locator('.ts-dialog').waitFor({state:'detached'});
-    await wait(() => document.querySelectorAll('.ts-inline-hours').length >= 2);
-    // Server assertions validate the actual transaction/rules, not just optimistic DOM.
-    await wait(() => document.querySelector('.ts-sync')?.textContent.includes('Данные подтверждены'));
-    assert.equal((await readRows('timesheetEntries')).length, 3);
-    await page.locator('#tab-timesheet [data-action="crew"]').first().click();
-    await page.locator('.ts-dialog [data-action="crew-assign"]').click();
-    await page.locator('.ts-dialog button[type="submit"]').click(); await page.locator('.ts-dialog').waitFor({state:'detached'});
-    assert.equal((await readRows('timesheetEntries')).length, 3);
-    await page.locator('.ts-crew-row [data-value="12"]').click();
-    await wait(() => document.getElementById('tab-timesheet').textContent.includes('24 чел.-ч'));
-    await wait(() => document.querySelector('.ts-sync')?.textContent.includes('Данные подтверждены'));
-    assert.equal((await readRows('timesheetEntries')).filter(r => r.kind === 'person').reduce((n,r) => n + r.minutes, 0), 1440);
-    await page.locator('#tab-timesheet [data-action="entry"][data-id^="equipment"]').first().click();
-    await page.locator('.ts-dialog [name="hours"]').fill('11'); await page.locator('.ts-dialog button[type="submit"]').click();
-    await page.locator('.ts-dialog').waitFor({state:'detached'});
-    await page.locator('#tab-timesheet [data-action="material"]').first().click();
-    await page.locator('.ts-dialog [name="material"]').fill('Учебный щебень'); await page.locator('.ts-dialog [name="supplier"]').fill('Учебный поставщик');
-    await page.locator('.ts-dialog [name="quantity"]').fill('80'); await page.locator('.ts-dialog button[type="submit"]').dblclick();
-    await page.locator('.ts-dialog').waitFor({state:'detached'}); await wait(() => document.querySelector('.ts-sync')?.textContent.includes('Данные подтверждены'));
-    assert.equal((await readRows('timesheetMaterials')).length, 1);
-    await page.locator('#tab-timesheet [data-view="month"]').click(); await page.locator('.ts-table').waitFor({state:'visible'});
-    await page.locator('#tab-timesheet [data-action="history"]').click(); await wait(() => document.querySelector('.ts-dialog .ts-history'));
-    await page.locator('.ts-dialog [data-close]').last().click();
-    await page.locator('#tab-timesheet [data-view="day"]').click(); await evidence('timesheet');
+  await step('current-tabel-v2-address-shift-and-table-smoke', async () => {
+    // The legacy .ts-* timesheet was retired. Its domain-level people,
+    // materials, formula and history checks live in tests/tabel-v2/*.test.mjs.
+    // Verify the actual modern entrypoint works in the authenticated shell.
+    await page.locator('#nav-tabel-v2').click();
+    const tabel=page.locator('section.tn-app');
+    await tabel.waitFor({state:'visible',timeout:15000});
+    assert.equal(await tabel.locator('[data-object]').inputValue(),'qa-object',
+      'Tabel must start on the active Line object');
+    await tabel.locator('[data-view="table"]').click();
+    await tabel.locator('.tn-grid').waitFor({state:'visible',timeout:15000});
+    await tabel.locator('[data-view="shift"]').click();
+    await tabel.locator('.tn-shift-tabs').waitFor({state:'visible',timeout:15000});
+    await evidence('timesheet');
+    await tabel.locator('[data-action="exit"]').click();
+    await tabel.waitFor({state:'hidden'});
   });
   await step('archive-fullwidth-genuine-png-and-overlay', async () => {
     // Explicit seeded domain fixture: real UI, rasterizer, canvas and download.

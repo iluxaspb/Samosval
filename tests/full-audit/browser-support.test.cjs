@@ -14,7 +14,7 @@ async function testFixture() {
     initializeApp:(config,name) => { initialized.push({config,name}); const db=makeDb(); return {options:config,firestore:() => db}; }};
   const ctx = {window:{firebase:original,addEventListener:(type,callback)=>events[type]=callback,__auditReport:(type,detail)=>streamed.push({type,detail})},document:{addEventListener:(type,callback) => {if(type === 'load') loaded.push(callback);else events[type]=callback;}},
     localStorage:{getItem:key => stores.get(key) || null,setItem:(key,value) => stores.set(key,value),removeItem:key => stores.delete(key)},
-    setTimeout:callback => callback()};
+    location:{protocol:'http:'},setTimeout:callback => callback()};
   vm.createContext(ctx); vm.runInContext('(' + installBrowserFixture.toString() + ')(' + JSON.stringify({port:8099,uid:'qa',project:PROJECT,config:DEMO_CONFIG}) + ')',ctx);
   assert.equal(loaded.length,1); loaded[0]({target:{tagName:'SCRIPT',src:'http://127.0.0.1/html2pdf-local.js'}});
   assert.equal(ctx.window.__auditFixture.ready,true);
@@ -51,6 +51,17 @@ async function testServer() {
     assert(html.headers.get('content-security-policy').includes("img-src 'self' data: blob:;"));
     assert(!html.headers.get('content-security-policy').includes('google.com'));
     assert.equal(html.headers.get('permissions-policy'),'camera=(), microphone=(), geolocation=()');
+    // The browser must fetch real .mjs imports during shift closure.
+    // Previously 404s here left an already-archived shift stuck at closing:true.
+    for (const moduleName of ['entry.mjs','workspace.mjs','material-transfer.mjs']) {
+      const response=await fetch(origin + '/Samosval/test-app/tabel-v2/' + moduleName);
+      assert.equal(response.status,200,'Missing Tabel module '+moduleName);
+      assert(response.headers.get('content-type').startsWith('text/javascript'));
+      const code=await response.text();
+      assert(!code.includes('samosval-offline'),'Demo rewrite absent: '+moduleName);
+      assert(code.length>500,'Unexpected empty test module '+moduleName);
+    }
+    assert.equal((await fetch(origin + '/Samosval/test-app/tabel-v2/unknown.mjs')).status,404);
     assert.equal((await fetch(origin + '/Samosval/unserved-file.txt')).status,404);
     assert.equal((await fetch(origin + '/Samosval/index-test.html',{method:'POST'})).status,405);
     const worker=await (await fetch(origin + '/Samosval/sw-test.js')).text();
