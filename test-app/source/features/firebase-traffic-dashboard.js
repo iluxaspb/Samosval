@@ -91,7 +91,7 @@ function render(force){
  const d=selected||now;
  const select=document.querySelector('#ftDay');
  if(!select)return;
- const days=[...new Set([now,...Object.keys(T.data.days)])].sort().reverse();
+ const days=[...new Set([now,...Object.keys(T.data.days),...(I?.data.rows||[]).map(x=>x.day).filter(Boolean)])].sort().reverse();
  const existing=[...select.options].map(o=>o.value).join(',');
  if(existing!==days.join(','))select.innerHTML=days.map(v=>'<option value="'+esc(v)+'">'+esc(v)+' · '+(v===now?'Текущие':'Архив')+'</option>').join('');
  if(!days.includes(d))selected=now;
@@ -171,7 +171,7 @@ function download(name,content,mime){
  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),45000);
 }
 async function exportJSON(){
- await T.flush();const body={format:'samosval-firebase-traffic/v1',generatedAt:new Date().toISOString(),scope:'measured-single-device-plus-local-audit-model',indirect:{model:'low-expected-high',byDay:Object.fromEntries(Object.keys(T.data.days).map(day=>[day,I?.summary(day,typeof currentUid!=='undefined'?currentUid:'',typeof currentEmail!=='undefined'?currentEmail:'')||null]))},reportDay:'America/Los_Angeles midnight (displayed Europe/Moscow)',quota:T.free,hooks:T.hooks,notes:['Indirect estimates are NOT observed or billed totals','Registered user cap, one assumed device per user','Audit stream limited to last 200 entries and may omit historical events','SDK-observed estimates, not billed totals','Offline cache excluded from server-read estimate','No document contents, user identifiers, API keys or parameters saved'],daily:T.data.days,events:T.data.events};
+ await T.flush();const body={format:'samosval-firebase-traffic/v1',generatedAt:new Date().toISOString(),scope:'measured-single-device-plus-local-audit-model',indirect:{model:'low-expected-high',byDay:Object.fromEntries([...new Set([...Object.keys(T.data.days),...(I?.data.rows||[]).map(x=>x.day)])].filter(Boolean).map(day=>[day,I?.summary(day,typeof currentUid!=='undefined'?currentUid:'',typeof currentEmail!=='undefined'?currentEmail:'')||null]))},reportDay:'America/Los_Angeles midnight (displayed Europe/Moscow)',quota:T.free,hooks:T.hooks,notes:['Indirect estimates are NOT observed or billed totals','Registered user cap, one assumed device per user','Audit stream limited to last 200 entries and may omit historical events','SDK-observed estimates, not billed totals','Offline cache excluded from server-read estimate','No document contents, user identifiers, API keys or parameters saved'],daily:T.data.days,events:T.data.events};
  download('samosval-firebase-traffic-'+T.today()+'.json',JSON.stringify(body,null,2),'application/json;charset=utf-8');
 }
 async function exportCSV(){
