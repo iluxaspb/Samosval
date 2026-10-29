@@ -7,12 +7,12 @@ const app=firebase.initializeApp(firebaseTestConfig), auth=app.auth(), db=app.fi
 const $=id=>document.getElementById(id), exportButton=$('export');
 const tell=text=>$('status').textContent=text;
 const collection=async path=>{
-  const snapshot=await db.collection(path).get({source:'server'});
+  const snapshot=await db.collection(path).get({source:'server'}).catch(error=>{throw new Error(path+': '+(error.code||error.message));});
   if(snapshot.metadata.fromCache)throw new Error('Получен кеш вместо данных сервера: '+path);
   return snapshot.docs.map(doc=>({id:doc.id,data:doc.data()})).sort((a,b)=>a.id.localeCompare(b.id));
 };
 const documentRecord=async(path,required=true)=>{
-  const doc=await db.doc(path).get({source:'server'});
+  const doc=await db.doc(path).get({source:'server'}).catch(error=>{throw new Error(path+': '+(error.code||error.message));});
   if(doc.metadata.fromCache)throw new Error('Получен кеш вместо данных сервера: '+path);
   if(!doc.exists){if(required)throw new Error('Нет обязательного документа: '+path);return [];}
   return [{id:doc.id,data:doc.data()}];
