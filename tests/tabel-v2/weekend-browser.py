@@ -47,6 +47,17 @@ def main():
                 modal.locator('[data-action="close"]').first.click()
                 modal.wait_for(state="hidden")
 
+                # The destructive action lives INSIDE the add-shift dialog, not outside.
+                assert app.locator('main > .tn-tools [data-action="delete-shift"]').count() == 0
+                app.locator('[data-action="add-day"]').click()
+                modal=page.locator('dialog.tn[open]')
+                delete=modal.locator('[data-action="delete-shift"]')
+                assert delete.is_visible(), "Existing shift should offer deletion inside add menu"
+                delete.click()
+                confirm=page.locator('dialog.tn[open]').last
+                assert "Удалить смену?" in confirm.inner_text()
+                confirm.locator('[data-action="close"]').first.click()
+                modal.locator('[data-action="close"]').first.click()
                 app.locator('[data-view="table"]').click()
                 grid=app.locator("table.tn-grid.tn-linked")
                 grid.wait_for()
@@ -96,6 +107,34 @@ def main():
                 assert (("gradient" in props["overlay"]) or
                         (props["tint"].startswith("rgba(") and props["tint"] != "rgba(0, 0, 0, 0)")) and props["content"] != "none",props
                 assert grid.locator('tbody tr:nth-child(3) td.tn-weekend').count()>=3, "Weekend shade must extend vertically across data rows"
+                # Ghost resize preview for both axes, with integral persisted values.
+                app.locator('[data-action="new-sheet"]').click()
+                if page.locator('dialog.tn[open]').count():
+                    sheet_dialog=page.locator('dialog.tn[open]')
+                    sheet_dialog.locator('[name="type"]').select_option("blank")
+                    sheet_dialog.locator('[type="submit"]').click()
+                    sheet_dialog.wait_for(state="hidden")
+                grid=app.locator("table.tn-grid:not(.tn-linked)")
+                grid.wait_for()
+                for handle,dx,dy,selector in [('[data-resize-col="0"]',35.6,0,'.tn-resize-guide-col'),('[data-resize-row="0"]',0,15.8,'.tn-resize-guide-row')]:
+                    box=grid.locator(handle).bounding_box()
+                    assert box,(handle,"resize handle missing")
+                    x,y=box['x']+box['width']/2,box['y']+box['height']/2
+                    page.mouse.move(x,y)
+                    page.mouse.down()
+                    page.mouse.move(x+dx,y+dy,steps=5)
+                    guide=app.locator(selector)
+                    assert guide.count()==1 and guide.is_visible(), "Expected visible resizing guide for "+handle
+                    assert "px" in guide.inner_text(), "Resize guide must show integer pixel size"
+                    page.mouse.up()
+                    guide.wait_for(state="detached")
+                app.locator('[data-action="format"]').click()
+                fm=page.locator('dialog.tn[open]')
+                for name in ("width","height"):
+                    val=fm.locator('[name="'+name+'"]').input_value()
+                    assert val.isdigit(),(name,val)
+                    assert fm.locator('[name="'+name+'"]').get_attribute("step")=="1"
+                fm.locator('[data-action="close"]').first.click()
                 assert not errors,errors
                 print("PASS weekend overlay: Saturday/Sunday + weekday off, separate dated columns and original fills")
                 ctx.close()
