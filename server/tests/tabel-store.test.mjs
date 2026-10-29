@@ -26,7 +26,7 @@ test('PostgreSQL Tabel: atomic receipts, contention, ACLs and revocation',{skip:
       assert.equal((await readTabel(pool,worker,{key:sheet})).record.revision,2);
       const count=await pool.query('SELECT count(*)::int AS n FROM tabel_receipts WHERE object_id=$1',[object]);
       assert.equal(count.rows[0].n,3); // config, original sheet, exactly one accepted entry
-      await assert.rejects(commitTabel(pool,worker,{...winner,data:{cells:{A1:{raw:'999'}}}}),{code:'operation-id-reused'});
+      await assert.rejects(commitTabel(pool,worker,{...winner,data:{...winner.data,cells:{A1:{raw:'999'}}}}),{code:'operation-id-reused'});
       await assert.rejects(commitTabel(pool,admin,winner),{code:'operation-id-reused'});
     });
     await t.test('independent offline edits merge, preserving server-only quantities',async()=>{
