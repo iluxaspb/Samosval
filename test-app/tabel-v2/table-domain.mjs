@@ -1,3 +1,4 @@
+import {evaluateWorkbookFormula} from "./formula-engine.mjs";
 import { countEquipment } from "./domain.mjs";
 export const VERSION = "2.1.0-test.1";
 export const copy = (x) => structuredClone(x);
@@ -501,99 +502,9 @@ export function range(a, b) {
   return out;
 }
 export function formula(
-  cells,
-  key,
-  size = { rows: 200, cols: 40 },
-  stack = new Set(),
-  memo = new Map(),
+  cells, key, size={rows:200,cols:40}, stack=new Set(), memo=new Map()
 ) {
-  if (memo.has(key)) return memo.get(key);
-  if (stack.has(key)) return "#ЦИКЛ!";
-  if (stack.size > 100) return "#ГЛУБИНА!";
-  const p = coords(key);
-  if (p.r >= size.rows || p.c >= size.cols) return "#ССЫЛКА!";
-  const raw = String(cells[key]?.raw ?? "");
-  if (!raw.startsWith("="))
-    return /^-?\d+(?:[.,]\d+)?$/.test(raw)
-      ? Number(raw.replace(",", "."))
-      : raw;
-  stack.add(key);
-  let result;
-  try {
-    const source = cells[key]?.importedRaw !== undefined ? raw.replace(/,/g,';').replace(/\$/g,'') : raw;
-    const src = source
-        .slice(1)
-        .toUpperCase()
-        .replace(/СУММА?/g, "SUM")
-        .replace(/−/g, "-"),
-      tokens =
-        src.match(/\s+|\d+(?:[.,]\d+)?|[A-Z]+[1-9]\d*|SUM|[();+*/:\-]/g) || [];
-    if (tokens.join("") !== src || tokens.length > 500)
-      throw Error("#ФОРМУЛА!");
-    const t = tokens.filter((x) => x.trim());
-    let i = 0;
-    const ref = (k) => {
-      const n = formula(cells, k, size, new Set(stack), memo);
-      if (n === "") return 0;
-      if (typeof n !== "number")
-        throw Error(String(n).startsWith("#") ? n : "#ЗНАЧ!");
-      return n;
-    };
-    function atom() {
-      const a = t[i++];
-      if (a === "-" || a === "+") return (a === "-" ? -1 : 1) * atom();
-      if (a === "(") {
-        const v = expr();
-        if (t[i++] !== ")") throw Error("#ФОРМУЛА!");
-        return v;
-      }
-      if (a === "SUM") {
-        if (t[i++] !== "(") throw Error("#ФОРМУЛА!");
-        let total = 0;
-        while (t[i] !== ")") {
-          if (/^[A-Z]+[1-9]\d*$/.test(t[i] || "") && t[i + 1] === ":") {
-            const from = t[i];
-            i += 2;
-            const to = t[i++];
-            total += range(from, to).reduce((n, k) => n + ref(k), 0);
-          } else total += expr();
-          if (t[i] === ")") break;
-          if (t[i++] !== ";") throw Error("#ФОРМУЛА!");
-        }
-        if (t[i++] !== ")") throw Error("#ФОРМУЛА!");
-        return total;
-      }
-      if (/^[A-Z]+\d+$/.test(a || "")) return ref(a);
-      if (/^\d+(?:[.,]\d+)?$/.test(a || "")) return Number(a.replace(",", "."));
-      throw Error("#ФОРМУЛА!");
-    }
-    function term() {
-      let v = atom();
-      while (["*", "/"].includes(t[i])) {
-        const op = t[i++],
-          b = atom();
-        if (op === "/" && b === 0) throw Error("#ДЕЛ/0!");
-        v = op === "*" ? v * b : v / b;
-      }
-      return v;
-    }
-    function expr() {
-      let v = term();
-      while (["+", "-"].includes(t[i])) {
-        const op = t[i++],
-          b = term();
-        v = op === "+" ? v + b : v - b;
-      }
-      return v;
-    }
-    result = expr();
-    if (i !== t.length || !Number.isFinite(result)) throw Error("#ФОРМУЛА!");
-  } catch (e) {
-    result = e.message.startsWith("#") ? e.message : "#ФОРМУЛА!";
-  }
-  stack.delete(key);
-  memo.set(key, result);
-  return result;
+  return evaluateWorkbookFormula(cells,key,size,stack,memo,coords,range);
 }
 export function translate(raw, dr, dc) {
   return String(raw).startsWith("=")
