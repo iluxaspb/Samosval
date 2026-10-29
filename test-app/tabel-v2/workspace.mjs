@@ -1069,34 +1069,60 @@ function addPerson(s, group = "worker") {
 }
 async function addDay(s) {
   const c = s.config();
+  const existing = s.store.get(s.key(D.dayKey(s.day, s.shift))).data;
   const el = dialog(
     "Добавить день / смену",
-    `<div class="tn-tools">${[-2, -1, 0, 1].map((n, i) => btn(["Позавчера", "Вчера", "Сегодня", "Завтра"][i], "quick", `data-offset="${n}"`)).join("")}</div>${field("Дата", input("date", s.day, 'type="date" required'))}${field("Смена", `<select name="shift"><option value="day">Дневная</option><option value="night">Ночная</option></select>`)}<p>Будущий столбец — подготовка состава без фактических часов.</p>`,
+    `<div class="tn-tools">${[-2,-1,0,1].map((n,i) =>
+      btn(["Позавчера","Вчера","Сегодня","Завтра"][i], "quick", `data-offset="${n}"`)).join("")}</div>
+      ${field("Дата", input("date",s.day,'type="date" required'))}
+      ${field("Смена",`<select name="shift"><option value="day" ${s.shift==="day"?"selected":""}>Дневная</option><option value="night" ${s.shift==="night"?"selected":""}>Ночная</option></select>`)}
+      <label class="tn-check tn-day-off-choice"><input type="checkbox" name="dayOff" ${existing?.dayOff === true ? "checked" : ""}>Выходной день — без работы</label>
+      <p class="tn-hint">Выходной создаёт отдельную дату без часов. Если смена уже существует, отметка меняется без удаления её данных. Суббота и воскресенье всегда выделяются в таблице.</p>`,
     async (f) => {
-      const d = f.get("date"),
+      const d = D.date(f.get("date")),
         shift = f.get("shift"),
+        dayOff = f.has("dayOff"),
         key = s.key(D.dayKey(d, shift));
       await s.store.pull(key);
       const base = s.store.get(key);
-      if (!base.data || base.data.deleted)
-        await s.save(
-          key,
-          D.createDay(c, d, shift, D.previousDay(s.days(), d, shift)),
-          base,
-          "Создание смены " + d,
-        );
+      if (!base.data || base.data.deleted) {
+        const created = D.createDay(c, d, shift,
+          dayOff ? null : D.previousDay(s.days(), d, shift));
+        if (dayOff) {
+          created.equipment = [];
+          created.people = [];
+          created.values = {};
+        }
+        created.dayOff = dayOff;
+        await s.save(key, created, base, "Создание " + (dayOff ? "выходного дня " : "смены ") + d);
+      } else if (!!base.data.dayOff !== dayOff) {
+        const updated = { ...D.copy(base.data), dayOff };
+        await s.save(key, updated, base, dayOff ? "Отметка выходного дня" : "Снятие отметки выходного дня");
+      }
       s.day = d;
       s.shift = shift;
       await render(s);
     },
   );
+  // Match the checkbox to an existing shift when a different date is chosen.
+  const syncDayOff = () => {
+    const form = el.querySelector("form");
+    const selectedDate = form.querySelector('[name="date"]').value;
+    const selectedShift = form.querySelector('[name="shift"]').value;
+    try {
+      const day = s.store.get(s.key(D.dayKey(selectedDate, selectedShift))).data;
+      form.querySelector('[name="dayOff"]').checked = day?.dayOff === true;
+    } catch {
+      form.querySelector('[name="dayOff"]').checked = false;
+    }
+  };
+  el.querySelector('[name="date"]').addEventListener("change",syncDayOff);
+  el.querySelector('[name="shift"]').addEventListener("change",syncDayOff);
   el.querySelectorAll("[data-offset]").forEach(
-    (b) =>
-      (b.onclick = () =>
-        (el.querySelector("[name=date]").value = D.add(
-          D.today(),
-          Number(b.dataset.offset),
-        ))),
+    (b) => (b.onclick = () => {
+      el.querySelector('[name="date"]').value = D.add(D.today(),Number(b.dataset.offset));
+      syncDayOff();
+    }),
   );
 }
 async function shift(s, main) {
