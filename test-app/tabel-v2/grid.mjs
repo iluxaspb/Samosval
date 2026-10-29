@@ -328,7 +328,8 @@ export async function mount(s, host) {
         ? "Дата"
         : D.display(day.date).slice(0, 5) +
             "\n" +
-            (day.shift === "night" ? "Ночь" : "День");
+            (day.shift === "night" ? "Ночь" : "День") +
+            (D.restDayLabel(day) ? " · " + D.restDayLabel(day) : "");
     if (!row) return "";
     if (p.c === 0) return row.name;
     if (row.section) return "";
@@ -563,7 +564,12 @@ export async function mount(s, host) {
                       maximumFractionDigits: Number(nf),
                     });
             }
-            return `<td ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}${sheetId === "linked" && col === 0 && r > 1 && linkedRows[r - 2]?.contractor !== undefined && linkedRows[r - 2]?.contractor !== null ? `<small class="tn-grid-contractor">${esc(linkedRows[r - 2].contractorName)}</small>` : ""}</td>`;
+            const dateColumn = sheetId === "linked" && col > 0 ? visibleDays[col - 1] : null;
+            const calendarHighlight = dateColumn && D.isRestDay(dateColumn)
+              ? "tn-weekend" + (dateColumn.dayOff === true ? " tn-explicit-day-off" : "") +
+                (r === 1 ? " tn-weekend-date" : "")
+              : "";
+            return `<td ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} class="${calendarHighlight}" title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}${sheetId === "linked" && col === 0 && r > 1 && linkedRows[r - 2]?.contractor !== undefined && linkedRows[r - 2]?.contractor !== null ? `<small class="tn-grid-contractor">${esc(linkedRows[r - 2].contractorName)}</small>` : ""}</td>`;
           }).join("") +
           "</tr>"
         );
