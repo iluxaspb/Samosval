@@ -449,7 +449,12 @@ async function responsiveCase(mobile) {
     assert.notEqual(await page.evaluate(() => RoadShop.getAppliedTheme()), 'road');
     await page.locator('#road-shop-dialog .shop-close').click();
     await wait(() => RoadShop.getAppliedTheme() === '');
-    await page.locator('#settingsCategoryModal [data-close]').click();
+    // The shop closes the Settings Hub as well in current builds. Do not
+    // attempt to click the hidden category-close button a second time.
+    if (await page.locator('#settingsCategoryModal.open').count())
+      await page.locator('#settingsCategoryModal.open [data-close]').click();
+    if (await page.locator('#settingsModal.open').count())
+      await page.locator('#settingsModal button[onclick="closeSettingsModal()"]').last().click();
     await nav('admin'); await page.locator('button[onclick="switchAdminTab(\'appsettings\', this)"]').click();
     await page.locator('#game-admin > summary').click(); await toggleCheckbox('game_mode',false);
     await wait(() => appConfig.testReviewFlags.game_mode === false && document.getElementById('game-wallet').hidden);
