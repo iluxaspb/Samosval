@@ -379,40 +379,92 @@ def main():
             assert p.evaluate('''()=>new Promise((resolve,reject)=>{const r=indexedDB.open('qa-upgrade-preservation');r.onerror=()=>reject(r.error);r.onsuccess=()=>{const db=r.result,q=db.transaction('values').objectStore('values').get('sentinel');q.onerror=()=>reject(q.error);q.onsuccess=()=>{db.close();resolve(q.result);};};})''') == 'keep-indexeddb'
 
         phase['new'] = True
-        page.goto(base + 'index-test.html?release=' + new.build); app_ready(page)
+        page.goto(base + 'index-test.html?release=' + new.build)
+        app_ready(page)
         old_release_checks(page)
-        passed('ordinary refresh/query preserves the genuinely cached old build')
-        helper = ctx.new_page(); helper.goto(base + 'update-test.html')
-        helper.wait_for_selector('#state[data-state="waiting"]', timeout=45000)
-        assert helper.locator('#open').is_hidden()
-        assert new.build in helper.locator('#build').inner_text() and old.build in helper.locator('#build').inner_text()
-        assert helper.locator('#close-hint').is_visible()
         retained(page)
-        old_release_checks(page)
-        passed('new integrity-checked worker waits without forced reload or loss of 24 queued entries')
+        passed('ordinary refresh keeps cached old release and all queued trips')
+
+        # The CURRENT recovery page has #repair/#status. It must refuse to
+        # unregister a worker while unsynchronized trips are still queued.
+        helper = ctx.new_page()
+        helper.goto(base + 'update-test.html')
+        assert helper.locator('#repair').is_visible()
+        helper.locator('#repair').click()
+        wait_for_page_state(helper,
+            '() => document.querySelector("#status")?.textContent.includes("24 несинхронизированных")',
+            timeout=10000)
+        assert helper.url.startswith(base + 'update-test.html')
+        retained(page)
+        passed('recovery refuses pending offline trips without deleting or unregistering data')
+
+        # A verified worker can download in the background, but the old page
+        # retains control until it closes. No obsolete #state=waiting UI.
+        wait_for_page_state(page,
+            '() => window.TestPWA?.snapshot()?.waitingVersion === ' + json.dumps(new.build),
+            timeout=45000)
+        retained(page)
+        passed('new worker installed and verified; old page remains open with intact queue')
         page.close()
-        helper.wait_for_selector('#state[data-state="ready"]', timeout=45000)
-        assert helper.locator('#open').is_enabled(); retained(helper)
-        passed('activation preserves queue bytes, real IndexedDB and production cache/localStorage sentinels')
-        helper.locator('#open').click(); helper.wait_for_url('**/index-test.html')
-        release_checks(helper); role_checks(helper); retained(helper)
-        passed('dynamic new release, removed camera/photos/drawing, reward defaults, synthetic admin-only version/history gate')
-        helper.screenshot(path=str(output / 'upgrade-new-release.png'), full_page=True)
-        ctx.set_offline(True); helper.reload(); release_checks(helper); retained(helper)
-        passed('offline reload runs only the new photo-free release and retains all data')
-        ctx.set_offline(False)
-        phase['corrupt'] = True
-        helper.goto(base + 'update-test.html'); helper.wait_for_selector('#state[data-state="error"]', timeout=30000)
-        assert 'не совпадает' in helper.locator('#state').inner_text()
-        assert helper.locator('#open').is_hidden(); retained(helper)
-        phase['corrupt'] = False
-        helper.locator('#retry').click(); helper.wait_for_selector('#state[data-state="ready"]', timeout=45000)
+
+        worker_ready = """async () => {
+          const reg=await navigator.serviceWorker.getRegistration("./index-test.html");
+          if(!reg?.active || reg.waiting)return false;
+          return await new Promise(resolve=>{
+            const ch=new MessageChannel(),t=setTimeout(()=>resolve(false),1500);
+            ch.port1.onmessage=e=>{
+              clearTimeout(t);ch.port1.close();ch.port2.close();
+              resolve(e.data?.type==="TEST_PWA_STATUS" &&
+                e.data?.version===EXPECTED_BUILD && e.data?.complete===true);
+            };
+            reg.active.postMessage({type:"TEST_PWA_STATUS"},[ch.port2]);
+          });
+        }""".replace("EXPECTED_BUILD",json.dumps(new.build))
+        wait_for_page_state(helper, worker_ready, timeout=45000)
+        helper.goto(base + 'index-test.html')
+        release_checks(helper)
+        role_checks(helper)
         retained(helper)
-        passed('failed HTML hash blocks mixed deployment; explicit retry recovers without data deletion')
-        fresh = context(); clean = fresh.new_page(); clean.goto(base + 'update-test.html')
-        clean.wait_for_selector('#state[data-state="ready"]', timeout=45000)
-        clean.locator('#open').click(); clean.wait_for_url('**/index-test.html'); release_checks(clean); role_checks(clean)
-        passed('fresh first install directly through updater opens current release')
+        passed('new release activated after old page closed; role gate and offline queue preserved')
+        helper.screenshot(path=str(output / 'upgrade-new-release.png'), full_page=True)
+
+        ctx.set_offline(True)
+        helper.reload()
+        release_checks(helper)
+        retained(helper)
+        passed('offline reload opens the new release with localStorage/IndexedDB/cache intact')
+        ctx.set_offline(False)
+
+        # Integrity mismatch is exercised in a NEW isolated context without a
+        # pending queue. Never delete queued entries just to satisfy the test.
+        phase['corrupt'] = True
+        broken_ctx = context()
+        broken = broken_ctx.new_page()
+        broken.goto(base + 'update-test.html')
+        broken.locator('#repair').click()
+        wait_for_page_state(broken,
+            '() => document.querySelector("#status")?.textContent.includes("не совпадают контрольные суммы")',
+            timeout=10000)
+        assert broken.url.startswith(base + 'update-test.html')
+        passed('corrupt published HTML rejected by recovery before registration changes')
+
+        phase['corrupt'] = False
+        broken.on('dialog', lambda d: d.accept())
+        broken.locator('#repair').click()
+        broken.wait_for_url('**/index-test.html?repair=*', timeout=45000)
+        release_checks(broken)
+        role_checks(broken)
+        passed('retry after valid publication reaches current release')
+
+        clean_ctx = context()
+        clean = clean_ctx.new_page()
+        clean.on('dialog', lambda d: d.accept())
+        clean.goto(base + 'update-test.html')
+        clean.locator('#repair').click()
+        clean.wait_for_url('**/index-test.html?repair=*', timeout=45000)
+        release_checks(clean)
+        role_checks(clean)
+        passed('fresh installation via current recovery page opens correct release')
         clean.screenshot(path=str(output / 'test-updater-verified.png'), full_page=True)
         check_errors()
         for number, item in enumerate(contexts):
