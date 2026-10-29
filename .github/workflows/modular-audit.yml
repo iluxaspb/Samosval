@@ -53,6 +53,15 @@ jobs:
           else
             python3 -m playwright install --with-deps chromium
           fi
+      - name: Generate current test build and verify current assets
+        run: python3 tools/build-test.py
+      - name: Mobile UI address default and consent per tab visit
+        run: |
+          if [ -n "${PWA_CHROMIUM:-}" ]; then
+            python3 -u tests/tabel-v2/active-address-browser.py --chromium "$PWA_CHROMIUM"
+          else
+            python3 -u tests/tabel-v2/active-address-browser.py
+          fi
       - name: Verify real PWA upgrade and recover without deleting pending trips
         run: |
           git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
@@ -62,13 +71,6 @@ jobs:
             python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 0f0881040d710261 --chromium "$PWA_CHROMIUM"
           else
             python3 -u tests/pwa/update-browser.py --old-dir "$RUNNER_TEMP/samosval-old" --expected-old-build 0f0881040d710261
-          fi
-      - name: Mobile UI address default and consent per tab visit
-        run: |
-          if [ -n "${PWA_CHROMIUM:-}" ]; then
-            python3 -u tests/tabel-v2/active-address-browser.py --chromium "$PWA_CHROMIUM"
-          else
-            python3 -u tests/tabel-v2/active-address-browser.py
           fi
       - uses: actions/upload-artifact@v4
         if: always()
