@@ -1,5 +1,5 @@
 import { firebaseTestConfig } from './firebase-test-config.mjs';
-import { validateMigrationSnapshot } from './migration-snapshot.mjs?v=20261030.4';
+import { validateMigrationSnapshot, stableSnapshot } from './migration-snapshot.mjs?v=20261030.5';
 
 const EXPECTED_PROJECT='samosval-offline', WORKSPACE='main_workspace';
 if(firebaseTestConfig.projectId!==EXPECTED_PROJECT)throw new Error('Неверный Firebase-проект');
@@ -55,7 +55,7 @@ exportButton.addEventListener('click',async()=>{
     data.permissions=await documentRecord('settings/permissions');
     data.appConfig=await documentRecord('settings/appConfig',false);
     const after=await lineSnapshot();
-    if(JSON.stringify(before)!==JSON.stringify(after))throw new Error('Во время экспорта изменились рейсы или смена. Повторите экспорт, когда операторы закончат действие.');
+    if(stableSnapshot(before)!==stableSnapshot(after))throw new Error('Во время экспорта изменились рейсы или смена. Повторите экспорт, когда операторы закончат действие.');
     if(auth.currentUser?.uid!==user.uid)throw new Error('Учётная запись изменилась во время экспорта');
     await requireAdmin();
     const payload={format:'samosval-test-migration',version:1,firebaseProjectId:EXPECTED_PROJECT,workspaceId:WORKSPACE,exportedAt:Date.now(),exportedBy:user.uid,excluded:['Firebase Storage files','tabelNextPresence','backups','legacy settings/appConfig_test (not used by active build)'],data};

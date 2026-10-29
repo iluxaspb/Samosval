@@ -1,3 +1,13 @@
+export function stableSnapshot(value){
+  function normalize(item){
+    if(item&&typeof item.toJSON==='function')return normalize(item.toJSON());
+    if(Array.isArray(item))return item.map(normalize);
+    if(item&&typeof item==='object')return Object.fromEntries(Object.keys(item).sort().map(key=>[key,normalize(item[key])]));
+    return item;
+  }
+  return JSON.stringify(normalize(value));
+}
+
 export function validateMigrationSnapshot(payload){
   if(payload?.format!=='samosval-test-migration'||payload.version!==1||payload.firebaseProjectId!=='samosval-offline'||payload.workspaceId!=='main_workspace')throw new Error('Неверный формат или источник тестовых данных');
   const data=payload.data;
