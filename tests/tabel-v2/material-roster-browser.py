@@ -84,8 +84,55 @@ def main():
                 later.wait_for(state="hidden")
                 app.locator('[data-tab="values"]').click()
                 assert "Щебень тестовый" not in app.locator('[data-values]').inner_text(), "Material leaked into other shift"
+                # Create machine with misleading title and explicitly OTHER category;
+                # then choose a color and reclassify it as a mill.
+                app.locator('[data-view="catalog"]').click()
+                app.locator('[data-tab="equipment"]').click()
+                app.locator('[data-action="add-catalog"]').click()
+                create=page.locator('dialog.tn[open]:has(> form > header > b:text-is("Добавить технику в базу"))')
+                create.wait_for()
+                create.locator('[name="name"]').fill('Фреза испытательная')
+                create.locator('[name="kind"]').select_option('other')
+                create.locator('[data-color-field="color"]').click()
+                palette=page.locator('dialog.tn[open]:has(> form > header > b:text-is("Цвет техники — выбрать"))')
+                palette.wait_for()
+                palette.locator('[data-family="blue"]').click()
+                chosen_color=palette.locator('[data-color]').nth(3).get_attribute('data-color')
+                palette.locator('[data-color]').nth(3).click()
+                palette.wait_for(state='hidden')
+                assert create.locator('[name="color"]').input_value()==chosen_color
+                create.locator('[type="submit"]').click()
+                create.wait_for(state='hidden')
+
+                item=app.locator('.tn-catalog-row').filter(has_text='Фреза испытательная')
+                item.wait_for()
+                item.locator('[data-action="edit-catalog"]').click()
+                edit=page.locator('dialog.tn[open]:has(> form > header > b:text-is("Изменить: Фреза испытательная"))')
+                edit.wait_for()
+                assert edit.locator('[name="kind"]').input_value()=='other'
+                assert edit.locator('[name="color"]').input_value()==chosen_color
+                edit.locator('[name="kind"]').select_option('mill')
+                edit.locator('[type=submit]').click()
+                edit.wait_for(state='hidden')
+
+                item=app.locator('.tn-catalog-row').filter(has_text='Фреза испытательная')
+                item.locator('[data-action="edit-catalog"]').click()
+                edit=page.locator('dialog.tn[open]:has(> form > header > b:text-is("Изменить: Фреза испытательная"))')
+                edit.wait_for()
+                assert edit.locator('[name="kind"]').input_value()=='mill'
+                assert edit.locator('[name="color"]').input_value()==chosen_color
+                edit.locator('[data-action="close"]').first.click()
+                edit.wait_for(state='hidden')
+
+                app.locator('[data-view="request"]').click()
+                app.locator('[data-action="lunch"]').click()
+                lunch=page.locator('dialog.tn[open]:has(> form > header > b:text-is("Заказ обеда"))')
+                lunch.wait_for()
+                assert 'Фреза испытательная — 2 чел.' in lunch.inner_text()
+                lunch.locator('[data-action="close"]').first.click()
+                lunch.wait_for(state='hidden')
                 assert not errors,errors
-                print("PASS test 3.4.55: live address rename, shift pump on/off, shared material catalog and per-shift selection")
+                print("PASS test 3.4.56: live address rename, shift pump on/off, shared materials, equipment category, color and 2 mill lunches")
                 context.close()
             finally:browser.close()
     finally:

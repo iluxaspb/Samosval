@@ -134,10 +134,18 @@ export const shiftLabel = (d) =>
   d.shift === "night"
     ? Number(d.date.slice(-2)) + "/" + Number(add(d.date, 1).slice(-2))
     : String(Number(d.date.slice(-2)));
-export const isMill = (e) =>
-  e.kind ? e.kind === "mill" : /фрез/i.test(e.name || "");
-export const isBrush = (e) =>
-  e.kind ? e.kind === "brush" : /тракт|щ[её]т|мтз/i.test(e.name || "");
+// The chosen catalog category is authoritative. Only records created before
+// category selection existed are classified by their name as a fallback.
+export function equipmentCategory(e = {}) {
+  if (["mill", "brush", "water", "other"].includes(e.kind)) return e.kind;
+  const name = String(e.name || "");
+  if (/фрез/i.test(name)) return "mill";
+  if (/тракт|щ[её]т|мтз/i.test(name)) return "brush";
+  if (/полив/i.test(name)) return "water";
+  return "other";
+}
+export const isMill = (e) => equipmentCategory(e) === "mill";
+export const isBrush = (e) => equipmentCategory(e) === "brush";
 // Identity, rather than row position or name, keeps a machine's shade stable.
 export function equipmentColor(e) {
   if (/^#[0-9a-f]{6}$/i.test(e.color || "")) return e.color;
@@ -646,7 +654,7 @@ export function describeChange(before, after) {
   );
 }
 
-export const isWater = (e) => e.kind === "water" || /полив/i.test(e.name || "");
+export const isWater = (e) => equipmentCategory(e) === "water";
 export const equipmentOrder = (e) =>
   isWater(e) ? 0 : isBrush(e) ? 1 : isMill(e) ? 2 : 3;
 export function previousDay(shifts, date, shift) {
