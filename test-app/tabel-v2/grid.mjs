@@ -568,18 +568,8 @@ export async function mount(s, host) {
               ? "tn-weekend" + (dateColumn.dayOff === true ? " tn-explicit-day-off" : "") +
                 (r === 1 ? " tn-weekend-date" : "")
               : "";
-            // Keep the date cell exactly two lines like regular workdays.
-            // A tiny corner badge marks Saturday/Sunday or a manually added
-            // weekday off without altering row height or sticky positioning.
-            const dayOffBadge = dateColumn && r === 1 && D.isRestDay(dateColumn)
-              ? (D.isWeekendDate(dateColumn.date)
-                  ? (new Date(dateColumn.date + "T12:00:00Z").getUTCDay() === 6 ? "Сб" : "Вс")
-                  : "Вых.")
-              : "";
-            const restBadgeAttribute = dayOffBadge
-              ? ` data-rest-label="${esc(dayOffBadge)}" aria-label="${esc(D.display(dateColumn.date) + ", " + (dateColumn.dayOff ? "выходной день" : dayOffBadge))}"`
-              : "";
-            return `<td ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} class="${calendarHighlight}"${restBadgeAttribute} title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}${sheetId === "linked" && col === 0 && r > 1 && linkedRows[r - 2]?.contractor !== undefined && linkedRows[r - 2]?.contractor !== null ? `<small class="tn-grid-contractor">${esc(linkedRows[r - 2].contractorName)}</small>` : ""}</td>`;
+            // Rest-day shading is visual only: no extra text in the date header.
+            return `<td ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} class="${calendarHighlight}" title="${sheetId === "linked" && r === 1 && col > 0 ? D.display(visibleDays[col - 1].date) : ""}" data-cell="${k}" tabindex="-1" style="${esc(css(cellStyle(k)))}">${esc(v)}${sheetId === "linked" && col === 0 && r > 1 && linkedRows[r - 2]?.contractor !== undefined && linkedRows[r - 2]?.contractor !== null ? `<small class="tn-grid-contractor">${esc(linkedRows[r - 2].contractorName)}</small>` : ""}</td>`;
           }).join("") +
           "</tr>"
         );
@@ -956,34 +946,65 @@ export async function mount(s, host) {
     if (target) {
       e.preventDefault();
       const isCol = target.dataset.resizeCol != null,
-        index = Number(
-          isCol ? target.dataset.resizeCol : target.dataset.resizeRow,
-        ),
+        index = Number(isCol ? target.dataset.resizeCol : target.dataset.resizeRow),
         initial = isCol ? e.clientX : e.clientY,
-        size = isCol
-          ? sheet.widths[widthKey(index)] ||
-            (sheetId === "linked" && index === 0 ? 200 : 80)
-          : sheet.heights[heightKey(index)] || 27;
+        size = Math.round(isCol
+          ? (sheet.widths[widthKey(index)] ?? (sheetId === "linked" ? (index === 0 ? 145 : autoWidth(index)) : 80))
+          : (sheet.heights[heightKey(index)] ?? (sheetId === "linked" && index === 1 ? 36 : 27))),
+        min = isCol ? 40 : 20,
+        max = isCol ? 600 : 300,
+        boundary = target.parentElement.getBoundingClientRect(),
+        viewport = scroll.getBoundingClientRect();
+      const guide = document.createElement("div");
+      guide.className = "tn-resize-guide " + (isCol ? "tn-resize-guide-col" : "tn-resize-guide-row");
+      guide.setAttribute("aria-hidden", "true");
+      const sizeLabel = document.createElement("span");
+      sizeLabel.className = "tn-resize-value";
+      guide.append(sizeLabel);
+      scroll.append(guide);
+      const preview = (value) => {
+        const offset = (value - size) * scale;
+        const edge = (isCol ? boundary.right - viewport.left + scroll.scrollLeft
+                            : boundary.bottom - viewport.top + scroll.scrollTop) + offset;
+        if (isCol) {
+          guide.style.left = edge + "px";
+          guide.style.top = scroll.scrollTop + "px";
+          guide.style.height = scroll.clientHeight + "px";
+        } else {
+          guide.style.top = edge + "px";
+          guide.style.left = scroll.scrollLeft + "px";
+          guide.style.width = scroll.clientWidth + "px";
+        }
+        sizeLabel.textContent = value + " px";
+      };
+      const nextSize = (event) => Math.round(Math.max(min, Math.min(max,
+        size + ((isCol ? event.clientX : event.clientY) - initial) / scale)));
+      preview(size);
       target.setPointerCapture(e.pointerId);
       const move = (event) => {
-        target.dataset.size = Math.max(
-          isCol ? 40 : 20,
-          Math.min(
-            isCol ? 600 : 300,
-            size + ((isCol ? event.clientX : event.clientY) - initial) / scale,
-          ),
-        );
+        const value = nextSize(event);
+        target.dataset.size = String(value);
+        preview(value);
       };
-      const up = () => {
+      const cleanup = () => {
         target.removeEventListener("pointermove", move);
+        target.removeEventListener("pointerup", up);
+        target.removeEventListener("pointercancel", cancel);
+        guide.remove();
+        delete target.dataset.size;
+      };
+      const up = (event) => {
+        move(event);
+        const value = Number(target.dataset.size);
+        cleanup();
         const next = D.copy(sheet);
-        next[isCol ? "widths" : "heights"][
-          isCol ? widthKey(index) : heightKey(index)
-        ] = Number(target.dataset.size || size);
+        next[isCol ? "widths" : "heights"][isCol ? widthKey(index) : heightKey(index)] = value;
         queue(() => persist(next, "Размер " + (isCol ? "столбца" : "строки")));
       };
+      const cancel = () => cleanup();
       target.addEventListener("pointermove", move);
-      target.addEventListener("pointerup", up, { once: true });
+      target.addEventListener("pointerup", up);
+      target.addEventListener("pointercancel", cancel);
       return;
     }
     if (e.target.closest(".tn-fill")) {
@@ -1117,7 +1138,7 @@ export async function mount(s, host) {
       p = D.coords(selected);
     const el = dialog(
       "Формат диапазона " + rangeInput.value,
-      `<div class="tn-format-grid">${field("Фон", colorField("background", st.background, "Заливка"))}${field("Текст", colorField("color", st.color, "Цвет текста"))}${field("Шрифт, px", input("fontSize", parseInt(st.fontSize) || 12, 'type="number" min="8" max="48"'))}${field("Ширина столбцов", input("width", sheet.widths[widthKey(p.c)] || 80, 'type="number" min="40" max="600"'))}${field("Высота строк", input("height", sheet.heights[heightKey(p.r)] || 27, 'type="number" min="20" max="300"'))}${field("Выравнивание", '<select name="textAlign"><option>left</option><option>center</option><option>right</option></select>')}</div>${field("Числовой формат", '<select name="numberFormat"><option value="">Автоматически</option><option value="0">Целое</option><option value="2">Два знака</option><option value="percent">Проценты</option></select>')}<label><input type="checkbox" name="bold" ${st.fontWeight === "bold" ? "checked" : ""}>Жирный</label><label><input type="checkbox" name="italic" ${st.fontStyle === "italic" ? "checked" : ""}>Курсив</label><label><input type="checkbox" name="wrap" ${st.whiteSpace === "normal" ? "checked" : ""}>Перенос текста</label><label><input type="checkbox" name="border" ${st.border ? "checked" : ""}>Чёткие границы</label>`,
+      `<div class="tn-format-grid">${field("Фон", colorField("background", st.background, "Заливка"))}${field("Текст", colorField("color", st.color, "Цвет текста"))}${field("Шрифт, px", input("fontSize", parseInt(st.fontSize) || 12, 'type="number" min="8" max="48"'))}${field("Ширина столбцов", input("width", Math.round(sheet.widths[widthKey(p.c)] ?? 80), 'type="number" min="40" max="600" step="1"'))}${field("Высота строк", input("height", Math.round(sheet.heights[heightKey(p.r)] ?? 27), 'type="number" min="20" max="300" step="1"'))}${field("Выравнивание", '<select name="textAlign"><option>left</option><option>center</option><option>right</option></select>')}</div>${field("Числовой формат", '<select name="numberFormat"><option value="">Автоматически</option><option value="0">Целое</option><option value="2">Два знака</option><option value="percent">Проценты</option></select>')}<label><input type="checkbox" name="bold" ${st.fontWeight === "bold" ? "checked" : ""}>Жирный</label><label><input type="checkbox" name="italic" ${st.fontStyle === "italic" ? "checked" : ""}>Курсив</label><label><input type="checkbox" name="wrap" ${st.whiteSpace === "normal" ? "checked" : ""}>Перенос текста</label><label><input type="checkbox" name="border" ${st.border ? "checked" : ""}>Чёткие границы</label>`,
       async (f) => {
         const next = D.copy(sheet);
         for (const k of D.range(selected, end)) {
@@ -1139,11 +1160,11 @@ export async function mount(s, host) {
           };
           next.widths[widthKey(p.c)] = Math.min(
             600,
-            Math.max(40, Number(f.get("width"))),
+            Math.max(40, Math.round(Number(f.get("width")))),
           );
           next.heights[heightKey(p.r)] = Math.min(
             300,
-            Math.max(20, Number(f.get("height"))),
+            Math.max(20, Math.round(Number(f.get("height")))),
           );
         }
         await persist(next, "Оформление диапазона");

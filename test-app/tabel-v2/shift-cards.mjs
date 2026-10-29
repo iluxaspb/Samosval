@@ -15,7 +15,7 @@ export async function mount(s, root) {
       ? null
       : s.days().find((d) => d.date === s.day && d.shift === s.shift) ||
         base.data;
-  root.innerHTML = `<div class="tn-date-nav">${btn("‹", "prev-date", 'aria-label="Предыдущая дата"')}<input type="date" data-day value="${s.day}" aria-label="Дата смены"><select data-shift aria-label="Смена"><option value="day">Дневная</option><option value="night" ${s.shift === "night" ? "selected" : ""}>Ночная</option></select>${btn("›", "next-date", 'aria-label="Следующая дата"')}${btn("Сегодня", "today")}</div><div class="tn-tools">${btn("Начать / добавить смену", "add-day")}${d ? btn(s.shiftTab === "values" ? "Добавить материалы" : "Выбрать состав", s.shiftTab === "values" ? "add-materials" : "choose-roster") + btn("Удалить смену", "delete-shift", 'class="tn-danger"') : ""}</div><section data-shift-content></section><div class="tn-shift-tabs" role="tablist">${tabs.map(([id, label]) => btn(label, "shift-tab", `data-tab="${id}" role="tab" aria-selected="${s.shiftTab === id}"`)).join("")}</div>`;
+  root.innerHTML = `<div class="tn-date-nav">${btn("‹", "prev-date", 'aria-label="Предыдущая дата"')}<input type="date" data-day value="${s.day}" aria-label="Дата смены"><select data-shift aria-label="Смена"><option value="day">Дневная</option><option value="night" ${s.shift === "night" ? "selected" : ""}>Ночная</option></select>${btn("›", "next-date", 'aria-label="Следующая дата"')}${btn("Сегодня", "today")}</div><div class="tn-tools">${btn("Начать / добавить смену", "add-day")}${d ? btn(s.shiftTab === "values" ? "Добавить материалы" : "Выбрать состав", s.shiftTab === "values" ? "add-materials" : "choose-roster") : ""}</div><section data-shift-content></section><div class="tn-shift-tabs" role="tablist">${tabs.map(([id, label]) => btn(label, "shift-tab", `data-tab="${id}" role="tab" aria-selected="${s.shiftTab === id}"`)).join("")}</div>`;
   if (d?.dayOff) {
     const note = document.createElement("p");
     note.className = "tn-day-off-banner";
@@ -36,26 +36,6 @@ export async function mount(s, root) {
     navigate(s.day, e.target.value).catch(error);
   root.querySelector("[data-action=today]").onclick = () =>
     navigate(D.today()).catch(error);
-  root
-    .querySelector("[data-action=delete-shift]")
-    ?.addEventListener("click", () => {
-      s.require("shift", "edit");
-      const el = dialog(
-        "Удалить смену?",
-        `<p>${esc(c.name)} · ${D.display(s.day)} · ${s.shift === "night" ? "Ночь" : "День"}</p><p>Смена исчезнет из таблицы и отчётов. Её данные сохранятся в истории.</p>`,
-        async () => {
-          await s.save(
-            key,
-            { ...D.copy(d), deleted: true },
-            base,
-            "Удаление смены",
-          );
-          await s.refresh();
-        },
-      );
-      el.querySelector("[type=submit]").textContent = "Удалить";
-      el.querySelector("[type=submit]").classList.add("tn-danger");
-    });
   root.querySelector("[data-action=prev-date]").onclick = () =>
     navigate(D.add(s.day, -1)).catch(error);
   root.querySelector("[data-action=next-date]").onclick = () =>

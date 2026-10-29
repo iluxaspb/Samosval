@@ -1077,7 +1077,7 @@ async function addDay(s) {
       ${field("Дата", input("date",s.day,'type="date" required'))}
       ${field("Смена",`<select name="shift"><option value="day" ${s.shift==="day"?"selected":""}>Дневная</option><option value="night" ${s.shift==="night"?"selected":""}>Ночная</option></select>`)}
       <label class="tn-check tn-day-off-choice"><input type="checkbox" name="dayOff" ${existing?.dayOff === true ? "checked" : ""}>Выходной день — без работы</label>
-      <p class="tn-hint">Выходной создаёт отдельную дату без часов. Если смена уже существует, отметка меняется без удаления её данных. Суббота и воскресенье всегда выделяются в таблице.</p>`,
+      <p class="tn-hint">Выходной создаёт отдельную дату без часов. Если смена уже существует, отметка меняется без удаления её данных. Суббота и воскресенье всегда выделяются в таблице.</p><div class="tn-tools tn-shift-delete-tools">${btn("Удалить смену", "delete-shift", 'class="tn-danger" hidden')}</div>`,
     async (f) => {
       const d = D.date(f.get("date")),
         shift = f.get("shift"),
@@ -1112,9 +1112,36 @@ async function addDay(s) {
     try {
       const day = s.store.get(s.key(D.dayKey(selectedDate, selectedShift))).data;
       form.querySelector('[name="dayOff"]').checked = day?.dayOff === true;
+      el.querySelector('[data-action="delete-shift"]').hidden = !day || day.deleted === true;
     } catch {
       form.querySelector('[name="dayOff"]').checked = false;
+      el.querySelector('[data-action="delete-shift"]').hidden = true;
     }
+  };
+  el.querySelector('[data-action="delete-shift"]').onclick = () => {
+    const form = el.querySelector("form");
+    const date = D.date(form.querySelector('[name="date"]').value);
+    const shift = form.querySelector('[name="shift"]').value;
+    const key = s.key(D.dayKey(date, shift));
+    const current = s.store.get(key).data;
+    if (!current || current.deleted) return;
+    s.require("shift", "edit");
+    const confirm = dialog(
+      "Удалить смену?",
+      `<p>${esc(c.name)} · ${D.display(date)} · ${shift === "night" ? "Ночь" : "День"}</p><p>Смена исчезнет из таблицы и отчётов. Её данные сохранятся в истории.</p>`,
+      async () => {
+        await s.store.pull(key);
+        const base = s.store.get(key);
+        if (!base.data || base.data.deleted) throw Error("Смена уже удалена");
+        await s.save(key, { ...D.copy(base.data), deleted: true }, base, "Удаление смены");
+        el.close();
+        s.day = date;
+        s.shift = shift;
+        await render(s);
+      },
+    );
+    confirm.querySelector("[type=submit]").textContent = "Удалить";
+    confirm.querySelector("[type=submit]").classList.add("tn-danger");
   };
   el.querySelector('[name="date"]').addEventListener("change",syncDayOff);
   el.querySelector('[name="shift"]').addEventListener("change",syncDayOff);
@@ -1124,6 +1151,7 @@ async function addDay(s) {
       syncDayOff();
     }),
   );
+  syncDayOff();
 }
 async function shift(s, main) {
   const mod = await import("./shift-cards.mjs");
