@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { verifyFirebaseUser } from './auth.mjs';
 import { submitLineOperation } from './line-store.mjs';
 import { readLineSnapshot } from './line-read.mjs';
+import { readTabel, commitTabel } from './tabel-store.mjs';
 
 const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
@@ -46,12 +47,30 @@ const server=http.createServer(async(req,res)=>{
     res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type');
     res.setHeader('Access-Control-Max-Age','600');
   }
-  const path=new URL(req.url||'/', 'http://localhost').pathname;
+  const requestUrl=new URL(req.url||'/', 'http://localhost');
+  const path=requestUrl.pathname;
   if(req.method==='OPTIONS')return send(res,204,{});
   if(req.method==='GET' && path==='/health/live')return send(res,200,{status:'ok'});
   if(req.method==='GET' && path==='/health/ready'){
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
+  }
+  if(path==='/api/v1/tabel/records' && ['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);
+    if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET'){
+        const query=Object.fromEntries(requestUrl.searchParams);
+        return send(res,200,await readTabel(pool,uid,query));
+      }
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))
+        return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await commitTabel(pool,uid,await readJson(req,800000)));
+    }catch(e){
+      const status=[400,403,409,413].includes(e.status)?e.status:500;
+      if(status===500)console.error('[tabel-api] request failed',e?.code||e?.name||'unknown');
+      return send(res,status,{error:status===500?'server-error':e.code||e.message});
+    }
   }
   if(path==='/api/v1/line/snapshot'&&req.method==='GET'){
     const uid=await verifyFirebaseUser(req);

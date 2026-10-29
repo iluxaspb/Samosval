@@ -36,7 +36,7 @@ The API intentionally does not create user accounts, shift state, or trucks on b
 
 ### Not yet migrated — do not enable failover
 
-Realtime subscriptions/WebSocket, starts/closes of shifts, truck registration, cancel/undo/history, permissions editing from phone, timesheets, Excel formulas, photos, analytics, gaming, backup/restore, and safe bidirectional replication to Firebase are **not implemented on the new API**. Existing GitHub Pages applications continue to use Firebase unchanged. A hot standby needs strict rules for who may write after an outage to avoid divergent data or lost trips.
+Realtime subscriptions/WebSocket, starts/closes of shifts, truck registration, cancel/undo/history, permissions editing from phone, timesheets, Excel formulas, analytics, gaming, backup/restore, and safe bidirectional replication to Firebase are **not implemented on the new API**. Existing GitHub Pages applications continue to use Firebase unchanged. A hot standby needs strict rules for who may write after an outage to avoid divergent data or lost trips.
 
 ### Current test commands
 
