@@ -48,3 +48,18 @@ test("guide examples evaluate using real math engine",()=>{
     assert(Number.isFinite(value),name+" non-finite result");
   }
 });
+
+test("every documented example calculates without spreadsheet errors", () => {
+  // The built-in guide must never recommend a formula the Tabel cannot run.
+  const cells={
+    A1:{raw:"10"},A2:{raw:"20"},A3:{raw:"30"},A4:{raw:"5"},A5:{raw:"8"},
+    B1:{raw:"2"},B2:{raw:"3"},B3:{raw:"4"},B4:{raw:"5"},B5:{raw:"6"},
+    C1:{raw:"100"},C2:{raw:"200"},C3:{raw:"300"},C4:{raw:"400"},C5:{raw:"500"}
+  };
+  for(const f of FORMULAS){
+    const value=D.formula({...cells,D1:{raw:f.example}},"D1",{rows:40,cols:20});
+    assert(!(typeof value==="string" && value.startsWith("#")),
+      f.name+": guide example failed with "+value+" ("+f.example+")");
+    assert(value===value,f.name+" produced NaN");
+  }
+});
