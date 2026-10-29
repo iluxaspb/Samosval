@@ -1,7 +1,7 @@
 name: TEST update recovery checks
 on:
   push:
-    branches: [root, repair/test-update-recovery-20261026, repair/standalone-ci-20261027]
+    branches: [root, 'audit/**', repair/test-update-recovery-20261026, repair/standalone-ci-20261027]
     paths:
       - update-test.html
       - tests/pwa/update-browser.py
