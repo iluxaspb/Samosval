@@ -53,4 +53,4 @@ async function check(label,script){
  f.afterRead(()=>{ctx.currentUid='other';});await f.save();assert.equal(f.writes(),2,label+' account switched during read blocked');
  console.log('PASS '+label+': defaults, admin save, persisted reload, unchanged fields, append-only rates, no-op, dirty form, validation, zero, offline/failure, role and identity gates');
 }
-(async()=>{const prod=fs.readFileSync('index.html','utf8').match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];await check('production',prod);const test=require('../../tools/read-test-html.cjs')().match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];await check('TEST',test);})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{const prod=require('../../tools/read-production-html.cjs')().match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];await check('production',prod);const test=require('../../tools/read-test-html.cjs')().match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];await check('TEST',test);})().catch(e=>{console.error(e);process.exitCode=1;});
