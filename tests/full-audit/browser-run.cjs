@@ -464,36 +464,22 @@ async function responsiveCase(mobile) {
     assert.deepEqual(await page.evaluate(()=>{const rates=window.__gameCoinsCore.rewardsAt(appConfig);return {load:rates.load,arrive:rates.arrive,ttn:rates.ttn};}),{load:2,arrive:3,ttn:4});
     assert.equal(await page.evaluate(() => appConfig.testReviewFlags.arcade_enabled), true); await evidence('settings-reloaded');
   });
-  await step('timesheet-crew-hours-material-repeat-month-and-history', async () => {
-    await nav('timesheet'); await wait(() => document.querySelector('.ts-sync')?.textContent.includes('Данные подтверждены'));
-    await page.locator('#tab-timesheet [data-action="add-equipment"]').click();
-    await page.locator('.ts-dialog select[name="machine"]').selectOption('m1');
-    for (const checkbox of await page.locator('.ts-dialog input[name="operatorIds"]').all()) await checkbox.check();
-    await page.locator('.ts-dialog button[type="submit"]').dblclick(); await page.locator('.ts-dialog').waitFor({state:'detached'});
-    await wait(() => document.querySelectorAll('.ts-inline-hours').length >= 2);
-    // Server assertions validate the actual transaction/rules, not just optimistic DOM.
-    await wait(() => document.querySelector('.ts-sync')?.textContent.includes('Данные подтверждены'));
-    assert.equal((await readRows('timesheetEntries')).length, 3);
-    await page.locator('#tab-timesheet [data-action="crew"]').first().click();
-    await page.locator('.ts-dialog [data-action="crew-assign"]').click();
-    await page.locator('.ts-dialog button[type="submit"]').click(); await page.locator('.ts-dialog').waitFor({state:'detached'});
-    assert.equal((await readRows('timesheetEntries')).length, 3);
-    await page.locator('.ts-crew-row [data-value="12"]').click();
-    await wait(() => document.getElementById('tab-timesheet').textContent.includes('24 чел.-ч'));
-    await wait(() => document.querySelector('.ts-sync')?.textContent.includes('Данные подтверждены'));
-    assert.equal((await readRows('timesheetEntries')).filter(r => r.kind === 'person').reduce((n,r) => n + r.minutes, 0), 1440);
-    await page.locator('#tab-timesheet [data-action="entry"][data-id^="equipment"]').first().click();
-    await page.locator('.ts-dialog [name="hours"]').fill('11'); await page.locator('.ts-dialog button[type="submit"]').click();
-    await page.locator('.ts-dialog').waitFor({state:'detached'});
-    await page.locator('#tab-timesheet [data-action="material"]').first().click();
-    await page.locator('.ts-dialog [name="material"]').fill('Учебный щебень'); await page.locator('.ts-dialog [name="supplier"]').fill('Учебный поставщик');
-    await page.locator('.ts-dialog [name="quantity"]').fill('80'); await page.locator('.ts-dialog button[type="submit"]').dblclick();
-    await page.locator('.ts-dialog').waitFor({state:'detached'}); await wait(() => document.querySelector('.ts-sync')?.textContent.includes('Данные подтверждены'));
-    assert.equal((await readRows('timesheetMaterials')).length, 1);
-    await page.locator('#tab-timesheet [data-view="month"]').click(); await page.locator('.ts-table').waitFor({state:'visible'});
-    await page.locator('#tab-timesheet [data-action="history"]').click(); await wait(() => document.querySelector('.ts-dialog .ts-history'));
-    await page.locator('.ts-dialog [data-close]').last().click();
-    await page.locator('#tab-timesheet [data-view="day"]').click(); await evidence('timesheet');
+  await step('current-tabel-v2-address-shift-and-table-smoke', async () => {
+    // The legacy .ts-* timesheet was retired. Its domain-level people,
+    // materials, formula and history checks live in tests/tabel-v2/*.test.mjs.
+    // Verify the actual modern entrypoint works in the authenticated shell.
+    await page.locator('#nav-tabel-v2').click();
+    const tabel=page.locator('section.tn-app');
+    await tabel.waitFor({state:'visible',timeout:15000});
+    assert.equal(await tabel.locator('[data-object]').inputValue(),'qa-object',
+      'Tabel must start on the active Line object');
+    await tabel.locator('[data-view="table"]').click();
+    await tabel.locator('.tn-grid').waitFor({state:'visible',timeout:15000});
+    await tabel.locator('[data-view="shift"]').click();
+    await tabel.locator('.tn-shift-tabs').waitFor({state:'visible',timeout:15000});
+    await evidence('timesheet');
+    await tabel.locator('[data-action="exit"]').click();
+    await tabel.waitFor({state:'hidden'});
   });
   await step('archive-fullwidth-genuine-png-and-overlay', async () => {
     // Explicit seeded domain fixture: real UI, rasterizer, canvas and download.
