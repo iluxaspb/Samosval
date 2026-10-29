@@ -244,6 +244,14 @@
       ]
     },
     {
+      "name": "firebase-traffic-inference",
+      "kind": "script",
+      "attributes": " id=\"test-firebase-traffic-inference\"",
+      "sources": [
+        "features/firebase-traffic-inference.js"
+      ]
+    },
+    {
       "name": "firebase-traffic-dashboard",
       "kind": "script",
       "attributes": " id=\"test-firebase-traffic-dashboard\"",
