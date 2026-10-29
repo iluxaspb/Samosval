@@ -57,3 +57,5 @@ Next: inspect/port shift and truck onboarding, integrate secured read APIs and b
 
 
 On 2026-10-30, all seven line-read PostgreSQL scenarios passed directly on the NAS (8 tests including parent, no skips). Source backup: `src-before-api-snapshot-20261030-0118.zip`. Test API image: `samosval-test-api:read-v1-20261030`; old image is retained for rollback. The published frontend has not been switched to this API.
+
+The verified TEST export was imported on the NAS on 2026-10-30: 4 users, 23 trucks, 11 statuses, 28 log records; 1,989 original exported documents are retained in migration_documents. SQL checks confirmed 20 ordinary trips and 530 cubic metres. An authenticated browser read over HTTPS and a live isolated-fixture operation probe passed. The normal TEST app remains on Firebase; raw document import does not implement the remaining module APIs. See docs/synology-v4-test-status.md for current scope.
