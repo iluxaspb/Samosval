@@ -19,11 +19,11 @@
       container.__archiveToggleBound=true;
     }
     const q=(document.getElementById('archiveSearchInput').value||'').toLowerCase();
-    const filtered=state.archive.filter(s=>s.date?.toLowerCase().includes(q)||s.objectName?.toLowerCase().includes(q));
+    const filtered=state.archive.filter(s=>s.date?.toLowerCase().includes(q)||objectTitle(s.objectId,s.objectName).toLowerCase().includes(q));
     if (!filtered.length){container.innerHTML='<div class="empty-state">Пусто</div>';renderTrash();return;}
     const groups=Object.create(null);
     filtered.forEach(shift=>{
-      const name=shift.objectName||'—';
+      const name=objectTitle(shift.objectId,shift.objectName);
       if (!groups[name]) groups[name]=[];
       groups[name].push(shift);
     });
@@ -41,7 +41,7 @@
       if (shift) openArchiveModal(viewingArchiveId); else closeArchiveModal();
     }
   }
-  function renderTrash() { let c = document.getElementById('trashContainer'); if(!state.trash.length) { c.innerHTML=''; return; } let e = hasPermission('archive_edit'); c.innerHTML = `<div class="trash-group"><div class="trash-header">Корзина</div><div class="trash-list">${state.trash.map(i=>`<div class="trash-item"><div class="info"><b>${escapeHtml(i.shift.objectName)}</b> · ${escapeHtml(i.shift.date)}</div>${e?`<button class="btn-del" onclick="purgeFromTrash('${i.id}')">X</button>`:''}</div>`).join('')}</div></div>`; }
+  function renderTrash() { let c = document.getElementById('trashContainer'); if(!state.trash.length) { c.innerHTML=''; return; } let e = hasPermission('archive_edit'); c.innerHTML = `<div class="trash-group"><div class="trash-header">Корзина</div><div class="trash-list">${state.trash.map(i=>`<div class="trash-item"><div class="info"><b>${escapeHtml(objectTitle(i.shift.objectId,i.shift.objectName))}</b> · ${escapeHtml(i.shift.date)}</div>${e?`<button class="btn-del" onclick="purgeFromTrash('${i.id}')">X</button>`:''}</div>`).join('')}</div></div>`; }
   async function purgeFromTrash(id) { if(!requireEdit('archive_delete') || !(await appConfirm('Удалить навсегда?'))) return; await tfAwait(refs.trash.doc(id).delete()); }
   function openArchiveModal(id) { let s = state.archive.find(x=>x.id===id); if(!s) return; viewingArchiveId=id; viewingArchiveGAITable = false; renderArchiveModalContent(s); document.getElementById('archiveModal').classList.add('open'); }
   function toggleArchiveReportType() { viewingArchiveGAITable = !viewingArchiveGAITable; let s = state.archive.find(x=>x.id===viewingArchiveId); if (s) renderArchiveModalContent(s); }
@@ -66,7 +66,7 @@
           else if (i === l.length && ttnStatus[t.id] === 'pending') { cells += `<td><div class="cell-content"><div class="hand-drawn-circle"></div></div></td>`; }
           else cells += '<td></td>';
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">${sm} м³</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
-      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Объем: <b>${tV} м³</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectTitle(s.objectId,s.objectName))}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Объем: <b>${tV} м³</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
     } else {
       let aIds = activeLineIds.filter(id => { let t = findTruck(id); return t && t.isGAI; });
       let tIds = new Set(aIds); gaiLogs.forEach(l=>tIds.add(l.truckId));
@@ -77,7 +77,7 @@
         for(let i=0; i<mT; i++) { if(l[i]) { let commHtml = l[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l[i].comment)}</div>` : ''; cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(l[i].timeStr)}</div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l[i].createdByEmail, l[i].createdBy))}</div>${commHtml}</div></td>`; }
           else cells += '<td></td>';
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">Рейсов: ${l.length}</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
-      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(s.objectName)} (ГАИ)</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Рейсов ГАИ: <b>${gaiLogs.length}</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectTitle(s.objectId,s.objectName))} (ГАИ)</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Рейсов ГАИ: <b>${gaiLogs.length}</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
     }
     document.getElementById('modalArchiveBody').innerHTML = toggleBtnHtml + html;
   }
@@ -87,19 +87,19 @@
     if (!requireEdit('archive_edit') || !viewingArchiveId) return;
     const s = state.archive.find(x => x.id === viewingArchiveId); if (!s) return;
     const hasActive = state.shift && state.shift.isActive;
-    const msg = hasActive ? `Активная смена "${state.shift.objectName}" будет заменена.\n\nВосстановить "${s.objectName}" от ${s.date}?` : `Восстановить смену "${s.objectName}" от ${s.date}?`;
+    const msg = hasActive ? `Активная смена "${objectTitle(state.shift.objectId,state.shift.objectName)}" будет заменена.\n\nВосстановить "${objectTitle(s.objectId,s.objectName)}" от ${s.date}?` : `Восстановить смену "${objectTitle(s.objectId,s.objectName)}" от ${s.date}?`;
     if (!(await appConfirm(msg))) return;
     try {
       showToastEl('⏳ Восстановление...', false);
       await cleanupOldShiftData(); await clearAllNotifications();
       const newSid = 'shift_' + Date.now();
-      await tfAwait(refs.shift.set({ id: newSid, objectName: s.objectName, objectId: s.objectId || '', startDate: s.date, startedAt: Date.now(), startedBy: getUserName(), isActive: true, restoredFrom: viewingArchiveId }));
+      await tfAwait(refs.shift.set({ id: newSid, objectName: objectTitle(s.objectId,s.objectName), objectId: s.objectId || '', startDate: s.date, startedAt: Date.now(), startedBy: getUserName(), isActive: true, restoredFrom: viewingArchiveId }));
       const batch = db.batch(); const logsByTruck = {};
       (s.logs || []).forEach((l, idx) => { const lid = `load_${l.truckId}_${newSid}_${l.timestamp || Date.now()}_${idx}`; batch.set(refs.logs.doc(lid), { shiftId: newSid, truckId: l.truckId, truckName: l.truckName, volume: l.volume, timeStr: l.timeStr, timestamp: l.timestamp, createdBy: l.createdBy, createdByEmail: l.createdByEmail || '', isGAI: !!l.isGAI, comment: l.comment || '' }); if (!logsByTruck[l.truckId]) logsByTruck[l.truckId] = []; logsByTruck[l.truckId].push({ id: lid, ts: l.timestamp || 0 }); });
       const allIds = new Set(); (s.activeLineIds || []).forEach(id => allIds.add(id)); (s.logs || []).forEach(l => allIds.add(l.truckId));
       allIds.forEach(id => { const truckLogs = (logsByTruck[id] || []).slice().sort((a, b) => a.ts - b.ts); const lastLog = truckLogs[truckLogs.length - 1]; let ttnStatus = null, ttnLogId = null; if (s.ttnStatus && s.ttnStatus[id]) { ttnStatus = true; ttnLogId = lastLog ? lastLog.id : null; } batch.set(refs.truckStatus.doc(id), { id, shiftId: newSid, onLine: true, addedBy: getUserName(), addedAt: Date.now(), arriveStatus: null, arriveTimestamp: null, arriveBy: null, ttnStatus, ttnBy: null, ttnLogId, lastLoadTimestamp: lastLog ? lastLog.ts : null, lastLoadBy: null, lastLoadLogId:lastLog?lastLog.id:null, cycleRevision:0, loadedAfterArrive: false }); });
       await tfAwait(batch.commit()); await tfAwait(refs.archive.doc(viewingArchiveId).delete());
-      addAudit(`♻️ Смена восстановлена из архива: ${s.objectName} (${s.date})`).catch(()=>{});
+      addAudit(`♻️ Смена восстановлена из архива: ${objectTitle(s.objectId,s.objectName)} (${s.date})`).catch(()=>{});
       closeArchiveModal(); showToastEl('✅ Смена восстановлена', false);
     } catch(e) { showError('Ошибка восстановления: ' + e.message); }
   }
