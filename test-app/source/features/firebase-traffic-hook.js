@@ -31,6 +31,7 @@
   const fresh=()=>({events:0,calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,listens:0,unsubscribes:0,snapshots:0,tx:0,batches:0,byType:{},byPath:{},hours:Array.from({length:25},()=>({calls:0,reads:0,writes:0,deletes:0}))});
   const loaded={days:{},events:[],totalEvents:0,active:0,ready:false,persisted:true,notice:''};
   let flushTimer=0,dirtyEvents=[],dbPromise=null,busy=false,enabled=false,started=false;
+  const OPT_IN='samosval_firebase_traffic_optin_v1';
   const safeNum=x=>Number.isFinite(x)&&x>=0?Math.round(x):0;
   function safePath(ref){
     let path='';
@@ -269,9 +270,13 @@
     return timedPromise(out,()=>record({kind:'transaction',path,calls:1,writes:latest.writes,deletes:latest.deletes,reads:latest.reads,ms:performance.now()-started}),
       e=>record({kind:'transaction',path,calls:1,failed:true,code:errCode(e)}));
   });
-  function enableLocal(){if(document.body?.getAttribute?.('data-release-admin')!=='1')return;enabled=true;if(!started){started=true;initStore().catch(()=>{loaded.ready=true;loaded.persisted=false;dispatch();});}}
-  function disableLocal(){enabled=false;}
-  const api={enableLocal,disableLocal,version:VERSION,free:FREE,data:loaded,quotaDay,today,periodStartUTC,periodHours,mskTime,nextQuotaReset,startMsk,record,flush,hooks:wraps,refresh:dispatch};
+  function optedIn(){try{return localStorage.getItem(OPT_IN)==='1';}catch(_){return false;}}
+  function enableLocal(){if(document.body?.getAttribute?.('data-release-admin')!=='1'||!optedIn())return;enabled=true;if(!started){started=true;initStore().catch(()=>{loaded.ready=true;loaded.persisted=false;dispatch();});}dispatch();}
+  function disableLocal(){enabled=false;dispatch();}
+  function activate(){if(document.body?.getAttribute?.('data-release-admin')!=='1')return false;try{localStorage.setItem(OPT_IN,'1');}catch(_){return false;}enableLocal();return enabled;}
+  function deactivate(){try{localStorage.removeItem(OPT_IN);}catch(_){}disableLocal();}
+  function active(){return enabled&&document.body?.getAttribute?.('data-release-admin')==='1';}
+  const api={enableLocal,disableLocal,activate,deactivate,active,optedIn,version:VERSION,free:FREE,data:loaded,quotaDay,today,periodStartUTC,periodHours,mskTime,nextQuotaReset,startMsk,record,flush,hooks:wraps,refresh:dispatch};
   window.FirebaseTraffic=api;
   document.addEventListener('visibilitychange',()=>{if(enabled&&document.visibilityState==='hidden')flush().catch(()=>{});});
   window.addEventListener('pagehide',()=>{if(enabled)flush().catch(()=>{});});
