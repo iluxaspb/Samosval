@@ -219,55 +219,79 @@ export class Store {
     )
       return;
     this.busy = true;
+    const blocked = new Set();
+    let failure = "";
     try {
-      await this.serialize(async () => {
-        const blocked=new Set();
-        let failure="";
-        for (const job of [...this.state.jobs]) {
-          if (
-            blocked.has(job.key) || job.status !== "queued" ||
-            this.state.jobs.some(
-              (j) => j.key === job.key && j.status === "conflict",
-            )
-          )
-            continue;
-          try {
-            this.uploading={key:job.key,started:Date.now()};this.emit();
-            let timer;
-            const result = await Promise.race([this.remote.commit(job),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Нет подтверждения Firebase за 25 секунд. Повтор будет с тем же ID операции.')),25000);})]).finally(()=>clearTimeout(timer));
+      // Remote commits must NEVER occupy the IndexedDB/navigator.locks
+      // serialization queue. Otherwise one slow Firebase request blocks the
+      // Save button in every Tabel view, including material selection.
+      // Only short reads and applying server acknowledgements take the lock.
+      const ids = await this.serialize(async () =>
+        this.state.jobs.filter(j => j.status === "queued").map(j => j.id)
+      );
+      for (const id of ids) {
+        if (this.closed || globalThis.navigator?.onLine === false) break;
+        const job = await this.serialize(async () => {
+          const candidate = this.state.jobs.find(j => j.id === id);
+          if (!candidate || candidate.status !== "queued" ||
+              blocked.has(candidate.key) ||
+              this.state.jobs.some(j => j.key === candidate.key &&
+                j.status === "conflict"))
+            return null;
+          return copy(candidate);
+        });
+        if (!job) continue;
+        try {
+          this.uploading = {key: job.key, started: Date.now()};
+          this.emit();
+          let timer;
+          // The network await is intentionally OUTSIDE serialize().
+          const result = await Promise.race([
+            this.remote.commit(job),
+            new Promise((_,reject) => {
+              timer = setTimeout(() =>
+                reject(Error("Нет подтверждения Firebase за 25 секунд. Повтор будет с тем же ID операции.")), 25000);
+            })
+          ]).finally(() => clearTimeout(timer));
+          await this.serialize(async () => {
+            const active = this.state.jobs.find(j => j.id === job.id);
+            if (!active) return;
             if (result.conflict) {
-              job.status = "conflict";
-              job.remote = result.current;
+              active.status = "conflict";
+              active.remote = result.current;
               await this.persist();
-              continue;
+              return;
             }
-            this.state.jobs = this.state.jobs.filter((j) => j.id !== job.id);
+            this.state.jobs = this.state.jobs.filter(j => j.id !== job.id);
             this.state.history.push({
-              ...job,
-              confirmed: Date.now(),
-              after: result,
+              ...active, confirmed: Date.now(), after: result
             });
-            const next = this.state.jobs.find(
-              (j) => j.key === job.key && j.before.localId === job.id,
-            );
-            if (next) next.before = { ...result, localId: job.id };
-            if (this.state.records[job.key].localId === job.id)
+            const next = this.state.jobs.find(j =>
+              j.key === job.key && j.before.localId === job.id);
+            if (next) next.before = {...result, localId: job.id};
+            // A newer local edit must win over an older server acknowledgement.
+            if (this.state.records[job.key]?.localId === job.id)
               this.state.records[job.key] = result;
             await this.persist();
-            this.error = "";
-          } catch (e) {
-            failure=job.key+': '+(e.code?e.code+' · ':'')+e.message;
-            this.uploadError=failure;this.error=failure;
-            blocked.add(job.key);
-            console.error('[Табель Firebase]',failure);
-            this.emit();
-          }
+          });
+          this.error = "";
+        } catch (e) {
+          failure = job.key + ": " + (e.code ? e.code + " · " : "") + e.message;
+          this.uploadError = failure;
+          this.error = failure;
+          blocked.add(job.key);
+          console.error("[Табель Firebase]", failure);
+          this.emit();
+        } finally {
+          this.uploading = null;
+          this.emit();
         }
-        this.uploadError=failure;
-      });
+      }
+      this.uploadError = failure;
     } finally {
-      this.uploading=null;
-      this.busy = false;this.emit();
+      this.uploading = null;
+      this.busy = false;
+      this.emit();
     }
   }
   async resolve(id, choice) {
