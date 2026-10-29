@@ -30,6 +30,10 @@ jobs:
           node --test tests/tabel-v2/*.test.mjs
           node tests/modular/firebase-traffic.test.cjs
           node tests/modular/firebase-traffic-inference.test.cjs
+          node --check test-app/source/features/firebase-traffic-hook.js
+          node --check test-app/source/features/firebase-traffic-inference.js
+          node --check test-app/source/features/firebase-traffic-dashboard.js
+          python3 tools/build-test.py
       - name: Verify local-only fixture serves dynamic Tabel modules
         run: node tests/full-audit/browser-support.test.cjs
       - name: Install isolated emulator and Chromium
