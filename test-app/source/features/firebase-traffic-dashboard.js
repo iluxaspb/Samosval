@@ -2,6 +2,7 @@
 (function(){
 'use strict';
 const T=window.FirebaseTraffic;if(!T)return;
+const I=window.FirebaseTrafficInference;
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=x=>Number(x||0).toLocaleString('ru-RU');
 const pct=(n,max)=>Math.min(999,100*(n||0)/max);
@@ -41,7 +42,9 @@ function init(){
  tabs.append(btn);
  const panel=document.createElement('div');panel.id='admin-sub-firebase-traffic';panel.className='admin-section ft-panel';
  panel.innerHTML='<div class="section-title">📡 Монитор запросов Firebase <small style="color:var(--warning)">ТЕСТ</small></div>'+
- '<p class="ft-note">Учёт обращений Firestore на этом устройстве. Никаких данных базы, номеров машин, имён или паролей не записываем. Мониторинг не выполняет дополнительных запросов к Firebase.</p>'+
+ '<p class="ft-note">Мониторинг только этого устройства (по кнопке). Без отправки статистики в Firebase. Косвенная оценка других зарегистрированных пользователей строится из уже загруженного аудита и не создаёт дополнительных запросов.</p>'+
+ '<div class="ft-toolbar"><button class="btn btn-quick btn-small" id="ftToggle">Включить на этом устройстве</button></div>'+
+ '<p class="ft-note" id="ftToggleStatus"></p>'+
  '<div class="ft-toolbar"><select class="form-control" id="ftDay" aria-label="Сутки квоты Firebase, время отображается по Москве"></select>'+
  '<button class="btn btn-secondary btn-small" id="ftExportJson">⬇️ JSON за все дни</button>'+
  '<button class="btn btn-secondary btn-small" id="ftExportCsv">⬇️ CSV событий</button></div>'+
@@ -53,8 +56,18 @@ function init(){
  panel.querySelector('#ftExportJson').onclick=()=>exportJSON();
  panel.querySelector('#ftExportCsv').onclick=()=>exportCSV();
  panel.querySelector('#ftClear').onclick=clearHistory;
+ panel.querySelector('#ftToggle').onclick=toggleTraffic;
+ window.addEventListener('firebase-inference-change',()=>{if(isVisible())render(false);});
  window.addEventListener('firebase-traffic-change',()=>{if(isVisible())render(false);});
  setInterval(()=>{if(isVisible())render(false);},2000);
+ render(true);
+}
+function toggleTraffic(){
+ if(T.active()){T.deactivate();}
+ else if(T.activate()){
+  I?.enable();
+  try{I?.captureUsers(state.users||[]);I?.captureAudit(state.audit||[]);}catch(_){}
+ }
  render(true);
 }
 function isVisible(){
@@ -70,6 +83,11 @@ function render(force){
  if(!ready)return;
  if(!force&&Date.now()-lastRender<850)return;
  lastRender=Date.now();const now=T.today();
+ const toggle=document.querySelector('#ftToggle'),status=document.querySelector('#ftToggleStatus');
+ if(toggle)toggle.textContent=T.active()?'⏸ Отключить сбор на этом устройстве':'▶ Включить сбор на этом устройстве';
+ if(status)status.textContent=T.active()?'● Локальный монитор включён. Данные остаются только на этом телефоне.':'○ Монитор выключен. На других устройствах он не включается автоматически.';
+ if(!T.active()){document.getElementById('ftDashboard').innerHTML='<p class="ft-note">Нажми «Включить сбор на этом устройстве», чтобы начать измерения. Статистика других пользователей по аудиту тоже активируется только здесь.</p>';return;}
+ if(I&&!I.data.ready)I.enable();
  const d=selected||now;
  const select=document.querySelector('#ftDay');
  if(!select)return;
@@ -79,7 +97,8 @@ function render(force){
  if(!days.includes(d))selected=now;
  select.value=selected||now;
  const key=select.value,stat=T.data.days[key]||{calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,listens:0,unsubscribes:0,snapshots:0,events:0,byPath:{},byType:{},hours:[]};
- const nextReset=T.nextQuotaReset();
+ const indirect=I?.summary(key,typeof currentUid!=='undefined'?currentUid:'',typeof currentEmail!=='undefined'?currentEmail:'')||null;
+  const nextReset=T.nextQuotaReset();
  const mskReset=nextReset?T.mskTime(nextReset)+' МСК':'—';
  const isNow=key===now;
  const rate=Object.entries(stat.byPath||{}).sort((a,b)=>b[1].reads-a[1].reads||b[1].calls-a[1].calls).slice(0,25);
@@ -88,6 +107,37 @@ function render(force){
  const length=T.periodHours(key),start=T.periodStartUTC(key);
  const chart='<div class="ft-chart">'+Array.from({length},(_,h)=>{const v=hourly[h]?.reads||0;const clock=T.mskTime(start+h*3600000).slice(11);return '<div class="ft-col" title="'+clock+' МСК · '+fmt(v)+' оценочных чтений"><i style="height:'+Math.max(1,100*v/peak).toFixed(2)+'%"></i>'+(h%3===0?'<span>'+clock+'</span>':'')+'</div>';}).join('')+'</div>';
  const recent=T.data.events.filter(e=>e.day===key).slice(-100).reverse();
+ const indirectBlock=(()=>{
+  if(!indirect)return '<p class="ft-note">Модель аудита не загружена.</p>';
+  if(!indirect.modelReady)return '<p class="ft-note">Для косвенной оценки требуется список зарегистрированных пользователей. Открой один раз вкладку «Юзеры» в админке, чтобы загрузился уже существующий справочник. Дополнительных запросов из этого дашборда нет.</p>';
+  const r=indirect.reads,w=indirect.writes;
+  const totalRead=[stat.reads+r.low,stat.reads+r.expected,stat.reads+r.high];
+  const totalWrite=[stat.writes+w.low,stat.writes+w.expected,stat.writes+w.high];
+  const paired='<div class="ft-grid">'+
+    box('Зарегистрировано',fmt(indirect.registered),'верхняя граница модели')+
+    box('Замечено в аудите',fmt(indirect.otherUsers),'других учётных записей')+
+    box('Записей аудита',fmt(indirect.auditRows),'локально накоплено')+
+    box('Не удалось связать',fmt(indirect.unassigned),'не включены в оценку')+
+    '</div>';
+  const f=a=>a.map(fmt).join(' — ');
+  return '<div class="ft-section">Косвенная нагрузка других операторов — модель, не измерение</div>'+
+    paired+
+    '<p class="ft-note">Учитываем только зарегистрированные активные учётные записи, максимум один клиент на человека. Для событий «Погрузка», «Приехал», ТТН и мини-игр заложены разные типовые операции; возможные обновления чужих экранов «Линия» зависят от недавней активности других зарегистрированных пользователей. Верхняя граница предполагает, что все они онлайн. Это сценарий, не реальные сетевые запросы.</p>'+
+    rows(['Категория аудита','Событий'],Object.entries(indirect.actions).map(([k,v])=>'<tr><td>'+esc(({load:'Погрузка',arrive:'Прибытие',ttn:'ТТН',undo:'Отмена',game:'Мини-игры',other:'Другое'})[k]||k)+'</td><td>'+fmt(v)+'</td></tr>'))+
+    '<div class="ft-grid">'+
+    box('Чтения остальных',f([r.low,r.expected,r.high]),'минимум — сценарий — максимум')+
+    box('Записи остальных',f([w.low,w.expected,w.high]),'минимум — сценарий — максимум')+
+    box('Суммарные чтения',f(totalRead),'телефон + модель')+
+    box('Суммарные записи',f(totalWrite),'телефон + модель')+
+    '</div>'+
+    '<div class="ft-section">Оценка доли общего лимита (не официальный биллинг)</div>'+
+    '<p class="ft-note">Чтения: '+totalRead.map(x=>(100*x/T.free.reads).toFixed(2)+'%').join(' — ')+
+    ' · Записи: '+totalWrite.map(x=>(100*x/T.free.writes).toFixed(2)+'%').join(' — ')+'</p>'+
+    '<div class="ft-section">По зарегистрированным участникам (расчёт)</div>'+
+    rows(['Участник','Действия','Оценка чтений','Оценка записей'],
+      indirect.participants.map(x=>'<tr><td>'+esc(x.label)+'</td><td>'+fmt(x.actions)+'</td><td>'+fmt(x.reads)+'</td><td>'+fmt(x.writes)+'</td></tr>'))+
+    '<p class="ft-note">'+esc(indirect.notice)+'</p>';
+})();
  const html=
  '<div class="ft-note">Отчётные сутки Firebase: <b>'+esc(T.startMsk(key))+'</b>. Обновление автоматически, без запросов к серверу. '+(isNow?'<span class="ft-accent">● Сейчас</span>':'Архивный период')+'</div>'+
  '<div class="ft-grid">'+
@@ -99,7 +149,7 @@ function render(force){
  box('Активные подписки',isNow?fmt(T.data.active):'—','только на этом телефоне')+
  box('События подписок',fmt(stat.snapshots),'полученные обновления')+
  box('Ошибки',fmt(stat.failed),'ошибки SDK')+
- '</div>'+
+ '</div>'+indirectBlock+
  '<div class="ft-section">Использование бесплатного лимита Firestore (приближённо)</div>'+
  '<p class="ft-note">Единые отчётные сутки: Firebase (America/Los_Angeles), даты и часы показаны по Москве. Следующий сброс: <b>'+esc(mskReset)+'</b>. Учитывается только этот телефон; цифры — оценки SDK, не официальный биллинг Firebase.</p>'+
  bar('Чтения',stat.reads,T.free.reads)+bar('Записи',stat.writes,T.free.writes)+bar('Удаления',stat.deletes,T.free.deletes)+
@@ -121,7 +171,7 @@ function download(name,content,mime){
  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),45000);
 }
 async function exportJSON(){
- await T.flush();const body={format:'samosval-firebase-traffic/v1',generatedAt:new Date().toISOString(),scope:'single-device',reportDay:'America/Los_Angeles midnight (displayed Europe/Moscow)',quota:T.free,hooks:T.hooks,notes:['SDK-observed estimates, not billed totals','Offline cache excluded from server-read estimate','No document contents, user identifiers, API keys or parameters saved'],daily:T.data.days,events:T.data.events};
+ await T.flush();const body={format:'samosval-firebase-traffic/v1',generatedAt:new Date().toISOString(),scope:'measured-single-device-plus-local-audit-model',indirect:{model:'low-expected-high',byDay:Object.fromEntries(Object.keys(T.data.days).map(day=>[day,I?.summary(day,typeof currentUid!=='undefined'?currentUid:'',typeof currentEmail!=='undefined'?currentEmail:'')||null]))},reportDay:'America/Los_Angeles midnight (displayed Europe/Moscow)',quota:T.free,hooks:T.hooks,notes:['Indirect estimates are NOT observed or billed totals','Registered user cap, one assumed device per user','Audit stream limited to last 200 entries and may omit historical events','SDK-observed estimates, not billed totals','Offline cache excluded from server-read estimate','No document contents, user identifiers, API keys or parameters saved'],daily:T.data.days,events:T.data.events};
  download('samosval-firebase-traffic-'+T.today()+'.json',JSON.stringify(body,null,2),'application/json;charset=utf-8');
 }
 async function exportCSV(){
@@ -134,7 +184,7 @@ async function clearHistory(){
  if(!confirm('Удалить ВСЮ локальную статистику Firebase на этом телефоне? Это нельзя отменить.'))return;
  const db=await new Promise(resolve=>{try{const r=indexedDB.open('samosval_firebase_traffic_v1',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>resolve(null);}catch(_){resolve(null);}});
  if(db)await new Promise(resolve=>{const tx=db.transaction(['daily','events'],'readwrite');tx.objectStore('daily').clear();tx.objectStore('events').clear();tx.oncomplete=resolve;tx.onerror=resolve;});
- T.data.days={};T.data.events=[];T.data.totalEvents=0;selected='';
+ T.data.days={};T.data.events=[];T.data.totalEvents=0;await I?.clear();selected='';
  render(true);
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
