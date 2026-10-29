@@ -10,7 +10,7 @@ function coreFrom(script) {
   return context.window.__gameCoinsCore;
 }
 const testSource = require('../../tools/read-test-html.cjs')().match(/<script id="game-coins-v2">([\s\S]*?)<\/script>/)[1];
-const productionHtml = fs.readFileSync('index.html', 'utf8');
+const productionHtml = require('../../tools/read-production-html.cjs')();
 const productionSource = productionHtml.match(/<script\s+id="game-coins-v2"[^>]*>([\s\S]*?)<\/script>/)?.[1];
 assert(productionSource, 'Production game module must exist');
 const testCore = coreFrom(testSource), productionCore = coreFrom(productionSource);

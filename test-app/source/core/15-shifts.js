@@ -91,6 +91,12 @@
         if(snap.data().id!==shiftId||!snap.data().closing)throw Error('Смена изменилась. Новая смена не затронута.');
         tx.delete(refs.shift);
       }));
+      // Even a shift with zero trips has a last-closed address on this device.
+      // Archived shifts remain the cross-device source when they have records.
+      try {
+        localStorage.setItem('tabel-v2-last-closed:' + firebaseConfig.projectId + ':' + WORKSPACE_ID,
+          JSON.stringify({objectId: shift.objectId, closedAt: shift.closingStartedAt || Date.now()}));
+      } catch (_) {}
       if(state.shift?.id===shiftId){state.shift=null;offlineProjectState();renderAll();}
       showToastEl('Смена закрыта',false);
       addAudit('🔄 Закрыта смена. Рейсов: '+(archived?.totalTrips||0)).catch(()=>{});

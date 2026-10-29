@@ -4,10 +4,17 @@ on:
     branches: ['audit/**', root, release/test-modules-3.4.12-20261027]
     paths:
       - 'test-app/source/**'
+      - 'test-app/tabel-v2/**'
+      - 'test-app/src/pwa.js'
+      - 'tests/tabel-v2/**'
+      - 'tests/pwa/**'
       - test-app/modules.json
       - tools/build-test.py
       - tools/verify-test-modules.py
       - .github/workflows/modular-audit.yml
+      - test-app/build-manifest.json
+      - index-test.html
+      - sw-test.js
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,10 +27,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Exact source, HTML and CSS preservation; reproducible build
-        run: |
-          git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
-          python3 tools/verify-test-modules.py
+      - name: Current test modules, PWA integrity and reproducible build
+        run: python3 tools/verify-test-modules.py
+      - name: Timesheet regressions and active-address defaults
+        run: node --test tests/tabel-v2/*.test.mjs
       - name: Coins and offline cache regressions on actual built code
         run: |
           node tests/coins/standalone.cjs
@@ -46,7 +53,16 @@ jobs:
           else
             python3 -m playwright install --with-deps chromium
           fi
-      - name: Upgrade actual 3.4.11 to modular release without data deletion
+      - name: Generate current test build and verify current assets
+        run: python3 tools/build-test.py
+      - name: Mobile UI address default and consent per tab visit
+        run: |
+          if [ -n "${PWA_CHROMIUM:-}" ]; then
+            python3 -u tests/tabel-v2/active-address-browser.py --chromium "$PWA_CHROMIUM"
+          else
+            python3 -u tests/tabel-v2/active-address-browser.py
+          fi
+      - name: Verify real PWA upgrade and recover without deleting pending trips
         run: |
           git fetch --depth=1 origin ff4e9a8c97526e557e6bb38607e606e88b4df2ee
           mkdir -p "$RUNNER_TEMP/samosval-old"
