@@ -381,7 +381,7 @@ export function plate(s) {
     )
     .replace(/[^A-Z0-9]/g, "");
 }
-export function equipmentCount(shifts, line, c) {
+export function equipmentCount(shifts, line, c, registry = []) {
   const equipment = shifts.flatMap((d) =>
     d.equipment
       .filter((e) => !(c.hiddenEquipmentIds || []).includes(e.id))
@@ -391,7 +391,7 @@ export function equipmentCount(shifts, line, c) {
   return countEquipment(
     equipment.map(normalize),
     line.map(normalize),
-    c.equipment.map(normalize),
+    [...c.equipment, ...registry].map(normalize),
   );
 }
 export function report(

@@ -1,7 +1,8 @@
 import { sheetVisible } from "./sheet-access.mjs";
-import { countEquipment, lineCalendarDate } from "./domain.mjs";
+import { lineCalendarDate } from "./domain.mjs";
 import { arrivals } from "./line.mjs";
-let pending = null;
+import { equipmentCount, linkedFormulaDays } from "./table-domain.mjs";
+let generation = 0;
 async function readRecords(session) {
   const name =
     "samosval_tabel_v2_v1_" +
@@ -25,7 +26,7 @@ async function readRecords(session) {
   });
 }
 export async function updateHeader(host, element) {
-  if (pending) return;
+  const token = ++generation;
   const session = host.session(),
     snapshot = host.snapshot(),
     objectId = snapshot.shift?.objectId;
@@ -33,21 +34,22 @@ export async function updateHeader(host, element) {
     element.hidden = true;
     return;
   }
-  pending = true;
   try {
     const date = lineCalendarDate(snapshot.shift.startDate),
       records = await readRecords(session);
     if (
+      token !== generation || !host.session().view || !host.session().active ||
       host.session().uid !== session.uid ||
       host.snapshot().shift?.objectId !== objectId
     )
       return;
-    const days = Object.entries(records)
-      .filter(
-        ([key, r]) =>
-          key.startsWith(objectId + "/day:") && r.data?.date === date,
-      )
-      .map(([, r]) => r.data);
+    const config = {equipment: [], ...records[objectId + "/config"]?.data};
+    const dayRecords = Object.entries(records).filter(([key]) => key.startsWith(objectId + "/day:"));
+    const rawDays = dayRecords.filter(([,r]) => r.data && !r.data.deleted).map(([,r]) => r.data)
+      .sort((a,b) => a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift));
+    const days = linkedFormulaDays(config, rawDays, records[objectId + "/sheet:linked"]?.data,
+      new Set(dayRecords.filter(([,r]) => r.data?.deleted).map(([,r]) => r.data.date)))
+      .filter(d => d.date === date);
     if (
       !sheetVisible(
         {
@@ -96,23 +98,14 @@ export async function updateHeader(host, element) {
       ...e,
       number: e.plate,
     }));
-    const total = countEquipment(
-      equipment
-        .filter(
-          (e) =>
-            !(
-              records[objectId + "/config"]?.data?.hiddenEquipmentIds || []
-            ).includes(e.id),
-        )
-        .map((e) => ({ ...e, number: e.plate || e.number })),
-      line,
+    const total = equipmentCount(
+      [{equipment}], line,
+      config,
       snapshot.trucks || [],
     );
     element.hidden = false;
     element.textContent = `Техника: ${total} · Рабочие: ${new Set(people.filter((p) => p.group === "worker").map((p) => p.id)).size} · ИТР: ${new Set(people.filter((p) => p.group === "itr").map((p) => p.id)).size}`;
   } catch {
-    element.hidden = true;
-  } finally {
-    pending = false;
+    if (token === generation) element.hidden = true;
   }
 }

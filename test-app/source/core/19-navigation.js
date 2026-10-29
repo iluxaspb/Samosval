@@ -49,7 +49,7 @@
         transaction:fn=>db.runTransaction(fn),
         documentId:()=>firebase.firestore.FieldPath.documentId(),
         get shift(){return state.shift;}, get objects(){return state.objects;},
-        snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,archive:state.archive}),
+        snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive}),
         createObject:async(name,startDate)=>{
           if(!hasPermission('manage_objects')||currentUserStatus!=='active')throw Error('Нет права создавать объекты');
           name=String(name||'').trim();if(!name||name.length>180)throw Error('Введите название объекта');

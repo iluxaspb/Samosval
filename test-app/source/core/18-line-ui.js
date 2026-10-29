@@ -29,13 +29,15 @@
     }
   }
 
+  window.addEventListener('tabel-v2-records-change', () => scheduleRender('renderHeaderStats'));
   function renderHeaderStats() {
+    window.dispatchEvent(new Event('line-equipment-change'));
     let d = state.shift ? `Смена от ${state.shift.startDate}` : 'Смена не начата'; let o = state.shift ? state.shift.objectName : 'Не выбран';
     let act = state.shift ? getActiveLineIds().filter(id => { let t = findTruck(id); if (!t || t.isGAI) return false; return !state.truckStatus[id] || state.truckStatus[id].ttnStatus !== true; }).length : 0;
     let logs = getLogs(); let stdLogs = logs.filter(l => !l.isGAI); let v = stdLogs.reduce((s,l)=>s+l.volume,0);
     document.getElementById('shiftDate').textContent = d; document.getElementById('headerObject').textContent = 'Объект: ' + o;
     document.getElementById('activeLineCount').textContent = act + ' маш.'; document.getElementById('totalTrips').textContent = stdLogs.length; document.getElementById('totalVolume').textContent = v + ' м³';
-    const tabelCounts=document.getElementById('tabelV2Counts');if(tabelCounts&&permissionsLoaded&&hasTabAccess('timesheet'))import(new URL('./test-app/tabel-v2/summary.mjs',document.baseURI).href).then(m=>m.updateHeader({session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,role:currentUserRole,active:currentUserStatus==='active',view:hasTabAccess('timesheet')}),snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,archive:state.archive})},tabelCounts)).catch(()=>{tabelCounts.hidden=true;});else if(tabelCounts)tabelCounts.hidden=true;
+    const tabelCounts=document.getElementById('tabelV2Counts');if(tabelCounts&&permissionsLoaded&&hasTabAccess('timesheet'))import(new URL('./test-app/tabel-v2/summary.mjs',document.baseURI).href).then(m=>m.updateHeader({session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,role:currentUserRole,active:currentUserStatus==='active',view:hasTabAccess('timesheet')}),snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive})},tabelCounts)).catch(()=>{tabelCounts.hidden=true;});else if(tabelCounts)tabelCounts.hidden=true;
   }
 
   function tickTimers() {

@@ -54,6 +54,7 @@ export class Store {
       t.onabort = () => no(t.error || Error("Не удалось сохранить"));
     });
     this.channel?.postMessage("change");
+    globalThis.dispatchEvent?.(new Event("tabel-v2-records-change"));
     this.emit();
   }
   serialize(fn) {

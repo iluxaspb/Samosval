@@ -315,6 +315,11 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       (s.store.uploading ? " · отправляется " + s.store.uploading.key : "");
   };
   s.store.listeners.add(s.status);
+  const updateEquipmentCounts = () => {
+    if (s.root.querySelector('[data-equipment-counts]')) s.updateEquipmentCounts?.();
+  };
+  globalThis.addEventListener('line-equipment-change', updateEquipmentCounts);
+  s.store.listeners.add(updateEquipmentCounts);
   s.conflictUI = autoConflicts(s);
   async function loadObject() {
     if (!s.object || !s.remote) return;
@@ -440,6 +445,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       s.conflictUI.check();
     },
     async dispose() {
+      globalThis.removeEventListener('line-equipment-change', updateEquipmentCounts);
       s.unwatch?.();
       observer.disconnect();
       s.conflictUI.dispose();
@@ -543,11 +549,16 @@ async function render(s) {
     if (s.view === "request") request(s, main);
     if (s.view === "shift") await shift(s, main);
     if (s.view === "shift") {
-      const days = s.days().filter((d) => d.date === s.day),
-        list = days.flatMap((d) => d.people);
       const counts = document.createElement("div");
       counts.className = "tn-counts";
-      counts.innerHTML = `<span>Техника: <b>${D.equipmentCount(days, arrivals(s.host.data(), s.object.id, s.day).rows, s.config())}</b></span><span>Рабочие: <b>${new Set(list.filter((p) => p.group === "worker").map((p) => p.id)).size}</b></span><span>ИТР: <b>${new Set(list.filter((p) => p.group === "itr").map((p) => p.id)).size}</b></span>`;
+      counts.dataset.equipmentCounts = '';
+      const updateCounts = () => {
+        const days = s.days().filter(d => d.date === s.day), list = days.flatMap(d => d.people);
+        const snapshot = s.host.data();
+        counts.innerHTML = `<span>Техника: <b>${D.equipmentCount(days, arrivals(snapshot, s.object.id, s.day).rows, s.config(), snapshot.trucks || [])}</b></span><span>Рабочие: <b>${new Set(list.filter(p => p.group === "worker").map(p => p.id)).size}</b></span><span>ИТР: <b>${new Set(list.filter(p => p.group === "itr").map(p => p.id)).size}</b></span>`;
+      };
+      s.updateEquipmentCounts = updateCounts;
+      updateCounts();
       main.prepend(counts);
       if (rendering === s.rendering && shiftPosition) {
         const content = main.querySelector("[data-shift-content]");

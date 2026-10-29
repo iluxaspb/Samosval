@@ -6,7 +6,7 @@ const asDate = (value) => {
     return "";
   }
 };
-// Read-only adapter. A positive arrival counts even with no load or after departure.
+// Read-only daily composition: being on the line counts without a load and after departure.
 import { add } from "./table-domain.mjs";
 export function arrivals(
   snapshot,
@@ -24,7 +24,19 @@ export function arrivals(
           new Date(Number(ts)),
         )
       : "";
-  for (const e of [...(snapshot.audit || []), ...events]) {
+  for (const e of [...(snapshot.audit || []), ...(snapshot.lineAudit || []), ...events]) {
+    // Modern audit stores before/after truckStatus snapshots, including removed trucks.
+    if (e.objectId === objectId && (asDate(e.date || e.startDate) || calendar(e.timestamp)) === day) {
+      for (const op of e.history?.operations || []) {
+        if (op.collection !== "truckStatus") continue;
+        for (const status of [op.before, op.after]) {
+          if (!status || !(status.onLine || status.addedAt || status.arriveTimestamp || status.lastLoadTimestamp)) continue;
+          const t = trucks.get(op.id);
+          if (!t) uncertain = true;
+          rows.push({id: op.id, plate: t?.number || t?.plate, arrived: true, isGAI: !!t?.isGAI});
+        }
+      }
+    }
     if (
       e.objectId !== objectId ||
       (asDate(e.date || e.startDate) || calendar(e.timestamp)) !== day ||
@@ -47,7 +59,7 @@ export function arrivals(
   const shift = snapshot.shift;
   if (shift?.objectId === objectId && asDate(shift.startDate) === day)
     for (const [id, status] of Object.entries(snapshot.statuses || {})) {
-      if (status.shiftId !== shift.id || !status.arriveTimestamp) continue;
+      if (status.shiftId !== shift.id || !(status.onLine || status.addedAt || status.arriveTimestamp || status.lastLoadTimestamp)) continue;
       const t = trucks.get(id);
       if (!t) uncertain = true;
       rows.push({
@@ -59,7 +71,7 @@ export function arrivals(
     }
   if (shift?.objectId === objectId && asDate(shift.startDate) === day) {
     for (const log of snapshot.logs || []) {
-      if (log.shiftId !== shift.id || !log.arrivalTimestamp) continue;
+      if (log.shiftId !== shift.id) continue;
       const t = trucks.get(log.truckId);
       rows.push({
         id: log.truckId,
@@ -77,8 +89,12 @@ export function arrivals(
       continue;
     for (const arrival of archive.tabelV2Arrivals || [])
       rows.push({ ...arrival, arrived: true });
+    for (const id of archive.activeLineIds || []) {
+      const t = trucks.get(id);
+      if (!t) uncertain = true;
+      rows.push({id, plate: t?.number || t?.plate, arrived: true, isGAI: !!t?.isGAI});
+    }
     for (const log of archive.logs || []) {
-      if (!log.arrivalTimestamp) continue;
       const t = trucks.get(log.truckId);
       if (!t && typeof log.isGAI !== "boolean") uncertain = true;
       rows.push({
