@@ -168,7 +168,7 @@ def make_server(old, new, phase, report):
                 name = path.removeprefix('/Samosval/')
                 allowed = (name in {'index-test.html', 'update-test.html', 'sw-test.js',
                                    'manifest-test.webmanifest', 'test-app/build-manifest.json'}
-                           or name.startswith(('test-app/build/', 'test-app/src/', 'test-app/vendor/', 'test-app/icons/', 'test-app/tabel/', 'assets/')))
+                           or name.startswith(('test-app/build/', 'test-app/src/', 'test-app/vendor/', 'test-app/icons/', 'test-app/tabel/', 'test-app/tabel-v2/', 'assets/')))
                 if not allowed or '..' in Path(name).parts:
                     self.send_error(404); return
                 if name == 'update-test.html':
