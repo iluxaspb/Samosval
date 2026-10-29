@@ -379,6 +379,15 @@ async function responsiveCase(mobile) {
     await page.locator('#closeShiftBtn').click();
     await confirm(false,/Перед закрытием смены создать резервную копию/);
     await confirm(true,/^Закрыть смену\?$/,true);
+    // A completed Line shift with trips requires an explicit material/destination
+    // decision before the transfer can finish. Older tests waited without
+    // answering this real dialog, so closing remained in progress.
+    const transferDialog=page.locator('dialog.tn[open]').filter({has:page.locator('input[name="material"]')});
+    await transferDialog.waitFor({state:'visible',timeout:15000});
+    await transferDialog.locator('input[name="material"]').fill('Гранулят');
+    await transferDialog.locator('input[name="direction"]').fill('Конус QA');
+    await transferDialog.locator('button[type="submit"]').click();
+    await transferDialog.waitFor({state:'hidden'});
     await wait(() => !state.shift && state.archive.length === 1 && !closeShiftInFlight);
     assert.equal((await readRows('archive')).length, 1); assert.equal((await readRows('logs')).length, 0);
     await wait(()=>window.__gameEconomy.snapshot().records.some(e=>e.history?.operations.some(o=>o.collection==='logs'&&o.before&&!o.after)));
