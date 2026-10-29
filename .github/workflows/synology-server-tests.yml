@@ -5,6 +5,7 @@ on:
       - "feature/synology-**"
     paths:
       - "server/**"
+      - "test-app/synology/**"
       - ".github/workflows/synology-server-tests.yml"
   workflow_dispatch:
 
@@ -53,3 +54,4 @@ jobs:
           }
           NODE
       - run: npm test
+

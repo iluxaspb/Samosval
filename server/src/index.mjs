@@ -2,6 +2,7 @@ import http from 'node:http';
 import { Pool } from 'pg';
 import { verifyFirebaseUser } from './auth.mjs';
 import { submitLineOperation } from './line-store.mjs';
+import { readLineSnapshot } from './line-read.mjs';
 
 const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
@@ -41,7 +42,7 @@ const server=http.createServer(async(req,res)=>{
     if(!permittedOrigins.has(origin)) return send(res,403,{error:'origin-not-allowed'});
     res.setHeader('Access-Control-Allow-Origin',origin);
     res.setHeader('Vary','Origin');
-    res.setHeader('Access-Control-Allow-Methods','POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type');
     res.setHeader('Access-Control-Max-Age','600');
   }
@@ -51,6 +52,18 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET' && path==='/health/ready'){
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
+  }
+  if(path==='/api/v1/line/snapshot'&&req.method==='GET'){
+    const uid=await verifyFirebaseUser(req);
+    if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      const snapshot=await readLineSnapshot(pool,uid);
+      return send(res,200,snapshot);
+    }catch(e){
+      const status=[403,409].includes(e.status)?e.status:500;
+      if(status===500)console.error('[line-api] snapshot failed',e?.code||e?.name||'unknown');
+      return send(res,status,{error:status===500?'server-error':e.message});
+    }
   }
   if(path==='/api/v1/line/operations'&&req.method==='POST'){
     if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))
@@ -80,3 +93,4 @@ async function shutdown(){
 }
 process.on('SIGTERM',shutdown);
 process.on('SIGINT',shutdown);
+

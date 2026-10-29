@@ -1,6 +1,6 @@
 # Synology backend migration — isolated TEST branch
 
-This branch introduces an initial PostgreSQL-backed API for line operations. **It has NOT been deployed on Synology and MUST NOT serve the production client.** Production HTML/JavaScript, Firebase databases, and Firestore rules are unchanged.
+This branch introduces an initial PostgreSQL-backed API for line operations. **The TEST API foundation is deployed on Synology; it MUST NOT serve the production client.** Production HTML/JavaScript, Firebase databases, and Firestore rules are unchanged.
 
 ## Code already ported (first phase)
 
@@ -8,6 +8,7 @@ This branch introduces an initial PostgreSQL-backed API for line operations. **I
 - `src/line-store.mjs`: PostgreSQL transactions, row locks on truck status, deterministic load IDs, and durable operation receipts. Two concurrent load requests for the same arrival cannot both be accepted.
 - `src/auth.mjs`: Firebase Auth ID-token signature verification; every line command must also find an active user in the local `app_users` table, with permission in `role_permissions` (default deny).
 - `src/index.mjs`: guarded `POST /api/v1/line/operations`; `GET /health/live` and `GET /health/ready`. Explicit CORS origin allowlist.
+- `src/line-read.mjs`: guarded `GET /api/v1/line/snapshot`, one repeatable-read read-only transaction for the current shift, trucks, statuses and logs; active account and line permission required.
 - `sql/001_init.sql`: **new** isolated test tables, no import or deletion from Firebase.
 - `tests/`: pure business-rule tests and concurrent PostgreSQL request test; GitHub Actions runs tests with an isolated PostgreSQL service.
 
@@ -52,4 +53,9 @@ The PostgreSQL concurrency test executes when `TEST_DATABASE_URL` points at a di
 - `app/src/core/15-shifts.js`: shift creation/closure and truck lineup.
 - `app/tabel-v2/`: timesheets and spreadsheet modules.
 
-Next: inspect/port shift and truck onboarding, build secured read APIs and real-time sync, migrate **test-only** data, then integrate the TEST frontend behind a feature flag. Production promotion requires separately tested backup, rollback, permissions parity, and failover.
+Next: inspect/port shift and truck onboarding, integrate secured read APIs and build real-time sync, migrate **test-only** data, then integrate the TEST frontend behind a feature flag. Production promotion requires separately tested backup, rollback, permissions parity, and failover.
+
+
+On 2026-10-30, all seven line-read PostgreSQL scenarios passed directly on the NAS (8 tests including parent, no skips). Source backup: `src-before-api-snapshot-20261030-0118.zip`. Test API image: `samosval-test-api:read-v1-20261030`; old image is retained for rollback. The published frontend has not been switched to this API.
+
+The verified TEST export was imported on the NAS on 2026-10-30: 4 users, 23 trucks, 11 statuses, 28 log records; 1,989 original exported documents are retained in migration_documents. SQL checks confirmed 20 ordinary trips and 530 cubic metres. An authenticated browser read over HTTPS and a live isolated-fixture operation probe passed. The normal TEST app remains on Firebase; raw document import does not implement the remaining module APIs. See docs/synology-v4-test-status.md for current scope.
