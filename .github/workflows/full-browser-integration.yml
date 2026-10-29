@@ -25,6 +25,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Verify Tabel regression and nonblocking Firebase material saves
+        run: node --test tests/tabel-v2/*.test.mjs
       - name: Verify local-only fixture serves dynamic Tabel modules
         run: node tests/full-audit/browser-support.test.cjs
       - name: Install isolated emulator and Chromium
