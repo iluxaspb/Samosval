@@ -24,7 +24,7 @@ test('PostgreSQL shift close freezes loads, preserves source until material conf
       assert.equal(prepared.shift.isActive,false);assert.equal(prepared.shift.closing,true);
       assert.equal((await closeShiftOperation(pool,uid,operation('prepare'))).replayed,true);
       assert.equal((await pool.query('SELECT count(*)::int AS n FROM line_logs WHERE shift_id=$1',[shiftId])).rows[0].n,1);
-      const load=await submitLineOperation(pool,uid,{id:prefix+'_load',type:'load',truckId:truck,shiftId,createdAt:Date.now(),expectedRevision:1,arrivalTimestamp:arrival,lastLoadTimestamp:0});
+      const load=await submitLineOperation(pool,uid,{id:prefix+'_load',type:'load',truckId:truck,shiftId,createdAt:Date.now(),expectedRevision:1,expectedTtnRevision:0,arrivalTimestamp:arrival,lastLoadTimestamp:0,wantArrived:false,collect:false,cycleMinutes:15});
       assert.equal(load.outcome,'rejected');assert.equal(load.reason,'shift-changed');
     });
     await t.test('unconfirmed material never clears trips or statuses',async()=>{
