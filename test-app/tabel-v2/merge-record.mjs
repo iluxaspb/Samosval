@@ -52,6 +52,16 @@ export function mergeRecord(base,mine,server,key){
       }
       return clone(m);
     }
+    // Removing a whole cell/value object is also removal of its contained
+    // numbers. Recurse down to raw/quantity instead of silently ignoring it.
+    if(m===missing && object(s) && object(b)){
+      const result={};
+      for(const k of new Set([...Object.keys(s),...Object.keys(b)])){
+        const x=merge(own(b,k),missing,own(s,k),[...path,k]);
+        if(x!==missing)result[k]=x;
+      }
+      return result;
+    }
     if(object(m)&&object(s)){
       const result={};
       for(const k of new Set([...Object.keys(s),...Object.keys(m),...Object.keys(object(b)?b:{})])){
