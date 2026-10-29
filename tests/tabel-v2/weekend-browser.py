@@ -54,9 +54,34 @@ def main():
                     cell=grid.locator('td.tn-weekend-date[title="'+d+'"]')
                     cell.wait_for()
                     assert cell.count()==1, "Off date not retained as separate table column: "+d
-                for d,abbr in [("24.10.2026","Сб"),("25.10.2026","Выходной"),
-                               ("28.10.2026","Выходной")]:
-                    assert abbr in grid.locator('td.tn-weekend-date[title="'+d+'"]').inner_text()
+                for d,abbr in [("24.10.2026","Сб"),("25.10.2026","Вс"),
+                               ("28.10.2026","Вых.")]:
+                    cell=grid.locator('td.tn-weekend-date[title="'+d+'"]')
+                    assert cell.get_attribute('data-rest-label') == abbr
+                    assert abbr in cell.evaluate("td=>getComputedStyle(td,'::before').content")
+                    lines=cell.inner_text().splitlines()
+                    assert len(lines)==2 and lines[0]==d[:5] and lines[1]=="День", (d,lines)
+                # Regression for the displaced weekend header shown on the
+                # user's phone: weekend header cells must share the precise
+                # sticky top and height of an ordinary weekday, while scrolling.
+                regular=grid.locator('td[title="23.10.2026"]')
+                regular.wait_for()
+                assert regular.evaluate("td=>getComputedStyle(td).position") == "sticky"
+                for d in ("24.10.2026","25.10.2026","28.10.2026"):
+                    cell=grid.locator('td.tn-weekend-date[title="'+d+'"]')
+                    assert cell.evaluate("td=>getComputedStyle(td).position") == "sticky"
+                def assert_aligned():
+                    ref=regular.bounding_box()
+                    assert ref
+                    for d in ("24.10.2026","25.10.2026","28.10.2026"):
+                        bb=grid.locator('td.tn-weekend-date[title="'+d+'"]').bounding_box()
+                        assert bb
+                        assert abs(bb["y"]-ref["y"])<2, (d,bb,ref)
+                        assert abs(bb["height"]-ref["height"])<2, (d,bb,ref)
+                assert_aligned()
+                app.locator('.tn-grid-scroll').evaluate("(el)=>el.scrollTop+=125")
+                page.wait_for_timeout(200)
+                assert_aligned()
                 assert grid.locator('td.tn-weekend-date[title="26.10.2026"]').count()==0
                 assert grid.locator('td.tn-weekend-date[title="27.10.2026"]').count()==0
                 assert grid.locator('td[title="26.10.2026"]').count()==1, "Monday should remain unshaded"
