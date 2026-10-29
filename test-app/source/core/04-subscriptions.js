@@ -336,6 +336,7 @@
     startTabelBackground();
     const versionAllowed = permissionsLoaded && canAdmin();
     if (versionAllowed) document.body.setAttribute('data-release-admin', '1'); else document.body.removeAttribute('data-release-admin');
+    if(versionAllowed){window.FirebaseTraffic?.enableLocal();if(window.FirebaseTraffic?.active()){window.FirebaseTrafficInference?.enable();window.FirebaseTrafficInference?.captureUsers(state.users);window.FirebaseTrafficInference?.captureAudit(state.audit);}}else window.FirebaseTraffic?.disableLocal();
     if (!versionAllowed) document.getElementById('releaseHistoryDialog')?.close();
     const viewBanner = document.getElementById('viewOnlyBanner'); const canDoAnything = hasPermission('start_shift') || hasPermission('edit_line') || hasPermission('action_load');
     if (viewBanner) viewBanner.style.display = (!canDoAnything && state.shift) ? 'block' : 'none';
