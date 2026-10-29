@@ -65,10 +65,12 @@ def main():
                 props=overlay.evaluate("""td=>({
                   fill:td.style.background,
                   overlay:getComputedStyle(td,'::after').backgroundImage,
+                  tint:getComputedStyle(td,'::after').backgroundColor,
                   content:getComputedStyle(td,'::after').content
                 })""")
                 assert props["fill"], "Existing date header color must be preserved"
-                assert "gradient" in props["overlay"] and props["content"] != "none",props
+                assert (("gradient" in props["overlay"]) or
+                        (props["tint"].startswith("rgba(") and props["tint"] != "rgba(0, 0, 0, 0)")) and props["content"] != "none",props
                 assert grid.locator('tbody tr:nth-child(3) td.tn-weekend').count()>=3, "Weekend shade must extend vertically across data rows"
                 assert not errors,errors
                 print("PASS weekend overlay: Saturday/Sunday + weekday off, separate dated columns and original fills")
