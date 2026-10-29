@@ -54,11 +54,10 @@ def main():
                     cell=grid.locator('td.tn-weekend-date[title="'+d+'"]')
                     cell.wait_for()
                     assert cell.count()==1, "Off date not retained as separate table column: "+d
-                for d,abbr in [("24.10.2026","Сб"),("25.10.2026","Вс"),
-                               ("28.10.2026","Вых.")]:
+                for d in ("24.10.2026","25.10.2026","28.10.2026"):
                     cell=grid.locator('td.tn-weekend-date[title="'+d+'"]')
-                    assert cell.get_attribute('data-rest-label') == abbr
-                    assert abbr in cell.evaluate("td=>getComputedStyle(td,'::before').content")
+                    assert cell.get_attribute('data-rest-label') is None, "No weekday badge should be visible"
+                    assert cell.evaluate("td=>getComputedStyle(td,'::before').content") in ("none","normal"), "No label pseudo-element should remain"
                     lines=cell.inner_text().splitlines()
                     assert len(lines)==2 and lines[0]==d[:5] and lines[1]=="День", (d,lines)
                 # Regression for the displaced weekend header shown on the
