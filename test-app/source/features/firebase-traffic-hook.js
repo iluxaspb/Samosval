@@ -2,7 +2,7 @@
 (function(){
   'use strict';
   if(window.FirebaseTraffic)return;
-  const VERSION='1.1.0',FREE={reads:50000,writes:20000,deletes:20000};
+  const VERSION='1.2.0',FREE={reads:50000,writes:20000,deletes:20000};
   const MAX_EVENTS=10000,MAX_DAYS=180,HOUR=3600000,MSK_OFFSET=3*HOUR;
   const quotaFmt=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'});
   function quotaDay(ts){
@@ -30,7 +30,7 @@
   const hourInPeriod=(ts,day)=>Math.max(0,Math.min(24,Math.floor((ts-periodStartUTC(day))/HOUR)));
   const fresh=()=>({events:0,calls:0,reads:0,cached:0,writes:0,deletes:0,failed:0,listens:0,unsubscribes:0,snapshots:0,tx:0,batches:0,byType:{},byPath:{},hours:Array.from({length:25},()=>({calls:0,reads:0,writes:0,deletes:0}))});
   const loaded={days:{},events:[],totalEvents:0,active:0,ready:false,persisted:true,notice:''};
-  let flushTimer=0,dirtyEvents=[],dbPromise=null,busy=false;
+  let flushTimer=0,dirtyEvents=[],dbPromise=null,busy=false,enabled=false,started=false;
   const safeNum=x=>Number.isFinite(x)&&x>=0?Math.round(x):0;
   function safePath(ref){
     let path='';
@@ -63,6 +63,7 @@
     return out;
   }
   function record(input){
+    if(!enabled || document.body?.getAttribute?.('data-release-admin')!=='1')return;
     try{
       const ts=Date.now(),day=quotaDay(ts);
       const e={ts,day,kind:String(input.kind||'other'),path:String(input.path||'(служебное)'),reads:safeNum(input.reads),cached:safeNum(input.cached),writes:safeNum(input.writes),deletes:safeNum(input.deletes),calls:safeNum(input.calls),failed:input.failed?1:0,ms:safeNum(input.ms),source:input.source||'',code:input.code||''};
@@ -268,9 +269,10 @@
     return timedPromise(out,()=>record({kind:'transaction',path,calls:1,writes:latest.writes,deletes:latest.deletes,reads:latest.reads,ms:performance.now()-started}),
       e=>record({kind:'transaction',path,calls:1,failed:true,code:errCode(e)}));
   });
-  const api={version:VERSION,free:FREE,data:loaded,quotaDay,today,periodStartUTC,periodHours,mskTime,nextQuotaReset,startMsk,record,flush,hooks:wraps,refresh:dispatch};
+  function enableLocal(){if(document.body?.getAttribute?.('data-release-admin')!=='1')return;enabled=true;if(!started){started=true;initStore().catch(()=>{loaded.ready=true;loaded.persisted=false;dispatch();});}}
+  function disableLocal(){enabled=false;}
+  const api={enableLocal,disableLocal,version:VERSION,free:FREE,data:loaded,quotaDay,today,periodStartUTC,periodHours,mskTime,nextQuotaReset,startMsk,record,flush,hooks:wraps,refresh:dispatch};
   window.FirebaseTraffic=api;
-  initStore().catch(()=>{loaded.ready=true;loaded.persisted=false;dispatch();});
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flush().catch(()=>{});});
-  window.addEventListener('pagehide',()=>flush().catch(()=>{}));
+  document.addEventListener('visibilitychange',()=>{if(enabled&&document.visibilityState==='hidden')flush().catch(()=>{});});
+  window.addEventListener('pagehide',()=>{if(enabled)flush().catch(()=>{});});
 })();
