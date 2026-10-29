@@ -650,7 +650,10 @@ async function main() {
   assert(Number.isInteger(port) && port > 1024 && port < 65536, 'Invalid local emulator port');
   assert(PROJECT.startsWith('demo-'));
   report.build=JSON.parse(fs.readFileSync(path.join(root,'test-app/build-manifest.json'),'utf8')).version;
-  report.release=fs.readFileSync(path.join(root,'index-test.html'),'utf8').match(/class="version-text">([^<]+)</)[1];
+  const releaseHtml=fs.readFileSync(path.join(root,'index-test.html'),'utf8');
+  const releaseVersion=releaseHtml.match(/<meta name="test-app-version" content="([^"]+)"/)?.[1];
+  assert(releaseVersion,'Missing test release version');
+  report.release='Версия '+releaseVersion;
   const jar = process.env.FIRESTORE_EMULATOR_JAR; assert(jar && fs.existsSync(jar), 'Set FIRESTORE_EMULATOR_JAR to an installed local Firestore emulator JAR');
   ({chromium} = require('playwright')); sdk = require('firebase/firestore');
   const {initializeTestEnvironment} = require('@firebase/rules-unit-testing');
