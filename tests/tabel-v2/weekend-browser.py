@@ -117,9 +117,22 @@ def main():
                 grid=app.locator("table.tn-grid:not(.tn-linked)")
                 grid.wait_for()
                 for handle,dx,dy,selector in [('[data-resize-col="0"]',35.6,0,'.tn-resize-guide-col'),('[data-resize-row="0"]',0,15.8,'.tn-resize-guide-row')]:
-                    grid.locator(handle).scroll_into_view_if_needed()
-                    box=grid.locator(handle).bounding_box()
-                    assert box,(handle,"resize handle missing")
+                    # Background Tabel sync may repaint the grid between
+                    # locating a handle and scrolling it into view.
+                    # Retry only detachments; geometry and resize still must
+                    # pass the real mouse/pointer assertions below.
+                    box=None
+                    for attempt in range(5):
+                        try:
+                            grip=grid.locator(handle)
+                            grip.scroll_into_view_if_needed(timeout=5000)
+                            box=grip.bounding_box(timeout=5000)
+                            if box:break
+                        except Exception as exc:
+                            if "not attached" not in str(exc) and "detached" not in str(exc):
+                                raise
+                            page.wait_for_timeout(120)
+                    assert box,(handle,"resize handle missing after grid redraw")
                     x,y=box['x']+box['width']/2,box['y']+box['height']/2
                     page.mouse.move(x,y)
                     page.mouse.down()
