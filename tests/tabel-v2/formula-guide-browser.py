@@ -28,6 +28,13 @@ def main():
                 page.locator("#open").click()
                 app=page.locator(".tn-app")
                 app.locator('[data-object]').wait_for()
+                # The legacy simple timesheet deliberately hides the formula
+                # dock. Switch to the real full spreadsheet mode first.
+                app.locator('[data-action="settings-menu"]').click()
+                settings=page.locator("dialog.tn[open]")
+                settings.locator("[data-table-mode]").select_option("full")
+                settings.locator('[data-action="save-mode"]').click()
+                settings.wait_for(state="hidden")
                 app.locator('[data-view="table"]').click()
                 grid=app.locator("table.tn-grid")
                 grid.wait_for()
