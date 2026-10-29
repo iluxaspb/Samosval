@@ -54,11 +54,10 @@ def main():
                     cell=grid.locator('td.tn-weekend-date[title="'+d+'"]')
                     cell.wait_for()
                     assert cell.count()==1, "Off date not retained as separate table column: "+d
-                for d,abbr in [("24.10.2026","Сб"),("25.10.2026","Вс"),
-                               ("28.10.2026","Вых.")]:
+                for d in ("24.10.2026","25.10.2026","28.10.2026"):
                     cell=grid.locator('td.tn-weekend-date[title="'+d+'"]')
-                    assert cell.get_attribute('data-rest-label') == abbr
-                    assert abbr in cell.evaluate("td=>getComputedStyle(td,'::before').content")
+                    assert cell.get_attribute('data-rest-label') is None
+                    assert cell.evaluate("td=>getComputedStyle(td,'::before').content") in ('none','normal')
                     lines=cell.inner_text().splitlines()
                     assert len(lines)==2 and lines[0]==d[:5] and lines[1]=="День", (d,lines)
                 # Regression for the displaced weekend header shown on the
@@ -97,8 +96,51 @@ def main():
                 assert (("gradient" in props["overlay"]) or
                         (props["tint"].startswith("rgba(") and props["tint"] != "rgba(0, 0, 0, 0)")) and props["content"] != "none",props
                 assert grid.locator('tbody tr:nth-child(3) td.tn-weekend').count()>=3, "Weekend shade must extend vertically across data rows"
+                # Grid resize: the preview line/rounded pixel count appears
+                # while dragging, but the actual width changes only on release.
+                date_cell=grid.locator('td.tn-weekend-date[title="24.10.2026"]')
+                date_cell.scroll_into_view_if_needed()
+                before_width=date_cell.bounding_box()["width"]
+                grip=date_cell.locator('[data-resize-col]')
+                grip.scroll_into_view_if_needed()
+                handle=grip.bounding_box()
+                assert handle
+                px=handle["x"]+handle["width"]/2
+                py=handle["y"]+handle["height"]/2
+                page.mouse.move(px,py)
+                page.mouse.down()
+                page.mouse.move(px+35,py,steps=6)
+                preview=page.locator('.tn-resize-preview[data-axis="col"]')
+                preview.wait_for()
+                assert 'px' in preview.inner_text()
+                assert abs(date_cell.bounding_box()["width"]-before_width)<2, 'Column resized before release'
+                page.mouse.up()
+                preview.wait_for(state="detached")
+                page.wait_for_function("""before => {
+                  const cell=document.querySelector('td.tn-weekend-date[title="24.10.2026"]');
+                  return cell && cell.getBoundingClientRect().width>before+12;
+                }""",arg=before_width)
+                assert date_cell.bounding_box()["width"]>before_width+12
+
+                # The red Delete button is no longer on the Shift page.
+                app.locator('[data-view="shift"]').click()
+                assert app.locator('[data-action="delete-shift"]').count()==0
+                app.locator('[data-day]').fill('2026-10-25')
+                app.locator('[data-action="add-day"]').click()
+                add_modal=page.locator('dialog.tn[open]')
+                delete=add_modal.locator('[data-action="delete-existing-shift"]')
+                delete.wait_for()
+                assert delete.is_enabled()
+                delete.click()
+                confirm=page.locator('dialog.tn[open]')
+                assert "Удалить смену?" in confirm.inner_text()
+                assert "25.10.2026" in confirm.inner_text()
+                confirm.locator('[type="submit"]').click()
+                confirm.wait_for(state="hidden")
+                assert "Смена пока не создана" in app.locator('[data-shift-content]').inner_text()
+
                 assert not errors,errors
-                print("PASS weekend overlay: Saturday/Sunday + weekday off, separate dated columns and original fills")
+                print("PASS weekend tint (no labels), preview resize, integer commit, shift deletion inside add dialog")
                 ctx.close()
             finally: browser.close()
     finally:
