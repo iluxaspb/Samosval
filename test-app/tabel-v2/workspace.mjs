@@ -1104,6 +1104,60 @@ async function addDay(s) {
       await render(s);
     },
   );
+
+  // Destructive actions belong inside the start/add shift dialog.
+  // The date and shift selectors define exactly which existing record can be
+  // removed. Confirm separately and retain the deleted snapshot in history.
+  const deleteButton=document.createElement("button");
+  deleteButton.type="button";
+  deleteButton.dataset.action="delete-existing-shift";
+  deleteButton.className="tn-danger tn-delete-existing-shift";
+  deleteButton.textContent="Удалить смену";
+  el.querySelector("footer").prepend(deleteButton);
+  const deleteAvailability=()=>{
+    const form=el.querySelector("form");
+    const d=form.querySelector('[name="date"]').value;
+    const sh=form.querySelector('[name="shift"]').value;
+    try {
+      const record=s.store.get(s.key(D.dayKey(d,sh))).data;
+      deleteButton.disabled=!record || !!record.deleted;
+    } catch { deleteButton.disabled=true; }
+  };
+  deleteButton.onclick=async ()=>{
+    try {
+      s.require("shift","edit");
+      const f=el.querySelector("form"),
+        d=D.date(f.querySelector('[name="date"]').value),
+        sh=f.querySelector('[name="shift"]').value,
+        key=s.key(D.dayKey(d,sh));
+      await s.store.pull(key);
+      const base=s.store.get(key);
+      if(!base.data || base.data.deleted) {
+        deleteAvailability();
+        throw Error("На выбранную дату нет смены для удаления");
+      }
+      // Closing the first dialog prevents a disabled Save button
+      // underneath the second confirmation on mobile.
+      el.close();
+      const confirm=dialog(
+        "Удалить смену?",
+        `<p>${esc(c.name)} · ${D.display(d)} · ${sh==="night"?"Ночь":"День"}</p><p>Смена исчезнет из таблицы и отчётов. Запись сохраняется в истории действий.</p>`,
+        async ()=>{
+          const current=s.store.get(key);
+          if(!current.data || current.data.deleted)
+            throw Error("Эта смена уже удалена");
+          await s.save(key,{...D.copy(current.data),deleted:true},current,"Удаление смены");
+          s.day=d;
+          s.shift=sh;
+          await render(s);
+        }
+      );
+      const button=confirm.querySelector('[type="submit"]');
+      button.textContent="Удалить";
+      button.classList.add("tn-danger");
+    } catch(e){error(e);}
+  };
+  deleteAvailability();
   // Match the checkbox to an existing shift when a different date is chosen.
   const syncDayOff = () => {
     const form = el.querySelector("form");
@@ -1116,12 +1170,13 @@ async function addDay(s) {
       form.querySelector('[name="dayOff"]').checked = false;
     }
   };
-  el.querySelector('[name="date"]').addEventListener("change",syncDayOff);
-  el.querySelector('[name="shift"]').addEventListener("change",syncDayOff);
+  const syncForm=()=>{syncDayOff();deleteAvailability();};
+  el.querySelector('[name="date"]').addEventListener("change",syncForm);
+  el.querySelector('[name="shift"]').addEventListener("change",syncForm);
   el.querySelectorAll("[data-offset]").forEach(
     (b) => (b.onclick = () => {
       el.querySelector('[name="date"]').value = D.add(D.today(),Number(b.dataset.offset));
-      syncDayOff();
+      syncForm();
     }),
   );
 }
