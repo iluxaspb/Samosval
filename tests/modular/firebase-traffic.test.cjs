@@ -32,7 +32,9 @@ const listeners={};
 const window={
   firebase:{firestore},dispatchEvent(){},addEventListener(n,f){listeners[n]=f;}
 };
-const context={window,document:{addEventListener(){}},CustomEvent:class {constructor(type){this.type=type;}},performance:{now:()=>100},Intl,Date,Promise,Symbol,Set,Map,WeakMap,Object,Array,JSON,Number,String,Math,console,setTimeout(){return 0;},clearTimeout(){},indexedDB:undefined};
+const storage=new Map();const localStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
+const document={body:{getAttribute:k=>k==='data-release-admin'?'1':null},addEventListener(){}};
+const context={window,document,localStorage,CustomEvent:class {constructor(type){this.type=type;}},performance:{now:()=>100},Intl,Date,Promise,Symbol,Set,Map,WeakMap,Object,Array,JSON,Number,String,Math,console,setTimeout(){return 0;},clearTimeout(){},indexedDB:undefined};
 vm.runInNewContext(source,context,{filename:'firebase-traffic-hook.js'});
 const T=window.FirebaseTraffic;
 async function main(){
@@ -47,6 +49,9 @@ async function main(){
  assert.equal(T.startMsk('2026-11-02'),'2026-11-02 11:00 МСК — 2026-11-03 11:00 МСК');
  assert.equal(T.quotaDay(Date.parse('2026-01-01T07:59:59Z')),'2025-12-31');
  assert.equal(T.quotaDay(Date.parse('2026-01-01T08:00:00Z')),'2026-01-01');
+ const hidden=new Query();await hidden.get();
+ assert.equal(T.data.events.length,0,'No recording before explicit device opt-in');
+ assert.equal(T.activate(),true,'Opt-in succeeds on admin device');
  const q=new Query(),doc=new DocumentReference();
  await q.get();await doc.get();await doc.set({name:'private'});await doc.update({hours:5});await doc.delete();
  const stop=q.onSnapshot(()=>{});
@@ -63,6 +68,8 @@ async function main(){
  assert.equal(day.writes,5,'doc set/update + batch set/update + transaction set');
  assert.equal(day.deletes,3,'doc delete + batch delete + transaction delete');
  assert.ok(T.hooks.includes('query.onSnapshot'));
+ T.deactivate();const oldEvents=T.data.events.length;await new Query().get();
+ assert.equal(T.data.events.length,oldEvents,'Opt-out immediately stops local measurement');
  const json=JSON.stringify(T.data);
  assert.equal(json.includes('SECRET'),false,'Never log doc ids');
  assert.equal(json.includes('PRIVATE'),false,'Never log workspace ids');
