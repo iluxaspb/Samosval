@@ -1169,3 +1169,59 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 .tn-peer-tag{position:absolute;bottom:100%;left:0;z-index:6;color:#fff;font:10px Arial;padding:2px 4px;border-radius:3px;white-space:nowrap;pointer-events:none}
 .tn-grid [data-peer]{overflow:visible}
 .tn-selection-box{border-color:var(--tn-own-color,#1466cc)!important}
+
+
+/* Calendar layer is independent of user-selected cell fill/colors.
+   It runs through the complete weekend date column (vertical) and adds
+   an accent across the date header (horizontal), without changing values. */
+.tn .tn-grid.tn-linked td.tn-weekend {
+  position: relative;
+}
+.tn .tn-grid.tn-linked td.tn-weekend::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(72, 91, 132, .12) 0px,
+    rgba(72, 91, 132, .12) 4px,
+    rgba(72, 91, 132, .045) 4px,
+    rgba(72, 91, 132, .045) 9px
+  );
+  box-shadow: inset 1px 0 rgba(72, 91, 132, .2),
+              inset -1px 0 rgba(72, 91, 132, .2);
+}
+.tn .tn-grid.tn-linked td.tn-weekend-date {
+  font-weight: 800;
+  white-space: pre-line;
+}
+.tn .tn-grid.tn-linked td.tn-weekend-date::after {
+  background: rgba(48, 66, 100, .18);
+  box-shadow: inset 0 3px rgba(60, 80, 122, .45),
+              inset 0 -3px rgba(60, 80, 122, .45);
+}
+.tn .tn-grid.tn-linked td.tn-explicit-day-off::after {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(94, 74, 134, .18) 0px,
+    rgba(94, 74, 134, .18) 5px,
+    rgba(94, 74, 134, .07) 5px,
+    rgba(94, 74, 134, .07) 10px
+  );
+}
+.tn .tn-grid.tn-linked td.tn-weekend-date.tn-explicit-day-off::after {
+  background: rgba(94, 74, 134, .2);
+  box-shadow: inset 0 3px rgba(94, 74, 134, .52),
+              inset 0 -3px rgba(94, 74, 134, .52);
+}
+.tn-day-off-banner {
+  margin: 7px 10px;
+  padding: 9px 12px;
+  border-left: 4px solid #745a9e;
+  background: rgba(115, 95, 156, .12);
+  border-radius: 7px;
+  font-weight: 650;
+  line-height: 1.4;
+}
