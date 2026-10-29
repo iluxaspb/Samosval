@@ -37,8 +37,14 @@ vm.runInNewContext(source,context,{filename:'firebase-traffic-hook.js'});
 const T=window.FirebaseTraffic;
 async function main(){
  assert.ok(T,'Recorder installed');
- assert.equal(T.dayMsk(Date.parse('2026-10-29T06:59:59Z')),'2026-10-28');
- assert.equal(T.dayMsk(Date.parse('2026-10-29T07:00:00Z')),'2026-10-29');
+ assert.equal(T.quotaDay(Date.parse('2026-10-29T06:59:59Z')),'2026-10-28');
+ assert.equal(T.quotaDay(Date.parse('2026-10-29T07:00:00Z')),'2026-10-29');
+ assert.equal(T.periodHours('2026-10-29'),24);
+ assert.equal(T.periodHours('2026-11-01'),25);
+ assert.equal(T.periodHours('2027-03-14'),23);
+ assert.equal(T.startMsk('2026-10-29'),'2026-10-29 10:00 МСК — 2026-10-30 10:00 МСК');
+ assert.equal(T.startMsk('2026-11-01'),'2026-11-01 10:00 МСК — 2026-11-02 11:00 МСК');
+ assert.equal(T.startMsk('2026-11-02'),'2026-11-02 11:00 МСК — 2026-11-03 11:00 МСК');
  assert.equal(T.quotaDay(Date.parse('2026-01-01T07:59:59Z')),'2025-12-31');
  assert.equal(T.quotaDay(Date.parse('2026-01-01T08:00:00Z')),'2026-01-01');
  const q=new Query(),doc=new DocumentReference();
@@ -50,7 +56,7 @@ async function main(){
  stop();assert.equal(T.data.active,0);
  const batch=new WriteBatch();batch.set(doc,{}).update(doc,{}).delete(doc);await batch.commit();
  const f=new Firestore();await f.runTransaction(async tx=>{await tx.get(doc);tx.set(doc,{x:1});tx.delete(doc);return true;});
- const day=T.data.days[T.todayMsk()];
+ const day=T.data.days[T.today()];
  assert.ok(day);
  assert.equal(day.reads,3+1+1+1,'query 3 + doc 1 + listener change 1 + transaction get 1');
  assert.equal(day.cached,2);
