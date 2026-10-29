@@ -19,6 +19,20 @@ export function add(s, n) {
   return d.toISOString().slice(0, 10);
 }
 export const display = (s) => date(s).split("-").reverse().join(".");
+export const isWeekendDate = (day) => {
+  const weekday = new Date(date(day) + "T12:00:00Z").getUTCDay();
+  return weekday === 0 || weekday === 6;
+};
+// An explicit day off can be entered on any weekday. Weekend dates remain
+// visually highlighted even when work was actually performed.
+export const isRestDay = (shift) =>
+  !!shift && (shift.dayOff === true || isWeekendDate(shift.date));
+export const restDayLabel = (shift) => {
+  if (shift?.dayOff === true) return "Выходной";
+  const weekday = new Date(date(shift.date) + "T12:00:00Z").getUTCDay();
+  return weekday === 6 ? "Сб" : weekday === 0 ? "Вс" : "";
+};
+
 export function days(a, b) {
   const out = [];
   date(a);
