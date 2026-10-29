@@ -14,7 +14,9 @@ const aliases = {
   "ЛОГ":"LOG","ЛОГ10":"LOG10","ЛН":"LN","ЭКСП":"EXP",
   "СИН":"SIN","КОС":"COS","ТАН":"TAN",
   "ГРАДУСЫ":"DEGREES","РАДИАНЫ":"RADIANS",
-  "СУММЕСЛИ":"SUMIF","СЧЁТЕСЛИ":"COUNTIF","СЧЕТЕСЛИ":"COUNTIF"
+  "СУММЕСЛИ":"SUMIF","СЧЁТЕСЛИ":"COUNTIF","СЧЕТЕСЛИ":"COUNTIF",
+  "СРЗНАЧЕСЛИ":"AVERAGEIF","СУММЕСЛИМН":"SUMIFS","СЧЁТЕСЛИМН":"COUNTIFS","СЧЕТЕСЛИМН":"COUNTIFS",
+  "СУММПРОИЗВ":"SUMPRODUCT"
 };
 const EPS = 1e-10;
 const error = code => {throw Error(code);};
@@ -108,10 +110,43 @@ const avg=n=>{if(!n.length)error("#ДЕЛ/0!");return n.reduce((a,b)=>a+b,0)/n.l
 const prod=n=>n.reduce((a,b)=>a*b,1);
 const fact=n=>{n=numeric(n);if(n<0||n>170)error("#ЧИСЛО!");let v=1;for(let j=2;j<=Math.floor(n);j++)v*=j;return v;};
 function gcd(a,b){a=Math.abs(Math.trunc(a));b=Math.abs(Math.trunc(b));while(b)[a,b]=[b,a%b];return a;}
+const matchesCriteria=(value,criterion)=>{
+  const source=String(criterion??"");
+  const m=/^(<=|>=|<>|!=|=|<|>)(.*)$/.exec(source);
+  const op=m?.[1]||"=",right=(m?m[2]:source).trim();
+  const rightNum=right!==""?Number(right.replace(",",".")):null;
+  const compareNumeric=typeof value==="number" && Number.isFinite(rightNum);
+  const a=compareNumeric?value:String(value??"").toLocaleLowerCase();
+  const b=compareNumeric?rightNum:right.toLocaleLowerCase();
+  if(op==="=")return a===b;
+  if(op==="<>"||op==="!=")return a!==b;
+  if(op==="<")return a<b;if(op===">")return a>b;
+  if(op==="<=")return a<=b;if(op===">=")return a>=b;
+  return false;
+};
 const functions={
   SUM:a=>nums(a).reduce((x,y)=>x+y,0),SUMSQ:a=>nums(a).reduce((x,y)=>x+y*y,0),
   PRODUCT:a=>prod(nums(a)),AVERAGE:a=>avg(nums(a)),
-  MIN:a=>Math.min(...nums(a)),MAX:a=>Math.max(...nums(a)),
+  MIN:a=>{const x=nums(a);return x.length?Math.min(...x):0;},
+  MAX:a=>{const x=nums(a);return x.length?Math.max(...x):0;},
+  COUNTIF:a=>{const data=flatten([a[0]]);return data.filter(v=>matchesCriteria(v,a[1])).length;},
+  SUMIF:a=>{const data=flatten([a[0]]),sum=flatten([a[2]??a[0]]);return data.reduce((total,v,i)=>total+(matchesCriteria(v,a[1])&&typeof sum[i]==="number"?sum[i]:0),0);},
+  AVERAGEIF:a=>{const data=flatten([a[0]]),sum=flatten([a[2]??a[0]]);return avg(data.flatMap((v,i)=>matchesCriteria(v,a[1])&&typeof sum[i]==="number"?[sum[i]]:[]));},
+  COUNTIFS:a=>{
+    if(!a.length||a.length%2)error("#АРГУМ!");
+    const first=flatten([a[0]]);
+    return first.filter((_,i)=>a.every((arg,j)=>j%2===1||matchesCriteria(flatten([arg])[i],a[j+1]))).length;
+  },
+  SUMIFS:a=>{
+    if(a.length<3||a.length%2===0)error("#АРГУМ!");
+    const sums=flatten([a[0]]);
+    return sums.reduce((total,v,i)=>total+(typeof v==="number"&&a.slice(1).every((arg,j)=>j%2===1||matchesCriteria(flatten([arg])[i],a[j+2]))?v:0),0);
+  },
+  SUMPRODUCT:a=>{
+    const arrays=a.map(x=>flatten([x])),len=arrays[0]?.length||0;
+    if(arrays.some(x=>x.length!==len))error("#ЗНАЧ!");
+    return Array.from({length:len},(_,i)=>arrays.reduce((m,x)=>m*(typeof x[i]==="number"?x[i]:0),1)).reduce((v,w)=>v+w,0);
+  },
   COUNT:a=>nums(a).length,COUNTA:a=>flatten(a).filter(x=>x!==""&&x!==null).length,
   MEDIAN:a=>{const n=nums(a).sort((x,y)=>x-y);if(!n.length)error("#ЧИСЛО!");return (n[(n.length-1)>>1]+n[n.length>>1])/2;},
   ROUND:a=>round(a[0],a[1]??0),ROUNDUP:a=>round(a[0],a[1]??0,"up"),
@@ -152,6 +187,7 @@ const functions={
 };
 const expected = {PI:[0,0],RAND:[0,0],IF:[2,3],IFERROR:[2,2],IFNA:[2,2],NOT:[1,1],
   ROUND:[1,2],ROUNDUP:[1,2],ROUNDDOWN:[1,2],TRUNC:[1,2],LOG:[1,2],
+  COUNTIF:[2,2],SUMIF:[2,3],AVERAGEIF:[2,3],
   CEILING:[1,2],FLOOR:[1,2],
   POWER:[2,2],MOD:[2,2],MROUND:[2,2],QUOTIENT:[2,2],
   RANDBETWEEN:[2,2],COMBIN:[2,2],PERMUT:[2,2],LARGE:[2,2],SMALL:[2,2],ATAN2:[2,2]};
@@ -221,4 +257,15 @@ export function evaluateWorkbookFormula(cells,key,size,stack,memo,coords,range) 
     if(typeof result==="number"&&!Number.isFinite(result))error("#ЧИСЛО!");
   }catch(e){result=typeof e.message==="string"&&e.message.startsWith("#")?e.message:"#ФОРМУЛА!";}
   stack.delete(key);memo.set(key,result);return result;
+}
+
+// Excel/Sheets export: preserve the formula, translating Russian function
+// names, separators and decimal commas to the invariant Excel dialect.
+export function toExcelFormula(source) {
+  let formula=String(source??"").replace(/^=/,"");
+  const isRussian=/[А-ЯЁ]|;/.test(formula.toUpperCase());
+  if(isRussian)formula=formula.replace(/(\d),(\d)/g,"$1.$2");
+  formula=formula.replace(/\b[A-ZА-ЯЁ_][A-ZА-ЯЁ_0-9.]*/gi,
+    word=>aliases[word.toUpperCase()]||word.toUpperCase());
+  return formula.replace(/;/g,",");
 }
