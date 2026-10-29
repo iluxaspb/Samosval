@@ -1174,9 +1174,8 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 /* Calendar layer is independent of user-selected cell fill/colors.
    It runs through the complete weekend date column (vertical) and adds
    an accent across the date header (horizontal), without changing values. */
-.tn .tn-grid.tn-linked td.tn-weekend {
-  position: relative;
-}
+/* Do not set position:relative here: the second table row is sticky.
+   Its original positioning must win for weekends just like weekdays. */
 .tn .tn-grid.tn-linked td.tn-weekend::after {
   content: "";
   position: absolute;
@@ -1194,8 +1193,27 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
               inset -1px 0 rgba(72, 91, 132, .2);
 }
 .tn .tn-grid.tn-linked td.tn-weekend-date {
-  font-weight: 800;
+  /* Same text height / line breaks as ordinary dates. The badge is absolute
+     inside the existing sticky cell, so it never expands the header row. */
   white-space: pre-line;
+}
+.tn .tn-grid.tn-linked td.tn-weekend-date[data-rest-label]::before {
+  content: attr(data-rest-label);
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  z-index: 2;
+  pointer-events: none;
+  background: rgba(255, 255, 255, .74);
+  border-radius: 3px;
+  padding: 0 2px;
+  line-height: 1.1;
+  font: 700 8px/1.1 system-ui, sans-serif;
+  color: #354766;
+}
+.tn .tn-grid.tn-linked td.tn-explicit-day-off[data-rest-label]::before {
+  background: rgba(255, 255, 255, .8);
+  color: #644b86;
 }
 .tn .tn-grid.tn-linked td.tn-weekend-date::after {
   background: rgba(48, 66, 100, .18);
