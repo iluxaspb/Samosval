@@ -10,7 +10,7 @@ export async function verifyFirebaseUser(request) {
   const match = /^Bearer ([A-Za-z0-9._-]+)$/.exec(authHeader);
   if (!match) return null;
   try {
-    const user = await getAuth().verifyIdToken(match[1], true);
+    const user = await getAuth().verifyIdToken(match[1]);
     return user.uid;
   } catch {
     return null;
