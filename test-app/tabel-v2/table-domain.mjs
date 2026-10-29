@@ -88,6 +88,14 @@ export function config(object) {
     volumeSource: "manual",
   };
 }
+// Per-shift material roster. Historical days without explicit selection retain
+// previous material entries, while new assignment-only materials stay scoped.
+export function materialsForShift(c, day) {
+  return (c.materials || []).filter(m => {
+    if (Array.isArray(day?.materialIds)) return day.materialIds.includes(m.id);
+    return !m.assignedOnly || day?.values?.[m.id]?.quantity != null;
+  });
+}
 export const dayKey = (d, shift) => "day:" + date(d) + ":" + shift;
 export function createDay(c, d, shift = "day", previous = null) {
   date(d);
