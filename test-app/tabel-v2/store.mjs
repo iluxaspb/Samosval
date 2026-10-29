@@ -326,9 +326,9 @@ export class Store {
               rebased={...copy(rebased),localId:parentId,data:copy(next.data)};
             }
             if(this.state.records[job.key]?.localId===parentId)
-              this.state.records[job.key]={
-                ...copy(rebased),localId:parentId
-              };
+              this.state.records[job.key]=parentId===job.id
+                ? copy(result)
+                : {...copy(rebased),localId:parentId};
             await this.persist();
           });
           this.error = "";
