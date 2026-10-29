@@ -16,6 +16,15 @@ export async function mount(s, root) {
       : s.days().find((d) => d.date === s.day && d.shift === s.shift) ||
         base.data;
   root.innerHTML = `<div class="tn-date-nav">${btn("‹", "prev-date", 'aria-label="Предыдущая дата"')}<input type="date" data-day value="${s.day}" aria-label="Дата смены"><select data-shift aria-label="Смена"><option value="day">Дневная</option><option value="night" ${s.shift === "night" ? "selected" : ""}>Ночная</option></select>${btn("›", "next-date", 'aria-label="Следующая дата"')}${btn("Сегодня", "today")}</div><div class="tn-tools">${btn("Начать / добавить смену", "add-day")}${d ? btn(s.shiftTab === "values" ? "Добавить материалы" : "Выбрать состав", s.shiftTab === "values" ? "add-materials" : "choose-roster") + btn("Удалить смену", "delete-shift", 'class="tn-danger"') : ""}</div><section data-shift-content></section><div class="tn-shift-tabs" role="tablist">${tabs.map(([id, label]) => btn(label, "shift-tab", `data-tab="${id}" role="tab" aria-selected="${s.shiftTab === id}"`)).join("")}</div>`;
+  if (d?.dayOff) {
+    const note = document.createElement("p");
+    note.className = "tn-day-off-banner";
+    note.setAttribute("role", "status");
+    note.textContent = "Выходной день · " + D.display(s.day) + " · " +
+      (s.shift === "night" ? "ночная смена" : "дневная смена") +
+      ". Эта дата сохранена отдельным столбцом таблицы.";
+    root.querySelector("[data-shift-content]").before(note);
+  }
   const navigate = async (date, shift = s.shift) => {
     s.day = D.date(date);
     s.shift = shift;
