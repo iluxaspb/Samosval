@@ -20,6 +20,14 @@
       ]
     },
     {
+      "name": "firebase-traffic-hook",
+      "kind": "script",
+      "attributes": " id=\"test-firebase-traffic-hook\"",
+      "sources": [
+        "features/firebase-traffic-hook.js"
+      ]
+    },
+    {
       "name": "core",
       "kind": "script",
       "attributes": "",
@@ -233,6 +241,14 @@
       "sha256": "94b6082bc2d2939da2214787ad258b870c426ef0475220b7dd364d3959498db7",
       "sources": [
         "features/offline-feedback.js"
+      ]
+    },
+    {
+      "name": "firebase-traffic-dashboard",
+      "kind": "script",
+      "attributes": " id=\"test-firebase-traffic-dashboard\"",
+      "sources": [
+        "features/firebase-traffic-dashboard.js"
       ]
     },
     {
