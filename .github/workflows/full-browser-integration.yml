@@ -35,6 +35,13 @@ jobs:
           # browser harness boots it on its own isolated random port.
           printf '%s\n' '{"emulators":{"firestore":{"port":8080},"ui":{"enabled":false}}}' > /tmp/samosval-browser-firebase.json
           /tmp/samosval-browser-qa/node_modules/.bin/firebase emulators:exec --config /tmp/samosval-browser-firebase.json --project demo-samosval-browser-audit --only firestore 'echo firestore-emulator-ready'
+      - name: Test address rename, pump toggle and per-shift materials
+        env:
+          NODE_PATH: /tmp/samosval-browser-qa/node_modules
+        run: |
+          python3 -m pip install playwright==1.56.0
+          BROWSER_PATH=$(node -p "require('playwright').chromium.executablePath()")
+          python3 -u tests/tabel-v2/material-roster-browser.py --chromium "$BROWSER_PATH"
       - name: End-to-end acceptance with demo Firebase only
         env:
           NODE_PATH: /tmp/samosval-browser-qa/node_modules

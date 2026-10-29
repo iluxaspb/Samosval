@@ -198,6 +198,10 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       );
       c[key] = (c[key] || []).filter((x) => !x.deleted && !deleted.has(x.id));
     }
+    // Keep the catalog as the single source of truth for a renamed address.
+    // The stored config may have a stale name from the first application.
+    const currentName = (host.data().objects || []).find(o => o.id === s.object?.id)?.name;
+    c.name = currentName || s.object?.name || c.name;
     return c;
   };
   s.require = (area, mode = "view") => {
@@ -453,6 +457,31 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     );
   }
   watch();
+  // The host Firestore object-list subscription announces object edits.
+  // Defer rendering when a form/cell is actively edited to prevent lost input.
+  const refreshRenamedObject = () => {
+    if (!s.object) return;
+    const current = (host.data().objects || []).find(o => o.id === s.object.id);
+    if (!current) return;
+    if (current.name !== s.object.name) {
+      s.object = { ...s.object, ...current };
+      s.renamePending = true;
+    }
+    if (!s.renamePending || root.hidden || !root.isConnected) return;
+    const select = root.querySelector('[data-object]');
+    const option = [...(select?.options || [])].find(o => o.value === s.object.id);
+    if (option) option.textContent = s.object.name;
+    const focused = document.activeElement;
+    if (s.gridDragging || document.querySelector('dialog.tn[open]') ||
+        (root.contains(focused) && focused?.matches('input:not([readonly]),textarea,[contenteditable="true"]'))) {
+      clearTimeout(s.renameTimer);
+      s.renameTimer = setTimeout(refreshRenamedObject, 500);
+      return;
+    }
+    s.renamePending = false;
+    render(s).catch(error);
+  };
+  globalThis.addEventListener('samosval-objects-changed', refreshRenamedObject);
   const observer = new MutationObserver(() => {
     root.hidden = !container.classList.contains("active");
   });
@@ -499,6 +528,8 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     async dispose() {
       s.foreignWriteConsents.clear();
       globalThis.removeEventListener('line-equipment-change', updateEquipmentCounts);
+      globalThis.removeEventListener('samosval-objects-changed', refreshRenamedObject);
+      clearTimeout(s.renameTimer);
       s.unwatch?.();
       observer.disconnect();
       s.conflictUI.dispose();
@@ -533,7 +564,7 @@ async function render(s) {
   s.root.classList.toggle("tn-table", s.view === "table");
   s.root.dataset.view = s.view;
   s.root.dataset.shiftContext = s.view === "shift" ? shiftContext : "";
-  s.root.innerHTML = `<header class="tn-header">${btn("×", "exit", 'class="tn-exit" aria-label="Закрыть табель"')}<select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.host.data().objects || []), ...(s.object ? [s.object] : [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
+  s.root.innerHTML = `<header class="tn-header">${btn("×", "exit", 'class="tn-exit" aria-label="Закрыть табель"')}<select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.object ? [s.object] : []), ...(s.host.data().objects || [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
     ["request", "Заявки"],
     ["shift", "Смена"],
     ["table", "Таблица"],

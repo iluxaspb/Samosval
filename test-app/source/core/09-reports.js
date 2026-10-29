@@ -8,8 +8,8 @@
     document.getElementById('paperReportWrapper').style.display = showGAITable ? 'none' : 'block';
     document.getElementById('gaiReportWrapper').style.display = showGAITable ? 'block' : 'none';
     document.getElementById('toggleReportBtn').textContent = '📄';
-    pO.textContent = 'Объект: ' + (state.shift ? state.shift.objectName : '—'); pD.textContent = state.shift ? state.shift.startDate : '';
-    gaiO.textContent = 'Объект: ' + (state.shift ? state.shift.objectName : '—'); gaiD.textContent = state.shift ? state.shift.startDate : '';
+    pO.textContent = 'Объект: ' + (state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : '—'); pD.textContent = state.shift ? state.shift.startDate : '';
+    gaiO.textContent = 'Объект: ' + (state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : '—'); gaiD.textContent = state.shift ? state.shift.startDate : '';
     if (!state.shift) { mB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; gaiB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; lC.innerHTML = '<div class="empty-state">Нет рейсов</div>'; pV.textContent='0 м³'; gaiV.textContent='0'; return; }
     let logs = getLogs(); let stdLogs = logs.filter(l=>!l.isGAI); let gaiLogs = logs.filter(l=>l.isGAI);
     let totV = stdLogs.reduce((s,l)=>s+l.volume,0); pV.textContent = totV + ' м³';

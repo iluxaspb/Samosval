@@ -83,7 +83,7 @@
     if (!logs.length) { showError('Нет данных'); return; }
     try {
       showToastEl('⏳ Подготовка PNG...', false);
-      const html = buildReportHTML({ objectName: state.shift.objectName, date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
+      const html = buildReportHTML({ objectName: objectTitle(state.shift.objectId,state.shift.objectName), date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
       const blob = await generatePNGFromHTML(html); downloadReportPNG(blob, `report_${type}_${Date.now()}.png`); showToastEl('✅ PNG готов', false);
     } catch(e) { showError('Ошибка PNG: ' + e.message); }
   }

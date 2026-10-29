@@ -23,7 +23,7 @@
       };
 
       const html = buildReportHTML({
-        objectName: state.shift.objectName,
+        objectName: (state.objects.find(o=>o.id===state.shift.objectId)?.name || state.shift.objectName),
         date: state.shift.startDate,
         logs: logs,
         activeLineIds: activeLineIds,

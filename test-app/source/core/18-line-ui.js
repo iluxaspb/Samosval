@@ -32,7 +32,7 @@
   window.addEventListener('tabel-v2-records-change', () => scheduleRender('renderHeaderStats'));
   function renderHeaderStats() {
     window.dispatchEvent(new Event('line-equipment-change'));
-    let d = state.shift ? `Смена от ${state.shift.startDate}` : 'Смена не начата'; let o = state.shift ? state.shift.objectName : 'Не выбран';
+    let d = state.shift ? `Смена от ${state.shift.startDate}` : 'Смена не начата'; let o = state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : 'Не выбран';
     let act = state.shift ? getActiveLineIds().filter(id => { let t = findTruck(id); if (!t || t.isGAI) return false; return !state.truckStatus[id] || state.truckStatus[id].ttnStatus !== true; }).length : 0;
     let logs = getLogs(); let stdLogs = logs.filter(l => !l.isGAI); let v = stdLogs.reduce((s,l)=>s+l.volume,0);
     document.getElementById('shiftDate').textContent = d; document.getElementById('headerObject').textContent = 'Объект: ' + o;
@@ -301,7 +301,7 @@
   }
   async function addAudit(text, details = {}) {
     const timestamp = Date.now();
-    const entry = { text, timeStr: new Date(timestamp).toLocaleString('ru-RU'), objectName: state.shift?.objectName || '—', objectId: state.shift?.objectId || '', shiftId: state.shift?.id || '', userEmail: currentEmail || '', userName: getUserName(), createdByEmail: currentEmail || '', timestamp, ...details };
+    const entry = { text, timeStr: new Date(timestamp).toLocaleString('ru-RU'), objectName: state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : '—', objectId: state.shift?.objectId || '', shiftId: state.shift?.id || '', userEmail: currentEmail || '', userName: getUserName(), createdByEmail: currentEmail || '', timestamp, ...details };
     pendingStart();
     try { await refs.audit.add(entry); }
     catch(e) { console.warn('Audit error:', e); showError('Не удалось записать событие в аудит: ' + e.message); }
@@ -315,7 +315,7 @@
   function renderAuditEntries() {
     return '<div style="font-size:11px;color:var(--muted);margin:8px 0">Последние ' + state.audit.length + ' событий всех пользователей (до 200). Новые события сверху.</div>' + state.audit.map(a => {
       const name = resolveUserDisplayName(a.userEmail || a.createdByEmail, a.userName);
-      return `<div class="audit-item"><div class="audit-time">${escapeHtml(a.timeStr)} · ${escapeHtml(name)}</div><div>${escapeHtml(a.text)}</div><div class="audit-time" style="margin-top:5px">${escapeHtml(a.objectName || '—')}</div></div>`;
+      return `<div class="audit-item"><div class="audit-time">${escapeHtml(a.timeStr)} · ${escapeHtml(name)}</div><div>${escapeHtml(a.text)}</div><div class="audit-time" style="margin-top:5px">${escapeHtml(objectTitle(a.objectId,a.objectName))}</div></div>`;
     }).join('');
   }
 

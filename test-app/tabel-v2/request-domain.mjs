@@ -21,7 +21,7 @@ export function lunch(c, object, {mechanic=false, spare=false, workers=0}={}) {
   const person=responsible(c);
   return {rows, total:rows.reduce((sum,r)=>sum+r.count,0),person,
     phone:person?.phone || person?.telephone || "",
-    address:object.address || object.location || c.name};
+    address:object.name || object.address || object.location || c.name};
 }
 export function lunchText(c, object, dateLabel, options) {
   const x=lunch(c,object,options);
