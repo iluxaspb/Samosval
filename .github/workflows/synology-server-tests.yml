@@ -182,3 +182,57 @@ jobs:
           path: releases/nas-test.json
           if-no-files-found: error
           retention-days: 7
+
+  publish-tested-manifest:
+    name: Publish TEST 4.1.2 server manifest to root after all gates
+    if: github.event_name == 'push' && github.ref == 'refs/heads/root'
+    needs: [verify-server, verify-control-browser, package-tested-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: samosval-test-server-manifest
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare pinned, checksummed API-only manifest
+        env:
+          VERIFIED_HEAD: ${{ github.sha }}
+        run: |
+          node server/scripts/prepare-control-release.mjs 4.1.2
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {normalizeRelease} from './server/updater/release.mjs';
+          const m=normalizeRelease(JSON.parse(readFileSync('releases/nas-test.json','utf8')));
+          if(m.commit!==process.env.VERIFIED_HEAD||m.version!=='4.1.2'||m.migrations.length!==0)
+            throw Error('tested-source-mismatch');
+          console.log('VERIFIED_RELEASE_MANIFEST',m.commit,m.files.length);
+          NODE
+      - name: Commit TEST-only server manifest without touching production
+        env:
+          VERIFIED_HEAD: ${{ github.sha }}
+        run: |
+          cp releases/nas-test.json /tmp/samosval-nas-412.json
+          git restore releases/nas-test.json
+          git fetch origin root
+          git switch -C tested-manifest-publish origin/root
+          if ! git diff --quiet "$VERIFIED_HEAD" HEAD -- server/src server/sql server/package.json; then
+            echo "::error::Server source changed on root after tests; refuse stale release manifest"
+            exit 1
+          fi
+          cp /tmp/samosval-nas-412.json releases/nas-test.json
+          git config user.name "Samosval TEST Release"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add releases/nas-test.json
+          if git diff --cached --quiet; then
+            echo "Server manifest is already verified and published"
+          else
+            git commit -m "release(test): publish checksummed server API 4.1.2"
+            git push origin HEAD:root
+          fi
