@@ -116,7 +116,26 @@ sqltest('SQL 014 accepts an isolated TEST verification database but rejects prod
           "current_database() NOT IN ('samosval_test','"+id+"')");
         await verify.query(fixtureSql);
       }
+      // Real NAS also retains immutable evidence from cleanup-nas-probe.sql.
+      // It must survive installation without becoming a business outbox table.
+      await verify.query(`CREATE TABLE migration_probe_evidence (
+        recorded_at timestamptz NOT NULL DEFAULT now(), evidence jsonb NOT NULL
+      ); INSERT INTO migration_probe_evidence(evidence) VALUES ('{"probe":"preserve"}')`);
       await verify.query(source);
+      assert.deepEqual((await verify.query('SELECT evidence FROM migration_probe_evidence')).rows,
+        [{evidence:{probe:'preserve'}}]);
+      assert.equal((await verify.query(
+        "SELECT count(*)::int AS n FROM pg_trigger WHERE tgrelid='migration_probe_evidence'::regclass AND tgname='reserve_row_change'"
+      )).rows[0].n,0);
+      // The exception is narrow: unrelated tables and altered evidence schema
+      // still abort atomically; never silently ignore unknown business data.
+      await verify.query('CREATE TABLE unexpected_business_table(id text PRIMARY KEY)');
+      await assert.rejects(verify.query(source),/reserve-outbox-schema-inventory-mismatch/);
+      await verify.query('ROLLBACK');
+      await verify.query('DROP TABLE unexpected_business_table');
+      await verify.query('ALTER TABLE migration_probe_evidence ADD COLUMN unexpected text');
+      await assert.rejects(verify.query(source),/reserve-outbox-legacy-evidence-schema-mismatch/);
+      await verify.query('ROLLBACK');
       const triggerCount=(await verify.query(
         "SELECT count(*)::integer AS n FROM pg_trigger WHERE tgname='reserve_row_change' AND NOT tgisinternal"
       )).rows[0].n;
