@@ -71,3 +71,13 @@ sqltest('simultaneous TEST writers must commit in strict outbox sequence',async(
   await pool.end();
  }
 });
+
+sqltest('volatile NAS heartbeat never generates Firebase replication writes',async()=>{
+ const pool=open();
+ try{
+  const before=await position(pool);
+  await pool.query("INSERT INTO server_control_state(channel,heartbeat,payload) VALUES('test',now(),'{}') ON CONFLICT(channel) DO UPDATE SET heartbeat=now(),payload='{}'::jsonb");
+  await pool.query("UPDATE server_control_state SET heartbeat=clock_timestamp(),payload=$1::jsonb WHERE channel='test'",[JSON.stringify({host:{memoryBytes:1234},protocol:1})]);
+  assert.equal(await position(pool),before,'operational heartbeat must not create minute batches');
+ }finally{await pool.end();}
+});
