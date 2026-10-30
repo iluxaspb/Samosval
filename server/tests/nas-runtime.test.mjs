@@ -28,6 +28,29 @@ const session=()=>({identityReady:true,profile:{uid:'one',role:'admin',status:'a
 const snapshot=(revision=2)=>({shift:{id:'shift'},trucks:[{id:'truck'}],statuses:[{id:'truck',shiftId:'shift',cycleRevision:revision,ttnRevision:0}],logs:[],cycleMinutes:15});
 const operation=()=>({id:'stable',type:'load',truckId:'truck',shiftId:'shift',status:'pending',operationScope:JSON.stringify(['synology','https://iluxa.synology.me:18443','main_workspace','one'])});
 
+test('NAS confirmed game receipt returns without a slow historical download and stale polls cannot undo it',async()=>{
+  const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);
+  const initial={records:[],adjustments:[],head:{gameRound:0,bank:1000},players:{}};
+  h.client.readGames=async()=>initial;await h.c.refreshNasGames();
+  let release;h.client.readGames=()=>new Promise(resolve=>{release=resolve;});
+  const stale=h.c.refreshNasGames();
+  const confirmed={id:'arcade_round_1',gameRound:1,bank:1001,userUid:'one',player:{uid:'one',net:-1},actors:{one:1},eventType:'game_arcade',kind:'slot',cost:1,payout:0};
+  h.c.gameReceipt={result:{round:1,delta:-1,confirmedHead:confirmed}};
+  vm.runInContext('nasBusinessCommand=async()=>gameReceipt',h.c);
+  const result=await Promise.race([h.c.nasGameAction({id:'spin',kind:'slot'}),new Promise((_,reject)=>setTimeout(()=>reject(Error('waited for historical read')),100))]);
+  assert.equal(result.round,1);assert.equal(vm.runInContext('nasGameSnapshot.head.gameRound',h.c),1);
+  release(initial);await stale;assert.equal(vm.runInContext('nasGameSnapshot.head.gameRound',h.c),1);
+  assert.equal(vm.runInContext('nasGameSnapshot.players.one.net',h.c),-1);
+});
+test('NAS transient game read failure keeps confirmed wallet; forbidden access clears it',async()=>{
+  const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);
+  h.client.readGames=async()=>({records:[],adjustments:[],head:{gameRound:0,bank:1000},players:{}});await h.c.refreshNasGames();
+  h.c.nasGameReadError({code:'api-timeout',retryable:true});assert.equal(vm.runInContext('nasGameReady',h.c),true);
+  h.c.nasGameReadError({code:'api-http-403',status:403});assert.equal(vm.runInContext('nasGameReady',h.c),false);assert.equal(vm.runInContext('nasGameSnapshot',h.c),null);
+  await h.c.refreshNasGames();const lower=session();lower.profile.role='viewer';h.c.applyNasSession(lower);
+  assert.equal(vm.runInContext('nasGameSnapshot',h.c),null,'admin wallet/grants cannot survive a role change');
+});
+
 test('NAS core authentication uses NAS profile instead of forced email or Firestore profile',async()=>{
   const h=harness(),{c}=h;let callback;
   Object.assign(c,{DEFAULT_PERMISSIONS:{},syncState:{},confirmedLoadIds:new Set(),activeProfileKey:'',userDocUnsubscriber:null,loadCache(){},stopSync(){c.stopNasRuntime();},updateSyncUI(){},getSyncStatus:()=>({}),
