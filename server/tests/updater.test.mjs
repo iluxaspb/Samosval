@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm,readFile,writeFile} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';
-import {normalizeRelease,digest,sourceBytes,verifiedRelease,planTestSchemaUpgrade} from '../updater/release.mjs';import {TestControlAgent} from '../updater/agent.mjs';
+import {normalizeRelease,digest,sourceBytes,verifiedRelease,planTestSchemaUpgrade} from '../updater/release.mjs';import {TestControlAgent,BACKUP_LIST_COMMAND,SYNTAX_CHECK_SCRIPT} from '../updater/agent.mjs';
 const file=path=>({path,sha256:'a'.repeat(64),bytes:1});
 const manifest=()=>({format:'samosval-api-release',protocol:1,channel:'test',version:'4.1.1',commit:'a'.repeat(40),dependenciesSha256:'b'.repeat(64),schemaSha256:'c'.repeat(64),files:[file('src/index.mjs'),file('src/server-control.mjs')]});
 test('release manifest excludes arbitrary URLs, paths, dependencies and production',()=>{
@@ -137,5 +137,33 @@ test('failed backup rehearsal leaves live schema and API untouched',async()=>{
   }}),/restore-test-failed/);
   assert.deepEqual(events,['rehearsal-failed']);
   assert.equal(JSON.parse(await readFile(root+'/baseline.json','utf8')).schemaSha256,'c'.repeat(64));
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('archive TOC inspection drains a multi-megabyte stdin and preserves list errors',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'sc-list-stream-'));
+ try{
+  const {spawn}=await import('node:child_process');
+  await writeFile(join(root,'pg_restore'),'#!/bin/sh\ndd bs=1 count=8 >/dev/null 2>&1\nprintf "TOC\\n"\nexit "$MOCK_LIST_EXIT"\n',{mode:0o700});
+  for(const expected of [0,7]){
+   const result=await new Promise((resolve,reject)=>{
+    const child=spawn('sh',['-c',BACKUP_LIST_COMMAND],{env:{...process.env,PATH:root+':'+process.env.PATH,MOCK_LIST_EXIT:String(expected)},stdio:['pipe','pipe','pipe']});
+    let output='';const timer=setTimeout(()=>{child.kill('SIGKILL');reject(Error('drain-timeout'));},10000);
+    child.on('error',reject);child.stdin.on('error',reject);child.stderr.resume();child.stdout.on('data',b=>output+=b);
+    child.on('close',code=>{clearTimeout(timer);resolve({code,output});});
+    child.stdin.end(Buffer.alloc(8*1024*1024,42));
+   });
+   assert.equal(result.code,expected);assert.equal(result.output,'TOC\n');
+  }
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+test('batched candidate syntax checks accept all valid modules and reject one invalid module',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'sc-check-batch-'));
+ try{
+  const {spawnSync}=await import('node:child_process');
+  const good=join(root,'good.mjs'),bad=join(root,'bad.mjs');
+  await writeFile(good,'export const valid=1;');await writeFile(bad,'export const = ;');
+  assert.equal(spawnSync(process.execPath,['--input-type=module','-e',SYNTAX_CHECK_SCRIPT,good,good]).status,0);
+  assert.notEqual(spawnSync(process.execPath,['--input-type=module','-e',SYNTAX_CHECK_SCRIPT,good,bad]).status,0);
  }finally{await rm(root,{recursive:true,force:true});}
 });
