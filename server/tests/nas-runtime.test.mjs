@@ -201,3 +201,18 @@ test('NAS command captures nested form data before waiting for a cross-tab lock'
   const fields={type:'object.create',expectedRevision:0,data:{name:'Original'}};
   const pending=h.c.nasBusinessCommand('control','object:new',fields);fields.data.name='Changed';unlock();await pending;assert.equal(sent.data.name,'Original');
 });
+
+// A failed poll must not leave an error badge after a later accepted snapshot.
+test('NAS line clears a transport failure only after accepting a current server snapshot',async()=>{
+ const h=harness(),{c}=h;
+ vm.runInContext(source('03-formatting.js'),c);
+ c.updateSyncUI=()=>{};
+ c.syncState={errors:{nas:{code:'api-unreachable'}},pendingWrites:{},docCount:{},fromCache:{},everConnected:{}};
+ await c.startNasRuntime(c.auth.currentUser);
+ h.snapshot(snapshot());
+ assert.equal(c.syncState.errors.nas,undefined);
+ c.syncState.errors.nas={code:'api-unreachable'};
+ vm.runInContext("nasReceiptFloors.set('truck',{truckId:'truck',shiftId:'shift',cycle:3,ttn:0})",c);
+ h.snapshot(snapshot());
+ assert.equal(c.syncState.errors.nas.code,'api-unreachable');
+});

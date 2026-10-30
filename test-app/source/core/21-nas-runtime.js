@@ -58,7 +58,7 @@
     offlineRemoteStatuses=Object.fromEntries(snapshot.statuses.map(s=>[s.id,s]));offlineRemoteLogs=snapshot.logs.slice();
     offlineProjectState();initialized=true;
     for(const [source,count] of [['trucks',snapshot.trucks.length],['status',snapshot.statuses.length],['logs',snapshot.logs.length],['shift',snapshot.shift?1:0]])markSync(source,false,false,count);
-    saveCache();renderAll();return true;
+    markSync('nas',false,false,snapshot.logs.length);saveCache();renderAll();return true;
   }
   async function startNasRuntime(user) {
     const epoch=nasRuntimeEpoch;
@@ -88,7 +88,7 @@
     if(nasAuxRead)return nasAuxRead;
     const work=(async()=>{const snapshot=await client.readAuxiliary();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration)return;
       const pluginsChanged=JSON.stringify(state.plugins)!==JSON.stringify(snapshot.plugins),patchesChanged=JSON.stringify(state.patches)!==JSON.stringify(snapshot.patches);
-      nasAuxSnapshot=snapshot;state.plugins=snapshot.plugins;state.patches=snapshot.patches;state.audit=snapshot.audit.slice(0,200);state.lineAudit=snapshot.audit;
+      markSync('nas-auxiliary',false,false,1);nasAuxSnapshot=snapshot;state.plugins=snapshot.plugins;state.patches=snapshot.patches;state.audit=snapshot.audit.slice(0,200);state.lineAudit=snapshot.audit;
       state.notifications=snapshot.notifications;offlineProjectTicker();
       for(const key of ['plugins','patches','audit','notifications'])markSync(key,false,false,snapshot[key].length);
       if(pluginsChanged)initPlugins();if(patchesChanged){state.patches.sort((a,b)=>(a.order||0)-(b.order||0));if(!window.__nasPatchesApplied){window.__nasPatchesApplied=true;applyAllPatches();}}
@@ -137,7 +137,7 @@
     };
   });
   function acceptNasSettings(snapshot){
-    nasSettingsSnapshot=snapshot;appConfig={...snapshot.data};
+    markSync('nas-settings',false,false,1);nasSettingsSnapshot=snapshot;appConfig={...snapshot.data};
     settings.cycleMinutes=snapshot.data.cycleMinutes;renderAppSettingsIfActive();window.__gameConfigChanged?.();
     window.dispatchEvent(new Event('review-flags-changed'));
   }
@@ -159,7 +159,7 @@
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
     if(nasArchiveRead)return nasArchiveRead;
     const work=(async()=>{const snapshot=await client.readArchive();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration||!hasTabAccess('archive')&&!hasTabAccess('analytics'))return;
-      state.archive=snapshot.archives;state.trash=snapshot.trash;markSync('archive',false,false,state.archive.length);markSync('trash',false,false,state.trash.length);saveCache();renderAll();})();
+      markSync('nas-archive',false,false,snapshot.archives.length);state.archive=snapshot.archives;state.trash=snapshot.trash;markSync('archive',false,false,state.archive.length);markSync('trash',false,false,state.trash.length);saveCache();renderAll();})();
     nasArchiveRead=work;try{return await work;}finally{if(nasArchiveRead===work)nasArchiveRead=null;}
   }
   async function nasArchiveAction(type,id){
@@ -173,7 +173,7 @@
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
     if(nasGameRead)return nasGameRead;
     const work=(async()=>{const snapshot=await client.readGames();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration)return;
-      nasGameSnapshot=snapshot;nasGameReady=true;window.__gameAccessChanged?.();window.RoadArcade?.sync();})();
+      markSync('nas-games',false,false,snapshot.records.length);nasGameSnapshot=snapshot;nasGameReady=true;window.__gameAccessChanged?.();window.RoadArcade?.sync();})();
     nasGameRead=work;try{return await work;}finally{if(nasGameRead===work)nasGameRead=null;}
   }
   async function nasGameAction(action){
@@ -192,7 +192,7 @@
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client||currentUserStatus!=='active')return;
     if(nasCatalogRead)return nasCatalogRead;
     const work=(async()=>{const catalog=await client.readCatalog();if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||!hasTabAccess('line')&&!hasTabAccess('trucks')&&!hasTabAccess('timesheet'))return;
-      nasCatalogSnapshot=catalog;state.trucks=catalog.trucks.map(row=>({...row.data,id:row.id,revision:row.revision}));state.objects=catalog.objects.map(row=>({...row.data,id:row.id,revision:row.revision}));if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName);
+      markSync('nas-objects',false,false,catalog.objects.length);nasCatalogSnapshot=catalog;state.trucks=catalog.trucks.map(row=>({...row.data,id:row.id,revision:row.revision}));state.objects=catalog.objects.map(row=>({...row.data,id:row.id,revision:row.revision}));if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName);
       markSync('objects',false,false,state.objects.length);saveCache();window.dispatchEvent(new Event('samosval-objects-changed'));
     })();nasCatalogRead=work;try{return await work;}finally{if(nasCatalogRead===work)nasCatalogRead=null;}
   }
@@ -237,7 +237,7 @@
     const work=(async()=>{
       const snapshot=await client.readAdministration();
       if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!canAdmin())throw Error('Сеанс администратора изменился');
-      nasAdministration=snapshot;state.users=snapshot.users.map(u=>({...u,id:u.uid}));state.requests=snapshot.requests.map(r=>({...r,id:r.uid}));
+      markSync('nas-admin',false,false,snapshot.users.length);nasAdministration=snapshot;state.users=snapshot.users.map(u=>({...u,id:u.uid}));state.requests=snapshot.requests.map(r=>({...r,id:r.uid}));
       permissionsConfig={...snapshot.permissions,admin:permissionsConfig.admin};
       requestSyncStatus.requests=true;requestSyncStatus.users=true;requestSyncStatus.errors={};renderAdminPanel();return snapshot;
     })();nasAdminRead=work;
