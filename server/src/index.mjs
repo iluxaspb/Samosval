@@ -1,4 +1,6 @@
 import http from 'node:http';
+import {readArchiveSnapshot} from './archive-read.mjs';
+import {readLineHistory,historyOperation} from './history-store.mjs';
 import { Pool } from 'pg';
 import { verifyFirebaseUser, verifyFirebaseIdentity } from './auth.mjs';
 import {readSession,registerPending,readAdministration,identityOperation,readMembers} from './identity-store.mjs';
@@ -58,6 +60,27 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET' && path==='/health/ready'){
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
+  }
+  if(path==='/api/v1/archive/snapshot'&&req.method==='GET'){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{return send(res,200,await readArchiveSnapshot(pool,uid));}
+    catch(e){
+      const status=[400,403,409].includes(e.status)?e.status:500;
+      if(status===500)console.error('[archive-api] request failed',e?.code||e?.name||'unknown');
+      return send(res,status,{error:status===500?'server-error':e.code||e.message});
+    }
+  }
+  if(path==='/api/v1/history'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readLineHistory(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await historyOperation(pool,uid,await readJson(req)));
+    }catch(e){
+      const status=[400,403,409,413].includes(e.status)?e.status:500;
+      if(status===500)console.error('[history-api] request failed',e?.code||e?.name||'unknown');
+      return send(res,status,{error:status===500?'server-error':e.code||e.message});
+    }
   }
   if(path==='/api/v1/registration'&&req.method==='POST'){
     const identity=await verifyFirebaseIdentity(req);
