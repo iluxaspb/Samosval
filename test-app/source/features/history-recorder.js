@@ -25,6 +25,7 @@
   }
   function refInfo(ref){const p=ref.path.split('/');return {collection:p.length===4?p[2]:p[0],id:p.at(-1),path:ref.path};}
   async function run(callback,options){
+    if(isNasRuntime())throw new Error('Запись Firebase запрещена в режиме Synology');
     const historyId='history_'+(crypto.randomUUID?crypto.randomUUID():Date.now()+'_'+Math.random().toString(36).slice(2));
     const actor={uid:currentUid,email:currentEmail,name:getUserName()},time=Date.now();
     return rawTransaction(async tx=>{

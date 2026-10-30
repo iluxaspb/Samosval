@@ -15,6 +15,7 @@ import { readCatalog, submitControl } from './control-store.mjs';
 import {readSettings,submitSettings} from './settings-store.mjs';
 import {submitArchive} from './archive-store.mjs';
 import {readGames,submitGame} from './game-store.mjs';
+import {readAuxiliary,submitAuxiliary} from './auxiliary-store.mjs';
 
 const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
@@ -66,6 +67,14 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET' && path==='/health/ready'){
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
+  }
+  if(path==='/api/v1/auxiliary'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readAuxiliary(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitAuxiliary(pool,uid,await readJson(req,8000000)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[auxiliary-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
   }
   if(path==='/api/v1/settings'&&['GET','POST'].includes(req.method)){
     const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});

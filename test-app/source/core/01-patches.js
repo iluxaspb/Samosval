@@ -1,4 +1,5 @@
   async function loadAndApplyPatches() {
+    if(isNasRuntime())return refreshNasAuxiliary();
     try {
       const snap = await refs.patches.where('enabled', '==', true).get();
       state.patches = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
@@ -11,7 +12,7 @@
   function applyAllPatches() {
     if (!state.patches || !state.patches.length) return;
     let appliedCount = 0, errorCount = 0;
-    state.patches.forEach(patch => {
+    state.patches.filter(patch=>patch.enabled).forEach(patch => {
       try {
         if (patch.type === 'function') {
           (0, eval)(patch.code);

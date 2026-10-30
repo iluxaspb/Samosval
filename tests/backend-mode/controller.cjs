@@ -3,7 +3,7 @@ const source=fs.readFileSync('test-app/source/core/20-backend-mode.js','utf8');
 function harness(){
  const saved=new Map(),errors=[],toasts=[];
  const nodes=Object.fromEntries(['admin-backend-settings','testBackendMode','testBackendActual','testBackendModeNote'].map(id=>[id,{}]));
- const c={currentUid:'admin-a',permissionsLoaded:true,currentUserStatus:'active',currentUserRole:'admin',firebaseConfig:{projectId:'samosval-offline'},WORKSPACE_ID:'main_workspace',
+ const c={isNasRuntime:()=>false,currentUid:'admin-a',permissionsLoaded:true,currentUserStatus:'active',currentUserRole:'admin',firebaseConfig:{projectId:'samosval-offline'},WORKSPACE_ID:'main_workspace',
  document:{getElementById:id=>nodes[id]},localStorage:{getItem:k=>saved.get(k)||null,setItem:(k,v)=>saved.set(k,v)},
  canAdmin:()=>c.currentUserStatus==='active'&&c.currentUserRole==='admin',getSyncStatus:()=>({state:'ok'}),
  showError:s=>errors.push(s),showToastEl:s=>toasts.push(s),updateSyncUI:()=>c.renderTestBackendControls()};
@@ -34,4 +34,6 @@ const shell=fs.readFileSync('test-app/source/shell.html','utf8');
 assert.match(shell,/<button[^>]+class="sync-dot-wrap"/);
 assert.match(shell,/<option value="synology" disabled>/);
 assert.match(shell,/id="testBackendMode"[^>]+aria-describedby="testBackendModeNote" disabled/);
+c.isNasRuntime=()=>true;c.localStorage.setItem=(k,v)=>saved.set(k,v);c.currentUid='admin-a';
+assert.equal(c.getTestBackendMode(),'synology');assert.equal(c.getTestBackendIndicator({state:'ok'}).letter,'S');assert.equal(c.getTestBackendIndicator({state:'offline'}).letter,'О');
 console.log('PASS backend controls: admin checks, account isolation, persistence failure, honest F/O/init/error states, unavailable NAS rejection; no business writes or queue mutations');

@@ -14,6 +14,7 @@ def main():
     panel=re.search(r'<details class="admin-settings-group" id="admin-backend-settings"[\s\S]*?</details>',built)[0]
     fixture='''let currentUid='admin-a',currentEmail='qa@example.test',currentUserRole='admin',currentUserStatus='active',permissionsLoaded=true,initialized=true;
 const firebaseConfig={projectId:'samosval-offline'},WORKSPACE_ID='main_workspace';
+const isNasRuntime=()=>false;
 let queued=2,pendingOps=0,offlineServerUnreachable=false;
 const syncState={errors:{},pendingWrites:{},docCount:{},lastSuccessAt:0,fromCache:{},everConnected:Object.fromEntries(['profile','permissions','trucks','status','shift'].map(k=>[k,true]))};
 const offlinePendingCount=()=>queued,offlineUnreviewedFailures=()=>[];

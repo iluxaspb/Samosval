@@ -16,7 +16,7 @@ function harness(){
     offlinePendingOps:()=>structuredClone(journal.filter(x=>x.status==='pending')),offlineJournalRead:()=>structuredClone(journal),offlineJournalWrite:items=>{writes.push(structuredClone(items));journal=structuredClone(items);},
     offlineResolve:(id,status,reason)=>{const row=journal.find(x=>x.id===id);row.status=status;row.result=reason;},
     offlineProjectState:()=>{c.state.truckStatus=c.offlineRemoteStatuses;c.state.logs=c.offlineRemoteLogs;},
-    offlineAdoptResult:(_op,result)=>{c.state.truckStatus.truck=result.status;},window:{dispatchEvent(){}},
+    offlineAdoptResult:(_op,result)=>{c.state.truckStatus.truck=result.status;},refs:{},window:{dispatchEvent(){},addEventListener(){}},
   };
   vm.createContext(c);vm.runInContext(source('21-nas-runtime.js'),c);
   const client={uid:'one',scope:JSON.stringify(['synology','https://iluxa.synology.me:18443','main_workspace','one']),readAdministration:async()=>({users:[{uid:'one',revision:1,role:'admin',status:'active'},{uid:'target',revision:1,role:'viewer',status:'pending'}],deletedUsers:[],requests:[{uid:'target',revision:1}],permissions:{viewer:{tabs:[],actions:[],revision:1}}}),subscribeLine:handlers=>{onSession=handlers.onSession;onSnapshot=handlers.onSnapshot;return ()=>calls.push(['unsubscribe']);},stop:()=>calls.push(['stop']),submitLine:async(op,options)=>{calls.push(['submit',op,options]);return {outcome:'confirmed',status:{shiftId:'shift',cycleRevision:2,ttnRevision:0}};}};

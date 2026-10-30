@@ -9,6 +9,7 @@
   let nasSettingsSnapshot=null,nasSettingsRead=null;
   let nasArchiveRead=null;
   let nasGameRead=null,nasGameSnapshot=null,nasGameReady=false;
+  let nasAuxSnapshot=null,nasAuxRead=null;
   const nasCommandFlights=new Map();
   function stopNasRuntime() {
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
@@ -20,6 +21,7 @@
     nasSettingsSnapshot=null;nasSettingsRead=null;
     nasArchiveRead=null;
     nasGameRead=null;nasGameSnapshot=null;nasGameReady=false;
+    nasAuxSnapshot=null;nasAuxRead=null;
   }
   function loadNasSessionClient() { return import(new URL('./test-app/synology/session-client.mjs',document.baseURI).href); }
   function applyNasSession(session) {
@@ -64,11 +66,13 @@
       const {createNasClient}=await loadNasSessionClient();
       if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid)return;
       const client=createNasClient({getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
+      for(const name of ['plugins','patches','audit','notifications'])refs[name]=nasAuxCollection(name,client,epoch);
       let registering=false;
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
         onSession:session=>{if(epoch!==nasRuntimeEpoch)return;applyNasSession(session);
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasSettings().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-settings',error);});
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch){nasGameReady=false;window.__gameAccessChanged?.();reportSyncError('nas-games',error);}});
+          if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasAuxiliary().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-auxiliary',error);});
           if(session.profile?.status==='active'&&(hasTabAccess('archive')||hasTabAccess('analytics')))void refreshNasArchive().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-archive',error);});
           if(session.identityReady&&!session.profile&&!registering){registering=true;void ensureNasPendingAccount(user).catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-registration',error);}).finally(()=>{registering=false;});}
           if(session.profile?.status==='active'&&(session.permissions.tabs.includes('line')||session.permissions.tabs.includes('trucks')||session.permissions.tabs.includes('timesheet')))void refreshNasObjects().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-objects',error);});
@@ -79,6 +83,52 @@
     }catch(error){if(epoch===nasRuntimeEpoch)reportSyncError('nas',error);}
   }
   function loadNasTabelRemote(){return import(new URL('./test-app/synology/tabel-remote.mjs',document.baseURI).href);}
+  async function refreshNasAuxiliary(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
+    if(nasAuxRead)return nasAuxRead;
+    const work=(async()=>{const snapshot=await client.readAuxiliary();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration)return;
+      const pluginsChanged=JSON.stringify(state.plugins)!==JSON.stringify(snapshot.plugins),patchesChanged=JSON.stringify(state.patches)!==JSON.stringify(snapshot.patches);
+      nasAuxSnapshot=snapshot;state.plugins=snapshot.plugins;state.patches=snapshot.patches;state.audit=snapshot.audit.slice(0,200);state.lineAudit=snapshot.audit;
+      state.notifications=snapshot.notifications;offlineProjectTicker();
+      for(const key of ['plugins','patches','audit','notifications'])markSync(key,false,false,snapshot[key].length);
+      if(pluginsChanged)initPlugins();if(patchesChanged){state.patches.sort((a,b)=>(a.order||0)-(b.order||0));if(!window.__nasPatchesApplied){window.__nasPatchesApplied=true;applyAllPatches();}}
+      saveCache();renderStatusTicker();renderHeaderStats();if(canAdmin()){renderPluginsList();renderPatchesList();}
+    })();nasAuxRead=work;try{return await work;}finally{if(nasAuxRead===work)nasAuxRead=null;}
+  }
+  function nasAuxCollection(name,client,epoch,filters=[],ordering=null,maximum=null){
+    const guard=()=>{if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch||currentUid!==client.uid||currentUserStatus!=='active')throw Error('Сеанс Synology изменился');};
+    const document=id=>({id,ref:null,exists:true,data:()=>{const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id);if(!row)return undefined;const {id:_,revision,...data}=row;return data;}});
+    const wrap=row=>{const snap=document(row.id);snap.ref=collection.doc(row.id);return snap;};
+    const collection={
+      doc:(id='record_'+crypto.randomUUID().replaceAll('-',''))=>({id,path:'workspaces/'+WORKSPACE_ID+'/'+name+'/'+id,
+        get:async()=>{guard();await refreshNasAuxiliary();guard();const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id);return {id,exists:!!row,data:()=>{if(!row)return undefined;const {id:_,revision,...data}=row;return data;}};},
+        set:async(data,options)=>{guard();if(!nasAuxSnapshot)await refreshNasAuxiliary();guard();const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id),{id:_,revision,...before}=row||{};
+          await nasBusinessCommand('auxiliary',name+':'+id,{type:'auxiliary.save',collection:name,recordId:id,expectedRevision:row?.revision||0,data:options?.merge?{...before,...data}:data});guard();await refreshNasAuxiliary();},
+        update:async data=>{guard();if(!nasAuxSnapshot)await refreshNasAuxiliary();guard();const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id);if(!row)throw Error('Запись уже отсутствует');return collection.doc(id).set(data,{merge:true});},
+        delete:async()=>{guard();if(!nasAuxSnapshot)await refreshNasAuxiliary();guard();const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id);if(!row)return;await nasBusinessCommand('auxiliary',name+':'+id,{type:'auxiliary.delete',collection:name,recordId:id,expectedRevision:row.revision});guard();await refreshNasAuxiliary();}}),
+      add:async data=>{const ref=collection.doc();await ref.set(data);return ref;},
+      where:(field,operator,value)=>nasAuxCollection(name,client,epoch,[...filters,[field,operator,value]],ordering,maximum),
+      orderBy:(field,direction='asc')=>nasAuxCollection(name,client,epoch,filters,[field,direction],maximum),
+      limit:n=>nasAuxCollection(name,client,epoch,filters,ordering,n),
+      get:async()=>{guard();await refreshNasAuxiliary();guard();let rows=(nasAuxSnapshot?.[name]||[]).filter(row=>filters.every(([k,op,v])=>{if(op==='==')return row[k]===v;if(op==='>=')return row[k]>=v;if(op==='<')return row[k]<v;throw Error('Неподдерживаемый фильтр');}));
+        if(ordering){const [k,d]=ordering;rows=rows.slice().sort((a,b)=>(a[k]>b[k]?1:a[k]<b[k]?-1:0)*(d==='desc'?-1:1));}if(maximum!==null)rows=rows.slice(0,maximum);const docs=rows.map(wrap);return {docs,size:docs.length,empty:!docs.length,forEach:fn=>docs.forEach(fn),metadata:{fromCache:false,hasPendingWrites:false}};}
+    };return collection;
+  }
+  async function nasHistoryAction(action,direction){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Synology не загружен');
+    const key='samosval_nas_history_v1:'+client.scope+':'+action.id+':'+direction;
+    let op=JSON.parse(localStorage.getItem(key)||'null');if(!op){op={id:'history_'+crypto.randomUUID().replaceAll('-',''),actionId:action.id,direction,expectedRevision:action.revision};localStorage.setItem(key,JSON.stringify(op));}
+    let result;try{result=await client.submitHistory(op,{operationScope:client.scope});}catch(error){if([400,409].includes(error.status)&&epoch===nasRuntimeEpoch)localStorage.removeItem(key);throw error;}if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
+    localStorage.removeItem(key);await nasRefreshLine();await Promise.allSettled([refreshNasGames(),refreshNasAuxiliary()]);return result;
+  }
+  window.addEventListener('load',()=>{
+    if(!isNasRuntime())return;
+    const oldUndo=window.undoLastAction;
+    window.undoLastAction=async()=>{
+      if(offlineLocalTicker())return undoLastOfflineAction();
+      try{const snapshot=await nasRuntimeClient.readHistory(),last=lastValidNotification();const action=snapshot.items.find(x=>x.id===last?.actionId);if(!action?.canUndo)throw Error('Откройте журнал: это действие уже изменено или недоступно для отмены');if(await appConfirm('Отменить действие?'))await nasHistoryAction(action,'undo');}catch(error){showError(error.message);}
+    };
+  });
   function acceptNasSettings(snapshot){
     nasSettingsSnapshot=snapshot;appConfig={...snapshot.data};
     settings.cycleMinutes=snapshot.data.cycleMinutes;renderAppSettingsIfActive();window.__gameConfigChanged?.();
@@ -280,7 +330,7 @@
       const remove=()=>{if(!live())return;const latest=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify(latest.filter(x=>x.operation.id!==pending.operation.id)));};
       nasReadGeneration++;nasPollHolds++;nasRuntimeStop?.();nasRuntimeStop=null;
       try{
-        const method={control:'submitControl',start:'startShift',close:'closeShift',settings:'submitSettings',archive:'submitArchive',game:'submitGame'}[channel];
+        const method={control:'submitControl',start:'startShift',close:'closeShift',settings:'submitSettings',archive:'submitArchive',game:'submitGame',auxiliary:'submitAuxiliary'}[channel];
         const result=await client[method](pending.operation,{operationScope:pending.scope});
         if(!live())throw Error('Учётная запись изменилась');
         remove();return result;
