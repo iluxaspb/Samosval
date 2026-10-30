@@ -28,6 +28,7 @@ def build():
     inputs = [APP / 'modules.json', Path(__file__)] + sorted(p for p in SOURCE.rglob('*') if p.is_file() and p.suffix in ['.js','.css','.html'])
     inputs += sorted(p for p in (APP / 'tabel-v2').iterdir() if p.suffix in ['.js','.mjs','.css','.html'])
     inputs += [APP / 'vendor' / 'exceljs-4.4.0.min.js']
+    inputs += [APP / 'synology' / 'connection-check.mjs']
     inputs += sorted(p for p in (APP / 'tabel').iterdir() if p.suffix in ['.js','.mjs','.css'])
     build_id = sha(b''.join(str(p.relative_to(ROOT)).encode()+p.read_bytes() for p in inputs))[:16]
     out = APP / 'build' / build_id
@@ -49,11 +50,12 @@ def build():
     (ROOT / 'index-test.html').write_text(html)
     old = json.loads((APP / 'build-manifest.json').read_text())
     assets = [ROOT / 'index-test.html']
-    assets += [ROOT / r['url'] for r in old['assets'] if r['url'] != './index-test.html' and not r['url'].startswith('./test-app/build/') and 'timesheet-' not in r['url'] and '/test-app/tabel/' not in r['url'] and '/test-app/tabel-v2/' not in r['url']]
+    assets += [ROOT / r['url'] for r in old['assets'] if r['url'] != './index-test.html' and r['url'] != './test-app/synology/connection-check.mjs' and not r['url'].startswith('./test-app/build/') and 'timesheet-' not in r['url'] and '/test-app/tabel/' not in r['url'] and '/test-app/tabel-v2/' not in r['url']]
     assets += sorted(p for p in (APP / 'tabel-v2').iterdir() if p.suffix in ['.js','.mjs','.css','.html'])
     assets += [APP / 'vendor' / 'exceljs-4.4.0.min.js']
     assets += sorted(out.glob('*.js'))
     assets += sorted(p for p in (APP / 'tabel').iterdir() if p.suffix in ['.js','.mjs','.css'])
+    assets += [APP / 'synology' / 'connection-check.mjs']
     assets = list(dict.fromkeys(assets))
     records = [{'url':'./'+str(p.relative_to(ROOT)), 'sha256':sha(p.read_bytes())} for p in assets]
     sw = (SOURCE / 'service-worker.js').read_text()
@@ -65,3 +67,4 @@ def build():
 
 if __name__ == '__main__':
     build()
+

@@ -55,11 +55,59 @@
     return {letter:'F', label:'Firebase — сервер данных', provider:'firebase'};
   }
 
+  let testSynologyCheckPending = false;
+  let testSynologyCheckSession = null;
+  let testSynologyCheckEpoch = 0;
+
+  function loadTestSynologyChecker() {
+    return import(new URL('./test-app/synology/connection-check.mjs', document.baseURI).href);
+  }
+
+  async function checkTestSynologyConnection() {
+    const allowed = !!currentUid && permissionsLoaded && canAdmin();
+    if (!allowed || testSynologyCheckPending || !navigator.onLine) return;
+    const result = document.getElementById('testSynologyCheckResult');
+    if (!result) return;
+    renderTestBackendControls();
+    const uid = currentUid, epoch = testSynologyCheckEpoch;
+    const guard = () => {
+      if (uid !== currentUid || epoch !== testSynologyCheckEpoch || !permissionsLoaded || !canAdmin()) throw Error('Сеанс изменился');
+    };
+    testSynologyCheckPending = true;
+    result.textContent = 'Проверка линии и табеля Synology…';
+    renderTestBackendControls();
+    try {
+      const {checkSynology} = await loadTestSynologyChecker();
+      guard();
+      const counts = await checkSynology({getIdToken: force => auth.currentUser?.getIdToken(force), guard});
+      guard();
+      result.textContent = `Линия и табель доступны. Машин: ${counts.trucks}; обычных рейсов: ${counts.normal}; объём: ${counts.volume} м³. Это проверка NAS; данные программы пока остаются в Firebase.`;
+    } catch (error) {
+      if (uid === currentUid && epoch === testSynologyCheckEpoch && permissionsLoaded && canAdmin()) {
+        result.textContent = error.status === 404
+          ? 'По внешнему адресу новый API недоступен. Нужно проверить HTTPS-маршрут на Synology.'
+          : error.name === 'AbortError' ? 'Synology не ответил вовремя. Данные программы остаются в Firebase.' : error.message;
+      }
+    } finally {
+      testSynologyCheckPending = false;
+      renderTestBackendControls();
+    }
+  }
+
   function renderTestBackendControls(status) {
     const section = document.getElementById('admin-backend-settings');
     if (!section) return;
     const allowed = !!currentUid && permissionsLoaded && canAdmin();
     section.hidden = !allowed;
+    const session = allowed ? currentUid : null;
+    const probeResult = document.getElementById('testSynologyCheckResult');
+    if (session !== testSynologyCheckSession) {
+      testSynologyCheckSession = session;
+      testSynologyCheckEpoch++;
+      if (probeResult) probeResult.textContent = '';
+    }
+    const probeButton = document.getElementById('testSynologyCheck');
+    if (probeButton) probeButton.disabled = !allowed || !navigator.onLine || testSynologyCheckPending;
     const select = document.getElementById('testBackendMode');
     if (select) {
       select.disabled = !allowed;
@@ -72,3 +120,4 @@
       ? 'Сейчас автоматически используется Firebase. Synology станет доступен после подключения всех экранов; резервное переключение — после проверки синхронизации баз.'
       : 'Данные обслуживает Firebase. Режим Synology станет доступен после завершения подключения тестового интерфейса.';
   }
+
