@@ -68,7 +68,7 @@ function functionCode(name) {
 
   const f = rasterFixture(), reportInputs = [], errors = [], requests = [];
   Object.assign(f.context, {state: {shift: {objectName: 'Site', startDate: '2026-10-25'}, truckStatus: {}, archive: [{id: 'archive', objectName: 'Site', date: '2026-10-24', logs: [{isGAI: false}, {isGAI: true}], activeLineIds: ['truck'], ttnStatus: {truck: true}}]},
-    getLogs: () => [{isGAI: false}, {isGAI: true}], hasPermission: () => true, getActiveLineIds: () => ['truck'],
+    objectTitle: (_id, fallback) => fallback, getLogs: () => [{isGAI: false}, {isGAI: true}], hasPermission: () => true, getActiveLineIds: () => ['truck'],
     buildReportHTML: data => { reportInputs.push(data); return '<table>report</table>'; }, showToastEl() {}, showError: e => errors.push(e), viewingArchiveId: 'archive', viewingArchiveGAITable: false,
     generatePNGFromHTML: async html => { requests.push(html); return new Blob(['png'], {type: 'image/png'}); }});
   // A real archive image must be a clone of the visible report, never rebuilt from logs.

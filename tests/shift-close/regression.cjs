@@ -77,7 +77,7 @@ function fixture({count = 3, role = 'admin', failBatch = 0, failArchive = false,
       }};return batch;
     }
   };
-  ctx={db,refs:{logs:collection('logs'),truckStatus:collection('truckStatus'),archive:collection('archive'),shift:ref(shiftPath)},currentUserRole:role,
+  ctx={isNasRuntime:()=>false,db,refs:{logs:collection('logs'),truckStatus:collection('truckStatus'),archive:collection('archive'),shift:ref(shiftPath)},currentUserRole:role,
     state:{shift:copy(rows.get(shiftPath)),logs:[],truckStatus:{}},requireEdit:()=>true,offlinePendingCount:()=>pending,
     document:{getElementById:()=>button},appConfirm:async()=>{confirms++;if(addDuringConfirm){rows.set('logs/during-confirm',log(5000));addDuringConfirm=false;}return true;},
     tfAwait:p=>p,getUserName:()=> 'Operator',showError:s=>errors.push(s),appNotice:s=>errors.push(s),showToastEl:s=>events.push(s),
