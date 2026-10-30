@@ -35,8 +35,12 @@ function ownerState(value){
  }
  return value;
 }
-function stillPending(state,now){
- return Object.values(state.pending).some(ticket=>ticket.until+FENCE_GRACE_MS>=now);
+function stillPending(state,_now){
+ // A timeout cannot prove a PostgreSQL commit has stopped. Even an expired
+ // permit may correspond to an in-flight NAS transaction. Never promote or
+ // transfer ownership until all server-side write intents are explicitly
+ // acknowledged by the original owner or reconciled against PostgreSQL.
+ return Object.keys(state.pending).length>0;
 }
 function requireCheckpoint(m,checkpoint){
  if(!checkpoint||checkpoint.sequence!==m.lastSequence||checkpoint.hash!==m.hash)
