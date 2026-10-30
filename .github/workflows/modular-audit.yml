@@ -8,6 +8,7 @@ on:
       - 'test-app/src/pwa.js'
       - 'tests/tabel-v2/**'
       - 'tests/pwa/**'
+      - 'tests/backend-mode/**'
       - test-app/modules.json
       - tools/build-test.py
       - tools/verify-test-modules.py
