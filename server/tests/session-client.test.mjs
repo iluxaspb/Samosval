@@ -126,3 +126,25 @@ test('NAS presence refuses foreign sheet data and strips impersonation fields fr
   await assert.rejects(client.readPresence({objectId:'site',sheetId:'one'}),{code:'invalid-api-response'});
   await client.removePresence({sessionId:'browser',sequence:2,uid:'forged',name:'Forged'});assert.deepEqual(body,{type:'remove',sessionId:'browser',sequence:2});
 });
+test('NAS closing snapshot remains available for resuming material transfer',async()=>{
+  const snapshot=line();snapshot.shift.isActive=false;snapshot.shift.closing=true;
+  const {client}=fixture(async()=>reply(snapshot));assert.equal((await client.readLine()).shift.closing,true);
+  snapshot.shift.closing=false;await assert.rejects(client.readLine(),{code:'invalid-api-response'});
+});
+test('NAS controls bind receipt to the operation and target; scope mismatch sends nothing',async()=>{
+  const seen=[];let wrong=false;
+  const {client}=fixture(async(url,options)=>{seen.push({url,operation:JSON.parse(options.body)});const operation=JSON.parse(options.body);return reply({outcome:'confirmed',operationId:operation.id,type:operation.type,result:{id:wrong?'other':operation.recordId}});});
+  const operation={id:'create',type:'object.create',recordId:'site',expectedRevision:0,data:{name:'Site'}};
+  await assert.rejects(client.submitControl(operation,{operationScope:'firebase'}),{code:'outbox-scope-mismatch'});assert.equal(seen.length,0);
+  await client.submitControl(operation,{operationScope:client.scope});assert.ok(seen[0].url.endsWith('/api/v1/controls'));
+  wrong=true;await assert.rejects(client.submitControl(operation,{operationScope:client.scope}),{code:'invalid-api-response',uncertain:true});
+});
+test('NAS start and close receipts reject other shifts and incomplete close phases',async()=>{
+  let response;const {client}=fixture(async()=>reply(response)),options={operationScope:client.scope};
+  const start={id:'start',objectId:'site',createdAt:100};response={outcome:'confirmed',shift:{id:'shift_start',objectId:'site',isActive:true}};
+  await client.startShift(start,options);response.shift.objectId='other';await assert.rejects(client.startShift(start,options),{code:'invalid-api-response'});
+  const close={id:'close',type:'prepare',shiftId:'shift_start'};response={outcome:'confirmed',phase:'awaiting-material',shift:{id:'shift_start',isActive:false},archive:{sourceShiftId:'shift_start'}};
+  await client.closeShift(close,options);response.archive.sourceShiftId='other';await assert.rejects(client.closeShift(close,options),{code:'invalid-api-response'});
+  response={outcome:'confirmed',phase:'awaiting-material',shift:{id:'shift_start',isActive:false}};
+  await assert.rejects(client.closeShift({...close,type:'finish'},options),{code:'invalid-api-response'});
+});

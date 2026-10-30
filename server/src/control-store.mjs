@@ -74,9 +74,11 @@ export async function readCatalog(pool,uid,ws=WS){
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const profile=(await client.query('SELECT role,status FROM app_users WHERE uid=$1',[uid])).rows[0];
     if(!profile||profile.status!=='active')throw fail('forbidden',403);
-    if(profile.role!=='admin'&&!(await client.query("SELECT 1 FROM role_permissions WHERE role=$1 AND action IN ('tab_line','tab_trucks') AND allowed=true LIMIT 1",[profile.role])).rowCount)throw fail('forbidden',403);
+    const permissions=(await client.query('SELECT action FROM role_permissions WHERE role=$1 AND allowed=true',[profile.role])).rows.map(r=>r.action);
+    const line=profile.role==='admin'||permissions.some(x=>['tab_line','tab_trucks'].includes(x));
+    if(!line&&!permissions.includes('tab_timesheet'))throw fail('forbidden',403);
     const rows=async(table,key)=>(await client.query(`SELECT ${key} AS id,payload,revision FROM ${table} WHERE workspace_id=$1 AND payload->>'deleted' IS DISTINCT FROM 'true' ORDER BY ${key}`,[ws])).rows.map(r=>({id:r.id,data:r.payload,revision:Number(r.revision)}));
-    const trucks=await rows('line_trucks','truck_id'),objects=await rows('workspace_objects','object_id');
+    const trucks=line?await rows('line_trucks','truck_id'):[],objects=await rows('workspace_objects','object_id');
     await client.query('COMMIT');return {format:'samosval-catalog',version:1,source:'synology',workspaceId:ws,trucks,objects};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }

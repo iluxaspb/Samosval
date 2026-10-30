@@ -29,3 +29,8 @@ test('membership never overwrites another shift or treats a duplicate add as fre
   assert.throws(()=>membershipStatus(op,{shiftId:'s',onLine:true},'Actor'),{code:'already-on-line'});
   assert.throws(()=>membershipStatus({...op,type:'line.remove'},null,'Actor'),{code:'not-on-line'});
 });
+test('object start date preserves ISO calendar dates and rejects rollover or non-calendar values',()=>{
+  const op={id:'date',type:'object.create',recordId:'site',expectedRevision:0,data:{name:'Site',startDate:'2024-02-29'}};
+  assert.equal(normalizeControl(op).data.startDate,'2024-02-29');
+  for(const startDate of ['2026-02-29','2026-13-01','2026-10-00','30.10.2026','2026-1-1',null])assert.throws(()=>normalizeControl({...op,data:{...op.data,startDate}}),{code:'invalid-object-start-date'});
+});

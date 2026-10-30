@@ -10,7 +10,7 @@ function harness(){
   const c={console,URL,Map,Date,Promise,setTimeout,clearTimeout,WORKSPACE_ID:'main_workspace',currentUid:'one',currentEmail:'one@example.test',currentUserNickname:'',currentUserRole:'admin',currentUserStatus:'active',permissionsLoaded:true,permissionsConfig:{},initialized:false,
     state:{trucks:[],logs:[],truckStatus:{},shift:null,archive:[],trash:[],audit:[],users:[]},settings:{},offlineRemoteStatuses:{},offlineRemoteLogs:[],offlineReplayRunning:false,offlineServerRetryAt:0,
     auth:{currentUser:{uid:'one'}},navigator:{onLine:true},document:{baseURI:'https://app.test/index-test.html',body:{setAttribute:(k,v)=>bodyAttrs.set(k,v),removeAttribute:k=>bodyAttrs.delete(k)},getElementById:node,querySelector:s=>s.startsWith('meta[')?{content:'synology-candidate'}:node(s),querySelectorAll:()=>[]},
-    crypto:{randomUUID:()=>String(calls.length)+'-uuid'},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},canAdmin:()=>c.currentUserStatus==='active'&&c.currentUserRole==='admin',renderAdminPanel(){},requestSyncStatus:{},
+    crypto:{randomUUID:()=>String(calls.length)+'-uuid'},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},canAdmin:()=>c.currentUserStatus==='active'&&c.currentUserRole==='admin',renderAdminPanel(){},requestSyncStatus:{},
     sanitizeName:x=>x,markSync:(...args)=>calls.push(['sync',...args]),cancelHold(){},updateUserBadge(){},updateNavUI(){},applyRoleUI(){},renderAll:()=>calls.push(['render']),saveCache(){},refreshLineViews(){},showToastEl(){},escapeHtml:x=>x,offlineReasonLabel:x=>x,
     offlineTransportRecovered(){},offlineTransportFailed:err=>errors.push(err),reportSyncError:(_source,error)=>errors.push(error),updateSyncUI(){},
     offlinePendingOps:()=>structuredClone(journal.filter(x=>x.status==='pending')),offlineJournalRead:()=>structuredClone(journal),offlineJournalWrite:items=>{writes.push(structuredClone(items));journal=structuredClone(items);},
@@ -119,4 +119,85 @@ test('NAS tabel host invalidates reads and its active status immediately when th
   let options;h.c.tableFactory={createTabelRemote:value=>{options=value;return {};}};vm.runInContext('loadNasTabelRemote=async()=>tableFactory',h.c);
   await h.c.startNasRuntime(h.c.auth.currentUser);const host=h.c.nasTabelHost();await host.remoteFactory();h.c.stopNasRuntime();
   assert.equal(host.session().active,false);assert.throws(()=>options.guard(),/Доступ/);await assert.rejects(host.remoteFactory(),/Доступ/);
+});
+
+
+test('NAS catalog unwraps DTOs for existing screens and preserves observed revisions',async()=>{
+  const h=harness();h.c.hasTabAccess=()=>true;h.c.objectTitle=(_id,name)=>name;h.c.window.dispatchEvent=()=>{};h.c.Event=class {};
+  h.client.readCatalog=async()=>({trucks:[{id:'truck',data:{brand:'KAMAZ'},revision:7}],objects:[{id:'site',data:{name:'Site'},revision:3}]});
+  await h.c.startNasRuntime(h.c.auth.currentUser);await h.c.refreshNasObjects();
+  assert.equal(h.c.state.objects[0].name,'Site');assert.equal(h.c.state.trucks[0].brand,'KAMAZ');assert.equal(h.c.nasRecordRevision('object','site'),3);
+});
+test('NAS business retry retains complete original intent after lost reply and newer observed revision',async()=>{
+  const h=harness(),sent=[];await h.c.startNasRuntime(h.c.auth.currentUser);
+  h.client.submitControl=async op=>{sent.push(structuredClone(op));if(sent.length===1)throw Object.assign(Error('lost reply'),{uncertain:true});return {outcome:'confirmed',result:{id:op.recordId}};};
+  const fields={type:'truck.update',recordId:'truck',expectedRevision:3,data:{brand:'New'}};
+  await assert.rejects(h.c.nasBusinessCommand('control','truck',fields),/lost reply/);
+  await h.c.nasBusinessCommand('control','truck',{...fields,expectedRevision:4});
+  assert.deepEqual(sent[0],sent[1]);assert.equal(sent[1].expectedRevision,3);
+  assert.equal([...h.storage.values()].some(x=>x.includes('expectedRevision')),false);
+});
+test('NAS create persists generated record ID and blocks different data until uncertain result is resolved',async()=>{
+  const h=harness(),sent=[];await h.c.startNasRuntime(h.c.auth.currentUser);
+  h.client.submitControl=async op=>{sent.push(structuredClone(op));throw Error('offline');};
+  const fields={type:'object.create',expectedRevision:0,data:{name:'Site'}};
+  await assert.rejects(h.c.nasBusinessCommand('control','object:new',fields),/offline/);
+  await assert.rejects(h.c.nasBusinessCommand('control','object:new',{...fields,data:{name:'Other'}}),/повторите/);
+  await assert.rejects(h.c.nasBusinessCommand('control','object:new',fields),/offline/);
+  assert.equal(sent.length,2);assert.deepEqual(sent[0],sent[1]);assert.ok(sent[0].recordId);
+});
+test('NAS double click shares the same command and a different intent cannot join its promise',async()=>{
+  const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);let release,count=0;
+  h.client.startShift=async()=>{count++;return new Promise(resolve=>release=resolve);};
+  const first=h.c.nasBusinessCommand('start','current',{objectId:'site'});
+  const second=h.c.nasBusinessCommand('start','current',{objectId:'site'});
+  await assert.rejects(h.c.nasBusinessCommand('start','current',{objectId:'other'}),/отправляется/);
+  release({shift:{id:'new'}});await Promise.all([first,second]);assert.equal(count,1);
+});
+test('NAS logout during control write keeps old-account intent and does not restart its poll',async()=>{
+  const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);let release;
+  h.client.submitControl=()=>new Promise(resolve=>release=resolve);
+  const pending=h.c.nasBusinessCommand('control','truck',{type:'truck.delete',recordId:'truck',expectedRevision:1});
+  await Promise.resolve();h.c.stopNasRuntime();h.c.currentUid='other';release({outcome:'confirmed'});
+  await assert.rejects(pending,/изменилась/);assert.ok([...h.storage.values()].some(x=>x.includes('truck.delete')));
+});
+test('NAS closure retains prepared archive on failed material transfer and retries finish with the same ID after lost reply',async()=>{
+  const h=harness(),steps=[],finish=[];await h.c.startNasRuntime(h.c.auth.currentUser);
+  h.client.readLine=async()=>snapshot();let materialFails=true;
+  h.c.testTransfer={transferClosedLine:async()=>{steps.push('material');if(materialFails)throw Error('material not confirmed');}};
+  vm.runInContext('loadNasMaterialTransfer=async()=>testTransfer;nasTabelHost=()=>({})',h.c);
+  h.client.closeShift=async op=>{steps.push(op.type);if(op.type==='prepare')return {shift:{id:'shift'},archive:{sourceShiftId:'shift',totalTrips:1}};finish.push(structuredClone(op));if(finish.length===1)throw Error('lost finish');return {shift:{id:'shift'}};};
+  await assert.rejects(h.c.nasCloseCurrentShift('shift'),/material not confirmed/);assert.deepEqual(steps,['prepare','material']);
+  materialFails=false;await assert.rejects(h.c.nasCloseCurrentShift('shift'),/lost finish/);
+  await h.c.nasCloseCurrentShift('shift');assert.deepEqual(finish[0],finish[1]);assert.equal(steps.filter(x=>x==='prepare').length,1);
+  assert.equal([...h.storage.keys()].some(x=>x.startsWith('samosval_nas_close_v1:')),false);
+});
+test('NAS late direct refresh cannot overwrite a snapshot after a mutation starts',async()=>{
+  const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);let release;
+  h.client.readLine=()=>new Promise(resolve=>release=resolve);const read=h.c.nasRefreshLine();
+  h.client.submitControl=async()=>({outcome:'confirmed'});
+  await h.c.nasBusinessCommand('control','truck',{type:'truck.delete',recordId:'truck',expectedRevision:1});
+  release(snapshot());await read;assert.equal(h.c.state.shift,null);
+});
+
+test('NAS start screen branches before Firebase cleanup, notifications or writes',async()=>{
+  const h=harness();Object.assign(h.c,{startShiftInFlight:false,requireEdit:()=>true,offlinePendingCount:()=>0,showError:message=>{throw Error(message);},showToastEl(){},closeStartShiftModal(){},refs:new Proxy({},{get(){throw Error('Firebase reference used');}})});
+  vm.runInContext(source('15-shifts.js'),h.c);let sent;
+  h.c.nasBusinessCommand=async(channel,target,fields)=>{sent={channel,target,fields};};h.c.nasRefreshLine=async()=>{};
+  await h.c.startShiftWithObject('Site','site');assert.equal(sent.channel,'start');assert.equal(sent.fields.objectId,'site');assert.equal(h.c.startShiftInFlight,false);
+});
+test('NAS membership handlers preserve local trip status until server confirmation',async()=>{
+  const h=harness();Object.assign(h.c,{requireEdit:()=>true,offlinePendingForTruck:()=>false,showError:message=>{throw Error(message);}});
+  vm.runInContext(source('15-shifts.js'),h.c);h.c.state.shift={id:'shift'};h.c.state.truckStatus.truck={onLine:true,lastLoadTimestamp:123};
+  const requests=[];h.c.nasChangeMembership=async(id,adding)=>requests.push([id,adding]);
+  await h.c.addTruckToLine('truck');await h.c.removeTruckFromLine('truck');
+  assert.deepEqual(requests,[['truck',true],['truck',false]]);assert.equal(h.c.state.truckStatus.truck.lastLoadTimestamp,123);
+});
+
+test('NAS command captures nested form data before waiting for a cross-tab lock',async()=>{
+  const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);let unlock,sent;
+  h.c.navigator.locks={request:(_key,run)=>new Promise(resolve=>{unlock=()=>resolve(run());})};
+  h.client.submitControl=async op=>{sent=structuredClone(op);return {outcome:'confirmed'};};
+  const fields={type:'object.create',expectedRevision:0,data:{name:'Original'}};
+  const pending=h.c.nasBusinessCommand('control','object:new',fields);fields.data.name='Changed';unlock();await pending;assert.equal(sent.data.name,'Original');
 });

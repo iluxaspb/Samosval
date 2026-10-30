@@ -16,14 +16,14 @@ export async function readLineSnapshot(pool, uid, workspaceId = process.env.WORK
       if (permission?.allowed !== true) throw Object.assign(new Error('forbidden'), { status: 403 });
     }
     const shifts = (await client.query(
-      'SELECT shift_id, payload FROM shifts WHERE workspace_id=$1 AND is_active=true ORDER BY shift_id LIMIT 2',
+      "SELECT shift_id, is_active, payload FROM shifts WHERE workspace_id=$1 AND (is_active=true OR payload->>'closing'='true') ORDER BY shift_id LIMIT 2",
       [workspaceId]
     )).rows;
     // Never guess which shift owns the line if the imported data is inconsistent.
     if (shifts.length > 1) throw Object.assign(new Error('multiple-active-shifts'), { status: 409 });
     const shift = shifts[0];
     const trucks = (await client.query(
-      'SELECT truck_id, payload FROM line_trucks WHERE workspace_id=$1 ORDER BY truck_id', [workspaceId]
+      "SELECT truck_id, payload FROM line_trucks WHERE workspace_id=$1 AND payload->>'deleted' IS DISTINCT FROM 'true' ORDER BY truck_id", [workspaceId]
     )).rows.map(row => ({ ...row.payload, id: row.truck_id }));
     let statuses = [], logs = [];
     if (shift) {
@@ -42,7 +42,7 @@ export async function readLineSnapshot(pool, uid, workspaceId = process.env.WORK
     return {
       format: 'samosval-line-snapshot', version: 1, workspaceId,
       source: 'synology',
-      shift: shift ? { ...shift.payload, id: shift.shift_id, isActive: true } : null,
+      shift: shift ? { ...shift.payload, id: shift.shift_id, isActive: shift.is_active } : null,
       trucks, statuses, logs, cycleMinutes: workspace.cycle_minutes
     };
   } catch (error) {

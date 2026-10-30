@@ -5,6 +5,7 @@
     if(state.shift?.isActive)return;
     startShiftInFlight=true;
     try {
+      if(isNasRuntime()){await nasBusinessCommand('start','current',{objectId:objId});await nasRefreshLine();closeStartShiftModal();showToastEl('Смена начата',false);return;}
       await cleanupOldShiftData(); await clearAllNotifications();
       let sid = 'shift_' + Date.now();
       await tfAwait(refs.shift.set({ id: sid, objectName: objName, objectId: objId||'', startDate: nowDateStr(), startedAt: Date.now(), startedBy: getUserName(), isActive: true }));
@@ -44,6 +45,9 @@
     try {
       if (!(await appConfirm(state.shift.closing?'Завершить закрытие смены?':'Закрыть смену?'))) return;
       if(button){button.disabled=true;button.textContent='⏳ Сохраняем и закрываем смену…';}
+      if(isNasRuntime()){
+        await nasCloseCurrentShift(shiftId);showToastEl('Смена закрыта',false);return;
+      }
       phase='остановка новых отметок';
       const shift=await tfAwait(db.runTransaction(async tx=>{
         const snap=await tx.get(refs.shift);
@@ -117,7 +121,7 @@
     if (!requireEdit('start_shift')) return; let n = document.getElementById('newObjectNameInput').value.trim(); if (!n) { appNotice('Введите имя'); return; }
     let ex = state.objects.find(o=>o.name.toLowerCase()===n.toLowerCase());
     if (ex) await startShiftWithObject(ex.name, ex.id);
-    else { try { let r=refs.objects.doc(); await tfAwait(r.set({name:n, createdAt:Date.now(), createdBy:getUserName()})); await startShiftWithObject(n, r.id); } catch(e){ showError(e.message); } }
+    else { try { if(isNasRuntime()){const result=await nasSaveRecord('object','',{name:n},0);await startShiftWithObject(n,result.result.id);return;}let r=refs.objects.doc(); await tfAwait(r.set({name:n, createdAt:Date.now(), createdBy:getUserName()})); await startShiftWithObject(n, r.id); } catch(e){ showError(e.message); } }
   }
   function openChangeObjectModal() {
     if (!requireEdit('edit_line') || !state.shift) return;
@@ -126,15 +130,16 @@
     document.getElementById('changeObjCustomInput').value = ''; document.getElementById('changeObjectModal').classList.add('open');
   }
   function closeChangeObjectModal() { document.getElementById('changeObjectModal').classList.remove('open'); }
-  async function applyChangeObject(id) { let o = state.objects.find(x=>x.id===id); if(!o || !state.shift) return; if (state.shift.objectId === id) { closeChangeObjectModal(); return; } try { await tfAwait(refs.shift.update({objectId:o.id, objectName:o.name})); addAudit(`🏢 Изменен объект: ${o.name}`).catch(()=>{}); closeChangeObjectModal(); showToastEl('Объект изменен', false); } catch(e){ showError(e.message); } }
+  async function applyChangeObject(id) { let o = state.objects.find(x=>x.id===id); if(!o || !state.shift) return; if (state.shift.objectId === id) { closeChangeObjectModal(); return; } try { if(isNasRuntime()){await nasBusinessCommand('control','shift-object:'+state.shift.id,{type:'shift.object',shiftId:state.shift.id,objectId:o.id,expectedObjectId:state.shift.objectId||''});await nasRefreshLine();closeChangeObjectModal();return;}await tfAwait(refs.shift.update({objectId:o.id, objectName:o.name})); addAudit(`🏢 Изменен объект: ${o.name}`).catch(()=>{}); closeChangeObjectModal(); showToastEl('Объект изменен', false); } catch(e){ showError(e.message); } }
   async function confirmChangeObject() {
     let n = document.getElementById('changeObjCustomInput').value.trim();
-    if (n) { let ex = state.objects.find(o=>o.name.toLowerCase()===n.toLowerCase()); if(ex) await applyChangeObject(ex.id); else { try { let r=refs.objects.doc(); await tfAwait(r.set({name:n, createdAt:Date.now(), createdBy:getUserName()})); await applyChangeObject(r.id); } catch(e){ showError(e.message); } } } else appNotice('Выберите объект');
+    if (n) { let ex = state.objects.find(o=>o.name.toLowerCase()===n.toLowerCase()); if(ex) await applyChangeObject(ex.id); else { try { if(isNasRuntime()){const result=await nasSaveRecord('object','',{name:n},0);await applyChangeObject(result.result.id);return;}let r=refs.objects.doc(); await tfAwait(r.set({name:n, createdAt:Date.now(), createdBy:getUserName()})); await applyChangeObject(r.id); } catch(e){ showError(e.message); } } } else appNotice('Выберите объект');
   }
 
   // === ЛИНИЯ ===
   async function addTruckToLine(id) {
     if (!requireEdit('edit_line') || !state.shift) return;
+    if(isNasRuntime()){try{await nasChangeMembership(id,true);}catch(error){showError(error.message);}return;}
     let ex = state.truckStatus[id];
     let d = { id, shiftId: state.shift.id, onLine: true, addedBy: getUserName(), addedAt: Date.now(), arriveStatus: null, arriveTimestamp: null, arriveBy: null, ttnStatus: null, ttnBy: null, ttnLogId: null, lastLoadTimestamp: null, lastLoadBy: null, lastLoadLogId:null, cycleRevision:0, loadedAfterArrive: false };
     state.truckStatus[id] = d; offlineRemoteStatuses[id]={...d};saveCache(); renderLine(); renderHeaderStats();
@@ -145,6 +150,7 @@
   async function removeTruckFromLine(id) {
     if (!requireEdit('edit_line')) return;
     if(offlinePendingForTruck(id)){showError('Сначала синхронизируйте действия этого самосвала');return;}
+    if(isNasRuntime()){try{await nasChangeMembership(id,false);}catch(error){showError(error.message);}return;}
     let tName = truckName(id);
     delete state.truckStatus[id];delete offlineRemoteStatuses[id];saveCache(); renderLine(); renderHeaderStats(); tf(refs.truckStatus.doc(id).delete());
     if (appConfig.maxEnabled && appConfig.notifyLineEnd) enqueueMax(`🔴 С линии убран\n🚛 ${tName}\n👤 ${getUserName()}`);
