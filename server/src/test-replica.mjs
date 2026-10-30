@@ -227,15 +227,21 @@ export async function replicateOnce({pool,firestore,projectId}){
   const snap=await tx.get(ref),m=snap.exists?snap.data():null;
   if(!metadataValid(m)||m.generation!==remote.generation||
     m.lastSequence!==receipt.sequence||m.hash!==receipt.hash)throw Error('replica-remote-write-owner-changed');
+  // Multiple changes to the same row can appear in one transaction. Fold
+  // materialized rows to their last state but retain every journal event.
+  const finalRows=new Map();
   for(const event of rows){
    const item=rowRef(firestore,m.generation,event.table_name,event.row_key);
-   if(event.action==='delete')tx.delete(item);
-   else tx.set(item,validateRowSize(rowEnvelope(event.table_name,event.row_key,event.row_data,event.sequence)));
+   finalRows.set(item.path,{item,event});
    tx.create(eventRef(firestore,m.generation,event.sequence),validateRowSize({
     sequence:event.sequence,table:event.table_name,action:event.action,
     keyJson:canonical(event.row_key),rowJson:event.row_data===null?null:canonical(event.row_data),
     previousCheckpoint:receipt.sequence
    }));
+  }
+  for(const {item,event} of finalRows.values()){
+   if(event.action==='delete')tx.delete(item);
+   else tx.set(item,validateRowSize(rowEnvelope(event.table_name,event.row_key,event.row_data,event.sequence)));
   }
   tx.update(ref,{lastSequence:latest,hash,updatedAt:Date.now(),readyForFailover:false});
  });
