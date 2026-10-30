@@ -70,7 +70,7 @@ export function createPostgresOutbox({pool,verifyCheckpoint}={}){
         await checkTest(c);
         // A snapshot must be captured at exactly this committed high-water.
         const position=asSequence((await c.query(
-          'SELECT last_sequence::text AS last_sequence FROM reserve_outbox_cursor WHERE singleton=true'
+          'SELECT last_sequence::text AS last_sequence FROM reserve_outbox_cursor WHERE singleton=true FOR UPDATE'
         )).rows[0]?.last_sequence);
         if(position!==checkpoint.sequence)throw Error('outbox-bootstrap-head-changed');
         await c.query(`INSERT INTO reserve_replica_receipt(singleton,sequence,hash)
