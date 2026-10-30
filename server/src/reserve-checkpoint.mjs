@@ -30,18 +30,31 @@ export function validateReserveSnapshot(snapshot){
 }
 // A repeatable-read transaction captures business data AND all receipt/audit
 // tables. An acknowledgement lost after a load is part of the same checkpoint.
-export async function captureReserveSnapshot(pool){
+export async function captureReserveSnapshot(pool,{withOutboxHead=false}={}){
   const c=await pool.connect();try{
     await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     if((await c.query('SELECT current_database() AS name')).rows[0]?.name!=='samosval_test')fail('test-database-required');
-    const schema={},tables={},columns=(await c.query("SELECT table_name,column_name,data_type,udt_name,is_nullable,ordinal_position FROM information_schema.columns WHERE table_schema='public' ORDER BY table_name,ordinal_position")).rows;
+    const schema={},tables={},columns=(await c.query("SELECT table_name,column_name,data_type,udt_name,is_nullable,ordinal_position FROM information_schema.columns WHERE table_schema='public' AND table_name NOT IN ('reserve_outbox_cursor','reserve_replica_outbox','reserve_replica_receipt') ORDER BY table_name,ordinal_position")).rows;
     if([...new Set(columns.map(c=>c.table_name))].sort().join('|')!==RESERVE_TABLES.join('|'))fail('reserve-schema-incomplete');
     for(const name of RESERVE_TABLES){
       schema[name]=columns.filter(c=>c.table_name===name).map(({table_name,...c})=>c);
       tables[name]=(await c.query('SELECT * FROM '+name)).rows.sort((a,b)=>{const x=canonicalReserve(a),y=canonicalReserve(b);return x<y?-1:x>y?1:0;});
     }
     const snapshot=validateReserveSnapshot({format:'samosval-native-reserve',version:1,projectId:'samosval-offline',workspaceId:'main_workspace',schema,tables});
-    await c.query('COMMIT');return snapshot;
+    // High-water is captured from the SAME MVCC snapshot as all 39 tables.
+    // A later read (or nextval/bigserial) would introduce a silent backup gap.
+    let outboxSequence=null;
+    if(withOutboxHead){
+      const raw=(await c.query(
+        'SELECT last_sequence::text AS sequence FROM reserve_outbox_cursor WHERE singleton=true'
+      )).rows[0]?.sequence;
+      const num=Number(raw);
+      if(raw===undefined||!Number.isSafeInteger(num)||num<0||String(num)!==raw)
+        fail('invalid-snapshot-outbox-head');
+      outboxSequence=num;
+    }
+    await c.query('COMMIT');
+    return withOutboxHead?{snapshot,outboxSequence}:snapshot;
   }catch(error){await c.query('ROLLBACK').catch(()=>{});throw error;}finally{c.release();}
 }
 export function encodeReserveCheckpoint(snapshot,{chunkBytes=512*1024,maxBytes=64*1024*1024}={}){
