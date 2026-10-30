@@ -45,11 +45,19 @@ jobs:
       FIREBASE_PROJECT_ID: samosval-test
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Never build from GitHub's synthetic PR merge SHA. The release
+          # manifest and NAS CI proof must name this same immutable head.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - run: npm install --no-audit --no-fund
       - run: npm run check
+      - name: Validate isolated worker upgrade script
+        run: sh -n updater/upgrade-test-control-worker.sh
+      - name: Verify checksummed worker bootstrap package
+        run: python3 scripts/package-control-bootstrap.py /tmp/samosval-control-package.zip
       - name: Apply SQL to isolated CI database
         run: |
           node --input-type=module <<'NODE'
@@ -71,6 +79,7 @@ jobs:
             await client.query(readFileSync('sql/011_backups.sql','utf8'));
             await client.query(readFileSync('sql/012_notifications.sql','utf8'));
             await client.query(readFileSync('sql/013_server_control.sql','utf8'));
+            await client.query(readFileSync('sql/014_reserve_outbox.sql','utf8'));
           } finally {
             await client.end();
           }
@@ -87,6 +96,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Never build from GitHub's synthetic PR merge SHA. The release
+          # manifest and NAS CI proof must name this same immutable head.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -109,3 +122,60 @@ jobs:
           docker build -t samosval-test-api:ci server
           docker build -f server/updater/Dockerfile --build-arg API_BASE=samosval-test-api:ci -t samosval-test-control:ci server
           docker run --rm --network none --entrypoint docker samosval-test-control:ci compose version
+
+  package-tested-release:
+    name: Package TEST release only after both suites pass
+    needs: [verify-server, verify-control-browser]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Create checksum-verified worker archive and pinned API manifest
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 server/scripts/package-control-bootstrap.py /tmp/samosval-control-package.zip
+          node server/scripts/prepare-control-release.mjs 4.1.1 --with-outbox-migration
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {normalizeRelease} from './server/updater/release.mjs';
+          const manifest=normalizeRelease(JSON.parse(readFileSync('releases/nas-test.json','utf8')));
+          const sha=b=>createHash('sha256').update(b).digest('hex');
+          if(manifest.commit!==process.env.VERIFIED_HEAD || manifest.version!=='4.1.1' ||
+             manifest.migrations.length!==1 || manifest.migrations[0].path!=='sql/014_reserve_outbox.sql')
+            throw Error('candidate-head-or-schema-mismatch');
+          for(const file of [...manifest.files,...manifest.migrations]){
+            const data=readFileSync('server/'+file.path);
+            if(data.length!==file.bytes||sha(data)!==file.sha256)throw Error('source-hash-mismatch:'+file.path);
+          }
+          console.log('VERIFIED_TEST_CANDIDATE',manifest.commit,manifest.version);
+          NODE
+          python3 - <<'PY'
+          import zipfile,hashlib
+          with zipfile.ZipFile('/tmp/samosval-control-package.zip') as archive:
+            entries=archive.namelist()
+            assert 'SHA256SUMS' in entries and 'updater/upgrade-test-control-worker.sh' in entries
+            for line in archive.read('SHA256SUMS').decode().splitlines():
+              expected,name=line.split('  ',1)
+              assert hashlib.sha256(archive.read(name)).hexdigest()==expected,name
+          print('VERIFIED_WORKER_ARCHIVE')
+          PY
+      - name: Publish verified TEST control-worker archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: samosval-test-control-worker-411-verified
+          path: /tmp/samosval-control-package.zip
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish verified TEST API release manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: samosval-nas-test-411-manifest-verified
+          path: releases/nas-test.json
+          if-no-files-found: error
+          retention-days: 7
