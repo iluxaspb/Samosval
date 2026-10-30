@@ -42,7 +42,7 @@
     }
   }
   function renderTrash() { let c = document.getElementById('trashContainer'); if(!state.trash.length) { c.innerHTML=''; return; } let e = hasPermission('archive_edit'); c.innerHTML = `<div class="trash-group"><div class="trash-header">Корзина</div><div class="trash-list">${state.trash.map(i=>`<div class="trash-item"><div class="info"><b>${escapeHtml(objectTitle(i.shift.objectId,i.shift.objectName))}</b> · ${escapeHtml(i.shift.date)}</div>${e?`<button class="btn-del" onclick="purgeFromTrash('${i.id}')">X</button>`:''}</div>`).join('')}</div></div>`; }
-  async function purgeFromTrash(id) { if(!requireEdit('archive_delete') || !(await appConfirm('Удалить навсегда?'))) return; await tfAwait(refs.trash.doc(id).delete()); }
+  async function purgeFromTrash(id) { if(!requireEdit('archive_delete') || !(await appConfirm('Удалить навсегда?'))) return; try{if(isNasRuntime()){await nasArchiveAction('trash.purge',id);return;}await tfAwait(refs.trash.doc(id).delete());}catch(e){showError(e.message);} }
   function openArchiveModal(id) { let s = state.archive.find(x=>x.id===id); if(!s) return; viewingArchiveId=id; viewingArchiveGAITable = false; renderArchiveModalContent(s); document.getElementById('archiveModal').classList.add('open'); }
   function toggleArchiveReportType() { viewingArchiveGAITable = !viewingArchiveGAITable; let s = state.archive.find(x=>x.id===viewingArchiveId); if (s) renderArchiveModalContent(s); }
   function renderArchiveModalContent(s) {
@@ -86,6 +86,11 @@
     if(state.shift?.closing){showError('Сначала завершите закрытие текущей смены');return;}
     if (!requireEdit('archive_edit') || !viewingArchiveId) return;
     const s = state.archive.find(x => x.id === viewingArchiveId); if (!s) return;
+    if(isNasRuntime()){
+      if(state.shift?.isActive){showError('Сначала закройте текущую смену и подтвердите перенос в табель. После этого можно восстановить архив.');return;}
+      if(!(await appConfirm(`Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date}?`)))return;
+      try{await nasArchiveAction('archive.restore',viewingArchiveId);closeArchiveModal();showToastEl('Смена восстановлена на Synology',false);}catch(error){showError('Ошибка восстановления: '+error.message);}return;
+    }
     const hasActive = state.shift && state.shift.isActive;
     const msg = hasActive ? `Активная смена "${objectTitle(state.shift.objectId,state.shift.objectName)}" будет заменена.\n\nВосстановить "${objectTitle(s.objectId,s.objectName)}" от ${s.date}?` : `Восстановить смену "${objectTitle(s.objectId,s.objectName)}" от ${s.date}?`;
     if (!(await appConfirm(msg))) return;
@@ -103,6 +108,6 @@
       closeArchiveModal(); showToastEl('✅ Смена восстановлена', false);
     } catch(e) { showError('Ошибка восстановления: ' + e.message); }
   }
-  async function deleteArchiveShift() { if(!requireEdit('archive_delete') || !viewingArchiveId || !(await appConfirm('В корзину?'))) return; let s = state.archive.find(x=>x.id===viewingArchiveId); try { await tfAwait(refs.trash.doc().set({ shift: s, deletedAt: Date.now(), deletedBy: getUserName() })); await tfAwait(refs.archive.doc(viewingArchiveId).delete()); closeArchiveModal(); } catch(e){ showError(e.message); } }
+  async function deleteArchiveShift() { if(!requireEdit('archive_delete') || !viewingArchiveId || !(await appConfirm('В корзину?'))) return; let s = state.archive.find(x=>x.id===viewingArchiveId); try { if(isNasRuntime()){await nasArchiveAction('archive.trash',viewingArchiveId);closeArchiveModal();return;}await tfAwait(refs.trash.doc().set({ shift: s, deletedAt: Date.now(), deletedBy: getUserName() })); await tfAwait(refs.archive.doc(viewingArchiveId).delete()); closeArchiveModal(); } catch(e){ showError(e.message); } }
 
   // === СЕЛЕКТОР ===

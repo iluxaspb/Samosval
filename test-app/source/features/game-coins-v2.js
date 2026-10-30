@@ -125,7 +125,7 @@
     if(!navigator.onLine){rewardMessage='Для сохранения настроек подключитесь к интернету.';rewardStatus.textContent=rewardMessage;return;}
     rewardSaving=true;rewardMessage='Сохраняем…';paint();const user=currentUid;
     try{
-      const next=await db.runTransaction(async tx=>{
+      const next=isNasRuntime()?(await nasSaveSettings(null,values)).gameRewardSchedule:await db.runTransaction(async tx=>{
         const doc=await tx.get(appConfigRef);
         if(!canAdmin()||currentUid!==user)throw Error('Доступ администратора изменился.');
         const policy=doc.exists?doc.data():{},schedule=rewardSchedule(policy),current=rewardsAt(policy);
@@ -150,7 +150,7 @@
     const flag=input.dataset.gameSetting;
     if(!canAdmin()||!gameOptions.some(([id])=>id===flag)){paint();return;}
     const value=input.checked;savingFlags.add(flag);input.disabled=true;
-    try{await appConfigRef.set({testReviewFlags:{[flag]:value}},{merge:true});appConfig.testReviewFlags={...appConfig.testReviewFlags,[flag]:value};window.dispatchEvent(new Event('review-flags-changed'));}
+    try{if(isNasRuntime())await nasSaveSettings({testReviewFlags:{[flag]:value}});else await appConfigRef.set({testReviewFlags:{[flag]:value}},{merge:true});appConfig.testReviewFlags={...appConfig.testReviewFlags,[flag]:value};window.dispatchEvent(new Event('review-flags-changed'));}
     catch(e){showError('Не удалось сохранить настройку: '+e.message);}
     finally{savingFlags.delete(flag);paint();}
   }
@@ -183,7 +183,7 @@
   async function loadGrantTargets(){
     if(grantTargetsLoaded||grantTargetsLoading||!canAdmin())return;
     grantTargetsLoading=true;grantMessage='Загружаем пользователей…';paint();
-    try{const snap=await usersRef.get();grantTargets=snap.docs.map(doc=>({id:doc.id,...doc.data()})).sort((a,b)=>String(a.nickname||a.email||a.id).localeCompare(String(b.nickname||b.email||b.id),'ru'));grantTargetsLoaded=true;grantMessage='';}
+    try{if(isNasRuntime()){await refreshNasAdministration();grantTargets=state.users.slice();}else{const snap=await usersRef.get();grantTargets=snap.docs.map(doc=>({id:doc.id,...doc.data()}));}grantTargets.sort((a,b)=>String(a.nickname||a.email||a.id).localeCompare(String(b.nickname||b.email||b.id),'ru'));grantTargetsLoaded=true;grantMessage='';}
     catch(e){grantMessage='Не удалось загрузить пользователей: '+(e.message||'проверьте связь');}
     finally{grantTargetsLoading=false;paint();}
   }
@@ -198,7 +198,7 @@
     const actor=currentUid,operationId=grantOperationId||(crypto.randomUUID?crypto.randomUUID():Date.now()+'_'+Math.random().toString(36).slice(2));grantOperationId=operationId;const ref=refs.coinTransactions.doc('coin_grant_'+encodeURIComponent(target.id)+'_'+operationId);
     grantBusy=true;grantMessage='Сохраняем начисление…';grantAmount=String(amount);grantReason=reason;paint();
     try{
-      await db.runTransaction(async tx=>{
+      if(isNasRuntime())await nasGrantCoins(target.id,amount,reason);else await db.runTransaction(async tx=>{
         const duplicate=await tx.get(ref);if(duplicate.exists)return;
         const profile=await tx.get(usersRef.doc(target.id));
         if(!canAdmin()||currentUid!==actor)throw Error('Права администратора изменились.');
@@ -568,6 +568,11 @@
       cancelCoinFeedback();cancelRankCelebration();rankSnapshotConfirmed=false;rankGuideOpen=false;
       rewardDirty=false;rewardMessage='';unsubscribe?.();unsubscribe=null;unsubscribeAdjustments?.();unsubscribeAdjustments=null;adjustmentListenerKey='';coinAdjustmentRows=[];grantTargets=[];grantTargetsLoaded=false;grantTarget='';grantAmount='';grantReason='';grantOperationId='';owner=identity;ledgerUser='all';ledgerOpen=false;records=[];board=[];ready=false;error='';rankingObject='';rankingScope='shift';closePenaltyNotice();
     }
+    if(isNasRuntime()){
+      if(identity&&nasGameReady&&nasGameSnapshot){records=nasGameSnapshot.records;coinAdjustmentRows=nasGameSnapshot.adjustments;ready=true;error='';rankSnapshotConfirmed=true;notifyPenalties(records);}
+      else{ready=false;rankSnapshotConfirmed=false;error=identity?'Дождитесь связи с игровым кошельком Synology.':'';}
+      paint();observeRankProgress();return;
+    }
     if(identity&&!unsubscribe){
       const session=owner;
       unsubscribe=refs.audit.where('eventType','in',['history','game_penalty','game_purchase','game_arcade']).onSnapshot({includeMetadataChanges:true},s=>{if(owner!==session)return;records=s.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()}));ready=true;error='';rankSnapshotConfirmed=!s.metadata.fromCache&&!s.metadata.hasPendingWrites;notifyPenalties(records);paint();observeRankProgress();},e=>{if(owner!==session)return;rankSnapshotConfirmed=false;cancelRankCelebration();error='Не удалось загрузить рейтинг. Проверьте подключение и доступ к истории.';ready=false;paint();console.warn('[game coins]',e);});
@@ -622,6 +627,7 @@
     const button=document.createElement('button');button.type='button';button.textContent='Понятно';button.onclick=()=>{for(const e of pending)read.add(e.id);try{localStorage.setItem(ackKey(),JSON.stringify([...read]));closePenaltyNotice();}catch(e){showError('Не удалось сохранить прочтение уведомления');}};el.append(button);document.body.append(el);penaltyNotice=el;
   }
   window.__gameFlushPenalties=async()=>{
+    if(isNasRuntime())return;
     if(flushBusy||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active')return;
     const session=currentUid;flushBusy=true;
     try{for(const op of offlineJournalRead().filter(o=>o.status==='cancelled'&&!o.penaltyDelivered)){

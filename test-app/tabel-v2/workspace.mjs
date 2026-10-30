@@ -352,18 +352,19 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     const target = root.querySelector("[data-status]");
     if (!target) return;
     const jobs = s.store.state.jobs;
+    const provider = session.provider === "synology" ? "Synology" : "Firebase";
     target.textContent =
       (s.remote
         ? navigator.onLine
           ? s.store.uploadError
-            ? "Ошибка отправки Firebase"
+            ? "Ошибка отправки " + provider
             : jobs.some((j) => j.status === "queued")
-              ? "Ожидает отправки в Firebase"
+              ? "Ожидает отправки в " + provider
               : s.store.error
-                ? "Ошибка Firebase"
-                : "Firebase подключён · очередь пуста"
+                ? "Ошибка " + provider
+                : provider + " подключён · очередь пуста"
           : "Офлайн"
-        : "На устройстве: синхронизация Firebase не включена") +
+        : "На устройстве: синхронизация " + provider + " не включена") +
       " · локально " +
       jobs.filter((j) => j.status === "queued").length +
       " · конфликты " +

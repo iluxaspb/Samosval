@@ -2,7 +2,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
 const source=fs.readFileSync('test-app/source/core/20-backend-mode.js','utf8');
 function harness(){
  const nodes=Object.fromEntries(['admin-backend-settings','testBackendMode','testBackendActual','testBackendModeNote','testSynologyCheck','testSynologyCheckResult'].map(id=>[id,{}]));
- const c={currentUid:'admin-a',permissionsLoaded:true,currentUserStatus:'active',currentUserRole:'admin',firebaseConfig:{projectId:'samosval-offline'},WORKSPACE_ID:'main_workspace',navigator:{onLine:true},
+ const c={isNasRuntime:()=>false,currentUid:'admin-a',permissionsLoaded:true,currentUserStatus:'active',currentUserRole:'admin',firebaseConfig:{projectId:'samosval-offline'},WORKSPACE_ID:'main_workspace',navigator:{onLine:true},
  document:{getElementById:id=>nodes[id]},localStorage:{getItem:()=>null},canAdmin:()=>c.currentUserStatus==='active'&&c.currentUserRole==='admin',getSyncStatus:()=>({state:'ok'}),auth:{currentUser:{getIdToken:async()=> 'test'}}};
  vm.createContext(c);vm.runInContext(source,c);return {c,nodes};
 }

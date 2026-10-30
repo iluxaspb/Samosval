@@ -103,16 +103,18 @@
   document.head.appendChild(css);
 
   // ===== Стеки =====
-  const stackKey=()=> 'dt_undo_redo_v3:'+firebaseConfig.projectId+':'+WORKSPACE_ID+':'+currentUid;
+  const stackKey=()=>isNasRuntime()?'dt_undo_redo_nas_v1:'+nasStorageScope():'dt_undo_redo_v3:'+firebaseConfig.projectId+':'+WORKSPACE_ID+':'+currentUid;
   const MAX_SIZE = 300;
   const MAX_CLOUD_SIZE = 30;
   let undoStack = [];
   let redoStack = [];
+  let stackOwner='';
 
   // Firestore-документ со стеками
   const stacksRef = db.collection('settings').doc('undoRedoStacks');
 
   function loadStacksLocal() {
+    const key=stackKey();if(stackOwner!==key){stackOwner=key;undoStack=[];redoStack=[];}
     try {
       const raw = localStorage.getItem(stackKey());
       if (!raw) return;
@@ -127,6 +129,11 @@
     if(cloudHistoryLoading||!navigator.onLine||!canUndo())return;
     cloudHistoryLoading=true;const historyUid=currentUid;
     try{
+      if(isNasRuntime()){
+        const client=nasRuntimeClient,snapshot=await client.readHistory();if(currentUid!==historyUid||client!==nasRuntimeClient)return;
+        const rows=snapshot.items.map(x=>({...x,nas:true,user:x.userName,description:({arrive:'Прибытие',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'}[x.type]||x.type)+' · '+truckName(x.truckId),operations:[]})).sort((a,b)=>a.timestamp-b.timestamp);
+        undoStack=rows.filter(x=>!x.undone);redoStack=rows.filter(x=>x.undone);saveStacks();refreshUI();return;
+      }
       const snap=await Promise.race([refs.audit.orderBy('timestamp','desc').limit(300).get({source:'server'}),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Нет связи с журналом')),4000))]);
       if(currentUid!==historyUid)return;
       const rows=snap.docs.map(d=>{const x=d.data();return x.eventType==='history'&&x.history?{...x.history,id:d.id}:null;}).filter(Boolean);
@@ -158,6 +165,7 @@
   }
 
   function allowedHistory(direction,action){
+    if(isNasRuntime())return action.nas===true&&(direction==='before'?action.canUndo:action.canRedo)===true;
     if(currentUserRole==='admin')return true;
     const prefix=direction==='before'?'history_undo_':'history_redo_';
     return hasPermission(prefix+'any')||(hasPermission(prefix+'own')&&action.userEmail===currentEmail);
@@ -304,6 +312,7 @@
     historyBusy=true;
     try{
       if(!await askConfirm(direction==='before'?'Отменить действие?':'Восстановить действие?',escapeHtml(action.description),{confirmLabel:direction==='before'?'Отменить действие':'Восстановить',cancelLabel:'Назад'}))return;
+      if(isNasRuntime()){await nasHistoryAction(action,direction==='before'?'undo':'redo');await loadStacksCloud();renderHistoryModal(true);return;}
       const applied=await applyHistoryOperations(action.operations,direction,action);
       applied.forEach(op=>updateLocalState(op,direction));
       offlineRemoteStatuses={...state.truckStatus};offlineRemoteLogs=state.logs.slice();confirmedLoadIds=new Set(state.logs.map(l=>l.id));

@@ -1,4 +1,8 @@
 import http from 'node:http';
+import {readNotifications,submitNotificationTest,deliverNotification} from './notification-store.mjs';
+import {installDatasetGuard,datasetRequest} from './dataset-guard.mjs';
+import {readBackups,submitBackup} from './backup-store.mjs';
+import {submitReport} from './report-store.mjs';
 import {readArchiveSnapshot} from './archive-read.mjs';
 import {readLineHistory,historyOperation} from './history-store.mjs';
 import { Pool } from 'pg';
@@ -12,6 +16,10 @@ import { readTabel, commitTabel } from './tabel-store.mjs';
 import { closeShiftOperation } from './shift-close.mjs';
 import { startShiftOperation } from './shift-start.mjs';
 import { readCatalog, submitControl } from './control-store.mjs';
+import {readSettings,submitSettings} from './settings-store.mjs';
+import {submitArchive} from './archive-store.mjs';
+import {readGames,submitGame} from './game-store.mjs';
+import {readAuxiliary,submitAuxiliary} from './auxiliary-store.mjs';
 
 const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
@@ -25,6 +33,7 @@ const pool = new Pool({
   password:process.env.POSTGRES_PASSWORD, max:5,
   connectionTimeoutMillis:2000, idleTimeoutMillis:30000
 });
+installDatasetGuard(pool);
 const tabelPresence=createPresenceService({authorize:(uid,target)=>authorizeTabelPresence(pool,uid,target),workspaceId:process.env.WORKSPACE_ID||'main_workspace'});
 function send(res,status,body) {
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
@@ -46,15 +55,16 @@ function readJson(req,limit=32768) {
     req.on('error',reject);
   });
 }
-const server=http.createServer(async(req,res)=>{
+const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
   const origin=req.headers.origin;
   if(origin){
     if(!permittedOrigins.has(origin)) return send(res,403,{error:'origin-not-allowed'});
     res.setHeader('Access-Control-Allow-Origin',origin);
     res.setHeader('Vary','Origin');
     res.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, X-Samosval-Epoch');
     res.setHeader('Access-Control-Max-Age','600');
+    res.setHeader('Access-Control-Expose-Headers','X-Samosval-Epoch');
   }
   const requestUrl=new URL(req.url||'/', 'http://localhost');
   const path=requestUrl.pathname;
@@ -64,6 +74,52 @@ const server=http.createServer(async(req,res)=>{
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
   }
+  if(path==='/api/v1/notifications'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{if(req.method==='GET')return send(res,200,await readNotifications(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitNotificationTest(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;return send(res,status,{error:status===500?'server-error':e.code||e.message});}
+  }
+  if(path==='/api/v1/backups'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readBackups(pool,uid,requestUrl.searchParams.get('id')));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitBackup(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[backup-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
+  }
+  if(path==='/api/v1/auxiliary'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readAuxiliary(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitAuxiliary(pool,uid,await readJson(req,8000000)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[auxiliary-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
+  }
+  if(path==='/api/v1/report/operations'&&req.method==='POST'){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitReport(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[report-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
+  }
+  if(path==='/api/v1/settings'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readSettings(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitSettings(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[settings-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
+  }
+  if(path==='/api/v1/games'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readGames(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitGame(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[game-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
+  }
   if(path==='/api/v1/archive/snapshot'&&req.method==='GET'){
     const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
     try{return send(res,200,await readArchiveSnapshot(pool,uid));}
@@ -72,6 +128,13 @@ const server=http.createServer(async(req,res)=>{
       if(status===500)console.error('[archive-api] request failed',e?.code||e?.name||'unknown');
       return send(res,status,{error:status===500?'server-error':e.code||e.message});
     }
+  }
+  if(path==='/api/v1/archive/operations'&&req.method==='POST'){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitArchive(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[archive-api] mutation failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
   }
   if(path==='/api/v1/history'&&['GET','POST'].includes(req.method)){
     const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
@@ -201,13 +264,14 @@ const server=http.createServer(async(req,res)=>{
     }
   }
   return send(res,404,{error:'not-found'});
-});
+}));
 const port=Number(process.env.PORT||8080);
 server.listen(port,'0.0.0.0',()=>console.info(`Samosval TEST API listening on ${port}`));
+let notificationBusy=false;const notificationTimer=setInterval(async()=>{if(notificationBusy)return;notificationBusy=true;try{await deliverNotification(pool);}catch(e){console.error('[notification-worker] failed',e?.code||e?.name||'unknown');}finally{notificationBusy=false;}},2000);
 let stopping=false;
 async function shutdown(){
   if(stopping)return;
-  stopping=true;
+  stopping=true;clearInterval(notificationTimer);
   server.close();
   try{await pool.end();}finally{process.exit(0);}
 }

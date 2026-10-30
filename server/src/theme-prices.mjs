@@ -1,0 +1,2 @@
+// Server prices; client parity is a release check.
+export const themePrices=Object.freeze({"road": 100, "asphalt": 100, "night": 200, "dawn": 100, "vest": 200, "build": 100, "sand": 100, "granite": 200, "winter": 200, "rain": 200, "forest": 100, "finish": 200, "gost": 100, "heavy": 200, "cone": 100, "pothole": 200, "coffee": 100, "king": 350, "space": 350, "sea": 350, "anime": 350, "season-spring": 200, "season-summer": 200, "season-autumn": 200, "season-winter": 200});

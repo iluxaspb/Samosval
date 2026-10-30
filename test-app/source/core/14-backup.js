@@ -18,6 +18,16 @@
       }
       const counts = sections.map(([name]) => name + ': ' + (data[name] || []).length).join('\\n');
       if (!(await appConfirm('Импорт добавит или обновит записи по ID, но не удалит существующие.\\n' + counts + '\\nПродолжить?'))) return;
+      if(isNasRuntime()){
+        await Promise.all([refreshNasObjects(),refreshNasArchive()]);const items=[];
+        for(const [collection] of sections)for(const raw of data[collection]||[]){
+          if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Некорректная запись: '+collection);
+          const id=raw.id?String(raw.id):'import_'+crypto.randomUUID().replaceAll('-','');const {id:_,revision,...payload}=raw;
+          const existing=(collection==='archive'?state.archive:collection==='trucks'?state.trucks:state.objects).find(r=>r.id===id);
+          items.push({collection,recordId:id,expectedRevision:existing?.revision||0,data:payload});
+        }
+        if(!items.length)throw Error('Резервная копия пуста');const result=await nasBusinessCommand('auxiliary','backup',{type:'backup.import',items});await Promise.all([refreshNasObjects(),refreshNasArchive(),nasRefreshLine()]);showToastEl('Импорт завершён. Записей обработано: '+result.result.written,false);return;
+      }
       let batch = db.batch(), pending = 0, written = 0;
       for (const [name, ref] of sections) {
         for (const item of (data[name] || [])) {

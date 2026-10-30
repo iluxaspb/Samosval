@@ -1,3 +1,4 @@
+import {enqueueNotification} from './notification-store.mjs';
 import {createHash} from 'node:crypto';
 import {fail} from './tabel-access.mjs';
 import {normalizeControl,membershipStatus,CONTROL_PERMISSIONS} from './control-rules.mjs';
@@ -62,6 +63,7 @@ export async function submitControl(pool,uid,input,ws=WS){
       await client.query(`INSERT INTO ${table}(workspace_id,${key},payload,revision) VALUES ($1,$2,$3,$4) ON CONFLICT(workspace_id,${key}) DO UPDATE SET payload=EXCLUDED.payload,revision=EXCLUDED.revision`,[ws,op.recordId,data,revision]);
       after={id:op.recordId,data,revision};
     }
+    if(op.type==='line.add'||op.type==='line.remove'){const truck=(await client.query('SELECT payload FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2',[ws,op.truckId])).rows[0]?.payload;await enqueueNotification(client,ws,op.id,op.type,{truck:truck?.number||op.truckId,actor:profile.display_name});}
     const result={outcome:'confirmed',operationId:op.id,type:op.type,result:after};
     await client.query('INSERT INTO control_audit(workspace_id,operation_id,uid,type,before_data,after_data) VALUES ($1,$2,$3,$4,$5,$6)',[ws,op.id,uid,op.type,before,after]);
     await client.query('UPDATE control_operation_receipts SET result=$3 WHERE workspace_id=$1 AND operation_id=$2',[ws,op.id,result]);

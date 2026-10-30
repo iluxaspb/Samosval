@@ -8,7 +8,7 @@ function harness(){
   const nodes=new Map(),bodyAttrs=new Map(),errors=[],writes=[],calls=[],storage=new Map();let journal=[],onSession,onSnapshot;
   const node=id=>{if(!nodes.has(id))nodes.set(id,{style:{},textContent:'',value:'',classList:{add(){},remove(){}}});return nodes.get(id);};
   const c={console,URL,Map,Date,Promise,setTimeout,clearTimeout,WORKSPACE_ID:'main_workspace',currentUid:'one',currentEmail:'one@example.test',currentUserNickname:'',currentUserRole:'admin',currentUserStatus:'active',permissionsLoaded:true,permissionsConfig:{},initialized:false,
-    state:{trucks:[],logs:[],truckStatus:{},shift:null,archive:[],trash:[],audit:[],users:[]},settings:{},offlineRemoteStatuses:{},offlineRemoteLogs:[],offlineReplayRunning:false,offlineServerRetryAt:0,
+    state:{trucks:[],logs:[],truckStatus:{},shift:null,archive:[],trash:[],audit:[],users:[]},settings:{},appConfig:{},Event,renderAppSettingsIfActive(){},hasTabAccess:tab=>c.permissionsConfig[c.currentUserRole]?.tabs?.includes(tab)||c.currentUserRole==='admin',offlineRemoteStatuses:{},offlineRemoteLogs:[],offlineReplayRunning:false,offlineServerRetryAt:0,
     auth:{currentUser:{uid:'one'}},navigator:{onLine:true},document:{baseURI:'https://app.test/index-test.html',body:{setAttribute:(k,v)=>bodyAttrs.set(k,v),removeAttribute:k=>bodyAttrs.delete(k)},getElementById:node,querySelector:s=>s.startsWith('meta[')?{content:'synology-candidate'}:node(s),querySelectorAll:()=>[]},
     crypto:{randomUUID:()=>String(calls.length)+'-uuid'},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},canAdmin:()=>c.currentUserStatus==='active'&&c.currentUserRole==='admin',renderAdminPanel(){},requestSyncStatus:{},
     sanitizeName:x=>x,markSync:(...args)=>calls.push(['sync',...args]),cancelHold(){},updateUserBadge(){},updateNavUI(){},applyRoleUI(){},renderAll:()=>calls.push(['render']),saveCache(){},refreshLineViews(){},showToastEl(){},escapeHtml:x=>x,offlineReasonLabel:x=>x,
@@ -16,7 +16,7 @@ function harness(){
     offlinePendingOps:()=>structuredClone(journal.filter(x=>x.status==='pending')),offlineJournalRead:()=>structuredClone(journal),offlineJournalWrite:items=>{writes.push(structuredClone(items));journal=structuredClone(items);},
     offlineResolve:(id,status,reason)=>{const row=journal.find(x=>x.id===id);row.status=status;row.result=reason;},
     offlineProjectState:()=>{c.state.truckStatus=c.offlineRemoteStatuses;c.state.logs=c.offlineRemoteLogs;},
-    offlineAdoptResult:(_op,result)=>{c.state.truckStatus.truck=result.status;},window:{},
+    offlineAdoptResult:(_op,result)=>{c.state.truckStatus.truck=result.status;},refs:{},window:{dispatchEvent(){},addEventListener(){}},
   };
   vm.createContext(c);vm.runInContext(source('21-nas-runtime.js'),c);
   const client={uid:'one',scope:JSON.stringify(['synology','https://iluxa.synology.me:18443','main_workspace','one']),readAdministration:async()=>({users:[{uid:'one',revision:1,role:'admin',status:'active'},{uid:'target',revision:1,role:'viewer',status:'pending'}],deletedUsers:[],requests:[{uid:'target',revision:1}],permissions:{viewer:{tabs:[],actions:[],revision:1}}}),subscribeLine:handlers=>{onSession=handlers.onSession;onSnapshot=handlers.onSnapshot;return ()=>calls.push(['unsubscribe']);},stop:()=>calls.push(['stop']),submitLine:async(op,options)=>{calls.push(['submit',op,options]);return {outcome:'confirmed',status:{shiftId:'shift',cycleRevision:2,ttnRevision:0}};}};
@@ -200,4 +200,19 @@ test('NAS command captures nested form data before waiting for a cross-tab lock'
   h.client.submitControl=async op=>{sent=structuredClone(op);return {outcome:'confirmed'};};
   const fields={type:'object.create',expectedRevision:0,data:{name:'Original'}};
   const pending=h.c.nasBusinessCommand('control','object:new',fields);fields.data.name='Changed';unlock();await pending;assert.equal(sent.data.name,'Original');
+});
+
+// A failed poll must not leave an error badge after a later accepted snapshot.
+test('NAS line clears a transport failure only after accepting a current server snapshot',async()=>{
+ const h=harness(),{c}=h;
+ vm.runInContext(source('03-formatting.js'),c);
+ c.updateSyncUI=()=>{};
+ c.syncState={errors:{nas:{code:'api-unreachable'}},pendingWrites:{},docCount:{},fromCache:{},everConnected:{}};
+ await c.startNasRuntime(c.auth.currentUser);
+ h.snapshot(snapshot());
+ assert.equal(c.syncState.errors.nas,undefined);
+ c.syncState.errors.nas={code:'api-unreachable'};
+ vm.runInContext("nasReceiptFloors.set('truck',{truckId:'truck',shiftId:'shift',cycle:3,ttn:0})",c);
+ h.snapshot(snapshot());
+ assert.equal(c.syncState.errors.nas.code,'api-unreachable');
 });

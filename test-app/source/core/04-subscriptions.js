@@ -1,5 +1,6 @@
   let lineCountAuditStop = null, lineCountAuditKey = '';
   function syncLineCountAudit() {
+    if(isNasRuntime()){lineCountAuditStop?.();lineCountAuditStop=null;return;}
     const shift = state.shift;
     const key = shift ? currentUid + ':' + shift.startDate : '';
     if (key === lineCountAuditKey) return;

@@ -18,6 +18,7 @@ export async function closeShiftOperation(pool,uid,input) {
       if(old.uid!==uid||old.request_hash!==hash)throw fail('operation-id-reused',409);
       await client.query('COMMIT');return {...old.result,replayed:true};
     }
+    await client.query('SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE',[WS]);
     // Line operations hold FOR SHARE on this row until their load commits.
     // This exclusive lock waits for those loads before freezing the archive.
     const row=(await client.query('SELECT is_active,payload FROM shifts WHERE workspace_id=$1 AND shift_id=$2 FOR UPDATE',[WS,op.shiftId])).rows[0];

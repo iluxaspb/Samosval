@@ -1,5 +1,5 @@
 // Optional NAS backend for the existing durable Tabel Store. No Firebase fallback.
-export function createTabelRemote({baseUrl,getIdToken,fetchImpl=globalThis.fetch,guard=()=>{},timeoutMs=20000,pollMs=10000}={}) {
+export function createTabelRemote({baseUrl,getIdToken,fetchImpl=globalThis.fetch,guard=()=>{},timeoutMs=20000,pollMs=10000,datasetEpoch=0}={}) {
   let base;
   try {base=new URL(baseUrl);} catch {throw TypeError('invalid-api-url');}
   if (base.protocol!=='https:' || base.username || base.password || base.search || base.hash) throw TypeError('invalid-api-url');
@@ -15,7 +15,8 @@ export function createTabelRemote({baseUrl,getIdToken,fetchImpl=globalThis.fetch
       guard(job);
       const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
       try {
-        const response=await fetchImpl(url,{method:body===undefined?'GET':'POST',body,headers:{Authorization:'Bearer '+token,...(body===undefined?{}:{'Content-Type':'application/json'})},signal:controller.signal,cache:'no-store',credentials:'omit',redirect:'error',referrerPolicy:'no-referrer'});
+        const response=await fetchImpl(url,{method:body===undefined?'GET':'POST',body,headers:{Authorization:'Bearer '+token,...(body===undefined?{}:{'Content-Type':'application/json','X-Samosval-Epoch':String(datasetEpoch)})},signal:controller.signal,cache:'no-store',credentials:'omit',redirect:'error',referrerPolicy:'no-referrer'});
+        const epoch=response.headers?.get?.('X-Samosval-Epoch');if(epoch!=null&&Number(epoch)!==datasetEpoch)throw Object.assign(Error('Данные восстановлены: перезагрузите программу'),{code:'dataset-restored-reload',status:409});
         if (response.status===401 && attempt===0)continue;
         if(!response.ok)throw Object.assign(Error('Synology HTTP '+response.status),{code:'api-http-'+response.status,status:response.status});
         const value=await response.json();

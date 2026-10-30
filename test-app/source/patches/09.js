@@ -88,6 +88,8 @@
 
   // ===== Создание бэкапа =====
   async function createBackup(type, description) {
+    if(isNasRuntime()){try{const r=await nasBackupCommand('create:'+type,{type:'backup.create',backupType:type,description:description||''});if(type==='auto')localStorage.setItem('dt_backup_last_auto_test347',String(Date.now()));showToastEl('✅ Бэкап создан на Synology',false);renderBackupUI();return r.result.meta;}catch(e){showError('Ошибка бэкапа: '+e.message);return null;}}
+
     if (backupInProgress) {
       if (typeof showToastEl === 'function') showToastEl('⏳ Уже идёт создание бэкапа', true);
       return null;
@@ -175,6 +177,7 @@
 
   // ===== Ротация =====
   async function rotateBackups() {
+    if(isNasRuntime())return;
     try {
       const snap = await BACKUPS_COLL.orderBy('createdAt', 'desc').get();
       const docs = snap.docs;
@@ -207,6 +210,7 @@
 
   // ===== Список бэкапов =====
   async function listBackups() {
+    if(isNasRuntime())return (await nasBackupRead()).items;
     try {
       const snap = await BACKUPS_COLL.orderBy('createdAt', 'desc').limit(50).get();
       return snap.docs.map(d => d.data());
@@ -218,6 +222,7 @@
 
   // ===== Чтение бэкапа =====
   async function readBackupData(id) {
+    if(isNasRuntime())return (await nasBackupRead(id)).payload;
     const metaDoc = await BACKUPS_COLL.doc(id).get();
     if (!metaDoc.exists) throw new Error('Бэкап не найден');
     const meta = metaDoc.data();
@@ -232,6 +237,7 @@
 
   // ===== Удаление бэкапа =====
   async function deleteBackup(id) {
+    if(isNasRuntime()){if(await appConfirm('Убрать точку восстановления из списка? Копия сохранится на Synology.')){try{await nasBackupCommand(id,{type:'backup.delete',backupId:id});renderBackupUI();}catch(e){showError(e.message);}}return;}
     if (!(await appConfirm('Удалить этот бэкап? Восстановить из него будет невозможно.'))) return;
     try {
       const chunksSnap = await BACKUPS_COLL.doc(id).collection('chunks').get();
@@ -264,6 +270,7 @@
 
   // ===== Восстановление =====
   async function restoreBackup(id, sections) {
+    if(isNasRuntime()){try{await nasBackupCommand(id,{type:'backup.restore',backupId:id,sections});showToastEl('✅ Восстановлено на Synology. Перезагрузка...',false);location.reload();}catch(e){showError(e.message);}return;}
     // sections: { base: true, archive: true, settings: true, users: true, shift: true }
     try {
       if (typeof showToastEl === 'function') showToastEl('⏳ Чтение бэкапа...', false);
@@ -331,9 +338,10 @@
 
   // ===== Модалка восстановления =====
   async function openRestoreModal(id) {
-    const metaDoc = await BACKUPS_COLL.doc(id).get();
-    if (!metaDoc.exists) { showError('Бэкап не найден'); return; }
-    const meta = metaDoc.data();
+    const nasMeta=isNasRuntime()?(await nasBackupRead(id)).meta:null;
+    const metaDoc = nasMeta?null:await BACKUPS_COLL.doc(id).get();
+    if (!nasMeta&&!metaDoc.exists) { showError('Бэкап не найден'); return; }
+    const meta = nasMeta||metaDoc.data();
 
     const old = document.getElementById('restoreBackupModal');
     if (old) old.remove();
@@ -384,6 +392,7 @@
         <span>🚛 Текущая смена + рейсы + статусы</span>
       </label>
 
+      ${isNasRuntime()?'<label style="display:flex;gap:8px;padding:8px"><input type="checkbox" id="rsTabel" checked>📋 Табель (формулы и оформление)</label>':''}
       <div style="display:flex; gap:8px;">
         <button class="btn btn-secondary" onclick="document.getElementById('restoreBackupModal').remove()" style="flex:1;">Отмена</button>
         <button class="btn btn-danger" id="rsConfirmBtn" style="flex:1;">♻️ Восстановить</button>
@@ -410,6 +419,7 @@
       if (!ok) return;
 
       overlay.remove();
+      if(isNasRuntime())sections.tabel=!!document.getElementById('rsTabel')?.checked;
       await restoreBackup(id, sections);
     };
   }
@@ -558,7 +568,8 @@
           const id = btn.dataset.importantId;
           const isImportant = btn.dataset.important === '1';
           try {
-            await BACKUPS_COLL.doc(id).update({ important: !isImportant });
+            if(isNasRuntime())await nasBackupCommand(id,{type:'backup.mark',backupId:id,important:!isImportant});
+            else await BACKUPS_COLL.doc(id).update({ important: !isImportant });
             loadBackupsList();
           } catch(e) {
             if (typeof showError === 'function') showError(e.message);

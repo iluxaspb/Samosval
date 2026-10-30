@@ -25,6 +25,7 @@
   }
   function refInfo(ref){const p=ref.path.split('/');return {collection:p.length===4?p[2]:p[0],id:p.at(-1),path:ref.path};}
   async function run(callback,options){
+    if(isNasRuntime())throw new Error('Запись Firebase запрещена в режиме Synology');
     const historyId='history_'+(crypto.randomUUID?crypto.randomUUID():Date.now()+'_'+Math.random().toString(36).slice(2));
     const actor={uid:currentUid,email:currentEmail,name:getUserName()},time=Date.now();
     return rawTransaction(async tx=>{
@@ -57,9 +58,9 @@
   }
   db.runTransaction=run;
   const proto=Object.getPrototypeOf(refs.trucks.doc());
-  for(const method of ['set','update','delete']){const original=proto[method];proto[method]=function(...args){if(!eligible(this))return original.apply(this,args);return run(tx=>tx[method](this,...args)).then(()=>undefined);};}
+  for(const method of ['set','update','delete']){const original=proto[method];proto[method]=function(...args){if(isNasRuntime())throw new Error('Запись Firebase запрещена в режиме Synology');if(!eligible(this))return original.apply(this,args);return run(tx=>tx[method](this,...args)).then(()=>undefined);};}
   const collectionProto=Object.getPrototypeOf(refs.trucks),originalAdd=collectionProto.add;
-  collectionProto.add=function(data){const ref=this.doc();if(!eligible(ref))return originalAdd.call(this,data);return run(tx=>tx.set(ref,data)).then(()=>ref);};
-  db.batch=function(){const original=rawBatch(),writes=[];const batch={};for(const method of ['set','update','delete'])batch[method]=(...args)=>{writes.push([method,args]);return batch;};batch.commit=async()=>{if(currentUserRole!=='admin'&&writes.length>4&&writes.some(([,args])=>eligible(args[0]))){for(let i=0;i<writes.length;i+=4)await run(tx=>{for(const [method,args] of writes.slice(i,i+4))tx[method](...args);});return;}if(writes.some(([,args])=>eligible(args[0])))return run(tx=>{for(const [method,args] of writes)tx[method](...args);});for(const [method,args] of writes)original[method](...args);return original.commit();};return batch;};
+  collectionProto.add=function(data){if(isNasRuntime())throw new Error('Запись Firebase запрещена в режиме Synology');const ref=this.doc();if(!eligible(ref))return originalAdd.call(this,data);return run(tx=>tx.set(ref,data)).then(()=>ref);};
+  db.batch=function(){const original=rawBatch(),writes=[];const batch={};for(const method of ['set','update','delete'])batch[method]=(...args)=>{writes.push([method,args]);return batch;};batch.commit=async()=>{if(isNasRuntime())throw new Error('Запись Firebase запрещена в режиме Synology');if(currentUserRole!=='admin'&&writes.length>4&&writes.some(([,args])=>eligible(args[0]))){for(let i=0;i<writes.length;i+=4)await run(tx=>{for(const [method,args] of writes.slice(i,i+4))tx[method](...args);});return;}if(writes.some(([,args])=>eligible(args[0])))return run(tx=>{for(const [method,args] of writes)tx[method](...args);});for(const [method,args] of writes)original[method](...args);return original.commit();};return batch;};
 })();
 
