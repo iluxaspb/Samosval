@@ -30,7 +30,7 @@ export async function run(args,{inputFile,outputFile,timeout=180000}={}){
 async function atomic(path,value){const temp=path+'.tmp';await writeFile(temp,typeof value==='string'?value:JSON.stringify(value,null,2),{mode:0o600});await rename(temp,path);}
 async function readJson(path,fallback){try{return JSON.parse(await readFile(path,'utf8'));}catch(e){if(e.code==='ENOENT')return fallback;throw e;}}
 export class TestControlAgent{
- constructor(pool,{docker=run,release=verifiedRelease,bytes=sourceBytes,root=CONTROL}={}){this.pool=pool;this.docker=docker;this.getRelease=release;this.getBytes=bytes;this.root=root;this.state={protocol:1,host:{},backups:[],rollbackAvailable:false};}
+ constructor(pool,{docker=run,release=verifiedRelease,bytes=sourceBytes,root=CONTROL}={}){this.pool=pool;this.docker=docker;this.getRelease=release;this.getBytes=bytes;this.root=root;this.state={protocol:1,workerVersion:'4.1.1',host:{},backups:[],rollbackAvailable:false};}
  async containers(){
   const api=await this.docker(['ps','-q','--filter','label=com.docker.compose.project='+PROJECT,'--filter','label=com.docker.compose.service=api']);
   const postgres=await this.docker(['ps','-q','--filter','label=com.docker.compose.project=samosval-test','--filter','label=com.docker.compose.service=postgres']);
