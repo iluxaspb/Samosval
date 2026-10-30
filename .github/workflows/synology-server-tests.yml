@@ -70,6 +70,7 @@ jobs:
         run: python3 ../tools/verify-test-modules.py
       - run: npm test
       - name: Tabel calculation and queue regressions
-        run: node --test ../tests/tabel-v2/*.test.mjs
+        working-directory: .
+        run: node --test tests/tabel-v2/*.test.mjs
 
 
