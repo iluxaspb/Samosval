@@ -15,7 +15,7 @@ function release(version,build){
 }
 (async()=>{
  let current=release('4.0.9','aaaaaaaaaaaaaaaa');const errors=[];
- const server=http.createServer((req,res)=>{const path=new URL(req.url,'http://localhost').pathname.slice(1),b=current.get(path);res.writeHead(b?200:404,{'Content-Type':path.endsWith('.js')?'application/javascript':path.endsWith('.json')?'application/json':path.endsWith('.txt')?'text/plain':'text/html','Cache-Control':'no-store','Service-Worker-Allowed':'/'});setTimeout(()=>res.end(b||'missing'),path.includes('file-')?80:0);});
+ const server=http.createServer((req,res)=>{const path=new URL(req.url,'http://localhost').pathname.slice(1),b=current.get(path);res.writeHead(b?200:404,{'Content-Type':path.endsWith('.js')?'application/javascript':path.endsWith('.json')?'application/json':path.endsWith('.txt')?'text/plain':'text/html','Cache-Control':'no-store','Service-Worker-Allowed':'/'});setTimeout(()=>res.end(b||'missing'),path.includes('file-')?400:0);});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
  const browser=await chromium.launch({executablePath:process.env.PWA_BROWSER,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
  try{
