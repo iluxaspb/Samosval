@@ -104,6 +104,17 @@ test('Postgres -> Firebase: snapshot, exact receipts, outage, lost ACK, delete, 
   await assert.rejects(mirror(pool,firestore),/replica-checkpoint-diverged/);
   firestore.docs.set(REPLICA_DOC,remote);
   assert.equal((await mirror(pool,firestore)).idle,true);
+  // PK movement / several changes to the same row in one delivery batch:
+  // only the last materialized state is written; no journal event disappears.
+  for(const [action,payload] of [['upsert',{id:key.id,value:2}],['upsert',{id:key.id,value:3}],['delete',null]]){
+   await pool.query("SELECT reserve_outbox_append('line_logs',$1,$2::jsonb,$3::jsonb)",
+    [action,JSON.stringify(key),payload===null?null:JSON.stringify(payload)]);
+  }
+  const repeated=await mirror(pool,firestore);
+  assert.equal(repeated.delivered,3);
+  assert.equal(firestore.docs.has(dataPath),false);
+  assert.equal([...firestore.docs.keys()].filter(x=>x.includes('/events_')).length,5);
+  assert.equal((await readReplicaStatus(pool)).lag,0);
   const rollback=await pool.connect();
   try{
    await rollback.query('BEGIN');
