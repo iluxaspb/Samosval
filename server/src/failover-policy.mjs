@@ -110,7 +110,7 @@ export function publishCommit(state,proof,{sequence,hash},now) {
   // Publishing the immutable data and the head is one authority transaction.
   // The other provider is deliberately stale until it verifies this exact head.
   return changed(state,{sequence,head:checkpoint,
-    replicas:{...state.replicas,[proof.provider]:checkpoint,firebase:checkpoint},
+    replicas:{...state.replicas,[proof.provider]:checkpoint},
     leaseUntil:proof.provider==='synology'?now+LEASE_MS:0,healthySince:null},now);
 }
 export function observeNasRecovery(state,healthy,now) {
