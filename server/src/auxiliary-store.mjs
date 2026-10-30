@@ -5,6 +5,20 @@ const WS=process.env.WORKSPACE_ID||'main_workspace';
 const collections=['plugins','patches','audit','notifications'];
 const safeRecord=x=>map(x)&&Buffer.byteLength(JSON.stringify(x))<=900000;
 const recordId=x=>typeof x==='string'&&x.length>0&&x.length<=200&&!x.includes('/');
+
+/** Render public history events using a readable, escaped truck label, never the internal truck ID. */
+export function presentLineHistory(h){
+ const actor=h.game_actor||{},at=new Date(h.created_at).getTime();
+ const label=({arrive:'Прибытие на линию',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'})[h.type]||h.type;
+ const truck=map(h.truck_data)?h.truck_data:{};
+ const brand=typeof truck.brand==='string'?truck.brand.trim():'';
+ const number=typeof truck.number==='string'?truck.number.trim():'';
+ const truckLabel=[brand,number].filter(Boolean).join(' ')||'Самосвал';
+ const escaped=truckLabel.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const entry={id:'nas_'+h.action_id,actionId:h.action_id,type:h.type,truckId:h.truck_id,logId:h.log_data?.id||null,shiftId:h.shift_id,timestamp:at,createdBy:actor.name||h.display_name||'',createdByEmail:actor.email||h.email||'',html:label+' · '+escaped};
+ const audit={...entry,eventType:h.type,userName:entry.createdBy,userEmail:entry.createdByEmail,timeStr:new Date(at).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}),text:label+' · '+truckLabel+(h.undone?' · отменено':'')};
+ return {entry,audit};
+}
 export function publicAuxiliary(value){
  if(Array.isArray(value))return value.map(publicAuxiliary);
  if(map(value))return Object.fromEntries(Object.entries(value).filter(([k])=>!/password|token|secret|^maxUrl$|^maxChatId$/i.test(k)).map(([k,v])=>[k,publicAuxiliary(v)]));
@@ -33,11 +47,11 @@ export async function readAuxiliary(pool,uid,ws=WS){
   await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const actor=await serviceActor(client,uid,null,{lock:false});
   const data=await auxiliaryEntries(client,ws);
   // Derive ticker entries from authoritative committed actions, never a second client write.
-  const rows=(await client.query('SELECT h.*,u.email,u.display_name FROM line_history h LEFT JOIN app_users u ON u.uid=h.uid WHERE h.workspace_id=$1 ORDER BY h.created_at DESC LIMIT 300',[ws])).rows;
-  for(const h of rows){const a=h.game_actor||{},at=new Date(h.created_at).getTime(),label=({arrive:'Прибытие на линию',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'})[h.type]||h.type;
-   const entry={id:'nas_'+h.action_id,actionId:h.action_id,type:h.type,truckId:h.truck_id,shiftId:h.shift_id,timestamp:at,createdBy:a.name||h.display_name||'',createdByEmail:a.email||h.email||'',html:label+' · '+h.truck_id};
+  const rows=(await client.query('SELECT h.*,u.email,u.display_name,t.payload AS truck_data FROM line_history h LEFT JOIN app_users u ON u.uid=h.uid LEFT JOIN line_trucks t ON t.workspace_id=h.workspace_id AND t.truck_id=h.truck_id WHERE h.workspace_id=$1 ORDER BY h.created_at DESC LIMIT 300',[ws])).rows;
+  for(const h of rows){
+   const {entry,audit}=presentLineHistory(h);
    if(!h.undone)data.notifications.set(entry.id,entry);
-   data.audit.set(entry.id,{...entry,eventType:h.type,userName:entry.createdBy,userEmail:entry.createdByEmail,timeStr:new Date(at).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}),text:label+' · '+h.truck_id+(h.undone?' · отменено':'')});
+   data.audit.set(entry.id,audit);
   }
   for(const table of ['workspace_service_audit','control_audit','identity_audit']){
    const events=(await client.query(`SELECT * FROM ${table} ${table==='identity_audit'?'':'WHERE workspace_id=$1'} ORDER BY created_at DESC LIMIT 200`,table==='identity_audit'?[]:[ws])).rows;
