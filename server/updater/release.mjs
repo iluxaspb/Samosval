@@ -12,7 +12,24 @@ export function normalizeRelease(value){
   paths.add(f.path);bytes+=f.bytes;return {path:f.path,sha256:f.sha256,bytes:f.bytes};
  });
  if(bytes>12000000||!paths.has('src/index.mjs')||!paths.has('src/server-control.mjs'))throw Error('incomplete-release');
- return {format:value.format,protocol:1,channel:'test',commit:value.commit,version:value.version,dependenciesSha256:value.dependenciesSha256,schemaSha256:value.schemaSha256,notes:String(value.notes||'').slice(0,2000),files};
+ // Only the audited TEST outbox migration is permitted. Never accept arbitrary
+ // SQL or script paths, even from a legitimate-looking release manifest.
+ const migrations=value.migrations??[];
+ if(!Array.isArray(migrations)||migrations.length>1)throw Error('invalid-release-migrations');
+ const migration=migrations[0];
+ if(migration&&(
+   migration.path!=='sql/014_reserve_outbox.sql'||!hex(migration.sha256)||
+   !Number.isSafeInteger(migration.bytes)||migration.bytes<1||migration.bytes>150000))
+   throw Error('invalid-release-migration');
+ const previousSchemaSha256=migration?value.previousSchemaSha256:null;
+ if(migration&&(!hex(previousSchemaSha256)||previousSchemaSha256===value.schemaSha256))
+   throw Error('invalid-release-schema-transition');
+ if(!migration&&value.previousSchemaSha256!=null)throw Error('unexpected-schema-transition');
+ return {format:value.format,protocol:1,channel:'test',commit:value.commit,version:value.version,
+   dependenciesSha256:value.dependenciesSha256,schemaSha256:value.schemaSha256,
+   previousSchemaSha256,
+   migrations:migration?[{path:migration.path,sha256:migration.sha256,bytes:migration.bytes}]:[],
+   notes:String(value.notes||'').slice(0,2000),files};
 }
 export async function download(url,{limit=1500000,fetchImpl=fetch}={}){
  const r=await fetchImpl(url,{signal:AbortSignal.timeout(30000),redirect:'error',headers:{Accept:'application/json','User-Agent':'Samosval-Test-Updater/1'}});
@@ -30,4 +47,22 @@ export async function verifiedRelease({fetchImpl=fetch}={}){
 export async function sourceBytes(release,file,fetchImpl=fetch){
  const bytes=await download(`https://raw.githubusercontent.com/${REPO}/${release.commit}/server/${file.path}`,{fetchImpl});
  if(bytes.length!==file.bytes||digest(bytes)!==file.sha256)throw Error('source-checksum-mismatch');return bytes;
+}
+
+// The installed TEST worker must be bootstrapped to support migration plans.
+// Existing workers fail closed on schema change; no generic SQL execution path.
+export function planTestSchemaUpgrade(release,baseline){
+ if(!baseline||!hex(baseline.schemaSha256)||!hex(baseline.dependenciesSha256)||
+    release?.dependenciesSha256!==baseline.dependenciesSha256)
+   throw Error('release-requires-bootstrap');
+ if(release.schemaSha256===baseline.schemaSha256){
+   // The additive SQL may already have committed before an API rollback.
+   // A retry must reuse that verified schema without executing SQL 014 again.
+   return null;
+ }
+ if(release.migrations?.length!==1||
+    release.previousSchemaSha256!==baseline.schemaSha256||
+    release.migrations[0].path!=='sql/014_reserve_outbox.sql')
+   throw Error('release-requires-bootstrap');
+ return release.migrations[0];
 }

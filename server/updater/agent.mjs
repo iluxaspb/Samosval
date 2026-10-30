@@ -6,13 +6,19 @@ import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import pg from 'pg';
-import {verifiedRelease,normalizeRelease,sourceBytes} from './release.mjs';
+import {verifiedRelease,normalizeRelease,sourceBytes,planTestSchemaUpgrade} from './release.mjs';
 import {normalizeServerCommand} from '../src/server-control.mjs';
 const CONTROL='/control',COMPOSE='/volume2/docker/samosval-test-candidate/compose.yaml',PROJECT='samosval-test-candidate';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const safeError=e=>/^[a-z0-9-]{1,100}$/.test(e.message)?e.message:'control-step-failed';
 const imageId=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const containerId=x=>typeof x==='string'&&/^[a-f0-9]{12,64}$/.test(x);
+// pg_restore --list reads only the archive TOC. Drain the remaining bytes
+// before closing Docker stdin, retaining the real pg_restore exit status.
+export const BACKUP_LIST_COMMAND='pg_restore --list; list_status=$?; cat >/dev/null; exit "$list_status"';
+// Validate every pinned module in one isolated container, avoiding one costly
+// Synology container mount/start per source file. Each file still uses --check.
+export const SYNTAX_CHECK_SCRIPT="import {spawnSync} from 'node:child_process'; for(const file of process.argv.slice(1)){const r=spawnSync(process.execPath,['--check',file],{stdio:'inherit'});if(r.status!==0)process.exit(r.status??1);}";
 export async function run(args,{inputFile,outputFile,timeout=180000}={}){
  return new Promise((accept,reject)=>{
   const child=spawn('docker',args,{stdio:['pipe','pipe','pipe']}),chunks=[];let size=0,done=false;
@@ -30,7 +36,7 @@ export async function run(args,{inputFile,outputFile,timeout=180000}={}){
 async function atomic(path,value){const temp=path+'.tmp';await writeFile(temp,typeof value==='string'?value:JSON.stringify(value,null,2),{mode:0o600});await rename(temp,path);}
 async function readJson(path,fallback){try{return JSON.parse(await readFile(path,'utf8'));}catch(e){if(e.code==='ENOENT')return fallback;throw e;}}
 export class TestControlAgent{
- constructor(pool,{docker=run,release=verifiedRelease,bytes=sourceBytes,root=CONTROL}={}){this.pool=pool;this.docker=docker;this.getRelease=release;this.getBytes=bytes;this.root=root;this.state={protocol:1,host:{},backups:[],rollbackAvailable:false};}
+ constructor(pool,{docker=run,release=verifiedRelease,bytes=sourceBytes,root=CONTROL}={}){this.pool=pool;this.docker=docker;this.getRelease=release;this.getBytes=bytes;this.root=root;this.state={protocol:1,workerVersion:'4.1.1',host:{},backups:[],rollbackAvailable:false};}
  async containers(){
   const api=await this.docker(['ps','-q','--filter','label=com.docker.compose.project='+PROJECT,'--filter','label=com.docker.compose.service=api']);
   const postgres=await this.docker(['ps','-q','--filter','label=com.docker.compose.project=samosval-test','--filter','label=com.docker.compose.service=postgres']);
@@ -59,19 +65,45 @@ export class TestControlAgent{
   await this.pool.query("UPDATE server_control_jobs SET stage=$2,detail=detail||$3::jsonb,updated_at=now() WHERE job_id=$1",[job.job_id,stage,JSON.stringify(detail)]);
   await this.pool.query('INSERT INTO server_control_events(job_id,stage) VALUES ($1,$2)',[job.job_id,stage]);
  }
- async backup(job,containers){
+ async backup(job,containers,{migrationFile=null}={}){
   await this.stage(job,'backing_up');const dir=this.root+'/backups/'+Date.now()+'_'+job.job_id;await mkdir(dir,{recursive:true,mode:0o700});
   const dump=dir+'/database.dump',verify='sc_verify_'+Date.now();
   await this.docker(['exec',containers.postgres,'sh','-c','pg_dump -U "$POSTGRES_USER" -d samosval_test -Fc'],{outputFile:dump,timeout:300000});
   if((await stat(dump)).size<1)throw Error('empty-backup');
-  await this.docker(['exec','-i',containers.postgres,'pg_restore','--list'],{inputFile:dump,outputFile:dir+'/contents.txt'});
+  await this.docker(['exec','-i',containers.postgres,'sh','-c',BACKUP_LIST_COMMAND],{inputFile:dump,outputFile:dir+'/contents.txt'});
   await this.docker(['exec',containers.postgres,'sh','-c','createdb -U "$POSTGRES_USER" "$1"','sh',verify]);
   try{
    await this.docker(['exec','-i',containers.postgres,'sh','-c','pg_restore -U "$POSTGRES_USER" -d "$1" --exit-on-error --no-owner','sh',verify],{inputFile:dump,timeout:300000});
+   if(migrationFile){
+     // Apply the exact pinned SQL to a freshly restored throwaway database.
+     // This never changes the live test database or any production database.
+     await this.docker(['exec','-i',containers.postgres,'sh','-c',
+       'psql -X -U "$POSTGRES_USER" -d "$1" -v ON_ERROR_STOP=1','sh',verify],
+       {inputFile:migrationFile,timeout:300000});
+     await this.assertOutboxInstalled(containers.postgres,verify);
+   }
    await this.docker(['exec',containers.postgres,'sh','-c','psql -U "$POSTGRES_USER" -d "$1" -v ON_ERROR_STOP=1 -At -c "SELECT (SELECT count(*) FROM app_users),(SELECT count(*) FROM line_trucks),(SELECT count(*) FROM line_logs),(SELECT count(*) FROM tabel_records)"','sh',verify],{outputFile:dir+'/restored-counts.txt'});
   }finally{await this.docker(['exec',containers.postgres,'sh','-c','dropdb -U "$POSTGRES_USER" "$1"','sh',verify]);}
   const meta={createdAt:Date.now(),bytes:(await stat(dump)).size,restored:true,id:dir.split('/').at(-1)};
   await atomic(dir+'/verified.json',meta);return meta;
+ }
+ async assertOutboxInstalled(postgres,database='samosval_test'){
+  if(!/^samosval_test$|^sc_verify_[0-9]+$/.test(database))throw Error('test-database-required');
+  const probe=`SELECT (SELECT count(*) FROM pg_trigger WHERE tgname='reserve_row_change' AND NOT tgisinternal)
+    ||','||(SELECT count(*) FROM reserve_outbox_cursor WHERE singleton=true)
+    ||','||(SELECT count(*) FROM reserve_replica_receipt)`;
+  const answer=(await this.docker(['exec',postgres,'sh','-c',
+    'psql -X -U "$POSTGRES_USER" -d "$1" -v ON_ERROR_STOP=1 -At -c "$2"',
+    'sh',database,probe])).trim();
+  const [triggers,cursors,receipts]=answer.split(',').map(Number);
+  if(triggers!==39||cursors!==1||receipts>1||!Number.isSafeInteger(receipts))
+    throw Error('outbox-schema-verification-failed');
+ }
+ async applyOutboxMigration(postgres,migrationFile){
+  await this.docker(['exec','-i',postgres,'sh','-c',
+    'test "$POSTGRES_DB" = samosval_test && psql -X -U "$POSTGRES_USER" -d samosval_test -v ON_ERROR_STOP=1'],
+    {inputFile:migrationFile,timeout:300000});
+  await this.assertOutboxInstalled(postgres);
  }
  async compose(){return this.docker(['compose','-p',PROJECT,'-f',COMPOSE,'-f',this.root+'/api-override.json','up','-d','--no-deps','--no-build','api'],{timeout:180000});}
  async setImage(image,version){if(!imageId(image)||!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(version))throw Error('invalid-image-target');await atomic(this.root+'/api-override.json',{services:{api:{image,environment:{SAMOSVAL_RELEASE:version}}}});}
@@ -94,8 +126,10 @@ export class TestControlAgent{
   if(job.type==='check'){
    await this.stage(job,'verifying');const release=await this.getRelease();
    const base=await readJson(this.root+'/baseline.json',null);
-   if(!base||release.dependenciesSha256!==base.dependenciesSha256||release.schemaSha256!==base.schemaSha256)throw Error('release-requires-bootstrap');
-   await atomic(this.root+'/release.json',release);this.state.release={version:release.version,commit:release.commit,notes:release.notes,verified:true};return;
+   const migration=planTestSchemaUpgrade(release,base);
+   await atomic(this.root+'/release.json',release);
+   this.state.release={version:release.version,commit:release.commit,notes:release.notes,
+     verified:true,schemaMigrationRequired:!!migration};return;
   }
   if(job.type==='backup'){await this.backup(job,c);return;}
   if(job.type==='restart'){await this.stage(job,'switching');await this.docker(['restart','--time','20',c.api]);await this.stage(job,'validating');await this.healthy();return;}
@@ -107,19 +141,35 @@ export class TestControlAgent{
   // Re-read trusted GitHub manifest and CI at execution time, never trust browser input.
   const release=normalizeRelease(await this.getRelease()),base=await readJson(this.root+'/baseline.json',null);
   if(release.version!==request.releaseId)throw Error('release-changed');
-  if(!base||release.dependenciesSha256!==base.dependenciesSha256||release.schemaSha256!==base.schemaSha256)throw Error('release-requires-bootstrap');
-  await this.stage(job,'downloading');const dir=this.root+'/staging/'+job.job_id;await mkdir(dir+'/src',{recursive:true,mode:0o700});
+  const migration=planTestSchemaUpgrade(release,base);
+  await this.stage(job,'downloading');const dir=this.root+'/staging/'+job.job_id;
+  await mkdir(dir+'/src',{recursive:true,mode:0o700});
+  if(migration)await mkdir(dir+'/sql',{recursive:true,mode:0o700});
   let disk=await statfs(this.root);if(disk.bavail*disk.bsize<512*1024*1024)throw Error('insufficient-disk-space');
   for(const file of release.files)await writeFile(dir+'/'+file.path,await this.getBytes(release,file),{mode:0o600});
+  const migrationFile=migration?dir+'/'+migration.path:null;
+  if(migrationFile)await writeFile(migrationFile,await this.getBytes(release,migration),{mode:0o600});
   await this.stage(job,'verifying');
   const tag='samosval-test-api:control-'+release.commit.slice(0,16);
   await writeFile(dir+'/Dockerfile',`FROM ${c.image}\nCOPY --chown=node:node src /app/src\nENV SAMOSVAL_RELEASE=${release.version}\n`);
   await this.docker(['build','--network','none','-t',tag,dir],{timeout:300000});
   const nextImage=await this.docker(['image','inspect','--format','{{.Id}}',tag]);if(!imageId(nextImage))throw Error('image-not-built');
-  for(const f of release.files)await this.docker(['run','--rm','--network','none','--read-only','--entrypoint','node',nextImage,'--check',f.path]);
-  await this.backup(job,c);
+  await this.docker(['run','--rm','--network','none','--read-only','--entrypoint','node',nextImage,
+    '--input-type=module','-e',SYNTAX_CHECK_SCRIPT,...release.files.map(f=>f.path)]);
+  await this.backup(job,c,{migrationFile});
   // Another administrator or maintenance script must not be overwritten.
   if((await this.containers()).image!==c.image)throw Error('server-image-changed');
+  if(migrationFile){
+    await this.stage(job,'migrating');
+    // The SQL is additive and transactional. On a later API rollback we do
+    // NOT restore old database bytes and never discard newly committed trips.
+    await this.applyOutboxMigration(c.postgres,migrationFile);
+    // Record real installed schema before API swap: if the worker crashes,
+    // the next run must not mistake migrated SQL for the old baseline.
+    await atomic(this.root+'/baseline.json',{
+      ...base,schemaSha256:release.schemaSha256
+    });
+  }
   await this.switchTo(job,{image:nextImage,version:release.version},{image:c.image,version:c.version});
  }
  async recover(){
