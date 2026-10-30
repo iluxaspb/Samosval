@@ -37,6 +37,14 @@ export function createPostgresOutbox({pool,verifyCheckpoint}={}){
         const result=await c.query(`SELECT sequence::text AS sequence,table_name,action,
                row_key::text AS row_key_json,row_data::text AS row_data_json
              FROM reserve_replica_outbox WHERE sequence>$1 ORDER BY sequence LIMIT $2`,[after,limit]);
+        // A deleted tail would otherwise look like a quiet minute. Cross-check
+        // the committed high-water; on a concurrent new COMMIT a false-positive
+        // gap simply retries instead of ever acknowledging missing data.
+        const current=asSequence((await c.query(
+          'SELECT last_sequence::text AS last_sequence FROM reserve_outbox_cursor WHERE singleton=true'
+        )).rows[0]?.last_sequence);
+        if(result.rows.length<limit && current>Number(result.rows.at(-1)?.sequence??after))
+          throw Error('outbox-tail-missing');
         return result.rows.map((row,i)=>{
           const n=asSequence(row.sequence);
           // A retained outbox must start at exactly the acknowledged cursor.
