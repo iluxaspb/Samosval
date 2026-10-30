@@ -47,6 +47,17 @@ export function createTestAutoLineClient({nasClient,reserveBaseUrl,getUser,
     url.pathname!=='/'||url.origin==='https://iluxa.synology.me:18443')
     throw TypeError('invalid-reserve-url');
   const base=url.origin,uid=nasClient.uid,owner=getUser(),controllers=new Set(),subs=new Set();
+  // Also abort credential reads and JSON parsing: a transport stub or delayed
+  // promise must never confirm a write after its request deadline.
+  function abortable(value,signal){
+    return new Promise((resolve,reject)=>{
+      const fail=()=>reject(error('reserve-timeout',{retryable:true}));
+      if(signal.aborted){fail();return;}
+      signal.addEventListener('abort',fail,{once:true});
+      Promise.resolve(value).then(v=>{signal.removeEventListener('abort',fail);resolve(v);},
+        e=>{signal.removeEventListener('abort',fail);reject(e);});
+    });
+  }
   if(!owner||owner.uid!==uid||typeof owner.getIdToken!=='function')
     throw error('authentication-required');
   let stopped=false,provider=null;
@@ -65,8 +76,9 @@ export function createTestAutoLineClient({nasClient,reserveBaseUrl,getUser,
       for(let attempt=0;attempt<2;attempt++){
         guard();
         let token;
-        try{token=await owner.getIdToken(attempt===1);}
-        catch{throw error('authentication-unavailable',{retryable:true});}
+        try{token=await abortable(owner.getIdToken(attempt===1),controller.signal);}
+        catch(e){if(controller.signal.aborted)throw error('reserve-timeout',{retryable:true});
+          throw error('authentication-unavailable',{retryable:true});}
         guard();
         if(typeof token!=='string'||!token)throw error('authentication-required');
         const headers={Authorization:'Bearer '+token};
@@ -76,9 +88,9 @@ export function createTestAutoLineClient({nasClient,reserveBaseUrl,getUser,
         }
         let response;
         try{
-          response=await fetchImpl(base+path,{method,headers,...(write?{body}:{}),
+          response=await abortable(fetchImpl(base+path,{method,headers,...(write?{body}:{}),
             signal:controller.signal,credentials:'omit',redirect:'error',
-            cache:'no-store',referrerPolicy:'no-referrer'});
+            cache:'no-store',referrerPolicy:'no-referrer'}),controller.signal);
         }catch{
           throw error(controller.signal.aborted?'reserve-timeout':'reserve-unreachable',
             {retryable:true,uncertain:write});
@@ -94,8 +106,9 @@ export function createTestAutoLineClient({nasClient,reserveBaseUrl,getUser,
         if(mime&&!/^application\/(?:json|[a-z0-9.+-]+\+json)(?:;|$)/i.test(mime))
           throw error('reserve-invalid-response',{retryable:true,uncertain:write});
         let value;
-        try{value=await response.json();}
-        catch{throw error('reserve-invalid-response',{retryable:true,uncertain:write});}
+        try{value=await abortable(response.json(),controller.signal);}
+        catch{throw error(controller.signal.aborted?'reserve-timeout':'reserve-invalid-response',
+          {retryable:true,uncertain:write});}
         guard();
         if(!check(value))throw error('reserve-invalid-response',{retryable:true,uncertain:write});
         return value;
@@ -120,14 +133,15 @@ export function createTestAutoLineClient({nasClient,reserveBaseUrl,getUser,
     return request(kind==='readLine'?'/api/v1/line/snapshot':'/api/v1/session',
       {check:kind==='readLine'?validLine:x=>validSession(x,uid)});
   }
-  async function readSession(){
-    const state=await authority(),value=await sourceRead('readSession',state);
-    guard();publish(state.owner);return value;
+  async function consistentRead(kind){
+    const before=await authority(),value=await sourceRead(kind,before);
+    const after=await authority();
+    guard();
+    if(!same(before,after))throw error('writer-changed-during-read',{retryable:true});
+    publish(before.owner);return value;
   }
-  async function readLine(){
-    const state=await authority(),value=await sourceRead('readLine',state);
-    guard();publish(state.owner);return value;
-  }
+  const readSession=()=>consistentRead('readSession');
+  const readLine=()=>consistentRead('readLine');
   async function submitLine(operation,{operationScope}={}){
     guard();
     if(operationScope!==nasClient.scope)throw error('outbox-scope-mismatch');
