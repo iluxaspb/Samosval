@@ -6,6 +6,7 @@ import { readLineSnapshot } from './line-read.mjs';
 import { readTabel, commitTabel } from './tabel-store.mjs';
 import { closeShiftOperation } from './shift-close.mjs';
 import { startShiftOperation } from './shift-start.mjs';
+import { readCatalog, submitControl } from './control-store.mjs';
 
 const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
@@ -56,6 +57,19 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET' && path==='/health/ready'){
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
+  }
+  if((path==='/api/v1/catalog'&&req.method==='GET')||(path==='/api/v1/controls'&&req.method==='POST')){
+    const uid=await verifyFirebaseUser(req);
+    if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readCatalog(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitControl(pool,uid,await readJson(req)));
+    }catch(e){
+      const status=[400,403,409,413].includes(e.status)?e.status:500;
+      if(status===500)console.error('[control-api] request failed',e?.code||e?.name||'unknown');
+      return send(res,status,{error:status===500?'server-error':e.code||e.message});
+    }
   }
   if(path==='/api/v1/tabel/records' && ['GET','POST'].includes(req.method)){
     const uid=await verifyFirebaseUser(req);
