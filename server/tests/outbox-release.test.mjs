@@ -105,7 +105,16 @@ sqltest('SQL 014 accepts an isolated TEST verification database but rejects prod
         const filename=readdirSync(new URL('../sql/',import.meta.url))
           .find(name=>name.startsWith(String(n).padStart(3,'0')+'_')&&name.endsWith('.sql'));
         assert.ok(filename,'missing base schema migration '+n);
-        await verify.query(readFileSync(new URL('../sql/'+filename,import.meta.url),'utf8'));
+        const baseSql=readFileSync(new URL('../sql/'+filename,import.meta.url),'utf8');
+        // Pre-014 migrations intentionally accept only samosval_test. For this
+        // isolated CI fixture alone, also allow our freshly created verification
+        // clone; never change the on-disk migrations or production updater.
+        const guard=/current_database\\(\\)\\s*<>\\s*'samosval_test'/g;
+        const matches=[...baseSql.matchAll(guard)];
+        assert.equal(matches.length,n===1?0:1,'unexpected TEST guard in '+filename);
+        const fixtureSql=baseSql.replace(guard,
+          "current_database() NOT IN ('samosval_test','"+id+"')");
+        await verify.query(fixtureSql);
       }
       await verify.query(source);
       const triggerCount=(await verify.query(
