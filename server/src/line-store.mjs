@@ -57,7 +57,7 @@ export async function submitLineOperation(pool, uid, input) {
     const before = statusRow?.payload || {};
     let result;
     if (!shift?.is_active) result = {outcome:'rejected',reason:'shift-changed',status:before};
-    else if (!statusRow || !truckRow || !before.onLine || before.shiftId!==op.shiftId)
+    else if (!statusRow || !truckRow || truckRow.payload.deleted || !before.onLine || before.shiftId!==op.shiftId)
       result = {outcome:'rejected',reason:'truck-not-on-line',status:before};
     else result = applyLineOperation({
       op, before, truck:truckRow.payload,
@@ -95,3 +95,4 @@ export async function submitLineOperation(pool, uid, input) {
     client.release();
   }
 }
+
