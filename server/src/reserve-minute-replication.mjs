@@ -44,9 +44,12 @@ export function verifyMinuteReserveBatch(batch){
     if(!batch||!digest(batch.batchId)||!integer(batch.bytes)||!batch.document||
        batch.document.batchId!==batch.batchId)return false;
     const {batchId,...rest}=batch.document;
-    return buildMinuteReserveBatch({previous:rest.previous,events:rest.events}).batchId===batchId&&
-      Buffer.byteLength(canonicalReserve(rest),'utf8')===batch.bytes&&
-      rest.from===rest.previous.sequence+1&&rest.to===rest.events.at(-1).sequence;
+    const rebuilt=buildMinuteReserveBatch({previous:rest.previous,events:rest.events});
+    // Rebuild AND compare the whole canonical envelope. Checking only its
+    // length could accept a same-size project/format substitution or extra
+    // fields, even though the event list still hashes to the original ID.
+    return rebuilt.batchId===batchId&&rebuilt.bytes===batch.bytes&&
+      canonicalReserve(rebuilt.document)===canonicalReserve(batch.document);
   }catch{return false;}
 }
 // Choose the largest contiguous prefix that fits one Firestore document.
