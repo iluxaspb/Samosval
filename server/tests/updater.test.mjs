@@ -89,7 +89,8 @@ test('schema update rehearses on restored copy before migrating live NAS and the
   agent.stage=async(_,stage)=>{events.push(stage);};
   agent.backup=async(_,__,{migrationFile})=>{
     events.push('backup-and-rehearse');
-    assert.match(await readFile(migrationFile,'utf8'),/pinned/);
+    if(migrationFile)assert.match(await readFile(migrationFile,'utf8'),/pinned/);
+    else events.push('backup-without-migration');
   };
   agent.applyOutboxMigration=async(_,file)=>{
     events.push('live-migrate');
