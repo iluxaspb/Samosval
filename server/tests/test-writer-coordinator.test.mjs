@@ -83,8 +83,12 @@ test('stale NAS process is fenced after lease and grace',async()=>{
 test('pending operations cannot be ignored during takeover',async()=>{
  const {firestore,checkpoint}=setup();
  await claim(firestore,nodeA,checkpoint);
- const p=await permit(firestore,nodeA,t0+OWNER_LEASE_MS-OPERATION_HOLD_MS-1);
- await assert.rejects(claim(firestore,nodeB,checkpoint,t0+OWNER_LEASE_MS+FENCE_GRACE_MS+1),/writer-pending-operations/);
+ const p=await permit(firestore,nodeA,t0+1000);
+ // Simulate loss of heartbeat while a server command remains in flight.
+ // The coordinator may observe an expired lease while the recorded permit
+ // still has time left; it must not transfer ownership in that interval.
+ firestore.docs.get(OWNER_DOC).leaseUntil=t0+1000;
+ await assert.rejects(claim(firestore,nodeB,checkpoint,t0+FENCE_GRACE_MS+1001),/writer-pending-operations/);
  const after=p.until+FENCE_GRACE_MS+1;
  assert.ok(after>t0+OWNER_LEASE_MS+FENCE_GRACE_MS);
  assert.equal((await claim(firestore,nodeB,checkpoint,after)).epoch,2);
@@ -96,8 +100,10 @@ test('reserve promotion refuses unready mirror, live lease, or outstanding permi
  await assert.rejects(promote(firestore,1,after),/writer-reserve-not-ready/);
  firestore.docs.get(REPLICA_DOC).readyForFailover=true;
  await assert.rejects(promote(firestore,1,t0+1),/writer-promotion-wait-for-nas/);
- const p=await permit(firestore,nodeA,t0+OWNER_LEASE_MS-OPERATION_HOLD_MS-1);
- await assert.rejects(promote(firestore,1,after),/writer-promotion-wait-for-nas/);
+ const p=await permit(firestore,nodeA,t0+1000);
+ // Force an early expired lease to exercise the outstanding-permit gate.
+ firestore.docs.get(OWNER_DOC).leaseUntil=t0+1000;
+ await assert.rejects(promote(firestore,1,t0+FENCE_GRACE_MS+1001),/writer-promotion-wait-for-nas/);
  const changed=await promote(firestore,1,p.until+FENCE_GRACE_MS+1);
  assert.equal(changed.owner,'firebase');
  assert.equal(changed.epoch,2);
