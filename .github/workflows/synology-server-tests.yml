@@ -9,6 +9,8 @@ on:
     paths:
       - "server/**"
       - "test-app/synology/**"
+      - "test-app/source/core/20-backend-mode.js"
+      - "test-app/source/core/21-nas-runtime.js"
       - ".github/workflows/synology-server-tests.yml"
   pull_request:
     branches:
@@ -18,6 +20,8 @@ on:
     paths:
       - "server/**"
       - "test-app/synology/**"
+      - "test-app/source/core/20-backend-mode.js"
+      - "test-app/source/core/21-nas-runtime.js"
       - ".github/workflows/synology-server-tests.yml"
   workflow_dispatch:
 
