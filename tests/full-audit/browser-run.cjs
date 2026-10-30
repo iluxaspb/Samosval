@@ -12,7 +12,7 @@ const report = {startedAt:new Date().toISOString(), status:'running', project:PR
   rules:'firestore-coins-test.rules', browser:'Chromium with sandbox enabled',
   modes:['desktop 1280×900', 'mobile viewport 390×844 (Chromium emulation)'],
   fixture:{auth:'Explicit local UI stub; no Firebase Auth service contacted', firestore:'Real Firebase SDK and emulator mock-user tokens',
-    sourceChanges:'HTTP responses only: demo project identifiers, inert Firebase configuration, pinned WebChannel diagnostic image URL to uncached same-origin endpoint, and matching worker integrity hashes; repository sources remain untouched',
+    sourceChanges:'HTTP responses only: explicit Firebase provider for this emulator suite (not NAS acceptance), demo project identifiers, inert Firebase configuration, pinned WebChannel diagnostic image URL to uncached same-origin endpoint, and matching worker integrity hashes; repository sources remain untouched',
     connectivityProbe:{...FIRESTORE_PROBE_FIXTURE,behavior:'Only diagnostic URL construction rewritten; native image success/failure and real Firestore transport/retry/persistence remain intact'},
     externalTraffic:'Blocked by exact-origin routing and CSP on documents/service workers; Storage disabled, MAX not configured',
     data:'Generated example.test identities and local demo data only'},

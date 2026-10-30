@@ -51,6 +51,15 @@ async function testServer() {
     assert(html.headers.get('content-security-policy').includes("img-src 'self' data: blob:;"));
     assert(!html.headers.get('content-security-policy').includes('google.com'));
     assert.equal(html.headers.get('permissions-policy'),'camera=(), microphone=(), geolocation=()');
+    const htmlText=await html.text();
+    assert.match(htmlText, /<meta name="test-data-provider" content="firebase"/,
+      'Firebase emulator suite must explicitly select its local fixture provider');
+    for (const moduleName of ['connection-check.mjs','session-client.mjs','line-transport.mjs','tabel-remote.mjs']) {
+      const response=await fetch(origin+'/Samosval/test-app/synology/'+moduleName);
+      assert.equal(response.status,200,'Missing NAS transport module '+moduleName);
+      assert(response.headers.get('content-type').startsWith('text/javascript'));
+    }
+    assert.equal((await fetch(origin+'/Samosval/test-app/synology/unknown.mjs')).status,404);
     // The browser must fetch real .mjs imports during shift closure.
     // Previously 404s here left an already-archived shift stuck at closing:true.
     for (const moduleName of ['entry.mjs','workspace.mjs','material-transfer.mjs']) {
