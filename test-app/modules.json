@@ -37,6 +37,7 @@
         "core/01-patches.js",
         "core/02-permissions.js",
         "core/03-formatting.js",
+        "core/21-nas-runtime.js",
         "core/04-subscriptions.js",
         "core/05-authentication.js",
         "core/06-app-settings.js",

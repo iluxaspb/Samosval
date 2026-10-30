@@ -103,6 +103,7 @@
         dependencyId:previous?.id||null,cycleMinutes:Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES),
         truckName:truck.brand+' '+truck.number,volume:truck.isGAI?0:truck.defaultVol,isGAI:!!truck.isGAI,status:'pending'};
       if(type==='load')op.logId='load_'+id+'_'+op.shiftId+'_cycle_'+op.expectedRevision+'_'+op.arrivalTimestamp;
+      if(isNasRuntime())op.operationScope=nasStorageScope();
       items.push(op);offlineJournalWrite(items); // Commit locally first; never silently lose an action.
       try{window.__gameCoinQueued?.(op);}catch(e){console.warn('[game animation]',e);}
       const old=state.truckStatus[id];offlineProjectState();signalLineTransition(id,old,state.truckStatus[id]);refreshLineViews();
@@ -167,6 +168,7 @@
     return {prevTtn:b.ttnStatus??null,prevTtnBy:b.ttnBy||null,prevTtnLogId:b.ttnLogId||null};
   }
   async function offlineReplayJournal(){
+    if(isNasRuntime())return replayNasOfflineJournal();
     if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||Date.now()<offlineServerRetryAt||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
     offlineReplayRunning=true;
     try{

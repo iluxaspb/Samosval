@@ -11,6 +11,7 @@
   }
   let registrationInFlight = false;
   async function ensurePendingAccount(user) {
+    if(isNasRuntime())return ensureNasPendingAccount(user);
     const profileRef = usersRef.doc(user.uid), requestRef = requestsRef.doc(user.uid);
     await db.runTransaction(async tx => {
       const profile = await tx.get(profileRef);

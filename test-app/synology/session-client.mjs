@@ -75,6 +75,16 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
       x.statuses.every(s=>s.shiftId===x.shift.id)&&x.logs.every(l=>l.shiftId===x.shift.id&&typeof l.truckId==='string'))});
   const readArchive=()=>request('/api/v1/archive/snapshot',{validate:x=>envelope(x,'samosval-archive-snapshot',workspaceId)&&Number.isFinite(x.importedAt)&&ids(x.archives)&&ids(x.trash)});
   const readHistory=()=>request('/api/v1/history',{validate:x=>record(x)&&x.format==='samosval-line-history'&&x.version===1&&x.source==='synology'&&ids(x.items)});
+  const profiles=rows=>Array.isArray(rows)&&rows.every(x=>record(x)&&typeof x.uid==='string'&&x.uid&&Number.isSafeInteger(x.revision)&&x.revision>0)&&new Set(rows.map(x=>x.uid)).size===rows.length;
+  const readAdministration=()=>request('/api/v1/admin/access',{validate:x=>record(x)&&x.format==='samosval-admin-access'&&x.version===1&&x.source==='synology'&&profiles(x.users)&&profiles(x.deletedUsers)&&Array.isArray(x.requests)&&x.requests.every(r=>record(r)&&typeof r.uid==='string'&&Number.isSafeInteger(r.revision)&&r.revision>=0)&&record(x.permissions)&&Object.values(x.permissions).every(p=>record(p)&&Array.isArray(p.tabs)&&Array.isArray(p.actions)&&Number.isSafeInteger(p.revision)&&p.revision>0)});
+  const registerPending=({nickname}={})=>request('/api/v1/registration',{operation:nickname===undefined?{}:{nickname},validate:x=>record(x)&&typeof x.created==='boolean'&&record(x.profile)&&x.profile.uid===uid&&['pending','active','disabled'].includes(x.profile.status)});
+  async function submitAdministration(operation,{operationScope}={}) {
+    guard();if(operationScope!==scope)throw new NasClientError('outbox-scope-mismatch');
+    if(!record(operation)||typeof operation.id!=='string'||!operation.id||typeof operation.type!=='string')throw new NasClientError('invalid-admin-operation');
+    const captured=JSON.parse(JSON.stringify(operation));
+    return request('/api/v1/admin/access',{operation:captured,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===captured.id&&record(x.result)&&
+      (captured.type==='permissions.replace'?x.result.role===captured.role:x.result.uid===captured.uid)});
+  }
   async function submitLine(operation,{operationScope}={}) {
     guard();
     if(operationScope!==scope)throw new NasClientError('outbox-scope-mismatch');
@@ -107,5 +117,5 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
     void tick();return close;
   }
   function stop(){stopped=true;for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,uid,workspaceId,readSession,readLine,readArchive,readHistory,submitLine,submitHistory,subscribeLine,stop});
+  return Object.freeze({scope,uid,workspaceId,readSession,readLine,readArchive,readHistory,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
 }

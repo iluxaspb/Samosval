@@ -19,6 +19,7 @@
   }
   function startSync() {
     stopSync();
+    if(isNasRuntime())return;
     unsubscribers.push(refs.trucks.onSnapshot({ includeMetadataChanges: true }, s => { state.trucks = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('trucks', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalTrucksManage'); scheduleRenderForTab('line', 'renderLine'); scheduleRender('renderHeaderStats'); }, e=>reportSyncError('trucks', e)));
     unsubscribers.push(refs.objects.onSnapshot({ includeMetadataChanges: true }, s => { state.objects = s.docs.map(d => Object.assign({id:d.id}, d.data())); if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName); for(const a of state.archive||[])if(a.objectId)a.objectName=objectTitle(a.objectId,a.objectName); markSync('objects', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalObjectsManage'); scheduleRender('renderHeaderStats'); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('archive', 'renderArchive'); scheduleRenderForTab('analytics', 'renderAnalytics'); window.dispatchEvent(new Event('samosval-objects-changed')); }, e=>reportSyncError('objects', e)));
     unsubscribers.push(refs.logs.onSnapshot({includeMetadataChanges:true},receiveLoadLogs,e=>reportSyncError('logs',e)));
@@ -114,6 +115,7 @@
   }
   let refreshingRegistrationRequests=false;
   async function refreshRegistrationRequests() {
+    if(isNasRuntime()){try{return await refreshNasAdministration();}catch(error){registrationSyncError('nas-admin',error);return;}}
     if(!canAdmin()||refreshingRegistrationRequests)return;
     refreshingRegistrationRequests=true;
     try {
@@ -123,6 +125,7 @@
     }finally{refreshingRegistrationRequests=false;}
   }
   function startAdminSync() {
+    if(isNasRuntime()){if(canAdmin())void refreshNasAdministration().catch(error=>reportSyncError('nas-admin',error));return;}
     if(!canAdmin())return;
     if(reqsUnsubscriber)reqsUnsubscriber();
     if(usersUnsubscriber)usersUnsubscriber();
@@ -269,6 +272,7 @@
       document.getElementById('userBadgeLabel').textContent = '👤 Проверка учётной записи…';
       updateSyncUI();
       document.getElementById('authOverlay').style.display = 'none';
+      if(isNasRuntime()){if(userDocUnsubscriber){userDocUnsubscriber();userDocUnsubscriber=null;}await startNasRuntime(user);return;}
       const forced = isForcedAdminEmail(currentEmail); const defaultNick = sanitizeName(currentEmail);
       if (userDocUnsubscriber) userDocUnsubscriber();
       userDocUnsubscriber = usersRef.doc(currentUid).onSnapshot({ includeMetadataChanges:true }, async snap => {
