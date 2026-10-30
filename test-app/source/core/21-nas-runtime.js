@@ -114,6 +114,13 @@
         if(ordering){const [k,d]=ordering;rows=rows.slice().sort((a,b)=>(a[k]>b[k]?1:a[k]<b[k]?-1:0)*(d==='desc'?-1:1));}if(maximum!==null)rows=rows.slice(0,maximum);const docs=rows.map(wrap);return {docs,size:docs.length,empty:!docs.length,forEach:fn=>docs.forEach(fn),metadata:{fromCache:false,hasPendingWrites:false}};}
     };return collection;
   }
+  async function nasBackupRead(id){if(!canAdmin()||!nasRuntimeClient)throw Error('Требуется администратор Synology');return nasRuntimeClient.readBackups(id);}
+  async function nasBackupCommand(target,fields){return nasBusinessCommand('backup',target,fields);}
+  async function nasReportAction(type,log,data){
+    const expected={volume:log.volume,timestamp:log.timestamp,timeStr:log.timeStr,comment:log.comment||'',truckId:log.truckId,shiftId:log.shiftId};
+    const result=await nasBusinessCommand('report',log.id,{type,logId:log.id,expected,...(data?{data}:{})});
+    await nasRefreshLine();await Promise.allSettled([refreshNasGames(),refreshNasAuxiliary()]);return result;
+  }
   async function nasHistoryAction(action,direction){
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Synology не загружен');
     const key='samosval_nas_history_v1:'+client.scope+':'+action.id+':'+direction;
@@ -195,7 +202,7 @@
     const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||auth.currentUser!==user||currentUid!==client.uid||currentUserStatus!=='active'||!permissionsLoaded||!hasTabAccess('timesheet'))throw Error('Доступ к табелю изменился');};
     const remoteFactory=async jobGuard=>{
       guard();const {createTabelRemote}=await loadNasTabelRemote();guard();
-      return createTabelRemote({baseUrl:'https://iluxa.synology.me:18443',
+      return createTabelRemote({datasetEpoch:client.datasetEpoch,baseUrl:'https://iluxa.synology.me:18443',
         getIdToken:async force=>{guard();const token=await user.getIdToken(force);guard();return token;},
         guard:job=>{guard();jobGuard?.(job);}});
     };
@@ -322,7 +329,7 @@
       let pending=queue.find(x=>x.slot===slot);
       if(pending&&pending.intent!==intent)throw Error('Сначала повторите предыдущее неподтверждённое изменение');
       if(!pending){
-        const id='cmd_'+crypto.randomUUID().replaceAll('-',''),operation={id,...captured};
+        const id=(channel==='report'?'report_':'cmd_')+crypto.randomUUID().replaceAll('-',''),operation={id,...captured};
         if(channel==='control'&&operation.type.endsWith('.create'))operation.recordId='record_'+id;
         if(channel==='start')operation.createdAt=Date.now();
         pending={slot,intent,operation,scope:client.scope};queue.push(pending);localStorage.setItem(key,JSON.stringify(queue));
@@ -330,7 +337,7 @@
       const remove=()=>{if(!live())return;const latest=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify(latest.filter(x=>x.operation.id!==pending.operation.id)));};
       nasReadGeneration++;nasPollHolds++;nasRuntimeStop?.();nasRuntimeStop=null;
       try{
-        const method={control:'submitControl',start:'startShift',close:'closeShift',settings:'submitSettings',archive:'submitArchive',game:'submitGame',auxiliary:'submitAuxiliary'}[channel];
+        const method={control:'submitControl',start:'startShift',close:'closeShift',settings:'submitSettings',archive:'submitArchive',game:'submitGame',auxiliary:'submitAuxiliary',report:'submitReport',backup:'submitBackup'}[channel];
         const result=await client[method](pending.operation,{operationScope:pending.scope});
         if(!live())throw Error('Учётная запись изменилась');
         remove();return result;

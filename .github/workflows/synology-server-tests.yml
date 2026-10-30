@@ -64,6 +64,8 @@ jobs:
             await client.query(readFileSync('sql/007_line_history.sql','utf8'));
             await client.query(readFileSync('sql/008_workspace_services.sql','utf8'));
             await client.query(readFileSync('sql/009_auxiliary.sql','utf8'));
+            await client.query(readFileSync('sql/010_reports.sql','utf8'));
+            await client.query(readFileSync('sql/011_backups.sql','utf8'));
           } finally {
             await client.end();
           }

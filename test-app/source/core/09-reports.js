@@ -80,13 +80,14 @@
     let l=state.logs.find(x=>x.id===editingLogId); if(!l) return closeEditLogModal();
     let v=parseFloat(document.getElementById('editLogVolume').value); let t=document.getElementById('editLogTime').value; let comm=document.getElementById('editLogComment').value.trim();
     if(isNaN(v)||v<0 || !/^\d{2}:\d{2}$/.test(t)) { appNotice('Проверьте правильность ввода объема и времени (ЧЧ:ММ)'); return; }
+    if(isNasRuntime()){try{await nasReportAction('report.update',l,{volume:v,timeStr:t,comment:comm});closeEditLogModal();renderReport();showToastEl('✅ Рейс обновлен',false);}catch(e){showError(e.message);}return;}
     let ts=l.timestamp; if(ts){ let d=new Date(ts), p=t.split(':'); d.setHours(p[0],p[1],0,0); ts=d.getTime(); }
     const logIdToSave = editingLogId;
     Object.assign(l, {volume:v, timeStr:t, timestamp:ts, comment:comm}); saveCache(); renderReport(); closeEditLogModal();
     tf((async()=>{ await refs.logs.doc(logIdToSave).update({volume:v, timeStr:t, timestamp:ts, comment:comm}); await addAudit('✏️ Изменён рейс: ' + l.truckName + ' · ' + v + ' м³ · ' + t, {eventType:'log_edit',logId:logIdToSave,truckId:l.truckId}); })());
     showToastEl('✅ Рейс обновлен', false);
   }
-  async function deleteLog(id) { if(!requireEdit('edit_logs') || !(await appConfirm('Удалить?'))) return; state.logs=state.logs.filter(x=>x.id!==id); saveCache(); renderReport(); tf(refs.logs.doc(id).delete()); }
+  async function deleteLog(id) { if(!requireEdit('edit_logs') || !(await appConfirm('Удалить?'))) return; if(isNasRuntime()){try{const log=state.logs.find(x=>x.id===id);if(log)await nasReportAction('report.delete',log);renderReport();}catch(e){showError(e.message);}return;} state.logs=state.logs.filter(x=>x.id!==id); saveCache(); renderReport(); tf(refs.logs.doc(id).delete()); }
 
   function exportCSV() {
     if (!state.shift) return;

@@ -1,3 +1,4 @@
+import {reportHistoryOperation} from './report-store.mjs';
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import {fail,map} from './tabel-access.mjs';
@@ -32,7 +33,7 @@ async function permitted(client,profile,uid,owner,direction,lock=''){
   return permissions.includes('history_'+direction+'_any')||uid===owner&&permissions.includes('history_'+direction+'_own');
 }
 export async function historyOperation(pool,uid,input,ws=WS){
-  const op=normalizeHistoryOperation(input),hash=createHash('sha256').update(JSON.stringify(op)).digest('hex'),client=await pool.connect();
+  const op=normalizeHistoryOperation(input);if(op.actionId.startsWith('report_'))return reportHistoryOperation(pool,uid,op,ws);const hash=createHash('sha256').update(JSON.stringify(op)).digest('hex'),client=await pool.connect();
   try{
     await client.query('BEGIN');
     const profile=await actor(client,uid,'FOR SHARE');
@@ -86,10 +87,17 @@ export async function readLineHistory(pool,uid,ws=WS){
     if(profile.role!=='admin'&&!['history_view','history_undo_own','history_undo_any','history_redo_own','history_redo_any'].some(p=>permissions.includes(p)))throw fail('forbidden',403);
     const rows=(await client.query(`SELECT h.*,s.is_active,s.payload->>'closing' AS closing,u.display_name
       FROM line_history h JOIN shifts s ON s.workspace_id=h.workspace_id AND s.shift_id=h.shift_id
-      LEFT JOIN app_users u ON u.uid=h.uid WHERE h.workspace_id=$1 ORDER BY h.created_at DESC,h.action_id DESC LIMIT 300`,[ws])).rows;
+      LEFT JOIN app_users u ON u.uid=h.uid WHERE h.workspace_id=$1 AND h.dataset_epoch=(SELECT restore_epoch FROM workspaces WHERE id=$1) ORDER BY h.created_at DESC,h.action_id DESC LIMIT 300`,[ws])).rows;
     const items=rows.map(row=>({id:row.action_id,uid:row.uid,userName:row.display_name||'',shiftId:row.shift_id,truckId:row.truck_id,type:row.type,undone:row.undone,revision:Number(row.revision),timestamp:new Date(row.created_at).getTime(),
       canUndo:!row.undone&&row.is_active&&row.closing!=='true'&&(profile.role==='admin'||permissions.includes('history_undo_any')||row.uid===uid&&permissions.includes('history_undo_own')),
       canRedo:row.undone&&row.is_active&&row.closing!=='true'&&(profile.role==='admin'||permissions.includes('history_redo_any')||row.uid===uid&&permissions.includes('history_redo_own'))}));
+    const reports=(await client.query(`SELECT a.*,u.display_name,s.is_active,s.payload->>'closing' AS closing FROM workspace_service_audit a
+      JOIN shifts s ON s.workspace_id=a.workspace_id AND s.shift_id=a.before_data->>'shiftId' LEFT JOIN app_users u ON u.uid=a.uid
+      WHERE a.workspace_id=$1 AND a.dataset_epoch=(SELECT restore_epoch FROM workspaces WHERE id=$1) AND a.type IN ('report.update','report.delete') ORDER BY a.created_at DESC LIMIT 300`,[ws])).rows;
+    for(const row of reports)items.push({id:row.operation_id,uid:row.uid,userName:row.display_name||'',shiftId:row.before_data.shiftId,truckId:row.before_data.truckId,type:row.type,undone:row.undone,revision:Number(row.revision),timestamp:new Date(row.created_at).getTime(),
+      canUndo:!row.undone&&row.is_active&&row.closing!=='true'&&(profile.role==='admin'||permissions.includes('history_undo_any')||row.uid===uid&&permissions.includes('history_undo_own')),
+      canRedo:row.undone&&row.is_active&&row.closing!=='true'&&(profile.role==='admin'||permissions.includes('history_redo_any')||row.uid===uid&&permissions.includes('history_redo_own'))});
+    items.sort((a,b)=>b.timestamp-a.timestamp);
     await client.query('COMMIT');return {format:'samosval-line-history',version:1,source:'synology',items};
   }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}finally{client.release();}
 }
