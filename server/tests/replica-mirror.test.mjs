@@ -55,6 +55,11 @@ test('Postgres -> Firebase: snapshot, exact receipts, outage, lost ACK, delete, 
  const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL,max:4}),firestore=new FakeFirestore();
  firestore.docs.set('legacy/application',{oldFirebase:true});
  try{
+  await assert.rejects(mirror(pool,firestore),/replica-(control-worker-not-current|fresh-verified-backup-required)/,
+   'fresh restored NAS backup must precede first transfer');
+  await pool.query("INSERT INTO server_control_state(channel,heartbeat,payload) VALUES('test',now(),$1::jsonb) "+
+    "ON CONFLICT(channel) DO UPDATE SET heartbeat=now(),payload=EXCLUDED.payload",
+    [JSON.stringify({protocol:1,backups:[{restored:true,createdAt:Date.now(),id:'ci-only-disposable-db'}]})]);
   const initial=await mirror(pool,firestore);
   assert.equal(initial.bootstrapped,true);
   const meta=firestore.docs.get(REPLICA_DOC);
