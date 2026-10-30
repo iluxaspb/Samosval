@@ -98,6 +98,8 @@ async function openInner(
     requestObjectId: requestObject?.id || (settingsOnly ? initial.objectId : null),
     workspace: host.workspace,
     remoteFactory:host.remoteFactory,
+    presenceRemote:host.presenceRemote,
+    registerPresenceLeave:host.registerPresenceLeave,
     catalog,
     users: () => host.users?.() || [],
     transaction: host.transaction,

@@ -77,6 +77,10 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
   const readHistory=()=>request('/api/v1/history',{validate:x=>record(x)&&x.format==='samosval-line-history'&&x.version===1&&x.source==='synology'&&ids(x.items)});
   const readCatalog=()=>request('/api/v1/catalog',{validate:x=>envelope(x,'samosval-catalog',workspaceId)&&ids(x.trucks)&&ids(x.objects)});
   const readMembers=()=>request('/api/v1/members',{validate:x=>record(x)&&x.format==='samosval-members'&&x.version===1&&x.source==='synology'&&Array.isArray(x.members)&&x.members.every(m=>record(m)&&typeof m.uid==='string'&&typeof m.nickname==='string')});
+  const presenceEnvelope=x=>envelope(x,'samosval-tabel-presence',workspaceId);
+  const readPresence=({objectId,sheetId})=>request('/api/v1/tabel/presence?'+new URLSearchParams({objectId,sheetId}),{validate:x=>presenceEnvelope(x)&&Array.isArray(x.peers)&&x.peers.every(p=>record(p)&&p.uid!==uid&&typeof p.uid==='string'&&typeof p.name==='string'&&p.objectId===objectId&&p.sheetId===sheetId&&Number.isFinite(p.seen)&&(p.selection===null||record(p.selection)))});
+  const writePresence=({sessionId,sequence,objectId,sheetId,selection})=>request('/api/v1/tabel/presence',{operation:{type:'write',sessionId,sequence,objectId,sheetId,selection},validate:x=>presenceEnvelope(x)&&(x.ignored===true||record(x.record)&&x.record.uid===uid&&x.record.sessionId===sessionId&&x.record.objectId===objectId&&x.record.sheetId===sheetId&&x.record.sequence===sequence)});
+  const removePresence=({sessionId,sequence})=>request('/api/v1/tabel/presence',{operation:{type:'remove',sessionId,sequence},validate:x=>presenceEnvelope(x)&&(x.removed===true||x.ignored===true)});
   const profiles=rows=>Array.isArray(rows)&&rows.every(x=>record(x)&&typeof x.uid==='string'&&x.uid&&Number.isSafeInteger(x.revision)&&x.revision>0)&&new Set(rows.map(x=>x.uid)).size===rows.length;
   const readAdministration=()=>request('/api/v1/admin/access',{validate:x=>record(x)&&x.format==='samosval-admin-access'&&x.version===1&&x.source==='synology'&&profiles(x.users)&&profiles(x.deletedUsers)&&Array.isArray(x.requests)&&x.requests.every(r=>record(r)&&typeof r.uid==='string'&&Number.isSafeInteger(r.revision)&&r.revision>=0)&&record(x.permissions)&&Object.values(x.permissions).every(p=>record(p)&&Array.isArray(p.tabs)&&Array.isArray(p.actions)&&Number.isSafeInteger(p.revision)&&p.revision>0)});
   const registerPending=({nickname}={})=>request('/api/v1/registration',{operation:nickname===undefined?{}:{nickname},validate:x=>record(x)&&typeof x.created==='boolean'&&record(x.profile)&&x.profile.uid===uid&&['pending','active','disabled'].includes(x.profile.status)});
@@ -119,5 +123,5 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
     void tick();return close;
   }
   function stop(){stopped=true;for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,uid,workspaceId,readSession,readLine,readArchive,readHistory,readCatalog,readMembers,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
+  return Object.freeze({scope,uid,workspaceId,readSession,readLine,readArchive,readHistory,readCatalog,readMembers,readPresence,writePresence,removePresence,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
 }

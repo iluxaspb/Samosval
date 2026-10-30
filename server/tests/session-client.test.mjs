@@ -120,3 +120,9 @@ test('NAS admin snapshot validates profile revisions and preserves pending reque
   const {client}=fixture(async()=>reply(snapshot));assert.deepEqual(await client.readAdministration(),snapshot);
   snapshot.users[0].revision=-1;await assert.rejects(client.readAdministration(),{code:'invalid-api-response'});
 });
+test('NAS presence refuses foreign sheet data and strips impersonation fields from updates',async()=>{
+  const envelope={format:'samosval-tabel-presence',version:1,source:'synology',workspaceId:'main_workspace'};let body;
+  const {client}=fixture(async(_url,options)=>{if(options.method==='GET')return reply({...envelope,peers:[{uid:'peer',name:'Peer',objectId:'foreign',sheetId:'one',seen:1000,selection:null}]});body=JSON.parse(options.body);return reply({...envelope,removed:true});});
+  await assert.rejects(client.readPresence({objectId:'site',sheetId:'one'}),{code:'invalid-api-response'});
+  await client.removePresence({sessionId:'browser',sequence:2,uid:'forged',name:'Forged'});assert.deepEqual(body,{type:'remove',sessionId:'browser',sequence:2});
+});

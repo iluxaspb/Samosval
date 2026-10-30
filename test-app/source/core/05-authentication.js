@@ -48,7 +48,7 @@
       if(created)document.getElementById('registrationStatusText').textContent=text;
     } finally {passwordInput.value='';registrationInFlight=false;button.disabled=false;}
   }
-  async function handleLogout() { if (!(await appConfirm('Выйти?'))) return; localStorage.removeItem('dt_saved_email_test347'); localStorage.removeItem('dt_saved_pass'); auth.signOut(); }
+  async function handleLogout() { if (!(await appConfirm('Выйти?'))) return; if(isNasRuntime())await leaveNasPresence(); localStorage.removeItem('dt_saved_email_test347'); localStorage.removeItem('dt_saved_pass'); auth.signOut(); }
 
   // === АДМИН ===
   function switchAdminTab(tab, btn) {

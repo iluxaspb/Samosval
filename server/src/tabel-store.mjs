@@ -67,6 +67,16 @@ export function readTabel(pool,uid,{key,objectId,cursor='',kind='records'}={}) {
     return {rows:allowed.map(r=>history ? {id:r.id,...r.payload} : [r.payload.key,r.payload]),cursor:rows.length>50?page.at(-1).id:null};
   },true);
 }
+// Selection sharing needs the same sheet ACL, not the sheet's potentially large data.
+export function authorizeTabelPresence(pool,uid,{objectId,sheetId}) {
+  if(typeof objectId!=='string'||objectId.startsWith('_')||typeof sheetId!=='string')throw fail('invalid-presence-target');
+  const key=objectId+'/sheet:'+sheetId;parseKey(key);
+  return transaction(pool,async client=>{
+    const actor=await readActor(client,uid),config=(await getRow(client,objectId+'/config')).data;
+    if(!canRead(actor,key,config))throw fail('forbidden',403);
+    return {uid,name:actor.display_name,workspaceId:WORKSPACE};
+  },true);
+}
 export function commitTabel(pool,uid,job) {
   validateJob(job);
   // Copy before the first await: the request hash and saved bytes must describe the same job.

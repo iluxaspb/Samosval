@@ -6,6 +6,8 @@ import { verifyFirebaseUser, verifyFirebaseIdentity } from './auth.mjs';
 import {readSession,registerPending,readAdministration,identityOperation,readMembers} from './identity-store.mjs';
 import { submitLineOperation } from './line-store.mjs';
 import { readLineSnapshot } from './line-read.mjs';
+import {createPresenceService} from './tabel-presence.mjs';
+import {authorizeTabelPresence} from './tabel-store.mjs';
 import { readTabel, commitTabel } from './tabel-store.mjs';
 import { closeShiftOperation } from './shift-close.mjs';
 import { startShiftOperation } from './shift-start.mjs';
@@ -23,6 +25,7 @@ const pool = new Pool({
   password:process.env.POSTGRES_PASSWORD, max:5,
   connectionTimeoutMillis:2000, idleTimeoutMillis:30000
 });
+const tabelPresence=createPresenceService({authorize:(uid,target)=>authorizeTabelPresence(pool,uid,target),workspaceId:process.env.WORKSPACE_ID||'main_workspace'});
 function send(res,status,body) {
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
   res.end(JSON.stringify(body));
@@ -120,6 +123,14 @@ const server=http.createServer(async(req,res)=>{
       if(status===500)console.error('[control-api] request failed',e?.code||e?.name||'unknown');
       return send(res,status,{error:status===500?'server-error':e.code||e.message});
     }
+  }
+  if(path==='/api/v1/tabel/presence'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await tabelPresence.list(uid,Object.fromEntries(requestUrl.searchParams)));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await tabelPresence.write(uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413,429].includes(e.status)?e.status:500;if(status===500)console.error('[presence-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
   }
   if(path==='/api/v1/tabel/records' && ['GET','POST'].includes(req.method)){
     const uid=await verifyFirebaseUser(req);

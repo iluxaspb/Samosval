@@ -1,4 +1,5 @@
 import {coords} from './table-domain.mjs';
+import {nasPresence} from './presence-nas.mjs';
 export function userColors(ids) {
   const hues=[], result={};
   for (const id of [...new Set(ids)].sort()) {
@@ -18,6 +19,7 @@ export function selectionContains(selection, cell, rowKey, colKey) {
 }
 // Presence is transient: never saved in the offline operation queue or audit history.
 export function presence(s, onChange) {
+  if(s.host.session().provider==='synology')return nasPresence(s,onChange);
   const actor=s.host.session(), id=crypto.randomUUID(), objectId=s.object.id;
   let sheetId=null, selection=null, stop=null, timer=null, stopped=false, pending=null, generation=0;
   let peers=[], failure='', writing=false, again=false;
