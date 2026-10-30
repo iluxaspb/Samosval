@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {failoverAdminView,createNasFailureDetector,createFailoverAdminController} from '../../test-app/synology/failover-client.mjs';
+import {failoverAdminView,createNasFailureDetector,createFailoverAdminController,failoverServerIndicator} from '../../test-app/synology/failover-client.mjs';
 import {initialFailoverState,prepareFailover} from '../src/failover-policy.mjs';
 const hash='a'.repeat(64);
 const state=()=>prepareFailover(initialFailoverState(1000),{adapters:{synology:true,firebase:true},checkpoint:{sequence:0,hash}},1000);
@@ -47,4 +47,21 @@ test('a second click cannot create two concurrent admin switches',async()=>{
   const pending=h.controller.change('firebase');await new Promise(resolve=>setImmediate(resolve));
   await assert.rejects(h.controller.change('synology'),/уже выполняется/);release(true);await pending;
   assert.equal(h.calls.length,1);assert.equal(h.controller.busy,false);
+});
+
+test('status icon uses shared verified provider S or F and never a local preference',()=>{
+  const nas=state();
+  const confirmed={online:true,sessionValid:true,transportConfirmed:true};
+  assert.equal(failoverServerIndicator(nas,confirmed).letter,'S');
+  const firebase={...nas,provider:'firebase',epoch:nas.epoch+1};
+  assert.equal(failoverServerIndicator(firebase,confirmed).letter,'F');
+  assert.equal(failoverServerIndicator(firebase,{...confirmed,transportConfirmed:false}).letter,'…',
+    'a pending or unverified connection cannot display F');
+  assert.equal(failoverServerIndicator(firebase,{...confirmed,online:false}).letter,'О');
+  assert.equal(failoverServerIndicator(firebase,{...confirmed,sessionValid:false}).letter,'…');
+  assert.equal(failoverServerIndicator({...firebase,replicas:{...firebase.replicas,firebase:null}},confirmed).letter,'…');
+  assert.equal(failoverServerIndicator({...firebase,projectId:'other'},confirmed).letter,'…');
+  assert.equal(failoverServerIndicator({...firebase,head:{sequence:0,hash:'invalid'}},confirmed).letter,'…');
+  assert.equal(failoverServerIndicator(initialFailoverState(1000),confirmed).letter,'…',
+    'health or local mode does not turn on the icon before reserve activation');
 });
