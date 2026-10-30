@@ -21,7 +21,7 @@
     let vol = parseFloat(document.getElementById('quickAddVol').value) || 0;
     let isGAI = type === 'gai';
     if(!brand || !num) { showError('Заполните марку и номер'); return; }
-    try { let r = refs.trucks.doc(); await tfAwait(r.set({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, createdAt: Date.now(), createdBy: getUserName() })); await addTruckToLine(r.id); document.getElementById('truckSearchInput').value = ''; renderSelectorList(); }
+    try { if(isNasRuntime()){const result=await nasSaveRecord('truck','',{brand,number:num,defaultVol:isGAI?0:vol,isGAI},0);document.getElementById('truckSearchInput').value='';await nasChangeMembership(result.result.id,true);renderSelectorList();return;}let r = refs.trucks.doc(); await tfAwait(r.set({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, createdAt: Date.now(), createdBy: getUserName() })); await addTruckToLine(r.id); document.getElementById('truckSearchInput').value = ''; renderSelectorList(); }
     catch(e) { showError(e.message); }
   }
   function openSelectorModal() { if(!requireEdit('edit_line') || !state.shift) return; const search=document.getElementById('truckSearchInput');if(search)search.value=''; document.getElementById('selectorModal').classList.add('open'); renderSelectorList(); }

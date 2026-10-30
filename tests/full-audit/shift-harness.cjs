@@ -86,7 +86,7 @@ function fixture(options={}) {
   const makeContext=()=>{
     const ctx={db,refs,wsRef:{collection:name=>new Collection(name)},currentUserRole:options.role||'admin',currentUid:'operator',currentEmail:'operator@example.test',currentUserStatus:'active',WORKSPACE_ID:'test',
       state:{shift:null,logs:[],truckStatus:{},archive:[],objects:[]},viewingArchiveId:null,window:{},
-      requireEdit:()=>true,hasPermission:()=>true,hasTabAccess:()=>true,offlinePendingCount:()=>options.pending||0,
+      isNasRuntime:()=>false,requireEdit:()=>true,hasPermission:()=>true,hasTabAccess:()=>true,offlinePendingCount:()=>options.pending||0,
       document:{getElementById:node},appConfirm:async()=>{confirms++;if(options.onConfirm)await options.onConfirm(env);return options.confirm!==false;},
       getLogs:()=>ctx.state.logs.filter(log=>log.shiftId===ctx.state.shift?.id),tfAwait:promise=>promise,getUserName:()=> 'Operator',nowDateStr:()=> '25.10.2026',
       showError:message=>errors.push(message),appNotice:message=>errors.push(message),showToastEl:message=>events.push(message),

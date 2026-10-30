@@ -2,17 +2,18 @@
   // The normal TEST build remains Firebase until every feature has a NAS adapter.
   function isNasRuntime() { return document.querySelector('meta[name="test-data-provider"]')?.content === 'synology-candidate'; }
   function nasStorageScope() { return JSON.stringify(['synology','https://iluxa.synology.me:18443',WORKSPACE_ID,currentUid]); }
-  let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0;
+  let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0;
   const nasReceiptFloors = new Map();
   const nasPresenceLeavers=new Set();
-  let nasAdministration=null,nasAdminRead=null,nasCatalogRead=null;
+  let nasAdministration=null,nasAdminRead=null,nasCatalogRead=null,nasCatalogSnapshot=null;
+  const nasCommandFlights=new Map();
   function stopNasRuntime() {
-    nasRuntimeEpoch++;
+    nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
     nasRuntimeStop?.(); nasRuntimeStop = null;
     nasRuntimeClient?.stop(); nasRuntimeClient = null;
     nasReceiptFloors.clear();
     nasPresenceLeavers.clear();
-    nasAdministration=null;nasAdminRead=null;nasCatalogRead=null;
+    nasAdministration=null;nasAdminRead=null;nasCatalogRead=null;nasCatalogSnapshot=null;nasCommandFlights.clear();
   }
   function loadNasSessionClient() { return import(new URL('./test-app/synology/session-client.mjs',document.baseURI).href); }
   function applyNasSession(session) {
@@ -57,22 +58,22 @@
       if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid)return;
       const client=createNasClient({getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
       let registering=false;
-      nasRuntimeStop=client.subscribeLine({
+      nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
         onSession:session=>{if(epoch!==nasRuntimeEpoch)return;applyNasSession(session);
           if(session.identityReady&&!session.profile&&!registering){registering=true;void ensureNasPendingAccount(user).catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-registration',error);}).finally(()=>{registering=false;});}
-          if(session.profile?.status==='active'&&(session.permissions.tabs.includes('line')||session.permissions.tabs.includes('trucks')))void refreshNasObjects().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-objects',error);});
+          if(session.profile?.status==='active'&&(session.permissions.tabs.includes('line')||session.permissions.tabs.includes('trucks')||session.permissions.tabs.includes('timesheet')))void refreshNasObjects().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-objects',error);});
           if(canAdmin())void refreshNasAdministration().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-admin',error);});},
         onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal();},
         onError:error=>{if(epoch!==nasRuntimeEpoch)return;reportSyncError('nas',error);}
-      });
+      });};nasResumePolling();
     }catch(error){if(epoch===nasRuntimeEpoch)reportSyncError('nas',error);}
   }
   function loadNasTabelRemote(){return import(new URL('./test-app/synology/tabel-remote.mjs',document.baseURI).href);}
   async function refreshNasObjects(){
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client||currentUserStatus!=='active')return;
     if(nasCatalogRead)return nasCatalogRead;
-    const work=(async()=>{const catalog=await client.readCatalog();if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||!hasTabAccess('line')&&!hasTabAccess('trucks'))return;
-      state.objects=catalog.objects;if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName);
+    const work=(async()=>{const catalog=await client.readCatalog();if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||!hasTabAccess('line')&&!hasTabAccess('trucks')&&!hasTabAccess('timesheet'))return;
+      nasCatalogSnapshot=catalog;state.trucks=catalog.trucks.map(row=>({...row.data,id:row.id,revision:row.revision}));state.objects=catalog.objects.map(row=>({...row.data,id:row.id,revision:row.revision}));if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName);
       markSync('objects',false,false,state.objects.length);saveCache();window.dispatchEvent(new Event('samosval-objects-changed'));
     })();nasCatalogRead=work;try{return await work;}finally{if(nasCatalogRead===work)nasCatalogRead=null;}
   }
@@ -97,7 +98,7 @@
         if(data.equipment!==undefined&&!Array.isArray(data.equipment)||data.people!==undefined&&!Array.isArray(data.people))throw Error('Не подтверждён формат справочника табеля');
         return {equipment:data.equipment||[],people:data.people||[]};},
       snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive}),
-      createObject:async()=>{throw Error('Создание объекта через Synology ещё не подключено');}
+      createObject:async(name,startDate)=>{guard();const result=await nasSaveRecord('object','',{name,...(startDate?{startDate}:{})},0);guard();return {...result.result.data,id:result.result.id};}
     };
   }
   async function leaveNasPresence(){
@@ -190,4 +191,78 @@
         }
       }
     }finally{offlineReplayRunning=false;if(live())updateSyncUI();}
+  }
+
+  // Persist the complete immutable intent before sending. Lost replies reuse IDs.
+  async function nasBusinessCommand(channel,target,fields) {
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    if(!client||currentUserStatus!=='active'||!navigator.onLine)throw Error('Нужно соединение с Synology');
+    const key='samosval_nas_commands_v1:'+client.scope,slot=channel+':'+target;
+    const {expectedRevision,expectedTtnRevision,expectedObjectId,...desired}=fields,intent=JSON.stringify(desired);
+    const flightKey=key+':'+slot;
+    const inflight=nasCommandFlights.get(flightKey);
+    if(inflight){if(inflight.intent!==intent)throw Error('Предыдущее изменение ещё отправляется');return inflight.work;}
+    const live=()=>epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&client.uid===currentUid;
+    const run=async()=>{
+      if(!live())throw Error('Учётная запись изменилась');
+      const queue=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(queue))throw Error('Не удалось прочитать очередь Synology');
+      let pending=queue.find(x=>x.slot===slot);
+      if(pending&&pending.intent!==intent)throw Error('Сначала повторите предыдущее неподтверждённое изменение');
+      if(!pending){
+        const id='cmd_'+crypto.randomUUID().replaceAll('-',''),operation={id,...fields};
+        if(channel==='control'&&operation.type.endsWith('.create'))operation.recordId='record_'+id;
+        if(channel==='start')operation.createdAt=Date.now();
+        pending={slot,intent,operation,scope:client.scope};queue.push(pending);localStorage.setItem(key,JSON.stringify(queue));
+      }
+      const remove=()=>{if(!live())return;const latest=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify(latest.filter(x=>x.operation.id!==pending.operation.id)));};
+      nasReadGeneration++;nasPollHolds++;nasRuntimeStop?.();nasRuntimeStop=null;
+      try{
+        const method={control:'submitControl',start:'startShift',close:'closeShift'}[channel];
+        const result=await client[method](pending.operation,{operationScope:pending.scope});
+        if(!live())throw Error('Учётная запись изменилась');
+        remove();return result;
+      }catch(error){if([400,409].includes(error.status))remove();throw error;}
+      finally{if(live()){nasPollHolds--;if(!nasPollHolds)nasResumePolling?.();}}
+    };
+    const work=navigator.locks?navigator.locks.request(key,run):Promise.resolve().then(run);nasCommandFlights.set(flightKey,{work,intent});
+    try{return await work;}finally{if(nasCommandFlights.get(flightKey)?.work===work)nasCommandFlights.delete(flightKey);}
+  }
+  function nasRecordRevision(kind,id){
+    const rows=kind==='truck'?nasCatalogSnapshot?.trucks:nasCatalogSnapshot?.objects;
+    return rows?.find(row=>row.id===id)?.revision;
+  }
+  async function nasRefreshLine(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=++nasReadGeneration;if(!client)return;
+    const snapshot=await client.readLine();if(client===nasRuntimeClient&&epoch===nasRuntimeEpoch&&generation===nasReadGeneration)acceptNasLineSnapshot(snapshot);
+  }
+  async function nasSaveRecord(kind,id,data,revision){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    const result=await nasBusinessCommand('control',kind+':'+(id||'new'),{type:kind+(id?'.update':'.create'),...(id?{recordId:id}:{}),expectedRevision:id?revision:0,data});
+    await Promise.allSettled([refreshNasObjects(),nasRefreshLine()]);if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch)throw Error('Учётная запись изменилась');renderAll();return result;
+  }
+  async function nasDeleteRecord(kind,id,revision){
+    await nasBusinessCommand('control',kind+':'+id,{type:kind+'.delete',recordId:id,expectedRevision:revision});
+    await Promise.allSettled([refreshNasObjects(),nasRefreshLine()]);renderAll();
+  }
+  async function nasChangeMembership(id,adding){
+    if(offlinePendingForTruck(id))throw Error('Сначала синхронизируйте действия этого самосвала');
+    const status=state.truckStatus[id],shiftId=state.shift?.id;if(!shiftId)throw Error('Смена не открыта');
+    const result=await nasBusinessCommand('control','membership:'+id,{type:adding?'line.add':'line.remove',truckId:id,shiftId,expectedRevision:Number(status?.cycleRevision||0),expectedTtnRevision:Number(status?.ttnRevision||0)});
+    const row=result.result;nasReceiptFloors.set(id,{truckId:id,shiftId,cycle:Number(row.cycleRevision||0),ttn:Number(row.ttnRevision||0)});
+    offlineRemoteStatuses[id]=row;offlineProjectState();saveCache();renderAll();await nasRefreshLine();
+  }
+
+  function loadNasMaterialTransfer(){return import(new URL('./test-app/tabel-v2/material-transfer.mjs',document.baseURI).href);}
+  async function nasCloseCurrentShift(shiftId){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Synology не загружен');
+    const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUid!==client.uid)throw Error('Учётная запись изменилась');};
+    const key='samosval_nas_close_v1:'+client.scope+':'+shiftId;
+    let prepared=JSON.parse(localStorage.getItem(key)||'null');
+    if(!prepared){prepared=await nasBusinessCommand('close',shiftId+':prepare',{type:'prepare',shiftId});guard();localStorage.setItem(key,JSON.stringify(prepared));}
+    if(prepared.shift?.id!==shiftId||prepared.archive&&prepared.archive.sourceShiftId!==shiftId)throw Error('Сохранённое закрытие относится к другой смене');
+    await nasRefreshLine();guard();
+    if(prepared.archive){const module=await loadNasMaterialTransfer();guard();await module.transferClosedLine(nasTabelHost(),prepared.shift,prepared.archive);guard();}
+    await nasBusinessCommand('close',shiftId+':finish',{type:'finish',shiftId});guard();
+    localStorage.removeItem(key);
+    await nasRefreshLine().catch(error=>reportSyncError('nas',error));guard();
   }

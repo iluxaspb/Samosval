@@ -17,6 +17,11 @@ export function normalizeControl(input){
       }else{
         if(typeof input.data.name!=='string'||!input.data.name.trim()||input.data.name.length>500)throw fail('invalid-object');
         op.data={name:input.data.name.trim()};
+        if(input.data.startDate!==undefined){
+          const date=input.data.startDate;
+          if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+'T00:00:00Z'))||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date)throw fail('invalid-object-start-date');
+          op.data.startDate=date;
+        }
       }
     }
   }else{

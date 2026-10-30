@@ -71,16 +71,30 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
     record(x.permissions)&&Array.isArray(x.permissions.tabs)&&x.permissions.tabs.every(t=>typeof t==='string')&&Array.isArray(x.permissions.actions)&&x.permissions.actions.every(a=>typeof a==='string')});
   const readLine=()=>request('/api/v1/line/snapshot',{validate:x=>envelope(x,'samosval-line-snapshot',workspaceId)&&ids(x.trucks)&&ids(x.statuses)&&ids(x.logs)&&
     Number.isInteger(x.cycleMinutes)&&x.cycleMinutes>=15&&x.cycleMinutes<=10080&&
-    (x.shift===null?x.statuses.length===0&&x.logs.length===0:record(x.shift)&&typeof x.shift.id==='string'&&x.shift.id.length>0&&x.shift.isActive===true&&
+    (x.shift===null?x.statuses.length===0&&x.logs.length===0:record(x.shift)&&typeof x.shift.id==='string'&&x.shift.id.length>0&&(x.shift.isActive===true||x.shift.isActive===false&&x.shift.closing===true)&&
       x.statuses.every(s=>s.shiftId===x.shift.id)&&x.logs.every(l=>l.shiftId===x.shift.id&&typeof l.truckId==='string'))});
   const readArchive=()=>request('/api/v1/archive/snapshot',{validate:x=>envelope(x,'samosval-archive-snapshot',workspaceId)&&Number.isFinite(x.importedAt)&&ids(x.archives)&&ids(x.trash)});
   const readHistory=()=>request('/api/v1/history',{validate:x=>record(x)&&x.format==='samosval-line-history'&&x.version===1&&x.source==='synology'&&ids(x.items)});
-  const readCatalog=()=>request('/api/v1/catalog',{validate:x=>envelope(x,'samosval-catalog',workspaceId)&&ids(x.trucks)&&ids(x.objects)});
+  const readCatalog=()=>request('/api/v1/catalog',{validate:x=>envelope(x,'samosval-catalog',workspaceId)&&ids(x.trucks)&&ids(x.objects)&&[...x.trucks,...x.objects].every(r=>record(r.data)&&Number.isSafeInteger(r.revision)&&r.revision>0)});
   const readMembers=()=>request('/api/v1/members',{validate:x=>record(x)&&x.format==='samosval-members'&&x.version===1&&x.source==='synology'&&Array.isArray(x.members)&&x.members.every(m=>record(m)&&typeof m.uid==='string'&&typeof m.nickname==='string')});
   const presenceEnvelope=x=>envelope(x,'samosval-tabel-presence',workspaceId);
   const readPresence=({objectId,sheetId})=>request('/api/v1/tabel/presence?'+new URLSearchParams({objectId,sheetId}),{validate:x=>presenceEnvelope(x)&&Array.isArray(x.peers)&&x.peers.every(p=>record(p)&&p.uid!==uid&&typeof p.uid==='string'&&typeof p.name==='string'&&p.objectId===objectId&&p.sheetId===sheetId&&Number.isFinite(p.seen)&&(p.selection===null||record(p.selection)))});
   const writePresence=({sessionId,sequence,objectId,sheetId,selection})=>request('/api/v1/tabel/presence',{operation:{type:'write',sessionId,sequence,objectId,sheetId,selection},validate:x=>presenceEnvelope(x)&&(x.ignored===true||record(x.record)&&x.record.uid===uid&&x.record.sessionId===sessionId&&x.record.objectId===objectId&&x.record.sheetId===sheetId&&x.record.sequence===sequence)});
   const removePresence=({sessionId,sequence})=>request('/api/v1/tabel/presence',{operation:{type:'remove',sessionId,sequence},validate:x=>presenceEnvelope(x)&&(x.removed===true||x.ignored===true)});
+  function scopedOperation(operation,operationScope){guard();if(operationScope!==scope)throw new NasClientError('outbox-scope-mismatch');if(!record(operation)||typeof operation.id!=='string'||!operation.id)throw new NasClientError('operation-id-required');return JSON.parse(JSON.stringify(operation));}
+  async function submitControl(operation,{operationScope}={}){
+    const op=scopedOperation(operation,operationScope);
+    return request('/api/v1/controls',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&record(x.result)&&(!op.recordId||x.result.id===op.recordId)});
+  }
+  async function startShift(operation,{operationScope}={}){
+    const op=scopedOperation(operation,operationScope);
+    return request('/api/v1/shifts/start',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&record(x.shift)&&x.shift.id==='shift_'+op.id&&x.shift.objectId===op.objectId&&x.shift.isActive===true});
+  }
+  async function closeShift(operation,{operationScope}={}){
+    const op=scopedOperation(operation,operationScope),phase=op.type==='prepare'?'awaiting-material':'closed';
+    return request('/api/v1/shifts/close',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.phase===phase&&record(x.shift)&&x.shift.id===op.shiftId&&x.shift.isActive===false&&
+      (op.type!=='prepare'||x.archive===null||record(x.archive)&&x.archive.sourceShiftId===op.shiftId)});
+  }
   const profiles=rows=>Array.isArray(rows)&&rows.every(x=>record(x)&&typeof x.uid==='string'&&x.uid&&Number.isSafeInteger(x.revision)&&x.revision>0)&&new Set(rows.map(x=>x.uid)).size===rows.length;
   const readAdministration=()=>request('/api/v1/admin/access',{validate:x=>record(x)&&x.format==='samosval-admin-access'&&x.version===1&&x.source==='synology'&&profiles(x.users)&&profiles(x.deletedUsers)&&Array.isArray(x.requests)&&x.requests.every(r=>record(r)&&typeof r.uid==='string'&&Number.isSafeInteger(r.revision)&&r.revision>=0)&&record(x.permissions)&&Object.values(x.permissions).every(p=>record(p)&&Array.isArray(p.tabs)&&Array.isArray(p.actions)&&Number.isSafeInteger(p.revision)&&p.revision>0)});
   const registerPending=({nickname}={})=>request('/api/v1/registration',{operation:nickname===undefined?{}:{nickname},validate:x=>record(x)&&typeof x.created==='boolean'&&record(x.profile)&&x.profile.uid===uid&&['pending','active','disabled'].includes(x.profile.status)});
@@ -123,5 +137,5 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
     void tick();return close;
   }
   function stop(){stopped=true;for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,uid,workspaceId,readSession,readLine,readArchive,readHistory,readCatalog,readMembers,readPresence,writePresence,removePresence,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
+  return Object.freeze({scope,uid,workspaceId,readSession,readLine,readArchive,readHistory,readCatalog,readMembers,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
 }

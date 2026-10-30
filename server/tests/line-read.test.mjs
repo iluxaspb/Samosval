@@ -58,7 +58,7 @@ test('line snapshot access, workspace isolation and concurrent consistency in Po
           const client = await pool.connect();
           return { release: () => client.release(), query: async (text, args) => {
             const result = await client.query(text, args);
-            if (!changed && text.includes('SELECT shift_id, payload')) {
+            if (!changed && text.includes('FROM shifts WHERE workspace_id=')) {
               changed = true;
               const writer = await pool.connect();
               try {
@@ -92,6 +92,14 @@ test('line snapshot access, workspace isolation and concurrent consistency in Po
         assert.equal(snapshot.shift, null);
         assert.deepEqual(snapshot.statuses, []);
         assert.deepEqual(snapshot.logs, []);
+      });
+      await t.test('closing shift remains readable for resumable material transfer; deleted trucks are hidden',async()=>{
+        await q("UPDATE shifts SET payload=payload||'{\"closing\":true}'::jsonb WHERE workspace_id=$1 AND shift_id=$2",[ws,current]);
+        await q("INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES ($1,'deleted',$2)",[ws,{deleted:true,number:'HIDDEN'}]);
+        const snapshot=await readLineSnapshot(pool,uid,ws);
+        assert.equal(snapshot.shift.id,current);assert.equal(snapshot.shift.isActive,false);assert.equal(snapshot.shift.closing,true);
+        assert.equal(snapshot.trucks.some(x=>x.id==='deleted'),false);assert.equal(snapshot.statuses.length,1);
+        await q("UPDATE shifts SET payload=payload-'closing' WHERE workspace_id=$1 AND shift_id=$2",[ws,current]);
       });
       await t.test('unprepared workspace fails instead of presenting an empty successful line', async () => {
         await assert.rejects(readLineSnapshot(pool, uid, prefix + '_missing'),

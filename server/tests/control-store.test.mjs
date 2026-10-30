@@ -22,6 +22,12 @@ test('PostgreSQL catalogs and line controls validate rights, revisions, replays 
       assert.equal((await readCatalog(pool,uid,ws+'_empty')).trucks.length,0);
       assert.equal((await readCatalog(pool,uid,ws)).objects.length,2);
     });
+    await t.test('timesheet-only catalog exposes objects with start dates but no line trucks',async()=>{
+      await pool.query("UPDATE role_permissions SET allowed=false WHERE role=$1 AND action='tab_line'",[role]);
+      await pool.query("INSERT INTO role_permissions(role,action,allowed) VALUES ($1,'tab_timesheet',true)",[role]);
+      const catalog=await readCatalog(pool,worker,ws);assert.equal(catalog.trucks.length,0);assert.equal(catalog.objects.length,2);
+      await pool.query("UPDATE role_permissions SET allowed=true WHERE role=$1 AND action='tab_line'",[role]);
+    });
     await t.test('simultaneous same-ID creation replays one revision and one audit event',async()=>{
       const op={id:'same',type:'truck.create',recordId:'same_truck',expectedRevision:0,data:{...truck,isGAI:true}};
       const results=await Promise.all([submitControl(pool,uid,op,ws),submitControl(pool,uid,op,ws)]);
