@@ -8,6 +8,7 @@ import {submitReport} from './report-store.mjs';
 import {readArchiveSnapshot} from './archive-read.mjs';
 import {readLineHistory,historyOperation} from './history-store.mjs';
 import { Pool } from 'pg';
+import {startTestReplica,replicaRuntime} from './test-replica-runner.mjs';
 import { verifyFirebaseUser, verifyFirebaseIdentity } from './auth.mjs';
 import {readSession,registerPending,readAdministration,identityOperation,readMembers} from './identity-store.mjs';
 import { submitLineOperation } from './line-store.mjs';
@@ -36,6 +37,10 @@ const pool = new Pool({
   connectionTimeoutMillis:2000, idleTimeoutMillis:30000
 });
 installDatasetGuard(pool);
+// An invalid optional mirror configuration must never bring down the TEST NAS
+// business API. The mirror remains disabled and reports a bounded error.
+try{startTestReplica({pool,projectId:process.env.FIREBASE_PROJECT_ID});}
+catch{replicaRuntime.enabled=false;replicaRuntime.lastError='replica-configuration-blocked';}
 const tabelPresence=createPresenceService({authorize:(uid,target)=>authorizeTabelPresence(pool,uid,target),workspaceId:process.env.WORKSPACE_ID||'main_workspace'});
 function readJson(req,limit=32768) {
   return new Promise((resolve,reject)=>{

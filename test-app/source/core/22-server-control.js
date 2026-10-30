@@ -14,7 +14,7 @@ function renderServerControl(){
  const s=serverControlSnapshot,a=s?.agent,fresh=!!s&&!serverControlError&&Date.now()-s.readAt<30000,available=fresh&&a?.available&&!serverControlBusy,job=s?.jobs.find(j=>['queued','running'].includes(j.status)),disabled=!available||!!job;
  let html='<div class="sc-heading"><div><h3>Центр управления</h3><span class="sc-channel">TEST · Synology</span></div>'+scButton('refresh','Обновить',!!serverControlFlight)+'</div>';
  html+='<p class="sc-status" role="status">'+scText(serverControlError||(!s?'Загружаю состояние…':!fresh?'Показаны последние полученные данные':a?.available?'Служба управления на связи':'Служба управления не подключена. Серверные действия недоступны.'))+'</p>';
- html+='<nav class="sc-nav" aria-label="Разделы центра управления">'+[['overview','Обзор'],['resources','Ресурсы'],['updates','Обновления'],['backups','Копии'],['objects','Объекты'],['journal','Журнал']].map(([key,label])=>'<button type="button" data-sc-section="'+key+'" aria-pressed="'+(key===serverControlSection)+'">'+label+'</button>').join('')+'</nav>';
+ html+='<div class="sc-nav" role="group" aria-label="Разделы центра управления">'+[['overview','Обзор'],['resources','Ресурсы'],['updates','Обновления'],['backups','Копии'],['replication','Репликация'],['objects','Объекты'],['journal','Журнал']].map(([key,label])=>'<button type="button" data-sc-section="'+key+'" aria-pressed="'+(key===serverControlSection)+'">'+label+'</button>').join('')+'</div>';
  if(job)html+='<p class="sc-progress" role="status">'+scText(serverControlLabels[job.type])+' · '+scText(serverControlLabels[job.stage]||job.stage)+'. Задание продолжится на NAS после закрытия приложения.</p>';
  if(s){
   const host=a.host||{},disk=host.disk||{};
@@ -35,6 +35,19 @@ function renderServerControl(){
    html+='<div class="sc-actions">'+scButton('backup','Создать полную копию БД',disabled)+'</div><h4>Полные серверные копии</h4>';
    html+=(a.backups||[]).length?'<ul class="sc-list">'+a.backups.map(b=>'<li><b>'+scText(scDate(b.createdAt))+'</b><span>'+scText(scBytes(b.bytes))+' · '+(b.restored?'Восстановление проверено':'Требует проверки')+'</span></li>').join('')+'</ul>':'<p>Подтверждённых копий от службы ещё нет.</p>';
    html+='<h4>Копии данных приложения</h4><ul class="sc-list">'+s.backups.map(b=>'<li><b>'+scText(b.description||b.type)+'</b><span>'+scText(scDate(b.createdAt))+' · '+scText(scBytes(b.sizeBytes))+'</span></li>').join('')+'</ul><p class="sc-note">Выборочное восстановление данных доступно в существующем разделе резервных копий. Возврат API не откатывает рейсы и табель.</p>';
+  }
+  if(serverControlSection==='replication'){
+   const r=s.replication||{},lag=Number.isSafeInteger(r.lag)?r.lag:'Нет квитанции';
+   html+='<div class="sc-grid">'+scCard('Репликация NAS → Firebase',r.enabled?'Включена':'Не включена',r.mode==='passive-mirror'?'Только пассивное зеркало TEST':'Данные пока не передаются')+
+    scCard('Владелец записи',r.activeOwner==='synology'?'Synology':'Не подтверждён')+
+    scCard('Курсор PostgreSQL',r.lastSequence??'Нет данных')+
+    scCard('Подтверждено Firebase',r.deliveredSequence??'Нет квитанции')+
+    scCard('Отставание, событий',lag)+
+    scCard('Последняя квитанция',scDate(r.lastConfirmedAt))+
+    scCard('Последний успешный цикл',scDate(r.lastSuccessAt))+
+    scCard('Состояние резерва',r.readyForFailover?'Готов':'НЕ готов к переключению')+
+    scCard('Ошибки репликатора',r.lastError||'Не зарегистрированы')+'</div>';
+   html+='<p class="sc-note">Только серверная копия PostgreSQL в отдельном пространстве проекта samosval-offline. Она не совместима напрямую со старой схемой Firestore. Автопереключение и обратная синхронизация отключены: даже нулевое отставание не разрешает запись в две базы. При потере NAS сохраняйте локальные очереди телефонов.</p>';
   }
   if(serverControlSection==='objects')html+='<div class="sc-actions">'+scButton('users','Пользователи и права')+'</div><ul class="sc-list">'+s.objects.map(o=>'<li><b>'+scText(o.name||o.id)+'</b><span>Открытых смен: '+scText(o.active_shifts)+'</span></li>').join('')+'</ul>';
   if(serverControlSection==='journal'){

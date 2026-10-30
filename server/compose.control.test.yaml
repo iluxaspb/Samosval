@@ -2,7 +2,7 @@
 # /control is private writable state. Docker access is confined to this worker.
 services:
   control:
-    image: samosval-test-control:4.1.0
+    image: samosval-test-control:4.1.1
     restart: unless-stopped
     env_file:
       - /volume2/docker/samosval-test/.env.test
