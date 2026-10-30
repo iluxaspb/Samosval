@@ -22,6 +22,10 @@
 `samosval-offline` включён billing и API Cloud Run, Cloud Build,
 Artifact Registry, IAM Credentials, Security Token Service и Firestore.
 Если Firestore/Billing не включены, не менять рабочий проект — только TEST.
+Cloud Run не доступен на бесплатном Firebase Spark: понадобится привязать
+billing account к `samosval-offline` (это план Blaze, с возможными расходами).
+Проверьте тариф и настройте бюджетное предупреждение до запуска:
+https://firebase.google.com/docs/projects/billing/firebase-pricing-plans .
 
 В Google Cloud создать две служебные учётные записи:
 
