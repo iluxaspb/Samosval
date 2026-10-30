@@ -24,7 +24,7 @@ const receipt={outcome:'confirmed',status:{id:'truck1',cycleRevision:2}};
 const reply=(value,status=200)=>({status,ok:status>=200&&status<300,
   headers:{get:()=> 'application/json; charset=utf-8'},
   json:async()=>structuredClone(value)});
-function setup({owner='synology',ownerStatuses,routeFail,authFail=false}={}){
+function setup({owner='synology',ownerStatuses,routeFail,authFail=false,writeResponses}={}){
  const calls=[],nasCalls=[],tokens=[];
  const nas={
   uid:'user1',scope:'nas-scope',workspaceId:'main_workspace',
@@ -37,7 +37,7 @@ function setup({owner='synology',ownerStatuses,routeFail,authFail=false}={}){
   stop:()=>{nasCalls.push('stop');}
  };
  const user={uid:'user1',getIdToken:async(force)=>{tokens.push(force);if(authFail)throw Error('auth');return 'private-token';}};
- let active=user,idx=0;
+ let active=user,idx=0,writeIndex=0;
  const fetchImpl=async(url,options)=>{
   calls.push({url,options});
   const path=new URL(url).pathname;
@@ -47,7 +47,7 @@ function setup({owner='synology',ownerStatuses,routeFail,authFail=false}={}){
   }
   if(path==='/api/v1/session')return reply(session('firebase'));
   if(path==='/api/v1/line/snapshot')return reply(line('firebase'));
-  if(path==='/api/v1/line/operations')return reply(receipt);
+  if(path==='/api/v1/line/operations')return reply(writeResponses?.[writeIndex++]??receipt);
   throw Error('unexpected-path:'+path);
  };
  const create=()=>createTestAutoLineClient({nasClient:nas,reserveBaseUrl:base,
@@ -138,13 +138,22 @@ test('owner change between session and line read discards mixed-source snapshot'
  client.stop();
 });
 test('invalid reserve HTTP payload after write is uncertain, so queue retries same ID',async()=>{
- const h=setup({owner:'firebase'}),client=h.create(),original=h.nas;
- // Inject a different server response without mutating the persistent operation.
- const unsupported={id:'new_',type:'load',truckId:'truck1'};
- await assert.rejects(client.submitLine(unsupported,{operationScope:'wrong'}),{code:'outbox-scope-mismatch'});
- await assert.rejects(client.submitLine({id:'new_',type:'close'},{operationScope:client.scope}),{code:'invalid-line-operation'});
- assert.equal(h.calls.length,0);
+ const h=setup({owner:'firebase',writeResponses:[{notAReceipt:true},receipt]}),client=h.create();
+ const original=structuredClone(op);
+ await assert.rejects(client.submitLine(op,{operationScope:client.scope}),
+   e=>e.code==='reserve-invalid-response'&&e.uncertain===true&&e.retryable===true);
+ assert.deepEqual(await client.submitLine(op,{operationScope:client.scope}),receipt);
+ const posts=h.calls.filter(x=>x.options.method==='POST');
+ assert.equal(posts.length,2);
+ assert.equal(posts[0].options.body,posts[1].options.body);
+ assert.deepEqual(op,original);
  client.stop();assert.equal(h.nasCalls.at(-1),'stop');
+});
+test('direct reads are discarded if ownership changed after fetching the data',async()=>{
+ const h=setup({ownerStatuses:[head('synology'),head('firebase')]}),client=h.create();
+ await assert.rejects(client.readLine(),{code:'writer-changed-during-read'});
+ assert.equal(client.activeProvider,null);
+ client.stop();
 });
 test('rejects credentialed and non-HTTPS reserve endpoints',()=>{
  const h=setup();
