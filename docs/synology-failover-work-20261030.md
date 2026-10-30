@@ -47,6 +47,13 @@ Firebase → PostgreSQL, без ожидания следующего интер
 - `server/src/reserve-checkpoint.mjs`: исходный согласованный снимок всех
   39 таблиц и SHA-256; `server/scripts/reserve-copy-once.mjs` повторно
   сверяет NAS после загрузки. Это **однократный bootstrap**, не ночной планировщик.
+- `server/src/reserve-minute-poller.mjs`: изолированный минутный планировщик
+  без автозапуска на NAS. Пропускает пустые минуты, догружает большой backlog
+  несколькими пакетами с ограничением числа документов за цикл, после каждого
+  подтверждения повторно проверяет *долговечный* NAS cursor и блокирует переход
+  к следующему пакету при несовпадении. Тесты — `server/tests/reserve-minute-poller.test.mjs`.
+  Для настоящего запуска нужны PostgreSQL outbox, CAS receipt, scheduler service,
+  credential Firebase и первичный снимок; через текущий updater их не установить.
 - `server/src/reserve-minute-replication.mjs`: проверка последовательности
   событий, ограничение документа, разбиение переполненных минут, пропуск пустых
   интервалов и подтверждение только после readback.
