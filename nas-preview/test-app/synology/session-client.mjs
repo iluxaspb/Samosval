@@ -29,7 +29,15 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
   if(!owner||typeof owner.uid!=='string'||!owner.uid||typeof owner.getIdToken!=='function')throw new NasClientError('authentication-required');
   const uid=owner.uid, controllers=new Set(), subscriptions=new Set(); let stopped=false;
   // Origin, workspace and UID are inseparable from caches and outbox entries.
-  const scope=JSON.stringify(['synology',base.origin,workspaceId,uid]);
+  const epochKey='samosval_nas_dataset_epoch:'+JSON.stringify([base.origin,workspaceId,uid]);
+  let datasetEpoch=0;try{datasetEpoch=Number(globalThis.localStorage?.getItem(epochKey)||0)||0;}catch{}
+  const scope=JSON.stringify(['synology',base.origin,workspaceId,uid,...(datasetEpoch?[datasetEpoch]:[])]);
+  function checkEpoch(response){const raw=response.headers?.get?.('X-Samosval-Epoch');if(raw==null||!/^\d+$/.test(raw)||Number(raw)===datasetEpoch)return;
+    try{globalThis.localStorage?.setItem(epochKey,raw);}catch{}
+    stopped=true;for(const close of subscriptions)close();
+    if(globalThis.location?.reload)setTimeout(()=>globalThis.location.reload(),50);
+    throw new NasClientError('dataset-restored-reload',{status:409});
+  }
   function guard(){if(stopped||getUser()!==owner||owner.uid!==uid)throw new NasClientError('session-changed');}
   async function request(path,{operation,validate}={}) {
     guard();
@@ -47,9 +55,9 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
         guard();
         if(typeof token!=='string'||!token)throw new NasClientError('authentication-required');
         const response=await abortable(fetchImpl(base.origin+path,{method:write?'POST':'GET',
-          headers:write?{Authorization:'Bearer '+token,'Content-Type':'application/json'}:{Authorization:'Bearer '+token},
+          headers:write?{'X-Samosval-Epoch':String(datasetEpoch),Authorization:'Bearer '+token,'Content-Type':'application/json'}:{Authorization:'Bearer '+token},
           ...(write?{body}:{}),signal:controller.signal,redirect:'error',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'}),controller.signal);
-        guard();
+        guard();checkEpoch(response);
         if(response.status===401&&attempt===0)continue;
         if(!response.ok){const retryable=[408,425,429].includes(response.status)||response.status>=500;
           throw new NasClientError('api-http-'+response.status,{status:response.status,retryable,uncertain:write&&retryable});}
@@ -92,6 +100,14 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
   async function submitSettings(operation,{operationScope}={}){
     const op=scopedOperation(operation,operationScope);
     return request('/api/v1/settings',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&record(x.result?.data)&&x.result.revision===op.expectedRevision+1});
+  }
+  const readNotifications=()=>request('/api/v1/notifications',{validate:x=>envelope(x,'samosval-notification-status',workspaceId)&&record(x.counts)});
+  async function submitNotificationTest(operation,{operationScope}={}){const op=scopedOperation(operation,operationScope);return request('/api/v1/notifications',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.result?.queued===true});}
+  const readBackups=(id)=>request('/api/v1/backups'+(id?'?'+new URLSearchParams({id}):''),{validate:x=>envelope(x,'samosval-backups',workspaceId)&&(id?record(x.meta)&&record(x.payload):ids(x.items))});
+  async function submitBackup(operation,{operationScope}={}){const op=scopedOperation(operation,operationScope);return request('/api/v1/backups',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&record(x.result)});}
+  async function submitReport(operation,{operationScope}={}){
+    const op=scopedOperation(operation,operationScope);
+    return request('/api/v1/report/operations',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&x.result?.id===op.logId});
   }
   async function submitArchive(operation,{operationScope}={}){
     const op=scopedOperation(operation,operationScope);
@@ -156,5 +172,5 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
     void tick();return close;
   }
   function stop(){stopped=true;for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,uid,workspaceId,readSession,readLine,readArchive,submitArchive,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
+  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
 }
