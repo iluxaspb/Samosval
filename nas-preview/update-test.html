@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Восстановление обновления — Самосвалы</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{background:#111827;color:#f9fafb;font:16px system-ui,-apple-system,sans-serif;margin:0;padding:28px 16px}
+main{max-width:520px;margin:0 auto}.muted{color:#cbd5e1;font-size:14px;line-height:1.55}
+h1{font-size:23px}button{font:inherit;display:block;width:100%;margin:20px 0 8px;background:#2563eb;color:#fff;padding:16px;border-radius:12px;border:0;font-weight:700}
+button:disabled{opacity:.5}a{color:#93c5fd}#status{min-height:42px;white-space:pre-line;line-height:1.6}
+</style></head><body><main>
+<h1>Обновление тестовой версии</h1>
+<p class="muted">Эта страница открывается отдельно от старого офлайн-кеша тестовой версии. Она поможет, если приложение всё ещё показывает старый номер.</p>
+<button id="repair" type="button">🔄 Проверить сайт и восстановить обновление</button>
+<p id="status" role="status">Для проверки нужен интернет.</p>
+<p class="muted">Обновляем только программные файлы. <strong>Не удаляем</strong> данные Firebase, авторизацию, табель, IndexedDB и очередь рейсов. Если есть несинхронизированные действия, обновление будет остановлено. Сначала закройте другие окна тестовой версии.</p>
+<a href="./index-test.html">Вернуться в тестовую версию</a>
+</main><script>
+(function () {
+  'use strict';
+  const button=document.getElementById('repair'),status=document.getElementById('status');
+  const show=message=>{status.textContent=message;};
+  async function fresh(url) {
+    const response=await fetch(url+(url.includes('?')?'&':'?')+'check='+Date.now(),{cache:'no-store'});
+    if (!response.ok) throw Error('Сервер не ответил: '+url+' ('+response.status+').');
+    return response;
+  }
+  async function digest(text) {
+    const binary=new TextEncoder().encode(text);
+    return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',binary)),b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  function pendingJournal() {
+    let count=0;
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(!key || !key.startsWith('samosval_offline_v1_'))continue;
+      const raw=JSON.parse(localStorage.getItem(key)||'[]');
+      if (!Array.isArray(raw)) throw Error('Не удалось прочитать очередь рейсов.');
+      count+=raw.filter(entry=>entry && entry.status==='pending').length;
+    }
+    return count;
+  }
+  button.onclick=async()=>{
+    button.disabled=true;
+    try {
+      if (!navigator.onLine || !window.isSecureContext)throw Error('Нужен интернет по защищённому адресу.');
+      const pending=pendingJournal();
+      if (pending>0)throw Error('В очереди '+pending+' несинхронизированных действий. Сначала дождитесь их отправки.');
+      show('Проверяю версию и файлы на сайте…');
+      const data=await (await fresh('./test-app/build-manifest.json')).json();
+      if (!/^[a-f0-9]{16}$/.test(data.version) || !Array.isArray(data.assets))throw Error('Некорректный манифест обновления.');
+      const html=await (await fresh('./index-test.html')).text();
+      const record=data.assets.find(item=>item.url==='./index-test.html');
+      if (!record || !html.includes('name="test-app-build" content="'+data.version+'"') ||
+          (await digest(html))!==record.sha256) throw Error('На сайте пока не совпадают контрольные суммы. Попробуйте повторить проверку.');
+      const sw=await (await fresh('./sw-test.js')).text();
+      if (!sw.includes("const VERSION = '"+data.version+"';")) throw Error('Служебный файл обновления пока не опубликован.');
+      const version=(html.match(/name="test-app-version" content="([^"]+)"/)||[])[1]||data.version;
+      show('На сайте доступна тестовая '+version+'.');
+      if (!window.confirm('Обновить тестовую '+version+'? Старая офлайн-регистрация будет отключена. Данные и очередь рейсов сохранятся. Закройте другие окна тестовой версии.')) {
+        show('Отменено. Данные не изменены.');return;
+      }
+      if (pendingJournal()>0)throw Error('Появились ожидающие рейсы. Обновление отменено.');
+      show('Отключаю старую офлайн-регистрацию, не затрагивая данные…');
+      const reg=await navigator.serviceWorker.getRegistration('./index-test.html');
+      if (reg && !(await reg.unregister()))throw Error('Не удалось отключить старую офлайн-регистрацию.');
+      // The next worker verifies the new release and removes only old
+      // samosval-test-shell-* caches after successful activation.
+      show('Открываю актуальную тестовую версию…');
+      location.replace('./index-test.html?repair='+Date.now());
+    } catch(error) {
+      show('Обновление не выполнено: '+String(error?.message||error)+' Данные не удалялись.');
+    } finally {button.disabled=false;}
+  };
+})();
+</script></body></html>
