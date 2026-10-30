@@ -28,14 +28,16 @@ docker cp "$API:/app/src" "$BACK/src"
 docker cp "$API:/app/package.json" "$BACK/package.json"
 (cd "$BACK" && printf '%s\n' '02a08ba43bbac764dc2d7c66feb46d1d7ba5beb37693169cfe7dbe9a983c1c3d  src/index.mjs' | sha256sum -c -)
 cp -R "$BACK/src" "$STAGE/src"
-for FILE in index.mjs json-response.mjs; do
-  curl -fL --connect-timeout 15 --max-time 120 "https://raw.githubusercontent.com/iluxaspb/Samosval/3cf9c6da980732a3396051aa89865277082042ec/server/src/$FILE" -o "$STAGE/src/$FILE"
+for FILE in index.mjs json-response.mjs game-store.mjs game-transfer.mjs; do
+  curl -fL --connect-timeout 15 --max-time 120 "https://raw.githubusercontent.com/iluxaspb/Samosval/2942c8f44ad93038118da5866c5cc84a2ed58115/server/src/$FILE" -o "$STAGE/src/$FILE"
 done
-(cd "$STAGE" && printf '%s\n' '132b2e914835a5f9a3193af766e36b0628439ce37800a3cda5e8fe17468602fc  src/index.mjs' 'ca516df3ca33d965f4c138f038cfdbc562ebc9fdddc78707a054eacdb40b70ff  src/json-response.mjs' | sha256sum -c -)
+(cd "$STAGE" && printf '%s\n' '132b2e914835a5f9a3193af766e36b0628439ce37800a3cda5e8fe17468602fc  src/index.mjs' 'ca516df3ca33d965f4c138f038cfdbc562ebc9fdddc78707a054eacdb40b70ff  src/json-response.mjs' '026947b996099898c1a4ffbeb4b75064b1fde3707d03e989d3add9df26fb126e  src/game-store.mjs' 'c276e952007ffae08a1c027e7125f56c3b68a1818262b88b326ce1655279e211  src/game-transfer.mjs' | sha256sum -c -)
 printf 'FROM %s\nCOPY --chown=node:node src /app/src\n' "$BASE" > "$STAGE/Dockerfile"
 docker build -t "$TAG" "$STAGE"
 docker run --rm --network none --read-only --entrypoint node "$TAG" --check src/index.mjs
 docker run --rm --network none --read-only --entrypoint node "$TAG" --check src/json-response.mjs
+docker run --rm --network none --read-only --entrypoint node "$TAG" --check src/game-store.mjs
+docker run --rm --network none --read-only --entrypoint node "$TAG" --check src/game-transfer.mjs
 printf 'TRANSPORT_SOURCE_VERIFIED\n'
 docker exec "$PG" sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$BACK/before.dump"
 test -s "$BACK/before.dump"
