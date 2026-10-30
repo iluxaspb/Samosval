@@ -116,6 +116,7 @@ jobs:
         run: |
           export PWA_BROWSER=$(node -p "require('playwright').chromium.executablePath()")
           node tests/pwa/update-ui.cjs
+          node tests/pwa/control-center-navigation.cjs
           node tests/tabel-v2/simple-keypad-browser.cjs
           node tests/tabel-v2/release-410-browser.cjs
           node tests/tabel-v2/table-tools-browser.cjs
