@@ -6,7 +6,7 @@ import {OWNER_DOC} from '../src/test-writer-coordinator.mjs';
 import {startTestReplica} from '../src/test-replica-runner.mjs';
 
 class FakeFirestore {
- constructor(){this.docs=new Map();this.offline=false;this.loseNextReply=false;}
+ constructor(){this.docs=new Map();this.offline=false;this.loseNextReply=false;this.beforeTransaction=null;}
  doc(path){return {path,get:async()=>this.snapshot(path)};}
  collection(path){return {get:async()=>({docs:[...this.docs.entries()].filter(([k])=>k.startsWith(path+'/')).map(([k,value])=>({id:k.slice(path.length+1),data:()=>structuredClone(value)}))})};}
  snapshot(path){return {exists:this.docs.has(path),data:()=>structuredClone(this.docs.get(path))};}
@@ -29,6 +29,7 @@ class FakeFirestore {
    update:(ref,data)=>ops.push(['update',ref.path,data]),
    delete:ref=>ops.push(['delete',ref.path])
   };
+  if(this.beforeTransaction){const hook=this.beforeTransaction;this.beforeTransaction=null;hook();}
   const result=await fn(tx);
   if(this.offline)throw Error('firestore-offline');
   this.apply(ops);
@@ -97,6 +98,16 @@ test('Postgres -> Firebase: snapshot, exact receipts, outage, lost ACK, delete, 
   await assert.rejects(mirror(pool,firestore),/firestore-offline/);
   assert.equal((await readReplicaStatus(pool)).deliveredSequence,before);
   firestore.offline=false;
+  // The first owner read allows NAS. Simulate a Firebase promotion immediately
+  // before the outbox Firestore transaction starts: the transaction must read
+  // ownership again and reject the stale NAS writer atomically.
+  firestore.beforeTransaction=()=>firestore.docs.set(OWNER_DOC,{
+   protocol:1,projectId:'samosval-offline',owner:'firebase',holder:'firebase_reserve',
+   epoch:2,generation:meta.generation,leaseUntil:Date.now()+60000,pending:{},
+   observedSequence:meta.lastSequence});
+  await assert.rejects(mirror(pool,firestore),/replica-writer-not-synology/);
+  assert.equal(firestore.docs.get(REPLICA_DOC).lastSequence,before);
+  firestore.docs.delete(OWNER_DOC);
   firestore.loseNextReply=true;
   await assert.rejects(mirror(pool,firestore),/reply-lost-after-commit/);
   assert.equal((await readReplicaStatus(pool)).deliveredSequence,before,'lost ACK cannot falsely advance local receipt');
