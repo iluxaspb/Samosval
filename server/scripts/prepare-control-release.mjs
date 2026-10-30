@@ -24,6 +24,6 @@ else{
  writeFileSync(new URL('releases/nas-test.json',root),JSON.stringify({
    format:'samosval-api-release',protocol:1,channel:'test',version,commit,...baseline,
    ...(migrationOptIn?{previousSchemaSha256}:{}),migrations,
-   notes:migrationOptIn?'TEST: проверенная SQL-миграция журнала без включения Firebase failover':'Проверенное обновление серверного кода TEST',files
+   notes:migrationOptIn?'TEST: проверенная SQL-миграция журнала без включения Firebase failover':'TEST 4.1.2: пассивная серверная копия PostgreSQL → Firebase (по умолчанию выключена); автопереключение и обратная синхронизация НЕ включены',files
  },null,2)+'\n');
 }
