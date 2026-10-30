@@ -17,14 +17,14 @@ export async function submitLineOperation(pool, uid, input) {
   try {
     await client.query('BEGIN');
     const profile = (await client.query(
-      "SELECT email, display_name, role, status FROM app_users WHERE uid = $1",
+      "SELECT email, display_name, role, status FROM app_users WHERE uid = $1 FOR SHARE",
       [uid])).rows[0];
     if (!profile || profile.status !== 'active') throw forbidden();
     const admin = profile.role === 'admin';
     if (op.type === 'reset' && !admin) throw forbidden();
     if (!admin) {
       const permitted = (await client.query(
-        'SELECT allowed FROM role_permissions WHERE role=$1 AND action=$2',
+        'SELECT allowed FROM role_permissions WHERE role=$1 AND action=$2 FOR SHARE',
         [profile.role, ACTIONS[op.type]])).rows[0]?.allowed;
       if (permitted !== true) throw forbidden();
     }

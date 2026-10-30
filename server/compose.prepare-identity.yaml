@@ -1,0 +1,42 @@
+services:
+  prepare:
+    image: postgres:16-alpine
+    restart: "no"
+    env_file:
+      - ../samosval-test/.env.test
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - /volume2/docker/samosval-test/migration-backups:/backup
+      - /volume2/docker/samosval-test/src:/source:ro
+      - /volume2/docker/samosval-test/package.json:/source-package.json:ro
+      - /volume2/docker/samosval-test/sql/006_identity.sql:/migration.sql:ro
+    command:
+      - sh
+      - -c
+      - |-
+        set -eu
+        umask 077
+        [ "$$POSTGRES_DB" = samosval_test ]
+        backup=/backup/samosval_test_before_identity_20261030.dump
+        archive=/backup/src-before-identity-20261030.tar.gz
+        [ ! -e "$$backup" ] && [ ! -e "$$archive" ] && [ ! -e /backup/package-before-identity-20261030.json ]
+        export PGPASSWORD="$$POSTGRES_PASSWORD"
+        pg_dump -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -Fc -f "$$backup"
+        pg_restore --list "$$backup" > /backup/identity-backup.list
+        tar -czf "$$archive" -C /source .
+        tar -tzf "$$archive" > /backup/identity-source-backup.list
+        cp /source-package.json /backup/package-before-identity-20261030.json
+        sha256sum "$$backup" "$$archive" /backup/package-before-identity-20261030.json
+        wc -c "$$backup" "$$archive"
+        echo '7d03afcfdfcfb52509880bfc9130029728623f58f5e181df37512df14285fb9a  /migration.sql' | sha256sum -c -
+        psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migration.sql
+        psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -At -c 'SELECT (SELECT count(*) FROM app_users),(SELECT count(*) FROM line_trucks),(SELECT count(*) FROM line_logs),(SELECT count(*) FROM tabel_records),(SELECT initialized FROM identity_state WHERE id=1);'
+        echo IDENTITY_PREPARED
+    networks:
+      - existing
+networks:
+  existing:
+    external: true
+    name: samosval-test_default

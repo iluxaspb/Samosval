@@ -1,0 +1,33 @@
+services:
+  prepare:
+    image: postgres:16-alpine
+    restart: "no"
+    env_file:
+      - ../samosval-test/.env.test
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - /volume2/docker/samosval-test/migration-backups:/backup:ro
+      - /volume2/docker/samosval-test/sql/006_identity.sql:/migration.sql:ro
+    command:
+      - sh
+      - -c
+      - |-
+        set -eu
+        [ "$$POSTGRES_DB" = samosval_test ]
+        export PGPASSWORD="$$POSTGRES_PASSWORD"
+        pg_restore --list /backup/samosval_test_before_identity_20261030.dump > /tmp/checked-dump.list
+        tar -tzf /backup/src-before-identity-20261030.tar.gz > /tmp/checked-source.list
+        sha256sum /backup/samosval_test_before_identity_20261030.dump /backup/src-before-identity-20261030.tar.gz /backup/package-before-identity-20261030.json
+        wc -c /backup/samosval_test_before_identity_20261030.dump /backup/src-before-identity-20261030.tar.gz
+        echo '7d03afcfdfcfb52509880bfc9130029728623f58f5e181df37512df14285fb9a  /migration.sql' | sha256sum -c -
+        psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migration.sql
+        psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -At -c 'SELECT (SELECT count(*) FROM app_users),(SELECT count(*) FROM line_trucks),(SELECT count(*) FROM line_truck_statuses),(SELECT count(*) FROM line_logs),(SELECT count(*) FROM tabel_records),(SELECT count(*) FROM workspace_objects),(SELECT initialized FROM identity_state WHERE id=1);'
+        echo IDENTITY_BACKUP_AND_SCHEMA_VERIFIED
+    networks:
+      - existing
+networks:
+  existing:
+    external: true
+    name: samosval-test_default
