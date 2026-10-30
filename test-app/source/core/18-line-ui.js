@@ -37,7 +37,7 @@
     let logs = getLogs(); let stdLogs = logs.filter(l => !l.isGAI); let v = stdLogs.reduce((s,l)=>s+l.volume,0);
     document.getElementById('shiftDate').textContent = d; document.getElementById('headerObject').textContent = 'Объект: ' + o;
     document.getElementById('activeLineCount').textContent = act + ' маш.'; document.getElementById('totalTrips').textContent = stdLogs.length; document.getElementById('totalVolume').textContent = v + ' м³';
-    const tabelCounts=document.getElementById('tabelV2Counts');if(tabelCounts&&permissionsLoaded&&hasTabAccess('timesheet'))import(new URL('./test-app/tabel-v2/summary.mjs',document.baseURI).href).then(m=>m.updateHeader({session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,role:currentUserRole,active:currentUserStatus==='active',view:hasTabAccess('timesheet')}),snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive})},tabelCounts)).catch(()=>{tabelCounts.hidden=true;});else if(tabelCounts)tabelCounts.hidden=true;
+    const tabelCounts=document.getElementById('tabelV2Counts');if(tabelCounts&&permissionsLoaded&&hasTabAccess('timesheet'))import(new URL('./test-app/tabel-v2/summary.mjs',document.baseURI).href).then(m=>m.updateHeader(isNasRuntime()?nasTabelHost():{session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,role:currentUserRole,active:currentUserStatus==='active',view:hasTabAccess('timesheet')}),snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive})},tabelCounts)).catch(()=>{tabelCounts.hidden=true;});else if(tabelCounts)tabelCounts.hidden=true;
   }
 
   function tickTimers() {
@@ -345,7 +345,7 @@
     if(!canAdmin()){showError('Время ходки задаёт администратор');return;}
     if(!navigator.onLine){showError('Для изменения общего времени ходки требуется связь');return;}
     const n=Math.max(15,parseInt(v)||15);
-    try{await appConfigRef.set({cycleMinutes:n},{merge:true});settings.cycleMinutes=n;localStorage.setItem('dt_settings_test347',JSON.stringify(settings));renderAll();}
+    try{if(isNasRuntime())await nasSaveSettings({cycleMinutes:n});else await appConfigRef.set({cycleMinutes:n},{merge:true});settings.cycleMinutes=n;localStorage.setItem('dt_settings_test347',JSON.stringify(settings));renderAll();}
     catch(e){showError('Время ходки не сохранено: '+e.message);}
   }
   function toggleSetting(k,v) { settings[k]=v; localStorage.setItem('dt_settings_test347', JSON.stringify(settings)); }

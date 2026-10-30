@@ -6,6 +6,9 @@
   const nasReceiptFloors = new Map();
   const nasPresenceLeavers=new Set();
   let nasAdministration=null,nasAdminRead=null,nasCatalogRead=null,nasCatalogSnapshot=null;
+  let nasSettingsSnapshot=null,nasSettingsRead=null;
+  let nasArchiveRead=null;
+  let nasGameRead=null,nasGameSnapshot=null,nasGameReady=false;
   const nasCommandFlights=new Map();
   function stopNasRuntime() {
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
@@ -14,6 +17,9 @@
     nasReceiptFloors.clear();
     nasPresenceLeavers.clear();
     nasAdministration=null;nasAdminRead=null;nasCatalogRead=null;nasCatalogSnapshot=null;nasCommandFlights.clear();
+    nasSettingsSnapshot=null;nasSettingsRead=null;
+    nasArchiveRead=null;
+    nasGameRead=null;nasGameSnapshot=null;nasGameReady=false;
   }
   function loadNasSessionClient() { return import(new URL('./test-app/synology/session-client.mjs',document.baseURI).href); }
   function applyNasSession(session) {
@@ -27,6 +33,7 @@
     document.getElementById('mainHeader').style.display=active?'':'none';
     document.querySelector('.container').style.display=active?'':'none';document.querySelector('nav').style.display=active?'flex':'none';
     if(!active){
+      nasSettingsSnapshot=null;appConfig={};nasGameSnapshot=null;nasGameReady=false;window.__gameAccessChanged?.();
       state.trucks=[];state.logs=[];state.truckStatus={};state.shift=null;state.archive=[];state.trash=[];state.audit=[];state.users=[];
       offlineRemoteStatuses={};offlineRemoteLogs=[];initialized=false;cancelHold();
       document.querySelectorAll('dialog[open]').forEach(d=>d.close());
@@ -60,6 +67,9 @@
       let registering=false;
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
         onSession:session=>{if(epoch!==nasRuntimeEpoch)return;applyNasSession(session);
+          if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasSettings().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-settings',error);});
+          if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch){nasGameReady=false;window.__gameAccessChanged?.();reportSyncError('nas-games',error);}});
+          if(session.profile?.status==='active'&&(hasTabAccess('archive')||hasTabAccess('analytics')))void refreshNasArchive().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-archive',error);});
           if(session.identityReady&&!session.profile&&!registering){registering=true;void ensureNasPendingAccount(user).catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-registration',error);}).finally(()=>{registering=false;});}
           if(session.profile?.status==='active'&&(session.permissions.tabs.includes('line')||session.permissions.tabs.includes('trucks')||session.permissions.tabs.includes('timesheet')))void refreshNasObjects().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-objects',error);});
           if(canAdmin())void refreshNasAdministration().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-admin',error);});},
@@ -69,6 +79,58 @@
     }catch(error){if(epoch===nasRuntimeEpoch)reportSyncError('nas',error);}
   }
   function loadNasTabelRemote(){return import(new URL('./test-app/synology/tabel-remote.mjs',document.baseURI).href);}
+  function acceptNasSettings(snapshot){
+    nasSettingsSnapshot=snapshot;appConfig={...snapshot.data};
+    settings.cycleMinutes=snapshot.data.cycleMinutes;renderAppSettingsIfActive();window.__gameConfigChanged?.();
+    window.dispatchEvent(new Event('review-flags-changed'));
+  }
+  async function refreshNasSettings(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
+    if(nasSettingsRead)return nasSettingsRead;
+    const work=(async()=>{const snapshot=await client.readSettings();if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&currentUserStatus==='active'&&generation===nasReadGeneration&&(!nasSettingsSnapshot||snapshot.revision>=nasSettingsSnapshot.revision))acceptNasSettings(snapshot);})();
+    nasSettingsRead=work;try{return await work;}finally{if(nasSettingsRead===work)nasSettingsRead=null;}
+  }
+  async function nasSaveSettings(patch,values){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!canAdmin())throw Error('Требуется администратор');
+    if(!nasSettingsSnapshot)await refreshNasSettings();
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||!nasSettingsSnapshot)throw Error('Обновите настройки Synology');
+    const result=await nasBusinessCommand('settings','config',{type:values?'settings.rewards':'settings.patch',expectedRevision:nasSettingsSnapshot.revision,...(values?{values}:{patch})});
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||!canAdmin())throw Error('Сеанс администратора изменился');
+    acceptNasSettings({revision:result.result.revision,data:result.result.data});return result.result.data;
+  }
+  async function refreshNasArchive(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
+    if(nasArchiveRead)return nasArchiveRead;
+    const work=(async()=>{const snapshot=await client.readArchive();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration||!hasTabAccess('archive')&&!hasTabAccess('analytics'))return;
+      state.archive=snapshot.archives;state.trash=snapshot.trash;markSync('archive',false,false,state.archive.length);markSync('trash',false,false,state.trash.length);saveCache();renderAll();})();
+    nasArchiveRead=work;try{return await work;}finally{if(nasArchiveRead===work)nasArchiveRead=null;}
+  }
+  async function nasArchiveAction(type,id){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    const row=(type==='trash.purge'?state.trash:state.archive).find(x=>x.id===id);if(!row)throw Error('Обновите архив');
+    const result=await nasBusinessCommand('archive',id,{type,recordId:id,expectedRevision:row.revision});
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
+    await refreshNasArchive();if(type==='archive.restore')await nasRefreshLine();return result;
+  }
+  async function refreshNasGames(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
+    if(nasGameRead)return nasGameRead;
+    const work=(async()=>{const snapshot=await client.readGames();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration)return;
+      nasGameSnapshot=snapshot;nasGameReady=true;window.__gameAccessChanged?.();window.RoadArcade?.sync();})();
+    nasGameRead=work;try{return await work;}finally{if(nasGameRead===work)nasGameRead=null;}
+  }
+  async function nasGameAction(action){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    const {id,roll,...gameAction}=action;
+    const target=gameAction.kind==='slot'?'slot:'+id:gameAction.kind==='purchase'?'theme:'+gameAction.itemId:gameAction.kind+':'+gameAction.level+':'+(gameAction.coin??'');
+    const receipt=await nasBusinessCommand('game',target,{type:'game.play',action:gameAction});
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
+    await refreshNasGames();return receipt.result;
+  }
+  async function nasGrantCoins(targetUid,amount,reason){
+    const receipt=await nasBusinessCommand('game','grant:'+targetUid,{type:'game.grant',targetUid,amount,reason});
+    await refreshNasGames();return receipt.result;
+  }
   async function refreshNasObjects(){
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client||currentUserStatus!=='active')return;
     if(nasCatalogRead)return nasCatalogRead;
@@ -218,7 +280,7 @@
       const remove=()=>{if(!live())return;const latest=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify(latest.filter(x=>x.operation.id!==pending.operation.id)));};
       nasReadGeneration++;nasPollHolds++;nasRuntimeStop?.();nasRuntimeStop=null;
       try{
-        const method={control:'submitControl',start:'startShift',close:'closeShift'}[channel];
+        const method={control:'submitControl',start:'startShift',close:'closeShift',settings:'submitSettings',archive:'submitArchive',game:'submitGame'}[channel];
         const result=await client[method](pending.operation,{operationScope:pending.scope});
         if(!live())throw Error('Учётная запись изменилась');
         remove();return result;

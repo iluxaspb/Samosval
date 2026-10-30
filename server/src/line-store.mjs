@@ -43,6 +43,7 @@ export async function submitLineOperation(pool, uid, input) {
       await client.query('COMMIT');
       return {...old.result,replayed:true};
     }
+    await client.query('SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE',[WORKSPACE_ID]);
     const shift = (await client.query(
       'SELECT is_active,payload FROM shifts WHERE workspace_id=$1 AND shift_id=$2 FOR SHARE',
       [WORKSPACE_ID,op.shiftId])).rows[0];
@@ -75,7 +76,7 @@ export async function submitLineOperation(pool, uid, input) {
       if (!inserted.rowCount) result = {outcome:'rejected',reason:'duplicate',status:before};
     }
     if (result.outcome==='confirmed') {
-      await recordLineHistory(client,{workspaceId:WORKSPACE_ID,uid,op,before,result});
+      await recordLineHistory(client,{workspaceId:WORKSPACE_ID,uid,op,before,result,profile,shift:shift.payload});
       await client.query(
         'UPDATE line_truck_statuses SET payload=$3::jsonb WHERE workspace_id=$1 AND truck_id=$2',
         [WORKSPACE_ID,op.truckId,JSON.stringify(result.status)]);

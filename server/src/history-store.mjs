@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import {fail,map} from './tabel-access.mjs';
+import {rewardSnapshot} from './game-economy.mjs';
 const WS=process.env.WORKSPACE_ID||'main_workspace';
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,160}$/.test(value);
 export function normalizeHistoryOperation(input){
@@ -13,9 +14,12 @@ export function sameLineState(a,b){
   const strip=value=>Object.fromEntries(Object.entries(value).filter(([key])=>!['id','cycleRevision','ttnRevision'].includes(key)));
   return isDeepStrictEqual(strip(a),strip(b));
 }
-export async function recordLineHistory(client,{workspaceId,uid,op,before,result}){
-  await client.query(`INSERT INTO line_history(workspace_id,action_id,uid,shift_id,truck_id,type,before_status,after_status,log_data)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[workspaceId,op.id,uid,op.shiftId,op.truckId,op.type,before,result.status,result.log||null]);
+export async function recordLineHistory(client,{workspaceId,uid,op,before,result,profile,shift}){
+  const policy=(await client.query('SELECT payload FROM workspace_settings WHERE workspace_id=$1 FOR SHARE',[workspaceId])).rows[0]?.payload||{};
+  const rewards=rewardSnapshot(policy,{id:op.id,type:op.type,at:op.createdAt},Date.now());
+  const actor={email:profile?.email||'',name:profile?.display_name||'',objectId:shift?.objectId||'',objectName:shift?.objectName||''};
+  await client.query(`INSERT INTO line_history(workspace_id,action_id,uid,shift_id,truck_id,type,before_status,after_status,log_data,game_rewards,game_actor)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[workspaceId,op.id,uid,op.shiftId,op.truckId,op.type,before,result.status,result.log||null,rewards,actor]);
 }
 async function actor(client,uid,lock=''){
   const row=(await client.query('SELECT role,status,profile FROM app_users WHERE uid=$1 '+lock,[uid])).rows[0];
@@ -41,7 +45,8 @@ export async function historyOperation(pool,uid,input,ws=WS){
       if(!previous||previous.uid!==uid||previous.request_hash!==hash)throw fail('operation-id-reused',409);
       await client.query('COMMIT');return {...previous.result,replayed:true};
     }
-    // Same shift -> status lock order as live operations and closing.
+    await client.query('SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE',[ws]);
+    // Same workspace -> shift -> status lock order as live operations and closing.
     const shift=(await client.query('SELECT is_active,payload FROM shifts WHERE workspace_id=$1 AND shift_id=$2 FOR SHARE',[ws,target.shift_id])).rows[0];
     if(!shift?.is_active||shift.payload.closing)throw fail('shift-changed',409);
     const action=(await client.query('SELECT * FROM line_history WHERE workspace_id=$1 AND action_id=$2 FOR UPDATE',[ws,op.actionId])).rows[0];
@@ -62,6 +67,12 @@ export async function historyOperation(pool,uid,input,ws=WS){
     const result={outcome:'confirmed',actionId:op.actionId,direction:op.direction,revision:Number(action.revision)+1,status,log:op.direction==='redo'?log:null,removedLogId:op.direction==='undo'?log?.id||null:null};
     await client.query('UPDATE line_history SET undone=$3,revision=revision+1 WHERE workspace_id=$1 AND action_id=$2',[ws,op.actionId,op.direction==='undo']);
     await client.query('INSERT INTO history_audit(workspace_id,operation_id,uid,action_id,direction) VALUES ($1,$2,$3,$4,$5)',[ws,op.id,uid,op.actionId,op.direction]);
+    if(op.direction==='undo'){
+      const author=action.game_actor||(await client.query('SELECT email,display_name AS name FROM app_users WHERE uid=$1',[action.uid])).rows[0];
+      const actorName=(await client.query('SELECT display_name FROM app_users WHERE uid=$1',[uid])).rows[0]?.display_name||uid;
+      if(author?.email){const now=Date.now(),penalty={eventType:'game_penalty',amount:-3,actionId:op.actionId,targetEmail:author.email,targetName:author.name||author.email,description:action.type,scope:{shiftId:action.shift_id,objectId:author.objectId||'',objectName:author.objectName||''},timestamp:now,userEmail:'',userName:actorName,createdByUid:uid,text:'Штраф −3 монеты за отменённое ошибочное действие'};
+        await client.query("INSERT INTO game_records(workspace_id,record_id,collection,payload) VALUES ($1,$2,'audit',$3) ON CONFLICT DO NOTHING",[ws,'game_penalty_nas_'+op.actionId,penalty]);}
+    }
     await client.query('UPDATE history_receipts SET result=$3 WHERE workspace_id=$1 AND operation_id=$2',[ws,op.id,result]);
     await client.query('COMMIT');return result;
   }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}finally{client.release();}

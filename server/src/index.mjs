@@ -12,6 +12,9 @@ import { readTabel, commitTabel } from './tabel-store.mjs';
 import { closeShiftOperation } from './shift-close.mjs';
 import { startShiftOperation } from './shift-start.mjs';
 import { readCatalog, submitControl } from './control-store.mjs';
+import {readSettings,submitSettings} from './settings-store.mjs';
+import {submitArchive} from './archive-store.mjs';
+import {readGames,submitGame} from './game-store.mjs';
 
 const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
@@ -64,6 +67,22 @@ const server=http.createServer(async(req,res)=>{
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
   }
+  if(path==='/api/v1/settings'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readSettings(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitSettings(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[settings-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
+  }
+  if(path==='/api/v1/games'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readGames(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitGame(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[game-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
+  }
   if(path==='/api/v1/archive/snapshot'&&req.method==='GET'){
     const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
     try{return send(res,200,await readArchiveSnapshot(pool,uid));}
@@ -72,6 +91,13 @@ const server=http.createServer(async(req,res)=>{
       if(status===500)console.error('[archive-api] request failed',e?.code||e?.name||'unknown');
       return send(res,status,{error:status===500?'server-error':e.code||e.message});
     }
+  }
+  if(path==='/api/v1/archive/operations'&&req.method==='POST'){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await submitArchive(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[archive-api] mutation failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
   }
   if(path==='/api/v1/history'&&['GET','POST'].includes(req.method)){
     const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});

@@ -77,11 +77,25 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
   const readHistory=()=>request('/api/v1/history',{validate:x=>record(x)&&x.format==='samosval-line-history'&&x.version===1&&x.source==='synology'&&ids(x.items)});
   const readCatalog=()=>request('/api/v1/catalog',{validate:x=>envelope(x,'samosval-catalog',workspaceId)&&ids(x.trucks)&&ids(x.objects)&&[...x.trucks,...x.objects].every(r=>record(r.data)&&Number.isSafeInteger(r.revision)&&r.revision>0)});
   const readMembers=()=>request('/api/v1/members',{validate:x=>record(x)&&x.format==='samosval-members'&&x.version===1&&x.source==='synology'&&Array.isArray(x.members)&&x.members.every(m=>record(m)&&typeof m.uid==='string'&&typeof m.nickname==='string')});
+  const readSettings=()=>request('/api/v1/settings',{validate:x=>envelope(x,'samosval-settings',workspaceId)&&record(x.data)&&Number.isSafeInteger(x.revision)&&x.revision>0});
+  const readGames=()=>request('/api/v1/games',{validate:x=>envelope(x,'samosval-games',workspaceId)&&ids(x.records)&&ids(x.adjustments)&&record(x.head)&&Number.isSafeInteger(x.head.gameRound)&&x.head.gameRound>=0&&Number.isSafeInteger(x.head.bank)&&x.head.bank>=0&&record(x.players)});
   const presenceEnvelope=x=>envelope(x,'samosval-tabel-presence',workspaceId);
   const readPresence=({objectId,sheetId})=>request('/api/v1/tabel/presence?'+new URLSearchParams({objectId,sheetId}),{validate:x=>presenceEnvelope(x)&&Array.isArray(x.peers)&&x.peers.every(p=>record(p)&&p.uid!==uid&&typeof p.uid==='string'&&typeof p.name==='string'&&p.objectId===objectId&&p.sheetId===sheetId&&Number.isFinite(p.seen)&&(p.selection===null||record(p.selection)))});
   const writePresence=({sessionId,sequence,objectId,sheetId,selection})=>request('/api/v1/tabel/presence',{operation:{type:'write',sessionId,sequence,objectId,sheetId,selection},validate:x=>presenceEnvelope(x)&&(x.ignored===true||record(x.record)&&x.record.uid===uid&&x.record.sessionId===sessionId&&x.record.objectId===objectId&&x.record.sheetId===sheetId&&x.record.sequence===sequence)});
   const removePresence=({sessionId,sequence})=>request('/api/v1/tabel/presence',{operation:{type:'remove',sessionId,sequence},validate:x=>presenceEnvelope(x)&&(x.removed===true||x.ignored===true)});
   function scopedOperation(operation,operationScope){guard();if(operationScope!==scope)throw new NasClientError('outbox-scope-mismatch');if(!record(operation)||typeof operation.id!=='string'||!operation.id)throw new NasClientError('operation-id-required');return JSON.parse(JSON.stringify(operation));}
+  async function submitSettings(operation,{operationScope}={}){
+    const op=scopedOperation(operation,operationScope);
+    return request('/api/v1/settings',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&record(x.result?.data)&&x.result.revision===op.expectedRevision+1});
+  }
+  async function submitArchive(operation,{operationScope}={}){
+    const op=scopedOperation(operation,operationScope);
+    return request('/api/v1/archive/operations',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&x.result?.id===op.recordId&&x.result.revision===op.expectedRevision+1&&x.result.location===({'archive.trash':'trash','archive.restore':'restored','trash.purge':'purged'}[op.type])});
+  }
+  async function submitGame(operation,{operationScope}={}){
+    const op=scopedOperation(operation,operationScope);
+    return request('/api/v1/games',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&record(x.result)&&(op.type==='game.grant'?x.result.targetUid===op.targetUid&&x.result.amount===op.amount:x.result.noop===true||Number.isSafeInteger(x.result.round)&&record(x.result.confirmedHead))});
+  }
   async function submitControl(operation,{operationScope}={}){
     const op=scopedOperation(operation,operationScope);
     return request('/api/v1/controls',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&record(x.result)&&(!op.recordId||x.result.id===op.recordId)});
@@ -137,5 +151,5 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
     void tick();return close;
   }
   function stop(){stopped=true;for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,uid,workspaceId,readSession,readLine,readArchive,readHistory,readCatalog,readMembers,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
+  return Object.freeze({scope,uid,workspaceId,readSession,readLine,readArchive,submitArchive,readHistory,readCatalog,readMembers,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
 }

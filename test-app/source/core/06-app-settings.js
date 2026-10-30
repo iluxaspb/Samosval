@@ -27,7 +27,7 @@
       notifyLineStart: !!document.getElementById('appConfigNotifyLineStart')?.checked,
       notifyLineEnd: !!document.getElementById('appConfigNotifyLineEnd')?.checked
     };
-    try { await tfAwait(appConfigRef.set(data, { merge: true })); appConfig = Object.assign({}, appConfig, data); showToastEl('Настройки сохранены', false); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } catch(e) { showError(e.message); }
+    try { if(isNasRuntime()){await nasSaveSettings(data);showToastEl('Настройки сохранены на Synology',false);return;} await tfAwait(appConfigRef.set(data, { merge: true })); appConfig = Object.assign({}, appConfig, data); showToastEl('Настройки сохранены', false); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } catch(e) { showError(e.message); }
   }
 
   // === MAX QUEUE ===
