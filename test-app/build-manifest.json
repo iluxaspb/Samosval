@@ -1,11 +1,11 @@
 {
-  "version": "49e1c337a8fe2c98",
+  "version": "e8c4b4b5f8f5cc3c",
   "channel": "test-3.4.62-modular-plus-timesheet",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index-test.html",
-      "sha256": "a9e498a347b0e7587563229421ea121003956232b69b3bd4559cf403c131704c"
+      "sha256": "0b1467be9bcaf7d6d527f56cba524db4a635fd689cb98cae9d65c5491306df82"
     },
     {
       "url": "./manifest-test.webmanifest",
@@ -362,6 +362,18 @@
     {
       "url": "./test-app/tabel/ui.mjs",
       "sha256": "22076e454243b03c9f7c3b35a4806634eac20f6cd3cebf004a9f6f2255e09970"
+    },
+    {
+      "url": "./test-app/synology/connection-host.js",
+      "sha256": "dad0ff7f825e08760dfa4ad18bc4b98ce8453a640ea9db55816213957391fb2c"
+    },
+    {
+      "url": "./test-app/synology/connection-panel.mjs",
+      "sha256": "3834e2531de9d3d5a48f94931dc1a2c5b42fed2c342bfaf55b38408ca21443d2"
+    },
+    {
+      "url": "./test-app/synology/connection-state.mjs",
+      "sha256": "5eee90f8f880df3ac527f3908b5cccce1a68f15125fa0256eb0bb92e53233276"
     }
   ]
 }

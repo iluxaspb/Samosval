@@ -47,6 +47,11 @@ jobs:
           node-version: "22"
       - run: npm install --no-audit --no-fund
       - run: npm run check
+      - name: Check connection UI syntax
+        run: |
+          node --check ../test-app/synology/connection-host.js
+          node --check ../test-app/synology/connection-panel.mjs
+          node --check ../test-app/synology/connection-state.mjs
       - name: Apply SQL to isolated CI database
         run: |
           node --input-type=module <<'NODE'
@@ -63,4 +68,5 @@ jobs:
           }
           NODE
       - run: npm test
+
 
