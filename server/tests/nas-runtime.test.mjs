@@ -7,7 +7,7 @@ const source=name=>readFileSync(new URL('test-app/source/core/'+name,root),'utf8
 function harness(){
   const nodes=new Map(),bodyAttrs=new Map(),errors=[],writes=[],calls=[],storage=new Map();let journal=[],onSession,onSnapshot;
   const node=id=>{if(!nodes.has(id))nodes.set(id,{style:{},textContent:'',value:'',classList:{add(){},remove(){}}});return nodes.get(id);};
-  const c={console,URL,Map,Date,Promise,setTimeout,clearTimeout,WORKSPACE_ID:'main_workspace',currentUid:'one',currentEmail:'one@example.test',currentUserNickname:'',currentUserRole:'admin',currentUserStatus:'active',permissionsLoaded:true,permissionsConfig:{},initialized:false,
+  const c={console,URL,Map,Date,Promise,setTimeout,clearTimeout,WORKSPACE_ID:'main_workspace',currentUid:'one',currentEmail:'one@example.test',currentUserNickname:'',currentUserRole:'admin',currentUserStatus:'active',permissionsLoaded:true,permissionsConfig:{},initialized:false,confirmedLoadIds:new Set(),
     state:{trucks:[],logs:[],truckStatus:{},shift:null,archive:[],trash:[],audit:[],users:[]},settings:{},appConfig:{},Event,renderAppSettingsIfActive(){},hasTabAccess:tab=>c.permissionsConfig[c.currentUserRole]?.tabs?.includes(tab)||c.currentUserRole==='admin',offlineRemoteStatuses:{},offlineRemoteLogs:[],offlineReplayRunning:false,offlineServerRetryAt:0,
     auth:{currentUser:{uid:'one'}},navigator:{onLine:true},document:{baseURI:'https://app.test/index-test.html',body:{setAttribute:(k,v)=>bodyAttrs.set(k,v),removeAttribute:k=>bodyAttrs.delete(k)},getElementById:node,querySelector:s=>s.startsWith('meta[')?{content:'synology-candidate'}:node(s),querySelectorAll:()=>[]},
     crypto:{randomUUID:()=>String(calls.length)+'-uuid'},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},canAdmin:()=>c.currentUserStatus==='active'&&c.currentUserRole==='admin',renderAdminPanel(){},requestSyncStatus:{},
@@ -58,6 +58,13 @@ test('NAS logout during write discards reply instead of resolving another accoun
   const h=harness();h.setJournal([operation()]);let release;h.client.submitLine=()=>new Promise(resolve=>{release=resolve;});await h.c.startNasRuntime(h.c.auth.currentUser);
   const pending=h.c.replayNasOfflineJournal();h.c.stopNasRuntime();h.c.currentUid='other';release({outcome:'confirmed',status:{cycleRevision:2}});await pending;
   assert.equal(h.readJournal()[0].status,'pending');assert.equal(h.writes.length,0);
+});
+test('NAS snapshots register server-confirmed load IDs for the ticker',async()=>{
+  const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);
+  h.c.acceptNasLineSnapshot({...snapshot(),logs:[{id:'load_123',shiftId:'shift',truckId:'truck'}]});
+  assert.equal(h.c.confirmedLoadIds.has('load_123'),true);
+  h.c.acceptNasLineSnapshot(snapshot());
+  assert.equal(h.c.confirmedLoadIds.has('load_123'),false);
 });
 test('NAS late pre-commit snapshot cannot erase a receipt until the server snapshot catches up',async()=>{
   const h=harness();h.setJournal([operation()]);await h.c.startNasRuntime(h.c.auth.currentUser);await h.c.replayNasOfflineJournal();
