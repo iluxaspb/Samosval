@@ -356,3 +356,13 @@
 
 
 .tabel-object-gear{box-sizing:border-box!important;width:22px!important;height:22px!important;min-width:22px!important;min-height:22px!important;flex:0 0 22px!important;border:1px solid var(--border);border-radius:50%!important;padding:0!important;margin:0!important;line-height:20px!important;font-size:13px!important;background:var(--card);color:var(--text);align-self:center;}
+
+/* TEST server indicator: the letter identifies the data connection. */
+.sync-dot-wrap{border:0;background:transparent;color:inherit;font:inherit;min-width:36px;min-height:36px}
+.sync-dot-wrap:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
+.sync-dot{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font:800 13px/1 system-ui;color:#0f172a;letter-spacing:0}
+.sync-dot.offline{background:#64748b;color:#fff;box-shadow:none}
+.sync-dot.init{background:#475569;color:#fff;box-shadow:none}
+.sync-dot.error{color:#fff}
+#admin-backend-settings[hidden]{display:none!important}
+#admin-backend-settings .admin-settings-note{line-height:1.5}

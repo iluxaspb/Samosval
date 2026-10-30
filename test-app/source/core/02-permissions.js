@@ -16,6 +16,7 @@
 
   // === SECURITY: обновляем классы perm-blocked для кнопок ===
   function updateNavUI() {
+    renderTestBackendControls();
     ALL_TABS.forEach(tab => {
       const btn = document.getElementById(tab==='timesheet'?'nav-tabel-v2':'nav-' + tab);
       if (btn) {

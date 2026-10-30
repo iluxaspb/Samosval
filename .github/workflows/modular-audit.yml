@@ -29,6 +29,8 @@ jobs:
           node-version: '22'
       - name: Current test modules, PWA integrity and reproducible build
         run: python3 tools/verify-test-modules.py
+      - name: TEST backend selection controller
+        run: node tests/backend-mode/controller.cjs
       - name: Timesheet regressions and active-address defaults
         run: node --test tests/tabel-v2/*.test.mjs
       - name: Coins and offline cache regressions on actual built code
@@ -55,6 +57,13 @@ jobs:
           fi
       - name: Generate current test build and verify current assets
         run: python3 tools/build-test.py
+      - name: TEST backend modes and header on mobile/landscape
+        run: |
+          if [ -n "${PWA_CHROMIUM:-}" ]; then
+            python3 -u tests/backend-mode/browser.py --chromium "$PWA_CHROMIUM"
+          else
+            python3 -u tests/backend-mode/browser.py
+          fi
       - name: Mobile UI address default and consent per tab visit
         run: |
           if [ -n "${PWA_CHROMIUM:-}" ]; then
