@@ -87,7 +87,7 @@ i=0
 while test "$i" -lt 40; do
   # Verify a NEW heartbeat in the existing TEST control table.
   COUNT=$(docker exec "$PG" sh -c 'psql -X -U "$POSTGRES_USER" -d samosval_test -At \
-    -c "SELECT count(*) FROM server_control_state WHERE channel=\x27test\x27 \
+    -c "SELECT count(*) FROM server_control_state WHERE channel=chr(116)||chr(101)||chr(115)||chr(116) \
     AND heartbeat>=to_timestamp($1)"' sh "$STARTED" 2>/dev/null) || COUNT=0
   if test "$COUNT" = 1; then READY=1; break; fi
   sleep 2
