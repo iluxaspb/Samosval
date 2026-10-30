@@ -65,6 +65,13 @@ RETURNS trigger LANGUAGE plpgsql AS $fn$
 DECLARE key_names text[]; key_name text; old_key jsonb:='{}'::jsonb; new_key jsonb:='{}'::jsonb;
         old_row jsonb; new_row jsonb;
 BEGIN
+ -- Volatile NAS heartbeat/CPU/disk telemetry is recomputed by the worker.
+ -- It is not business data; copying it every 15 seconds would cause costly,
+ -- meaningless Firebase writes while all operators are idle.
+ IF TG_TABLE_NAME='server_control_state' THEN
+   IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+   RETURN NEW;
+ END IF;
  key_names:=string_to_array(TG_ARGV[0],',');
  IF coalesce(array_length(key_names,1),0)=0 THEN
    RAISE EXCEPTION 'reserve-outbox-primary-key-required: %',TG_TABLE_NAME;
