@@ -4,12 +4,14 @@
   function nasStorageScope() { return JSON.stringify(['synology','https://iluxa.synology.me:18443',WORKSPACE_ID,currentUid]); }
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0;
   const nasReceiptFloors = new Map();
+  const nasPresenceLeavers=new Set();
   let nasAdministration=null,nasAdminRead=null,nasCatalogRead=null;
   function stopNasRuntime() {
     nasRuntimeEpoch++;
     nasRuntimeStop?.(); nasRuntimeStop = null;
     nasRuntimeClient?.stop(); nasRuntimeClient = null;
     nasReceiptFloors.clear();
+    nasPresenceLeavers.clear();
     nasAdministration=null;nasAdminRead=null;nasCatalogRead=null;
   }
   function loadNasSessionClient() { return import(new URL('./test-app/synology/session-client.mjs',document.baseURI).href); }
@@ -87,6 +89,8 @@
     return {session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,name:getUserName(),role:currentUserRole,
       active:epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&currentUserStatus==='active',view:epoch===nasRuntimeEpoch&&permissionsLoaded&&hasTabAccess('timesheet'),edit:hasPermission('timesheet_edit'),objectId:state.shift?.objectId,runtimeId:epoch,
       provider:'synology',providerScope:client.scope}),remoteFactory,
+      presenceRemote:{list:target=>{guard();return client.readPresence(target);},write:payload=>{guard();return client.writePresence(payload);},remove:payload=>client.removePresence(payload)},
+      registerPresenceLeave:callback=>{nasPresenceLeavers.add(callback);return ()=>nasPresenceLeavers.delete(callback);},
       get shift(){return state.shift;},get objects(){return state.objects;},
       users:async()=>{guard();const result=await client.readMembers();guard();return result.members.map(m=>({...m,id:m.uid}));},
       readCatalog:async()=>{const remote=await remoteFactory();const row=await remote.read('_catalog/config');guard();const data=row.data||{};
@@ -95,6 +99,9 @@
       snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive}),
       createObject:async()=>{throw Error('Создание объекта через Synology ещё не подключено');}
     };
+  }
+  async function leaveNasPresence(){
+    let timer;try{await Promise.race([Promise.allSettled([...nasPresenceLeavers].map(fn=>Promise.resolve().then(fn))),new Promise(resolve=>{timer=setTimeout(resolve,1500);})]);}finally{clearTimeout(timer);}
   }
   async function ensureNasPendingAccount(user,getUser=()=>auth.currentUser) {
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');
