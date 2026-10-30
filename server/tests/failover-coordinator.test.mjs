@@ -5,13 +5,15 @@ import {LEASE_MS} from '../src/failover-policy.mjs';
 const hash='a'.repeat(64),nextHash='b'.repeat(64),checkpoint={sequence:0,hash};
 function fixture(){
   let state=null,clock=1000,tail=Promise.resolve(),allowed=true,valid=true,adapters=true;
+  const replicas={synology:true,firebase:true};
   const clone=x=>structuredClone(x),store={read:async()=>clone(state),transaction:fn=>{
     const pending=tail.then(async()=>{let next=state;const result=await fn({read:async()=>clone(state),write:async x=>{next=clone(x);}});state=next;return result;});
     tail=pending.catch(()=>{});return pending;
   }};
   const make=()=>createFailoverCoordinator({store,now:()=>clock,authorizeAdmin:async uid=>({uid,role:allowed?'admin':'viewer',status:'active'}),
-    verifyCheckpoint:async()=>valid,verifyAdapters:async()=>({synology:adapters,firebase:adapters})});
-  return {a:make(),b:make(),read:store.read,clock:x=>{clock=x;},allow:x=>{allowed=x;},valid:x=>{valid=x;},adapters:x=>{adapters=x;}};
+    verifyCheckpoint:async()=>valid,verifyAdapters:async()=>({synology:adapters,firebase:adapters}),
+    verifyReplica:async provider=>replicas[provider]===true});
+  return {a:make(),b:make(),read:store.read,clock:x=>{clock=x;},allow:x=>{allowed=x;},valid:x=>{valid=x;},adapters:x=>{adapters=x;},replica:(provider,value)=>{replicas[provider]=value;}};
 }
 test('two isolated coordinators share one epoch; racing automatic takeovers do not create two writers',async()=>{
   const h=fixture();await h.a.prepare(checkpoint);let s=await h.a.read();s=await h.a.setMode('owner','auto',s.revision);
@@ -65,4 +67,41 @@ test('Firestore binding refuses any other project and uses an isolated TEST path
   const store=firestoreAuthorityStore(db);assert.equal(await store.read(),null);
   await store.transaction(async tx=>{assert.equal(await tx.read(),null);await tx.write({test:true});});
   assert.equal(calls[0],'test_failover/main_workspace');assert.deepEqual(calls[1],{test:true});
+});
+
+test('immutable checkpoint is insufficient if either actual backend replica is stale',async()=>{
+  const h=fixture();h.replica('firebase',false);
+  await assert.rejects(h.a.prepare(checkpoint),/replica-not-verified/);
+  assert.equal((await h.a.read()).enabled,false);
+  h.replica('firebase',true);await h.a.prepare(checkpoint);
+  const s=await h.a.read();
+  h.replica('firebase',false);
+  await assert.rejects(h.a.setMode('owner','firebase',s.revision),/replica-not-verified/);
+  assert.equal((await h.a.read()).provider,'synology');
+  h.replica('firebase',true);
+  await h.a.setMode('owner','firebase',s.revision);
+  assert.equal((await h.a.read()).provider,'firebase');
+});
+test('a stale NAS cannot be certified merely because Firebase retains immutable bytes',async()=>{
+  const h=fixture();await h.a.prepare(checkpoint);
+  let s=await h.a.read();s=await h.a.setMode('owner','firebase',s.revision);
+  h.replica('synology',false);
+  await assert.rejects(h.a.caughtUp('synology',checkpoint),/replica-not-verified/);
+  assert.equal((await h.a.read()).revision,s.revision);
+  s=await h.a.setMode('owner','auto',s.revision);
+  await h.a.observeRecovery(true);
+  h.clock(1000+60000);
+  await assert.rejects(h.a.failback(),/replica-not-verified/);
+  assert.equal((await h.a.read()).provider,'firebase');
+  h.replica('synology',true);
+  assert.equal((await h.a.failback()).provider,'synology');
+});
+test('auto takeover checks live Firebase replica again at moment of switching',async()=>{
+  const h=fixture();await h.a.prepare(checkpoint);
+  const s=await h.a.read();await h.a.setMode('owner','auto',s.revision);
+  h.replica('firebase',false);h.clock(1000+LEASE_MS);
+  await assert.rejects(h.a.takeover({consecutiveFailures:3,online:true}),/replica-not-verified/);
+  assert.equal((await h.a.read()).provider,'synology');
+  h.replica('firebase',true);
+  assert.equal((await h.a.takeover({consecutiveFailures:3,online:true})).provider,'firebase');
 });
