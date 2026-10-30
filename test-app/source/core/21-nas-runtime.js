@@ -56,6 +56,8 @@
     state.shift=snapshot.shift;state.trucks=snapshot.trucks;
     settings.cycleMinutes=snapshot.cycleMinutes;
     offlineRemoteStatuses=Object.fromEntries(snapshot.statuses.map(s=>[s.id,s]));offlineRemoteLogs=snapshot.logs.slice();
+    // NAS snapshots are authoritative: ticker load events must match confirmed logs.
+    confirmedLoadIds=new Set(snapshot.logs.map(log=>log.id));
     offlineProjectState();initialized=true;
     for(const [source,count] of [['trucks',snapshot.trucks.length],['status',snapshot.statuses.length],['logs',snapshot.logs.length],['shift',snapshot.shift?1:0]])markSync(source,false,false,count);
     markSync('nas',false,false,snapshot.logs.length);saveCache();renderAll();return true;

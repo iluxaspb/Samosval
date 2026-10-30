@@ -2,7 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import pg from 'pg';
-import {normalizeAuxiliary,publicAuxiliary,readAuxiliary,submitAuxiliary} from '../src/auxiliary-store.mjs';
+import {normalizeAuxiliary,presentLineHistory,publicAuxiliary,readAuxiliary,submitAuxiliary} from '../src/auxiliary-store.mjs';
+
+test('NAS history ticker shows truck plate, escapes HTML and carries the confirmed load ID',()=>{
+ const base={action_id:'op_1',type:'load',truck_id:'internal_uuid_123',shift_id:'shift_1',created_at:'2026-10-30T10:00:00Z',game_actor:{name:'Operator'},log_data:{id:'load_123'},truck_data:{brand:'КамАЗ',number:'А123АА 178'},undone:false};
+ const {entry,audit}=presentLineHistory(base);
+ assert.match(entry.html,/КамАЗ А123АА 178/);
+ assert.ok(!entry.html.includes(base.truck_id));
+ assert.equal(entry.logId,'load_123');
+ assert.match(audit.text,/КамАЗ А123АА 178/);
+ assert.ok(!audit.text.includes(base.truck_id));
+ const escaped=presentLineHistory({...base,truck_data:{brand:'<b>Truck</b>',number:'A&B'}}).entry.html;
+ assert.match(escaped,/&lt;b&gt;Truck&lt;\/b&gt; A&amp;B/);
+ assert.equal(presentLineHistory({...base,truck_data:null}).entry.html,'Погрузка · Самосвал');
+});
 test('auxiliary intents reject minted game/history events and malformed backup IDs',()=>{
  const op={id:'a',type:'auxiliary.save',collection:'audit',recordId:'r',expectedRevision:0,data:{text:'Fixture'}};
  for(const eventType of ['history','game_arcade','game_penalty','undo','redo'])assert.throws(()=>normalizeAuxiliary({...op,data:{text:'Fixture',eventType}}));

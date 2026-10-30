@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - "feature/synology-**"
+      - "fix/nas-ticker-plate-20261030"
     paths:
       - "server/**"
       - "test-app/synology/**"
@@ -10,6 +11,8 @@ on:
   pull_request:
     branches:
       - "feature/synology-**"
+      - root
+      - "fix/nas-ticker-plate-20261030"
     paths:
       - "server/**"
       - "test-app/synology/**"
