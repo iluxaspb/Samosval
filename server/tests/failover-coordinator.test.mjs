@@ -49,7 +49,9 @@ test('concurrent publication and forced takeover preserve one canonical head',as
   const current=await h.a.read();
   if(outcomes[0].status==='fulfilled'){
     assert.equal(current.sequence,1);assert.equal(outcomes[1].status,'rejected');
-    const f=await h.b.setMode('owner','firebase',current.revision);assert.equal(f.head.hash,nextHash);
+    await assert.rejects(h.b.setMode('owner','firebase',current.revision),/replica-not-caught-up/);
+    const synced=await h.a.caughtUp('firebase',{sequence:1,hash:nextHash});
+    const f=await h.b.setMode('owner','firebase',synced.revision);assert.equal(f.head.hash,nextHash);
   }else{
     assert.equal(outcomes[1].status,'fulfilled');assert.equal(current.sequence,0);assert.equal(current.provider,'firebase');
     assert.equal(current.head.hash,hash);assert.match(outcomes[0].reason.message,/writer-fenced/);
