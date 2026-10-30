@@ -1,4 +1,5 @@
 import * as D from './table-domain.mjs';
+import {cssToExcelBorder,excelToCssBorder} from './cell-borders.mjs';
 import {toExcelFormula} from './formula-engine.mjs';
 const clone = x => JSON.parse(JSON.stringify(x));
 let loading;
@@ -49,7 +50,7 @@ export function fromWorksheet(ws, themes={}) {
       if (a.wrapText) style.whiteSpace = 'normal';
       for (const side of ['top','bottom','left','right']) {
         const b = cell.border?.[side];
-        if (b?.style) style['border'+side[0].toUpperCase()+side.slice(1)] = '1px solid '+(color(b.color,themes)||'#555555');
+        if (b?.style) style['border'+side[0].toUpperCase()+side.slice(1)] = excelToCssBorder(b.style,color(b.color,themes)||'#555555');
       }
       if (raw != null || Object.keys(cell.style).length)
         sheet.cells[D.cell(r-1,c-1)] = {raw: raw ?? '', style, importedStyle:clone(style), excelStyle:clone(cell.style), excelValue:clone(value), excelDate:value instanceof Date, importedRaw:raw ?? '',
@@ -97,7 +98,7 @@ export function toWorksheet(book, sheet, name=sheet.name) {
     const borders = {...cell.border};
     for (const side of ['top','bottom','left','right']) {
       const line = s['border'+side[0].toUpperCase()+side.slice(1)] ?? s.border;
-      if (line !== undefined) borders[side] = line === 'none' ? {} : {style:'thin',color:{argb:argb(line.match(/#[0-9a-f]{6}/i)?.[0])||'FF555555'}};
+      if (line !== undefined) borders[side] = cssToExcelBorder(line);
     }
     cell.border = borders;
     if (data.numberFormat !== undefined) cell.numFmt = {'0':'0','2':'0.00',percent:'0.00%'}[data.numberFormat] || 'General';

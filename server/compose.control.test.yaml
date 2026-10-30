@@ -1,0 +1,32 @@
+# One-time TEST bootstrap. No public ports; the worker communicates via PostgreSQL.
+# /control is private writable state. Docker access is confined to this worker.
+services:
+  control:
+    image: samosval-test-control:4.1.0
+    restart: unless-stopped
+    env_file:
+      - /volume2/docker/samosval-test/.env.test
+    environment:
+      PGHOST: postgres
+      DOCKER_HOST: unix:///var/run/docker.sock
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /volume2/docker/samosval-test-control/state:/control
+      - /volume2/docker/samosval-test-candidate:/volume2/docker/samosval-test-candidate:ro
+      - /volume2/docker/samosval-test/.env.test:/volume2/docker/samosval-test/.env.test:ro
+      - /volume2:/nas-volume:ro
+      - /proc:/host/proc:ro
+    networks:
+      - existing_test
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '3'
+networks:
+  existing_test:
+    external: true
+    name: samosval-test_default

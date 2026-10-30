@@ -342,7 +342,9 @@
     const versionAllowed = permissionsLoaded && canAdmin();
     if (versionAllowed) document.body.setAttribute('data-release-admin', '1'); else document.body.removeAttribute('data-release-admin');
     if(versionAllowed){window.FirebaseTraffic?.enableLocal();if(window.FirebaseTraffic?.active()){window.FirebaseTrafficInference?.enable();window.FirebaseTrafficInference?.captureUsers(state.users);window.FirebaseTrafficInference?.captureAudit(state.audit);}}else window.FirebaseTraffic?.disableLocal();
-    if (!versionAllowed) document.getElementById('releaseHistoryDialog')?.close();
+    const historyAllowed=canViewReleaseHistory();document.body.toggleAttribute('data-release-history',historyAllowed);
+    const releaseButton=document.querySelector('#mainHeader .version-text');if(releaseButton){releaseButton.disabled=!historyAllowed;releaseButton.title=historyAllowed?'История изменений':'Номер сборки';}
+    if (!historyAllowed) document.getElementById('releaseHistoryDialog')?.close();
     const viewBanner = document.getElementById('viewOnlyBanner'); const canDoAnything = hasPermission('start_shift') || hasPermission('edit_line') || hasPermission('action_load');
     if (viewBanner) viewBanner.style.display = (!canDoAnything && state.shift) ? 'block' : 'none';
     const requestBtn=document.getElementById('tabelCreateRequestBtn');if(requestBtn)requestBtn.style.display=hasTabAccess('timesheet')?'':'none';

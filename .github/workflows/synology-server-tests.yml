@@ -70,6 +70,7 @@ jobs:
             await client.query(readFileSync('sql/010_reports.sql','utf8'));
             await client.query(readFileSync('sql/011_backups.sql','utf8'));
             await client.query(readFileSync('sql/012_notifications.sql','utf8'));
+            await client.query(readFileSync('sql/013_server_control.sql','utf8'));
           } finally {
             await client.end();
           }
@@ -81,4 +82,56 @@ jobs:
         working-directory: .
         run: node --test tests/tabel-v2/*.test.mjs
 
+  verify-control-browser:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install isolated Chromium acceptance tools
+        run: |
+          npm install --prefix /tmp/control-browser --no-audit --no-fund playwright@1.56.1
+          /tmp/control-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Verify two-window updates, data guards and mobile table tools
+        env:
+          NODE_PATH: /tmp/control-browser/node_modules
+          PLAYWRIGHT_MODULE: /tmp/control-browser/node_modules/playwright
+        run: |
+          export PWA_BROWSER=$(node -p "require('playwright').chromium.executablePath()")
+          node tests/pwa/update-ui.cjs
+          node tests/tabel-v2/simple-keypad-browser.cjs
+          node tests/tabel-v2/release-410-browser.cjs
+          node tests/tabel-v2/table-tools-browser.cjs
 
+
+
+  verify-control-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test tools
+        run: |
+          npm install --prefix tests/pwa --ignore-scripts --no-audit --no-fund
+          npx --prefix tests/pwa playwright install --with-deps chromium
+      - name: Real browser update, roles, queue warning and file progress
+        env:
+          NODE_PATH: ${{ github.workspace }}/tests/pwa/node_modules
+        run: node tests/pwa/update-ui.cjs
+      - name: Numeric selection, keypad, context tools, merging and borders
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/tests/pwa/node_modules/playwright-core
+          PWA_BROWSER: ''
+        run: |
+          node tests/tabel-v2/simple-keypad-browser.cjs
+          node tests/tabel-v2/table-tools-browser.cjs
+      - name: Build independent control image and verify Docker Compose availability
+        run: |
+          docker build -t samosval-test-api:ci server
+          docker build -f server/updater/Dockerfile --build-arg API_BASE=samosval-test-api:ci -t samosval-test-control:ci server
+          docker run --rm --network none --entrypoint docker samosval-test-control:ci compose version
