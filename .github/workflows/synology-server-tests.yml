@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - "feature/synology-**"
+      - "feature/test-replication-20261030"
+      - "root"
       - "fix/nas-ticker-plate-20261030"
     paths:
       - "server/**"
@@ -42,7 +44,7 @@ jobs:
         working-directory: server
     env:
       TEST_DATABASE_URL: postgres://samosval_test:ci_only_password@localhost:5432/samosval_test
-      FIREBASE_PROJECT_ID: samosval-test
+      FIREBASE_PROJECT_ID: samosval-offline
     steps:
       - uses: actions/checkout@v4
         with:
@@ -139,15 +141,15 @@ jobs:
           VERIFIED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python3 server/scripts/package-control-bootstrap.py /tmp/samosval-control-package.zip
-          node server/scripts/prepare-control-release.mjs 4.1.1 --with-outbox-migration
+          node server/scripts/prepare-control-release.mjs 4.1.2
           node --input-type=module <<'NODE'
           import {readFileSync} from 'node:fs';
           import {createHash} from 'node:crypto';
           import {normalizeRelease} from './server/updater/release.mjs';
           const manifest=normalizeRelease(JSON.parse(readFileSync('releases/nas-test.json','utf8')));
           const sha=b=>createHash('sha256').update(b).digest('hex');
-          if(manifest.commit!==process.env.VERIFIED_HEAD || manifest.version!=='4.1.1' ||
-             manifest.migrations.length!==1 || manifest.migrations[0].path!=='sql/014_reserve_outbox.sql')
+          if(manifest.commit!==process.env.VERIFIED_HEAD || manifest.version!=='4.1.2' ||
+             manifest.migrations.length!==0)
             throw Error('candidate-head-or-schema-mismatch');
           for(const file of [...manifest.files,...manifest.migrations]){
             const data=readFileSync('server/'+file.path);
@@ -168,14 +170,14 @@ jobs:
       - name: Publish verified TEST control-worker archive
         uses: actions/upload-artifact@v4
         with:
-          name: samosval-test-control-worker-411-verified
+          name: samosval-test-control-worker-412-verified
           path: /tmp/samosval-control-package.zip
           if-no-files-found: error
           retention-days: 7
       - name: Publish verified TEST API release manifest
         uses: actions/upload-artifact@v4
         with:
-          name: samosval-nas-test-411-manifest-verified
+          name: samosval-nas-test-412-manifest-verified
           path: releases/nas-test.json
           if-no-files-found: error
           retention-days: 7
