@@ -1,0 +1,20 @@
+import {serviceActor,serviceCommand,validId} from './service-command.mjs';import {fail} from './tabel-access.mjs';
+const WS=process.env.WORKSPACE_ID||'main_workspace';
+export function notificationText(kind,{truck='',actor='',object='',date=''}={}){const heading={load:'⚡ Погрузка',arrive:'🚛 Приехал на объект',ttn:'📄 Забрал ТТН',start:'🚀 Смена начата','line.add':'🟢 На линию добавлен','line.remove':'🔴 С линии убран',test:'🧪 Тест\nПриложение «Учет самосвалов» подключено к Max.'}[kind];return heading?[heading,object&&'🏢 '+object,date&&'📅 '+date,truck&&'🚛 '+truck,actor&&'👤 '+actor].filter(Boolean).join('\n'):null;}
+export async function enqueueNotification(c,ws,eventId,kind,details){const config=(await c.query('SELECT payload FROM workspace_settings WHERE workspace_id=$1',[ws])).rows[0]?.payload||{};
+ const flag={load:'notifyLoad',arrive:'notifyArrive',ttn:'notifyTtn',start:'notifyStart','line.add':'notifyLineStart','line.remove':'notifyLineEnd'}[kind],text=notificationText(kind,details);
+ if(!config.maxEnabled||!config.maxUrl||!config.maxChatId||kind!=='test'&&!config[flag]||!text)return false;
+ const payload={url:config.maxUrl,token:config.maxToken||'',chatId:config.maxChatId,text};await c.query('INSERT INTO notification_outbox(workspace_id,event_id,payload) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',[ws,eventId,payload]);return true;
+}
+export async function readNotifications(pool,uid,ws=WS){const c=await pool.connect();try{await serviceActor(c,uid,null,{admin:true,lock:false});const rows=(await c.query('SELECT state,count(*)::int count FROM notification_outbox WHERE workspace_id=$1 GROUP BY state',[ws])).rows;return {format:'samosval-notification-status',version:1,source:'synology',workspaceId:ws,counts:Object.fromEntries(rows.map(r=>[r.state,r.count]))};}finally{c.release();}}
+export function submitNotificationTest(pool,uid,op,ws=WS){if(!validId(op?.id)||op.type!=='notification.test')throw fail('invalid-notification-operation');return serviceCommand(pool,uid,{id:op.id,type:op.type},ws,(c,u)=>serviceActor(c,u,null,{admin:true}),async(c,actor)=>{if(!await enqueueNotification(c,ws,op.id,'test',{actor:actor.display_name}))throw fail('notifications-not-configured',409);return {result:{queued:true}};});}
+export async function deliverNotification(pool,{fetchImpl=fetch}={}){const c=await pool.connect();try{await c.query('BEGIN');const row=(await c.query("SELECT * FROM notification_outbox WHERE state='pending' AND next_attempt<=now() ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];if(!row){await c.query('COMMIT');return false;}
+ const config=(await c.query('SELECT payload FROM workspace_settings WHERE workspace_id=$1',[row.workspace_id])).rows[0]?.payload;
+ // Changes to the destination cancel the old job; tokens are never sent to a new URL.
+ let state='cancelled',error=null;const p=row.payload;
+ if(config?.maxEnabled&&config.maxUrl===p.url&&config.maxChatId===p.chatId&&String(config.maxToken||'')===p.token){
+  try{const url=new URL(p.url);if(url.protocol!=='https:'||url.username||url.password)throw Error('invalid-destination');const token=p.token.trim();const response=await fetchImpl(url.href,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':row.workspace_id+':'+row.event_id,...(token?{Authorization:token.startsWith('Bearer ')?token:'Bearer '+token}:{})},body:JSON.stringify({chat_id:p.chatId,text:p.text}),redirect:'error',signal:AbortSignal.timeout(15000)});state=response.ok?'sent':([408,425,429].includes(response.status)||response.status>=500)&&row.attempts<5?'pending':'failed';if(!response.ok)error='http-'+response.status;
+  }catch{state=row.attempts<5?'pending':'failed';error='network';}
+ }
+ await c.query("UPDATE notification_outbox SET state=$3,attempts=attempts+1,last_error=$4,next_attempt=now()+($5::text||' seconds')::interval WHERE workspace_id=$1 AND event_id=$2",[row.workspace_id,row.event_id,state,error,Math.min(300,2**(row.attempts+1))]);await c.query('COMMIT');return true;
+ }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}}

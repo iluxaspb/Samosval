@@ -1,4 +1,5 @@
   function renderAppSettingsIfActive() {
+    renderTestBackendControls();
     if (!document.getElementById('tab-admin')?.classList.contains('active')) return;
     if (!document.getElementById('admin-sub-appsettings')?.classList.contains('active')) return;
     const cycle=document.getElementById('adminCycleMinutes');if(cycle&&!cycle.disabled&&document.activeElement!==cycle)cycle.value=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES);
@@ -26,7 +27,7 @@
       notifyLineStart: !!document.getElementById('appConfigNotifyLineStart')?.checked,
       notifyLineEnd: !!document.getElementById('appConfigNotifyLineEnd')?.checked
     };
-    try { await tfAwait(appConfigRef.set(data, { merge: true })); appConfig = Object.assign({}, appConfig, data); showToastEl('Настройки сохранены', false); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } catch(e) { showError(e.message); }
+    try { if(isNasRuntime()){await nasSaveSettings(data);showToastEl('Настройки сохранены на Synology',false);return;} await tfAwait(appConfigRef.set(data, { merge: true })); appConfig = Object.assign({}, appConfig, data); showToastEl('Настройки сохранены', false); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } catch(e) { showError(e.message); }
   }
 
   // === MAX QUEUE ===

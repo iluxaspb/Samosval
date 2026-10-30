@@ -5,7 +5,7 @@
     saveMaxQueue();
   }
   function saveMaxQueue() { try { localStorage.setItem(MAX_QUEUE_KEY, JSON.stringify(maxQueue)); } catch(e) { if (e.name === 'QuotaExceededError' || e.code === 22) { while (maxQueue.length > 0) { const idx = maxQueue.findIndex(q => q.type === 'document'); if (idx === -1) maxQueue.shift(); else maxQueue.splice(idx, 1); try { localStorage.setItem(MAX_QUEUE_KEY, JSON.stringify(maxQueue)); return; } catch(e2) {} } } } }
-  function enqueueMax(text, meta, notBefore) { if (!appConfig.maxEnabled || !appConfig.maxUrl) return; maxQueue.push({ id: 'q_' + Date.now() + '_' + (++maxSeq), type: 'text', text, tries: 0, createdAt: Date.now(), notBefore: notBefore || 0, meta: meta || null }); while (maxQueue.length > MAX_QUEUE_MAX) maxQueue.shift(); saveMaxQueue(); runMaxQueue(); }
+  function enqueueMax(text, meta, notBefore) { if(isNasRuntime())return; if (!appConfig.maxEnabled || !appConfig.maxUrl) return; maxQueue.push({ id: 'q_' + Date.now() + '_' + (++maxSeq), type: 'text', text, tries: 0, createdAt: Date.now(), notBefore: notBefore || 0, meta: meta || null }); while (maxQueue.length > MAX_QUEUE_MAX) maxQueue.shift(); saveMaxQueue(); runMaxQueue(); }
   async function sendMaxOnce(item) {
     if (!item || item.type !== 'text') return 'drop';
     if (!appConfig.maxEnabled || !appConfig.maxUrl) return 'drop';
@@ -17,6 +17,7 @@
     catch (e) { clearTimeout(timer); return 'network'; }
   }
   async function runMaxQueue() {
+    if(isNasRuntime())return;
     if (currentUserStatus!=='active'||maxSenderRunning || !appConfig.maxEnabled || !appConfig.maxUrl) return;
     maxSenderRunning = true;
     try {
@@ -34,9 +35,10 @@
       }
     } finally { maxSenderRunning = false; if (maxQueue.length) { const pending = maxQueue.filter(q => q.notBefore && q.notBefore > Date.now()); if (pending.length > 0) setTimeout(runMaxQueue, Math.max(5000, Math.min(...pending.map(q => q.notBefore)) - Date.now())); } }
   }
-  function showMaxQueueStatus() { let lines = ['── ОЧЕРЕДЬ MAX ──', `Отправка: ${appConfig.maxEnabled ? 'вкл' : 'выкл'}`, `В очереди: ${maxQueue.length}`]; if (maxLastError) lines.push(`Ошибка: ${maxLastError}`); appNotice(lines.join('\n')); }
+  async function showMaxQueueStatus() { if(isNasRuntime()){try{const r=await nasRuntimeClient.readNotifications();appNotice('── ОЧЕРЕДЬ MAX · Synology ──\n'+Object.entries(r.counts).map(([k,v])=>k+': '+v).join('\n'));}catch(e){showError(e.message);}return;} let lines = ['── ОЧЕРЕДЬ MAX ──', `Отправка: ${appConfig.maxEnabled ? 'вкл' : 'выкл'}`, `В очереди: ${maxQueue.length}`]; if (maxLastError) lines.push(`Ошибка: ${maxLastError}`); appNotice(lines.join('\n')); }
   async function testMaxMessage() {
     if (!canAdmin()) return;
+    if(isNasRuntime()){try{await nasBusinessCommand('notification','test',{type:'notification.test'});showToastEl('✅ Тест поставлен в очередь Synology',false);}catch(e){showError(e.message);}return;}
     if (!appConfig.maxEnabled || !appConfig.maxUrl || !appConfig.maxChatId) { showError('Заполните URL, токен и Chat ID'); return; }
     showToastEl('⏳ Отправка теста...', false);
     let res = await sendMaxOnce({ type: 'text', text: '🧪 Тест\nПриложение «Учет самосвалов» подключено к Max.' });

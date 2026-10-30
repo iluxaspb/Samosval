@@ -1,0 +1,57 @@
+services:
+  verify:
+    image: samosval-test-api:identity-v1-20261030
+    restart: "no"
+    env_file:
+      - ../samosval-test/.env.test
+    environment:
+      PGHOST: postgres
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - node
+      - --input-type=module
+      - -e
+      - |-
+        import {readFileSync} from 'node:fs';
+        import {createHash} from 'node:crypto';
+        import assert from 'node:assert/strict';
+        import {Pool} from 'pg';
+        const expected={"src/auth.mjs":"b5a67937c72a8e418c53905ab764accae787d6bd87f766e3787d0715ad5b79d8","src/index.mjs":"ba9fcb4c19ba2d1fb4a309cf4df9a049544fa3709ae9c24a64606a0199eb8c55","src/line-store.mjs":"afc283b7749e99b2148030001b988a7c0111f69d3199ffacc1bfa133c2e41707","src/identity-rules.mjs":"924b5e96a61515e2b9c66d8ba5e915583e8ec19b5793ad00983acc6c2c95730b","src/identity-store.mjs":"dc506cac7e2d54a774662cc4ef16d07d9f5e0aa68db17c77f1195b5ff1268699","src/seed-identity.mjs":"7e58663755137b76ba7b14a1b20a94db753f89d3a896e26ab501e76d06e34271","package.json":"8b2e61bbb356b2607bf6c381f2dd2b73023e7cb15589230daa0615f4ea7846d6"};
+        for(const [file,digest] of Object.entries(expected))assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'),digest,'source mismatch: '+file);
+        console.log('IDENTITY_SOURCE_HASHES_MATCH',Object.keys(expected).length);
+        const {seedIdentity}=await import('./src/seed-identity.mjs');
+        const sha='818ea286194112353a2182a86868b1bfdcdd05832dfd9376f5db6d0c61d2f5d3';
+        const pool=new Pool({host:process.env.PGHOST||'postgres',database:process.env.POSTGRES_DB,user:process.env.POSTGRES_USER,password:process.env.POSTGRES_PASSWORD,max:2,connectionTimeoutMillis:5000});
+        try{
+        const counts=async()=>(await pool.query('SELECT (SELECT count(*)::int FROM app_users) users,(SELECT count(*)::int FROM line_trucks) trucks,(SELECT count(*)::int FROM line_truck_statuses) statuses,(SELECT count(*)::int FROM line_logs) logs,(SELECT count(*)::int FROM tabel_records) tabel,(SELECT count(*)::int FROM workspace_objects) objects')).rows[0];
+        const accounts=async()=>(await pool.query('SELECT uid,email,display_name,role,status,revision FROM app_users ORDER BY uid')).rows;
+        const roles=async()=>(await pool.query('SELECT role,action,allowed FROM role_permissions ORDER BY role,action')).rows;
+        const before=await counts(),accountBefore=await accounts(),rolesBefore=await roles();console.log('BEFORE',JSON.stringify(before));
+        console.log('IDENTITY_SEED',JSON.stringify(await seedIdentity(pool,{sha256:sha,ownerUid:process.env.MIGRATION_OWNER_UID||undefined})));
+        assert.deepEqual(await accounts(),accountBefore);assert.deepEqual(await roles(),rolesBefore);assert.deepEqual(await counts(),before);
+        const matched=(await pool.query("SELECT count(*)::int matched FROM app_users u JOIN migration_documents d ON d.import_sha256=$$1 AND d.document_path='users/'||u.uid AND u.profile=d.payload",[sha])).rows[0].matched;
+        assert.equal(matched,accountBefore.length);
+        const protection=(await pool.query("SELECT initialized,(SELECT count(*)::int FROM app_users WHERE protected) AS protected,EXISTS(SELECT 1 FROM app_users u WHERE u.uid=s.owner_uid AND u.protected AND u.role='admin' AND u.status='active') AS owner_valid FROM identity_state s WHERE id=1")).rows[0];
+        assert.deepEqual(protection,{initialized:true,protected:1,owner_valid:true});
+        console.log('IDENTITY_PROFILES_MATCH',matched);console.log('IDENTITY_OWNER_PROTECTED',true);console.log('ACCOUNTS_AND_PERMISSIONS_UNCHANGED',true);console.log('AFTER_UNCHANGED',JSON.stringify(await counts()));
+        }finally{await pool.end();}
+        const base='http://samosval-test-candidate-api-1:8080';
+        for(const [path,options,status] of [
+        ['/health/ready',{},200],['/api/v1/session',{},401],['/api/v1/members',{},401],['/api/v1/admin/access',{},401],['/api/v1/line/snapshot',{},401],['/api/v1/tabel/records',{},401],
+        ['/api/v1/registration',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},401],['/api/v1/admin/access',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},401],
+        ['/api/v1/registration',{method:'OPTIONS',headers:{Origin:'https://iluxaspb.github.io','Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,content-type'}},204],
+        ['/api/v1/session',{headers:{Origin:'https://untrusted.example'}},403]]){
+        const r=await fetch(base+path,{...options,signal:AbortSignal.timeout(10000)});assert.equal(r.status,status,path);if(options.method==='OPTIONS')assert.equal(r.headers.get('access-control-allow-origin'),'https://iluxaspb.github.io');console.log('HTTP',options.method||'GET',path,r.status);await r.text();}
+        console.log('NAS_IDENTITY_VERIFIED');
+    networks:
+      - existing
+networks:
+  existing:
+    external: true
+    name: samosval-test_default

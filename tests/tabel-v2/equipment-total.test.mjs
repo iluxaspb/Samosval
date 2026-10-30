@@ -29,7 +29,7 @@ test('one full-day listener survives rerenders and object changes; date/account 
  const source=(await readFile(new URL('../../test-app/source/core/04-subscriptions.js',import.meta.url),'utf8')).split('  function startSync()')[0];
  const calls=[],listeners=[];let stopped=0;
  const query={where(...args){calls.push(args);return this;},orderBy(){return this;},onSnapshot(cb){listeners.push(cb);return ()=>stopped++;}};
- const context=vm.createContext({state:{shift:{id:'s',objectId:'a',startDate:'29.10.2026'}},currentUid:'u',refs:{audit:query},saveCache(){},scheduleRender(){},console});
+ const context=vm.createContext({isNasRuntime:()=>false,state:{shift:{id:'s',objectId:'a',startDate:'29.10.2026'}},currentUid:'u',refs:{audit:query},saveCache(){},scheduleRender(){},console});
  vm.runInContext(source,context);
  const sync=()=>vm.runInContext('syncLineCountAudit()',context);
  sync();for(let i=0;i<10;i++)sync();context.state.shift.objectId='b';sync();

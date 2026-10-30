@@ -29,6 +29,7 @@ function setup(script){
  ctx.db={runTransaction:async fn=>{const pending=[];const result=await fn({get:async ref=>{assert.equal(ref,ctx.appConfigRef);if(denyRead)throw Error('fixture denied');if(afterRead)afterRead();return {exists:true,data:()=>clone(policy)};},set:(ref,data,options)=>{assert.equal(ref,ctx.appConfigRef);assert.deepEqual(options,{merge:true});pending.push(clone(data));}});for(const data of pending){policy={...policy,...data};writes++;}return result;}};
  ctx.refs={audit:{where:()=>({onSnapshot:(options,next)=>{next({docs:[],metadata:{fromCache:false,hasPendingWrites:false}});return ()=>{};}})}};
  ctx.refs.coinTransactions={where:()=>ctx.refs.coinTransactions,onSnapshot:(options,next)=>{next({docs:[]});return ()=>{};}};
+ ctx.isNasRuntime=()=>false;
  vm.createContext(ctx);vm.runInContext(script,ctx);ctx.window.__gameConfigChanged();
  return {ctx,el:id=>body.querySelector('#'+id),policy:()=>clone(policy),writes:()=>writes,denyRead:v=>denyRead=v,afterRead:f=>afterRead=f,set:(kind,value)=>{const input=body.querySelector('#game-reward-'+kind);input.value=String(value);for(const f of input.events.input||[])f();},save:()=>body.querySelector('#game-rewards-save').onclick()};
 }

@@ -1,3 +1,4 @@
+import {storageScope,sameTableSession,connectTable} from "./backend.mjs";
 import { onlinePolicy } from "./online-policy.mjs";
 import { mount } from "./workspace.mjs";
 import { normalizedObject, migrate } from "./migration.mjs";
@@ -22,7 +23,7 @@ async function openInner(
       "Выберите объект для его настроек. Заявки доступны через «Табель».",
     );
   if (opened) {
-    if(opened.uid===initial.uid && !requestFirst){if(!backgroundMode)await opened.show(settingsOnly);return opened;}
+    if(opened.scope===storageScope(initial) && opened.runtimeId===initial.runtimeId && !requestFirst){if(!backgroundMode)await opened.show(settingsOnly);return opened;}
     await opened.dispose(); opened = null;
   }
   let requestObject = null;
@@ -52,10 +53,19 @@ async function openInner(
       return [];
     }
   };
-  const cacheKey=JSON.stringify(['tabel-v2-catalog',initial.projectId,initial.workspaceId,initial.uid]);
+  const cacheKey=initial.provider==='synology'?JSON.stringify(['tabel-v2-catalog',storageScope(initial)]):JSON.stringify(['tabel-v2-catalog',initial.projectId,initial.workspaceId,initial.uid]);
   let cached={equipment:[],people:[]};try{cached=JSON.parse(localStorage.getItem(cacheKey))||cached;}catch{}
   const catalog={equipment:cached.equipment||[],people:cached.people||[]};
   const background=async()=>{
+    if(initial.provider==='synology'){
+      if(!sameTableSession(initial,host.session()))throw Error('Сеанс табеля изменился');
+      if(typeof host.readCatalog!=='function')throw Error('Справочник Synology не подключён');
+      const value=await host.readCatalog();
+      if(!sameTableSession(initial,host.session()))throw Error('Сеанс табеля изменился');
+      catalog.equipment=value.equipment;catalog.people=value.people;
+      try{localStorage.setItem(cacheKey,JSON.stringify(catalog));}catch{}
+      return true;
+    }
     const [equipment,people]=await Promise.all([read('timesheetEquipment'),read('timesheetPeople')]);
     if(!errors.length){catalog.equipment=equipment.map(e=>({...e,ownership:e.ownership==='hired'?'hired':'own',pump:!!e.pumpEnabled,plate:e.number||e.plate||''}));catalog.people=people;try{localStorage.setItem(cacheKey,JSON.stringify(catalog));}catch{}}
     return host.transaction ? onlinePolicy(host) : false;
@@ -87,12 +97,15 @@ async function openInner(
     }),
     requestObjectId: requestObject?.id || (settingsOnly ? initial.objectId : null),
     workspace: host.workspace,
+    remoteFactory:host.remoteFactory,
+    presenceRemote:host.presenceRemote,
+    registerPresenceLeave:host.registerPresenceLeave,
     catalog,
     users: () => host.users?.() || [],
     transaction: host.transaction,
     documentId: host.documentId,
     errors,
-    prepare: (store, object) => migrate(host, store, object, catalog),
+    prepare: (store, object) => initial.provider==='synology'?undefined:migrate(host, store, object, catalog),
     createObject: host.createObject,
     leave: () => {
       container.hidden = true;
@@ -100,11 +113,11 @@ async function openInner(
   };
   const runtime=await mount({ledgerHost,refs:host.refs},container,{remoteEnabled:false});
   let disposed=false;
-  const connect=()=>{if(disposed)return;void background().then(async enabled=>{if(disposed)return;if(enabled)await runtime.connect();else {await runtime.refresh();runtime.notice('На устройстве: Firebase не включён');}}).catch(e=>{if(!disposed)runtime.notice('На устройстве · ошибка подключения Firebase: '+e.message);});};
+  const connect=()=>{if(disposed)return;void connectTable(host,runtime,background,()=>disposed).catch(e=>{if(!disposed)runtime.notice('На устройстве · ошибка подключения сервера: '+e.message);});};
   connect();globalThis.addEventListener('online',connect);
   let timer;
   opened = {
-    uid:initial.uid,
+    uid:initial.uid,scope:storageScope(initial),runtimeId:initial.runtimeId,
     async show(settings=false){container.hidden=false;await runtime.show();if(settings)await runtime.settings(host.session().objectId);},
     hide(){container.hidden=true;},
     async dispose() {
@@ -116,7 +129,7 @@ async function openInner(
   };
   timer = setInterval(() => {
     const a = host.session();
-    if (a.uid !== initial.uid || !a.active || !a.view) {
+    if (!sameTableSession(a,initial) || !a.active || !a.view) {
       void opened?.dispose();
       opened = null;
     }
@@ -126,7 +139,7 @@ async function openInner(
 }
 
 // Start the same durable queue even when the user stays on the Line after a reload.
-export async function background(host){if(opened)return;await open(host,false,{backgroundMode:true});}
+export async function background(host){if(opened?.scope===storageScope(host.session())&&opened?.runtimeId===host.session().runtimeId)return;await open(host,false,{backgroundMode:true});}
 
 async function pickRequestObject(host) {
   return new Promise((resolve) => {

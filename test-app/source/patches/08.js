@@ -54,6 +54,7 @@
     const log = state.logs.find(l => l.id === id);
     if (!log) { if (typeof showError === 'function') showError('Рейс не найден'); return; }
 
+    if(isNasRuntime()){try{await nasReportAction('report.delete',log);forceRenderAll();showToastEl('🗑 Рейс удалён',false);}catch(e){showError(e.message);}return;}
     const snapshot = Object.assign({}, log);
 
     try {

@@ -37,7 +37,7 @@
     let logs = getLogs(); let stdLogs = logs.filter(l => !l.isGAI); let v = stdLogs.reduce((s,l)=>s+l.volume,0);
     document.getElementById('shiftDate').textContent = d; document.getElementById('headerObject').textContent = 'Объект: ' + o;
     document.getElementById('activeLineCount').textContent = act + ' маш.'; document.getElementById('totalTrips').textContent = stdLogs.length; document.getElementById('totalVolume').textContent = v + ' м³';
-    const tabelCounts=document.getElementById('tabelV2Counts');if(tabelCounts&&permissionsLoaded&&hasTabAccess('timesheet'))import(new URL('./test-app/tabel-v2/summary.mjs',document.baseURI).href).then(m=>m.updateHeader({session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,role:currentUserRole,active:currentUserStatus==='active',view:hasTabAccess('timesheet')}),snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive})},tabelCounts)).catch(()=>{tabelCounts.hidden=true;});else if(tabelCounts)tabelCounts.hidden=true;
+    const tabelCounts=document.getElementById('tabelV2Counts');if(tabelCounts&&permissionsLoaded&&hasTabAccess('timesheet'))import(new URL('./test-app/tabel-v2/summary.mjs',document.baseURI).href).then(m=>m.updateHeader(isNasRuntime()?nasTabelHost():{session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,role:currentUserRole,active:currentUserStatus==='active',view:hasTabAccess('timesheet')}),snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive})},tabelCounts)).catch(()=>{tabelCounts.hidden=true;});else if(tabelCounts)tabelCounts.hidden=true;
   }
 
   function tickTimers() {
@@ -62,6 +62,7 @@
     if (!brand || !num) { appNotice('Заполните марку и госномер'); return; }
     if (!isGAI && (isNaN(vol) || vol <= 0)) { appNotice('Укажите объем'); return; }
     try {
+      if(isNasRuntime()){await nasSaveRecord('truck',id,{brand,number:num,defaultVol:isGAI?0:vol,isGAI},Number(document.getElementById('editTruckId').dataset.nasRevision));cancelEditTruck();return;}
       if (id) { await tfAwait(refs.trucks.doc(id).update({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, updatedAt: Date.now() })); addAudit(`Обновлен самосвал: ${brand} ${num}`).catch(()=>{}); showToastEl('✏️ Обновлено', false); }
       else { let r = refs.trucks.doc(); await tfAwait(r.set({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, createdAt: Date.now(), createdBy: getUserName() })); addAudit(`Добавлен самосвал: ${brand} ${num}`).catch(()=>{}); showToastEl('➕ Добавлено', false); }
       cancelEditTruck();
@@ -69,7 +70,7 @@
   }
   function editGlobalTruck(id) {
     if(!requireEdit('manage_trucks')) return; let t=findTruck(id); if(!t) return;
-    document.getElementById('editTruckId').value=t.id; document.getElementById('newTruckType').value=t.isGAI?'gai':'regular';
+    document.getElementById('editTruckId').dataset.nasRevision=String(nasRecordRevision('truck',id)||'');document.getElementById('editTruckId').value=t.id; document.getElementById('newTruckType').value=t.isGAI?'gai':'regular';
     document.getElementById('newTruckBrand').value=t.brand; document.getElementById('newTruckNumber').value=t.number; document.getElementById('newTruckVol').value=t.defaultVol||'';
     document.getElementById('formCardTitle').textContent='Редактировать'; document.getElementById('saveTruckBtn').textContent='💾 Сохранить'; document.getElementById('cancelEditBtn').style.display='block'; window.scrollTo(0,0); toggleVolInput();
   }
@@ -80,20 +81,20 @@
   function toggleVolInput() { document.getElementById('volumeGroup').style.display = document.getElementById('newTruckType').value === 'gai' ? 'none' : 'block'; }
   async function deleteGlobalTruck(id) {
     if(!requireEdit('manage_trucks')) return; let t=findTruck(id); if(!t || !(await appConfirm('Удалить?'))) return;
-    try { let b=db.batch(); b.delete(refs.trucks.doc(id)); b.delete(refs.truckStatus.doc(id)); await tfAwait(b.commit()); await addAudit('🗑 Удалён самосвал: ' + t.brand + ' ' + t.number, {eventType:'truck_delete',truckId:id}); } catch(e){ showError(e.message); }
+    try { if(isNasRuntime()){await nasDeleteRecord('truck',id,nasRecordRevision('truck',id));return;}let b=db.batch(); b.delete(refs.trucks.doc(id)); b.delete(refs.truckStatus.doc(id)); await tfAwait(b.commit()); await addAudit('🗑 Удалён самосвал: ' + t.brand + ' ' + t.number, {eventType:'truck_delete',truckId:id}); } catch(e){ showError(e.message); }
   }
   async function saveObjectToBase() {
     if (!requireEdit('manage_objects')) return;
     let id = document.getElementById('editObjectId').value, name = document.getElementById('newObjectNameBase').value.trim();
     if (!name) { appNotice('Введите имя'); return; }
-    try { if (id) await tfAwait(refs.objects.doc(id).update({ name, updatedAt: Date.now() })); else await tfAwait(refs.objects.doc().set({ name, createdAt: Date.now(), createdBy: getUserName() })); await addAudit((id ? '✏️ Изменён объект: ' : '➕ Создан объект: ') + name, {eventType:id ? 'object_edit' : 'object_create'}); cancelEditObject(); showToastEl('Сохранено', false); }
+    try { if(isNasRuntime()){await nasSaveRecord('object',id,{name},Number(document.getElementById('editObjectId').dataset.nasRevision));cancelEditObject();return;}if (id) await tfAwait(refs.objects.doc(id).update({ name, updatedAt: Date.now() })); else await tfAwait(refs.objects.doc().set({ name, createdAt: Date.now(), createdBy: getUserName() })); await addAudit((id ? '✏️ Изменён объект: ' : '➕ Создан объект: ') + name, {eventType:id ? 'object_edit' : 'object_create'}); cancelEditObject(); showToastEl('Сохранено', false); }
     catch(e){ showError(e.message); }
   }
-  function editGlobalObject(id) { if(!requireEdit('manage_objects')) return; let o=state.objects.find(x=>x.id===id); if(!o) return; document.getElementById('editObjectId').value=o.id; document.getElementById('newObjectNameBase').value=o.name; document.getElementById('formObjectCardTitle').textContent='Редактировать'; document.getElementById('saveObjectBtn').textContent='💾 Сохранить'; document.getElementById('cancelEditObjectBtn').style.display='block'; window.scrollTo(0,0); }
+  function editGlobalObject(id) { if(!requireEdit('manage_objects')) return; let o=state.objects.find(x=>x.id===id); if(!o) return; document.getElementById('editObjectId').dataset.nasRevision=String(nasRecordRevision('object',id)||'');document.getElementById('editObjectId').value=o.id; document.getElementById('newObjectNameBase').value=o.name; document.getElementById('formObjectCardTitle').textContent='Редактировать'; document.getElementById('saveObjectBtn').textContent='💾 Сохранить'; document.getElementById('cancelEditObjectBtn').style.display='block'; window.scrollTo(0,0); }
   function cancelEditObject() { document.getElementById('editObjectId').value=''; document.getElementById('newObjectNameBase').value=''; document.getElementById('formObjectCardTitle').textContent='Добавить объект'; document.getElementById('saveObjectBtn').textContent='➕ Добавить'; document.getElementById('cancelEditObjectBtn').style.display='none'; }
   async function deleteGlobalObject(id) {
     if(!requireEdit('manage_objects')) return; let o=state.objects.find(x=>x.id===id); if(!o || !(await appConfirm('Удалить?'))) return;
-    try { await tfAwait(refs.objects.doc(id).delete()); await addAudit('🗑 Удалён объект: ' + o.name, {eventType:'object_delete',targetObjectId:id}); } catch(e){ showError(e.message); }
+    try { if(isNasRuntime()){await nasDeleteRecord('object',id,nasRecordRevision('object',id));return;}await tfAwait(refs.objects.doc(id).delete()); await addAudit('🗑 Удалён объект: ' + o.name, {eventType:'object_delete',targetObjectId:id}); } catch(e){ showError(e.message); }
   }
 
   // === АДМИН ПАНЕЛЬ ===
@@ -102,10 +103,11 @@
     if (!canAdmin()) return;
     renderRegistrationRequests();
     const active = state.users.filter(u => u.status !== 'pending');
-    document.getElementById('usersListContainer').innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" value="${escapeHtml(u.nickname||'')}" onchange="updateUserNickname('${u.id}', this.value)"></div><div class="user-row-bottom"><select class="form-control" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
+    document.getElementById('usersListContainer').innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isNasRuntime()?u.protected===true:isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" value="${escapeHtml(u.nickname||'')}" onchange="updateUserNickname('${u.id}', this.value)"></div><div class="user-row-bottom"><select class="form-control" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
     document.querySelectorAll('[data-user-access]').forEach(input=>input.onchange=()=>setUserAccess(input.dataset.userAccess,input.checked));
   }
   async function setUserAccess(uid, enabled) {
+    if(isNasRuntime())return runNasAdminAction('user.access',{uid,enabled});
     if(!canAdmin()||userAccessWrites.has(uid))return;
     if(uid===currentUid){showError('Нельзя ограничить собственный доступ');renderAdminPanel();return;}
     if(!navigator.onLine){showError('Для изменения доступа требуется подключение к сети');renderAdminPanel();return;}
@@ -128,15 +130,16 @@
     }catch(e){showError('Не удалось изменить доступ: '+e.message);}
     finally{userAccessWrites.delete(uid);renderAdminPanel();}
   }
-  async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ nickname: nickname.trim() || null })); await addAudit('✏️ Изменено имя пользователя: ' + uid + ' → ' + nickname.trim(), {eventType:'user_nickname',targetUid:uid}); } catch(e) { showError(e.message); } }
-  async function changeUserRole(uid, newRole) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ role: newRole })); await addAudit('🔐 Изменена роль пользователя: ' + uid + ' → ' + newRole, {eventType:'user_role',targetUid:uid}); } catch(e) { showError(e.message); } }
-  async function deleteUser(uid) { if (!canAdmin() || !(await appConfirm('Удалить доступ?'))) return; try { await tfAwait(usersRef.doc(uid).delete()); await addAudit('🗑 Удалён доступ пользователя: ' + uid, {eventType:'user_delete',targetUid:uid}); } catch(e) { showError(e.message); } }
+  async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; if(isNasRuntime())return runNasAdminAction('user.nickname',{uid,nickname:nickname.trim()}); try { await tfAwait(usersRef.doc(uid).update({ nickname: nickname.trim() || null })); await addAudit('✏️ Изменено имя пользователя: ' + uid + ' → ' + nickname.trim(), {eventType:'user_nickname',targetUid:uid}); } catch(e) { showError(e.message); } }
+  async function changeUserRole(uid, newRole) { if (!canAdmin()) return; if(isNasRuntime())return runNasAdminAction('user.role',{uid,role:newRole}); try { await tfAwait(usersRef.doc(uid).update({ role: newRole })); await addAudit('🔐 Изменена роль пользователя: ' + uid + ' → ' + newRole, {eventType:'user_role',targetUid:uid}); } catch(e) { showError(e.message); } }
+  async function deleteUser(uid) { if (!canAdmin() || !(await appConfirm('Удалить доступ?'))) return; if(isNasRuntime())return runNasAdminAction('user.delete',{uid}); try { await tfAwait(usersRef.doc(uid).delete()); await addAudit('🗑 Удалён доступ пользователя: ' + uid, {eventType:'user_delete',targetUid:uid}); } catch(e) { showError(e.message); } }
   const registrationDecisions = new Set();
   async function decideRegistration(reqId, approve) {
     if (!canAdmin() || registrationDecisions.has(reqId)) return;
     const role=document.getElementById('req_role_'+reqId)?.value || 'viewer';
     if (approve && !Object.prototype.hasOwnProperty.call(ROLES,role)) {showError('Выберите роль');return;}
     if (!approve && !(await appConfirm('Отклонить заявку и закрыть доступ пользователю?'))) return;
+    if(isNasRuntime())return runNasAdminAction(approve?'registration.approve':'registration.reject',approve?{uid:reqId,role}:{uid:reqId});
     registrationDecisions.add(reqId);pendingStart();
     try {
       const cached=state.requests.find(r=>r.id===reqId) || state.users.find(u=>u.id===reqId&&u.status==='pending');
@@ -166,6 +169,12 @@
     if (!canAdmin()) return;
     const email = document.getElementById('newUserEmail').value.trim(); const pass = document.getElementById('newUserPassword').value; const role = document.getElementById('newUserRole').value;
     if (!email || !pass) { showError('Заполните поля'); return; }
+    if(isNasRuntime()){
+      const secAuth=secondaryApp.auth();
+      try{const credential=await secAuth.createUserWithEmailAndPassword(email,pass);await ensureNasPendingAccount(credential.user,()=>secAuth.currentUser);await refreshNasAdministration();await nasAdminAction('registration.approve',{uid:credential.user.uid,role});showToastEl('Пользователь создан на Synology',false);}
+      catch(error){showError('Создание доступа не завершено: '+error.message);}
+      finally{await secAuth.signOut();document.getElementById('newUserPassword').value='';}return;
+    }
     try { const secAuth = secondaryApp.auth(); const cred = await secAuth.createUserWithEmailAndPassword(email, pass); await secAuth.signOut(); await tfAwait(usersRef.doc(cred.user.uid).set({ email, role, status: 'active', nickname: sanitizeName(email) })); showToastEl('✅ Создан', false); }
     catch(e) { showError(e.message); }
   }
@@ -185,6 +194,7 @@
     const cont = document.getElementById('permissionsMatrixContainer');
     const tabs = Array.from(cont.querySelectorAll('input[data-type="tab"]:checked')).map(i => i.value);
     const actions = Array.from(cont.querySelectorAll('input[data-type="action"]:checked')).map(i => i.value);
+    if(isNasRuntime())return runNasAdminAction('permissions.replace',{role,permissions:{tabs,actions}});
     try { const update = {}; update[role] = { tabs, actions }; await tfAwait(permsRef.set(update, { merge: true })); addAudit(`Изменены права для роли: ${ROLES[role].label}`).catch(()=>{}); showToastEl('💾 Права сохранены', false); }
     catch(e) { showError(e.message); }
   }
@@ -335,7 +345,7 @@
     if(!canAdmin()){showError('Время ходки задаёт администратор');return;}
     if(!navigator.onLine){showError('Для изменения общего времени ходки требуется связь');return;}
     const n=Math.max(15,parseInt(v)||15);
-    try{await appConfigRef.set({cycleMinutes:n},{merge:true});settings.cycleMinutes=n;localStorage.setItem('dt_settings_test347',JSON.stringify(settings));renderAll();}
+    try{if(isNasRuntime())await nasSaveSettings({cycleMinutes:n});else await appConfigRef.set({cycleMinutes:n},{merge:true});settings.cycleMinutes=n;localStorage.setItem('dt_settings_test347',JSON.stringify(settings));renderAll();}
     catch(e){showError('Время ходки не сохранено: '+e.message);}
   }
   function toggleSetting(k,v) { settings[k]=v; localStorage.setItem('dt_settings_test347', JSON.stringify(settings)); }

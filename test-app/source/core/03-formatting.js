@@ -58,7 +58,7 @@
     return logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
   }
 
-  function sessionCacheKey() { return 'dt_cache_v14:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + location.pathname + ':' + (currentUid || 'signed-out'); }
+  function sessionCacheKey() { if(isNasRuntime())return 'dt_cache_nas_v1:'+nasStorageScope()+':'+location.pathname; return 'dt_cache_v14:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + location.pathname + ':' + (currentUid || 'signed-out'); }
   function saveCache() { try { localStorage.setItem(sessionCacheKey(), JSON.stringify({ trucks: state.trucks, objects: state.objects, logs: offlinePendingCount()?offlineRemoteLogs:state.logs, truckStatus: offlinePendingCount()?offlineRemoteStatuses:state.truckStatus, shift: state.shift, archive: state.archive, trash: state.trash, audit: state.audit.slice(0, 100), lineAudit: state.lineAudit || [], notifications: (state.notifications || []).slice(0, 10), savedAt: Date.now() })); } catch(e) {} }
   function loadCache() { try { if (!currentUid) return; let raw = localStorage.getItem(sessionCacheKey()); if (!raw) return; let c = JSON.parse(raw); state.trucks = c.trucks||[]; state.objects = c.objects||[]; state.logs = c.logs||[]; state.truckStatus = c.truckStatus||{}; state.shift = c.shift||null; state.archive = c.archive||[]; state.trash = c.trash||[]; state.audit = c.audit||[]; state.lineAudit = c.lineAudit||[]; state.notifications = c.notifications||[]; } catch(e) {} }
 
@@ -93,19 +93,25 @@
     const dot = document.getElementById('syncDot'), badge = document.getElementById('syncBadge');
     if (!dot) return;
     const st = getSyncStatus();
+    const backend = getTestBackendIndicator(st);
+    renderTestBackendControls(st);
     let notice = document.getElementById('sessionSyncNotice');
     if (!notice) { notice = document.createElement('div'); notice.id = 'sessionSyncNotice'; notice.style.cssText = 'padding:8px 12px;font-size:12px;background:#332611;color:#fcd34d;line-height:1.4'; document.getElementById('mainHeader')?.append(notice); }
     notice.hidden = !currentUid || st.state === 'ok' || st.state === 'syncing';
     notice.textContent = st.text + (st.state === 'error' ? ' · Нажмите точку синхронизации для подробностей.' : '');
     dot.className = 'sync-dot ' + st.state;
-    let tip = st.text;
+    dot.textContent = backend.letter;
+    dot.dataset.provider = backend.provider;
+    let tip = backend.label + ' · ' + TEST_BACKEND_MODE_LABELS[getTestBackendMode()] + ' · ' + st.text;
     if (syncState.lastSuccessAt && (st.state === 'ok' || st.state === 'offline')) tip += ' · ' + formatTimeAgo(syncState.lastSuccessAt);
     dot.parentElement.title = tip;
+    dot.parentElement.setAttribute('aria-label', tip);
     if (badge) {const count=pendingOps+offlinePendingCount();if(count>0){badge.textContent=count>99?'99+':count;badge.classList.add('show');}else badge.classList.remove('show');}
   }
   function showSyncDiagnostics() {
     const sources = ['trucks','objects','logs','status','shift','archive','trash','audit','notifications','plugins','patches','users','requests'];
     let lines = ['── ДИАГНОСТИКА ──', '', `Online: ${navigator.onLine ? 'да' : 'НЕТ'}`, `Пользователь: ${currentEmail || '—'}`, `Роль: ${ROLES[currentUserRole]?.label || currentUserRole || '—'}`, `Права загружены: ${permissionsLoaded ? 'да' : 'нет'}`, `Приехал: ${hasPermission('action_arrive') ? 'разрешено' : 'нет права'}`, `Погрузка: ${hasPermission('action_load') ? 'разрешено' : 'нет права'}`, `pendingOps: ${pendingOps}`, `Max: ${appConfig.maxEnabled ? 'вкл' : 'выкл'}`, `Патчей: ${state.patches.length}`, ''];
+    lines.push('Режим сервера: ' + TEST_BACKEND_MODE_LABELS[getTestBackendMode()], getTestBackendIndicator(getSyncStatus()).label);
     lines.push('Страница: ' + location.pathname, 'База: ' + firebaseConfig.projectId, 'UID: ' + (currentUid || '—'));
     Object.entries(syncState.errors || {}).forEach(([source,error]) => lines.push('ОШИБКА ' + source + ': ' + error.code + ' · ' + error.message));
     sources.forEach(s => { lines.push(`${s.padEnd(11)} | ${syncState.pendingWrites[s]?'ДА':'—'} | ${syncState.docCount[s]||0}`); });
@@ -123,6 +129,7 @@
     }
   }
   function stopSync() {
+    stopNasRuntime();
     lineCountAuditStop?.(); lineCountAuditStop = null; lineCountAuditKey = ''; state.lineAudit = [];
     unsubscribers.forEach(u => { try { u(); } catch(e){} }); unsubscribers = [];
     if (usersUnsubscriber) { try { usersUnsubscriber(); } catch(e){} usersUnsubscriber = null; }

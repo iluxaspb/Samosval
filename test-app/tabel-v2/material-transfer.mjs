@@ -1,6 +1,7 @@
 import * as D from './table-domain.mjs';
 import {lineCalendarDate} from './domain.mjs';
 import {Store,firestoreRemote} from './store.mjs';
+import {storageScope,tableRemote,sameTableSession} from './backend.mjs';
 import {migrate,normalizedObject} from './migration.mjs';
 import {dialog,field,input} from './messages.mjs';
 
@@ -54,7 +55,7 @@ export async function transferClosedLine(host,shift,archive) {
   const initial=host.session();
   const guard=()=>{
     const a=host.session();
-    if(a.projectId!=='samosval-offline' || !a.uid || a.uid!==initial.uid || !a.active || !a.edit) throw Error('Нет права переносить материалы в Табель 2');
+    if(a.projectId!=='samosval-offline' || !a.uid || !sameTableSession(a,initial) || !a.active || !a.edit) throw Error('Нет права переносить материалы в Табель 2');
     return a;
   };
   guard();
@@ -62,12 +63,13 @@ export async function transferClosedLine(host,shift,archive) {
   if(!object) throw Error('Не найден объект смены для переноса материала');
   const period=sourcePeriod(shift);
   let remote=null;
-  if(host.transaction) {
+  if(initial.provider==='synology')remote=await tableRemote(host,guard);
+  else if(host.transaction) {
     const policy=await host.workspace.collection('tabelNextMeta').doc('config').get();
     if(policy.exists && policy.data().enabled===true && policy.data().schema===1)
       remote=firestoreRemote(host,guard);
   }
-  const store=await new Store(initial.projectId+'_'+initial.workspaceId+'_'+initial.uid,remote,()=>({uid:guard().uid,name:guard().name})).open();
+  const store=await new Store(storageScope(initial),remote,()=>({uid:guard().uid,name:guard().name})).open();
   const confirm=async()=>{
     if(!remote)return;
     await store.flush();
@@ -76,7 +78,7 @@ export async function transferClosedLine(host,shift,archive) {
   try {
     await store.prepareSync();
     await store.pullObject(object.id);
-    await migrate(host,store,normalizedObject(object),{equipment:[],people:[]});
+    if(initial.provider!=='synology')await migrate(host,store,normalizedObject(object),{equipment:[],people:[]});
     await store.prepareSync();
     const configKey=object.id+'/config',base=store.get(configKey),c=base.data || D.config(normalizedObject(object));
     const dayKey=object.id+'/'+D.dayKey(period.date,period.shift);

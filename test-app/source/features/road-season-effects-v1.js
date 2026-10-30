@@ -1,14 +1,15 @@
 
+
 (function(){
   'use strict';
-  const seasonForTheme=id=>({'season-winter':'winter','season-autumn':'autumn','season-summer':'summer','season-spring':'spring'})[id]||'';
+  const seasonForTheme=id=>({'season-winter':'winter','season-autumn':'autumn','season-summer':'summer','season-spring':'spring','roadworks':'roadworks'})[id]||'';
   function createParticles(season,w,h,random=Math.random){
-    const count=season==='winter'?(w<600?24:36):season==='autumn'?(w<600?10:16):season==='spring'?(w<600?14:20):0;
+    const count=season==='winter'?(w<600?24:36):season==='autumn'?(w<600?10:16):season==='spring'?(w<600?14:20):season==='roadworks'?(w<600?9:14):0;
     return Array.from({length:count},(_,i)=>({x:random()*w,y:random()*h,phase:random()*Math.PI*2,angle:random()*Math.PI*2,
-      size:season==='winter'?1.2+random()*2:season==='autumn'?6+random()*4:3+random()*2,
-      speed:season==='winter'?14+random()*17:season==='autumn'?12+random()*12:16+random()*15,
+      size:season==='roadworks'?9+random()*4:season==='winter'?1.2+random()*2:season==='autumn'?6+random()*4:3+random()*2,
+      speed:season==='roadworks'?13+random()*10:season==='winter'?14+random()*17:season==='autumn'?12+random()*12:16+random()*15,
       drift:(random()-.5)*12,opacity:season==='winter'?.35+random()*.4:.35+random()*.3,
-      color:i%3,drop:season==='spring'&&i%4===0}));
+      color:i%3,kind:i%3===0?'warning':i%3===1?'cone':'direction',drop:season==='spring'&&i%4===0}));
   }
   function advanceParticles(particles,dt,w,h,random=Math.random){
     const step=Math.max(0,Math.min(.08,dt));
@@ -24,14 +25,14 @@
   const root=document.createElement('div');root.id='road-season-layer';root.setAttribute('aria-hidden','true');root.inert=true;
   const canvas=document.createElement('canvas');root.append(canvas);const ctx=canvas.getContext('2d');
   function readPreference(){try{const saved=localStorage.getItem(key());return saved===null?(sessionPreferences.get(key())??true):saved!=='0';}catch(e){return sessionPreferences.get(key())??true;}}
-  function savePreference(value){preference=!!value;sessionPreferences.set(key(),preference);try{localStorage.setItem(key(),preference?'1':'0');}catch(e){showError('Сезонные эффекты переключены до закрытия страницы: браузер не разрешил сохранить настройку.');}sync();}
-  function control(id){const row=document.createElement('div');row.className='road-season-setting';row.innerHTML='<div class="settings-row"><label for="'+id+'">🌦 Сезонные украшения</label><label class="toggle-switch"><input type="checkbox" id="'+id+'"><span class="toggle-slider"></span></label></div><p data-season-note></p>';row.querySelector('input').onchange=e=>savePreference(e.target.checked);return row;}
+  function savePreference(value){preference=!!value;sessionPreferences.set(key(),preference);try{localStorage.setItem(key(),preference?'1':'0');}catch(e){showError('Украшения темы переключены до закрытия страницы: браузер не разрешил сохранить настройку.');}sync();}
+  function control(id){const row=document.createElement('div');row.className='road-season-setting';row.innerHTML='<div class="settings-row"><label for="'+id+'">✨ Украшения темы</label><label class="toggle-switch"><input type="checkbox" id="'+id+'"><span class="toggle-slider"></span></label></div><p data-season-note></p>';row.querySelector('input').onchange=e=>savePreference(e.target.checked);return row;}
   const settingsControl=control('road-season-enabled');document.querySelector('#settingsModal .modal-body')?.append(settingsControl);
   function updateControls(){
     const preview=document.querySelector('#road-shop-dialog[open] .shop-preview-tools');
     if(preview&&!preview.querySelector('.road-season-setting'))preview.append(control('road-season-preview-enabled'));
     document.querySelectorAll('.road-season-setting').forEach(row=>{const input=row.querySelector('input');if(input.checked!==preference)input.checked=preference;input.disabled=!owner;
-      const note=!owner?'Войдите, чтобы выбрать украшения.':appConfig?.testReviewFlags?.game_effects===false?'Общие игровые эффекты выключены администратором. Ваш личный выбор сохранён.':motion.matches?'В системе включено уменьшение движения: падающие частицы и солнце не анимируются. Снег на кнопках остаётся.':'Снег, листья, солнце и весенние лепестки. Выключатель убирает и движение, и снег с кнопок. Личный выбор для аккаунта в этом браузере.';
+      const note=!owner?'Войдите, чтобы выбрать украшения.':appConfig?.testReviewFlags?.game_effects===false?'Общие игровые эффекты выключены администратором. Ваш личный выбор сохранён.':motion.matches?'В системе включено уменьшение движения: падающие частицы и солнце не анимируются. Снег на кнопках остаётся.':'Снег, листья, лепестки, солнце, дорожные конусы и знаки. Выключатель убирает и движение, и снег с кнопок. Личный выбор для аккаунта в этом браузере.';
       const label=row.querySelector('[data-season-note]');if(label.textContent!==note)label.textContent=note;
     });
   }
@@ -49,7 +50,23 @@
   function stopAnimation(){if(frame)cancelAnimationFrame(frame);frame=0;previous=0;root.remove();if(ctx)ctx.clearRect(0,0,width,height);}
   function drawParticle(p){
     ctx.save();ctx.globalAlpha=p.opacity;ctx.translate(p.x,p.y);
-    if(season==='winter'){ctx.fillStyle='#f1faff';ctx.beginPath();ctx.arc(0,0,p.size,0,Math.PI*2);ctx.fill();}
+    if(season==='roadworks'){
+      ctx.rotate(Math.sin(p.phase)*.28+p.angle*.12);ctx.scale(p.size/12,p.size/12);ctx.lineJoin='round';
+      if(p.kind==='cone'){
+        ctx.fillStyle='#303846';ctx.fillRect(-10,9,20,4);ctx.fillStyle='#f48a24';ctx.beginPath();ctx.moveTo(-7,9);ctx.lineTo(-2,-11);ctx.lineTo(2,-11);ctx.lineTo(7,9);ctx.closePath();ctx.fill();
+        ctx.fillStyle='#fff6dd';ctx.beginPath();ctx.moveTo(-4,-3);ctx.lineTo(4,-3);ctx.lineTo(5,1);ctx.lineTo(-5,1);ctx.closePath();ctx.fill();ctx.fillRect(-6,5,12,3);
+      }else{
+        ctx.fillStyle='#bcc8d1';ctx.fillRect(-1,1,2,16);
+        if(p.kind==='warning'){
+          ctx.fillStyle='#f9f4e7';ctx.strokeStyle='#e65339';ctx.lineWidth=2.7;ctx.beginPath();ctx.moveTo(0,-12);ctx.lineTo(11,7);ctx.lineTo(-11,7);ctx.closePath();ctx.fill();ctx.stroke();
+          ctx.fillStyle='#303846';ctx.beginPath();ctx.arc(0,-4,1.5,0,Math.PI*2);ctx.fill();ctx.fillRect(-1,-1,2,5);
+        }else{
+          ctx.fillStyle='#3679b8';ctx.strokeStyle='#eef5fa';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,-3,10,0,Math.PI*2);ctx.fill();ctx.stroke();
+          ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-5,-3);ctx.lineTo(5,-3);ctx.lineTo(1,-7);ctx.moveTo(5,-3);ctx.lineTo(1,1);ctx.stroke();
+        }
+      }
+    }
+    else if(season==='winter'){ctx.fillStyle='#f1faff';ctx.beginPath();ctx.arc(0,0,p.size,0,Math.PI*2);ctx.fill();}
     else if(season==='autumn'){ctx.rotate(p.angle);ctx.fillStyle=['#edc451','#e5a635','#cc832c'][p.color];ctx.beginPath();ctx.moveTo(0,-p.size);ctx.quadraticCurveTo(p.size*1.2,-p.size*.15,0,p.size);ctx.quadraticCurveTo(-p.size*.8,0,0,-p.size);ctx.fill();ctx.strokeStyle='#85562b';ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(0,-p.size*.65);ctx.lineTo(0,p.size*1.25);ctx.stroke();}
     else if(p.drop){ctx.strokeStyle='#69aab9';ctx.lineWidth=1.2;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-1,p.size*1.6);ctx.stroke();}
     else {ctx.rotate(p.angle);ctx.fillStyle=['#e9b7ce','#93be97','#f5d2df'][p.color];ctx.beginPath();ctx.ellipse(0,0,p.size*.55,p.size,Math.PI/5,0,Math.PI*2);ctx.fill();}
@@ -96,3 +113,4 @@
   window.addEventListener('pagehide',()=>{stopAnimation();if(syncFrame)cancelAnimationFrame(syncFrame);syncFrame=0;});window.addEventListener('pageshow',sync);
   setInterval(sync,500);sync();
 })();
+

@@ -6,7 +6,7 @@ let owner='',unsub=null,winsUnsub=null,generation=0,head=C.initialHead(),players
 const callbacks=new Set(),format=n=>Number(n||0).toLocaleString('ru-RU');
 const active=()=>permissionsLoaded&&currentUserStatus==='active'&&!!currentUid;
 const flag=(name,policy=appConfig)=>policy?.testReviewFlags?.[name]!==false;
-const available=kind=>active()&&window.__gameEconomy?.snapshot().enabled===true&&flag('game_mode')&&flag('arcade_enabled')&&(!kind||flag('arcade_'+kind));
+const available=kind=>active()&&(!isNasRuntime()||state.shift?.isActive===true&&!state.shift?.closing)&&window.__gameEconomy?.snapshot().enabled===true&&flag('game_mode')&&flag('arcade_enabled')&&(!kind||flag('arcade_'+kind));
 const me=()=>players[currentUid]||C.initialPlayer(currentUid,currentEmail,getUserName());
 const emit=()=>{for(const cb of callbacks)try{cb();}catch(e){console.warn('[arcade view]',e);}};
 const receiptId=(uid,id)=>'arcade_receipt_'+encodeURIComponent(uid)+'_'+id;
@@ -22,6 +22,10 @@ async function loadPlayers(current,token){
 }
 function sync(){
  const next=active()?currentUid:'';if(next!==owner){unsub?.();winsUnsub?.();unsub=null;winsUnsub=null;ownPending=null;owner=next;generation++;head=C.initialHead();players={};recent=[];ready=false;error='';fetching.clear();emit();}
+ if(isNasRuntime()){
+  if(owner&&nasGameReady&&nasGameSnapshot){head=nasGameSnapshot.head;players=nasGameSnapshot.players;recent=nasGameSnapshot.records.filter(r=>r.eventType==='game_arcade'&&r.kind==='slot'&&r.payout>r.cost).sort((a,b)=>b.gameRound-a.gameRound).slice(0,20);ready=true;error='';}
+  else{ready=false;error=owner?'Нет связи с игровым банком Synology.':'';}emit();return;
+ }
  if(owner&&!unsub){const token=generation;unsub=refs.audit.orderBy('gameRound','desc').limit(80).onSnapshot({includeMetadataChanges:true},snap=>{
   if(token!==generation)return;const rows=snap.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()})).filter(validRound).sort((a,b)=>b.gameRound-a.gameRound);
   if(rows[0]&&rows[0].gameRound>=head.gameRound)head=rows[0];for(const row of rows)acceptPlayer(row);
@@ -30,13 +34,14 @@ function sync(){
  winsUnsub=refs.audit.orderBy('gameWinRound','desc').limit(20).onSnapshot(s=>{if(token!==generation)return;recent=s.docs.map(d=>({id:d.id,...d.data()})).filter(validRound);emit();},e=>console.warn('[arcade latest wins]',e));}
 }
 function balance(){const s=window.__gameEconomy?.snapshot();return s&&window.RoadShop?window.RoadShop.available(s.earned,window.RoadShop.spent(s.records,currentUid),currentUserRole,currentUserStatus):0;}
-function pendingKey(){return 'samosval-arcade-spin-v1:'+firebaseConfig.projectId+':'+WORKSPACE_ID+':'+currentUid;}
+function pendingKey(){return isNasRuntime()?'samosval-nas-arcade-spin-v1:'+nasStorageScope():'samosval-arcade-spin-v1:'+firebaseConfig.projectId+':'+WORKSPACE_ID+':'+currentUid;}
 function readSpin(){try{const v=JSON.parse(localStorage.getItem(pendingKey())||'null');return v?.kind==='slot'&&typeof v.id==='string'&&Number.isInteger(v.roll)&&v.roll>=0&&v.roll<10000?v:null;}catch(e){return ownPending;}}
 function storeSpin(op){ownPending=op;try{if(op)localStorage.setItem(pendingKey(),JSON.stringify(op));else localStorage.removeItem(pendingKey());}catch(e){if(op)throw Error('Браузер не разрешил сохранить вращение. Разрешите локальное хранилище.');}}
 async function transact(action){
  const user=currentUid,email=currentEmail,name=getUserName(),economy=window.__gameEconomy?.snapshot();
  if(!active()||!navigator.onLine||!ready||!economy?.ready)throw Error('Дождитесь связи и синхронизации кошелька.');
  if(action.kind!=='purchase'&&!available(action.kind==='finish'?'mario':action.kind))throw Error('Эта мини-игра выключена администратором.');
+ if(isNasRuntime())return nasGameAction(action);
  const operation={...action,id:action.id||uid()},receipt=refs.audit.doc(receiptId(user,operation.id)),baseRound=head.gameRound;
  const raw=window.__historyRawTransaction||db.runTransaction.bind(db);
  const result=await raw(async tx=>{

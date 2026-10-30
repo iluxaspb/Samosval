@@ -40,6 +40,7 @@
 
 
   function tabelV2Host(){
+      if(isNasRuntime())return nasTabelHost();
       const session = () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
         uid: currentUid, name: getUserName(), role: currentUserRole, active: currentUserStatus === 'active',
         view: permissionsLoaded && hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit'),

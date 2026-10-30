@@ -2,15 +2,10 @@ import { sheetVisible } from "./sheet-access.mjs";
 import { lineCalendarDate } from "./domain.mjs";
 import { arrivals } from "./line.mjs";
 import { equipmentCount, linkedFormulaDays } from "./table-domain.mjs";
+import {storageScope,sameTableSession} from './backend.mjs';
 let generation = 0;
 async function readRecords(session) {
-  const name =
-    "samosval_tabel_v2_v1_" +
-    session.projectId +
-    "_" +
-    session.workspaceId +
-    "_" +
-    session.uid;
+  const name = "samosval_tabel_v2_v1_" + storageScope(session);
   return new Promise((resolve) => {
     const r = indexedDB.open(name, 1);
     r.onupgradeneeded = () => r.result.createObjectStore("state");
@@ -39,7 +34,7 @@ export async function updateHeader(host, element) {
       records = await readRecords(session);
     if (
       token !== generation || !host.session().view || !host.session().active ||
-      host.session().uid !== session.uid ||
+      !sameTableSession(host.session(),session) ||
       host.snapshot().shift?.objectId !== objectId
     )
       return;
@@ -66,7 +61,7 @@ export async function updateHeader(host, element) {
     }
     let equipment = days.flatMap((d) => d.equipment),
       people = days.flatMap((d) => d.people);
-    if (!days.length) {
+    if (!days.length && session.provider!=='synology') {
       const raw = localStorage.getItem(
         JSON.stringify([
           "tabel-v2-draft",
