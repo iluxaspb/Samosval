@@ -24,7 +24,7 @@ export async function serviceCommand(pool,uid,op,ws,authorize,mutate){
     if(!(await client.query('SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE',[ws])).rowCount)throw fail('workspace-not-ready',409);
     const {result,before=null,after=null}=await mutate(client,actor);
     const receipt={outcome:'confirmed',operationId:op.id,type:op.type,result};
-    await client.query('INSERT INTO workspace_service_audit(workspace_id,operation_id,uid,type,before_data,after_data) VALUES ($1,$2,$3,$4,$5,$6)',[ws,op.id,uid,op.type,before,after]);
+    await client.query('INSERT INTO workspace_service_audit(workspace_id,operation_id,uid,type,before_data,after_data) VALUES ($1,$2,$3,$4,$5,$6)',[ws,op.id,uid,op.type,before===null?null:JSON.stringify(before),after===null?null:JSON.stringify(after)]);
     await client.query('UPDATE workspace_service_receipts SET result=$3 WHERE workspace_id=$1 AND operation_id=$2',[ws,op.id,receipt]);
     await client.query('COMMIT');return receipt;
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
