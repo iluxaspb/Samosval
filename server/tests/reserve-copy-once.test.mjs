@@ -12,7 +12,7 @@ function snapshot(){
   return {format:'samosval-native-reserve',version:1,projectId:'samosval-offline',workspaceId:'main_workspace',schema,tables};
 }
 const checkpointFor=state=>({hash:encodeReserveCheckpoint(state).manifest.hash,sequence:0});
-function harness({versions=[snapshot(),snapshot()],verified=true,returnedHash=null}={}){
+function harness({versions=[snapshot(),snapshot()],heads=[0,0],verified=true,returnedHash=null}={}){
   let captures=0,uploaded=0,checks=0;
   const store={
     async put(data){
@@ -24,8 +24,9 @@ function harness({versions=[snapshot(),snapshot()],verified=true,returnedHash=nu
   };
   const capture=async()=>{
     const version=versions[Math.min(captures,versions.length-1)];
+    const outboxSequence=heads[Math.min(captures,heads.length-1)];
     captures++;
-    return structuredClone(version);
+    return {snapshot:structuredClone(version),outboxSequence};
   };
   return {store,capture,stats:()=>({captures,uploaded,checks})};
 }
@@ -60,4 +61,21 @@ test('failure recapturing NAS after upload cannot be reported as verified',async
   const h=harness();let n=0;
   const capture=async()=>{if(++n===2)throw Error('NAS-unreachable');return h.capture();};
   await assert.rejects(copyReserveOnce({pool:{},store:h.store,capture}),/NAS-unreachable/);
+});
+
+test('a changed outbox cursor invalidates bootstrap even when business data returned to same values',async()=>{
+  const h=harness({heads:[3,4]});
+  await assert.rejects(copyReserveOnce({pool:{},store:h.store,capture:h.capture}),/reserve-source-changed-during-copy/);
+});
+test('durable receipt bootstrapping runs only after verified Firebase archive and matching NAS head',async()=>{
+  const h=harness({heads:[7,7]}),seen=[];
+  const result=await copyReserveOnce({pool:{},store:h.store,capture:h.capture,
+    outbox:{initializeReceipt:async head=>seen.push(head)}});
+  assert.equal(result.outboxInitialized,true);
+  assert.equal(result.outboxSequence,7);
+  assert.deepEqual(seen,[{sequence:7,hash:checkpointFor(snapshot()).hash}]);
+  const stale=harness({heads:[7,8]});let attempts=0;
+  await assert.rejects(copyReserveOnce({pool:{},store:stale.store,capture:stale.capture,
+    outbox:{initializeReceipt:async()=>{attempts++;}}}),/reserve-source-changed/);
+  assert.equal(attempts,0);
 });
