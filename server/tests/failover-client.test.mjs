@@ -49,19 +49,30 @@ test('a second click cannot create two concurrent admin switches',async()=>{
   assert.equal(h.calls.length,1);assert.equal(h.controller.busy,false);
 });
 
-test('status icon uses shared verified provider S or F and never a local preference',()=>{
+test('status icon requires matching shared provider, transport and epoch',()=>{
   const nas=state();
-  const confirmed={online:true,sessionValid:true,transportConfirmed:true};
-  assert.equal(failoverServerIndicator(nas,confirmed).letter,'S');
+  const nasConnected={online:true,sessionValid:true,transportConfirmed:true,
+    transportProvider:'synology',transportEpoch:nas.epoch};
+  assert.equal(failoverServerIndicator(nas,nasConnected).letter,'S');
   const firebase={...nas,provider:'firebase',epoch:nas.epoch+1};
-  assert.equal(failoverServerIndicator(firebase,confirmed).letter,'F');
-  assert.equal(failoverServerIndicator(firebase,{...confirmed,transportConfirmed:false}).letter,'…',
+  const firebaseConnected={...nasConnected,transportProvider:'firebase',
+    transportEpoch:firebase.epoch};
+  assert.equal(failoverServerIndicator(firebase,firebaseConnected).letter,'F');
+  assert.equal(failoverServerIndicator(firebase,nasConnected).letter,'…',
+    'a connected Synology request cannot falsely mark Firebase active');
+  assert.equal(failoverServerIndicator(nas,firebaseConnected).letter,'…',
+    'a connected Firebase request cannot falsely mark Synology active');
+  assert.equal(failoverServerIndicator(firebase,{...firebaseConnected,transportEpoch:nas.epoch}).letter,'…',
+    'a stale server epoch cannot authenticate the indicator');
+  assert.equal(failoverServerIndicator(firebase,{online:true,transportConfirmed:true}).letter,'…',
+    'a boolean connectivity claim without provider and epoch is insufficient');
+  assert.equal(failoverServerIndicator(firebase,{...firebaseConnected,transportConfirmed:false}).letter,'…',
     'a pending or unverified connection cannot display F');
-  assert.equal(failoverServerIndicator(firebase,{...confirmed,online:false}).letter,'О');
-  assert.equal(failoverServerIndicator(firebase,{...confirmed,sessionValid:false}).letter,'…');
-  assert.equal(failoverServerIndicator({...firebase,replicas:{...firebase.replicas,firebase:null}},confirmed).letter,'…');
-  assert.equal(failoverServerIndicator({...firebase,projectId:'other'},confirmed).letter,'…');
-  assert.equal(failoverServerIndicator({...firebase,head:{sequence:0,hash:'invalid'}},confirmed).letter,'…');
-  assert.equal(failoverServerIndicator(initialFailoverState(1000),confirmed).letter,'…',
+  assert.equal(failoverServerIndicator(firebase,{...firebaseConnected,online:false}).letter,'О');
+  assert.equal(failoverServerIndicator(firebase,{...firebaseConnected,sessionValid:false}).letter,'…');
+  assert.equal(failoverServerIndicator({...firebase,replicas:{...firebase.replicas,firebase:null}},firebaseConnected).letter,'…');
+  assert.equal(failoverServerIndicator({...firebase,projectId:'other'},firebaseConnected).letter,'…');
+  assert.equal(failoverServerIndicator({...firebase,head:{sequence:0,hash:'invalid'}},firebaseConnected).letter,'…');
+  assert.equal(failoverServerIndicator(initialFailoverState(1000),nasConnected).letter,'…',
     'health or local mode does not turn on the icon before reserve activation');
 });
