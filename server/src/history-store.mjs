@@ -1,3 +1,4 @@
+import {enqueueNotification} from './notification-store.mjs';
 import {reportHistoryOperation} from './report-store.mjs';
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
@@ -19,6 +20,7 @@ export async function recordLineHistory(client,{workspaceId,uid,op,before,result
   const policy=(await client.query('SELECT payload FROM workspace_settings WHERE workspace_id=$1 FOR SHARE',[workspaceId])).rows[0]?.payload||{};
   const rewards=rewardSnapshot(policy,{id:op.id,type:op.type,at:op.createdAt},Date.now());
   const actor={email:profile?.email||'',name:profile?.display_name||'',objectId:shift?.objectId||'',objectName:shift?.objectName||''};
+  if(op.type==='load'||op.type==='arrive'&&op.wantArrived||op.type==='ttn'&&op.collect){const truck=(await client.query('SELECT payload FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2',[workspaceId,op.truckId])).rows[0]?.payload;await enqueueNotification(client,workspaceId,op.id,op.type,{truck:truck?.number||op.truckId,actor:profile?.display_name||'',object:shift?.objectName||''});}
   await client.query(`INSERT INTO line_history(workspace_id,action_id,uid,shift_id,truck_id,type,before_status,after_status,log_data,game_rewards,game_actor)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[workspaceId,op.id,uid,op.shiftId,op.truckId,op.type,before,result.status,result.log||null,rewards,actor]);
 }

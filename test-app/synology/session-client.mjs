@@ -101,6 +101,8 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
     const op=scopedOperation(operation,operationScope);
     return request('/api/v1/settings',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&record(x.result?.data)&&x.result.revision===op.expectedRevision+1});
   }
+  const readNotifications=()=>request('/api/v1/notifications',{validate:x=>envelope(x,'samosval-notification-status',workspaceId)&&record(x.counts)});
+  async function submitNotificationTest(operation,{operationScope}={}){const op=scopedOperation(operation,operationScope);return request('/api/v1/notifications',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.result?.queued===true});}
   const readBackups=(id)=>request('/api/v1/backups'+(id?'?'+new URLSearchParams({id}):''),{validate:x=>envelope(x,'samosval-backups',workspaceId)&&(id?record(x.meta)&&record(x.payload):ids(x.items))});
   async function submitBackup(operation,{operationScope}={}){const op=scopedOperation(operation,operationScope);return request('/api/v1/backups',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&record(x.result)});}
   async function submitReport(operation,{operationScope}={}){
@@ -170,5 +172,5 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
     void tick();return close;
   }
   function stop(){stopped=true;for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readBackups,submitBackup,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
+  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
 }

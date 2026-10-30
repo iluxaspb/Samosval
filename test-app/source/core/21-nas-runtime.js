@@ -1,7 +1,7 @@
   // Activated only in an isolated NAS candidate build, never by a stored preference.
   // The normal TEST build remains Firebase until every feature has a NAS adapter.
   function isNasRuntime() { return document.querySelector('meta[name="test-data-provider"]')?.content === 'synology-candidate'; }
-  function nasStorageScope() { return JSON.stringify(['synology','https://iluxa.synology.me:18443',WORKSPACE_ID,currentUid]); }
+  function nasStorageScope() { const base='https://iluxa.synology.me:18443';let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval_nas_dataset_epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify(['synology',base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0;
   const nasReceiptFloors = new Map();
   const nasPresenceLeavers=new Set();
@@ -318,7 +318,7 @@
     if(!client||currentUserStatus!=='active'||!navigator.onLine)throw Error('Нужно соединение с Synology');
     const captured=JSON.parse(JSON.stringify(fields));
     const key='samosval_nas_commands_v1:'+client.scope,slot=channel+':'+target;
-    const {expectedRevision,expectedTtnRevision,expectedObjectId,...desired}=captured,intent=JSON.stringify(desired);
+    const {expectedRevision,expectedTtnRevision,expectedObjectId,expected,...desired}=captured,intent=JSON.stringify(desired);
     const flightKey=key+':'+slot;
     const inflight=nasCommandFlights.get(flightKey);
     if(inflight){if(inflight.intent!==intent)throw Error('Предыдущее изменение ещё отправляется');return inflight.work;}
@@ -337,7 +337,7 @@
       const remove=()=>{if(!live())return;const latest=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify(latest.filter(x=>x.operation.id!==pending.operation.id)));};
       nasReadGeneration++;nasPollHolds++;nasRuntimeStop?.();nasRuntimeStop=null;
       try{
-        const method={control:'submitControl',start:'startShift',close:'closeShift',settings:'submitSettings',archive:'submitArchive',game:'submitGame',auxiliary:'submitAuxiliary',report:'submitReport',backup:'submitBackup'}[channel];
+        const method={control:'submitControl',start:'startShift',close:'closeShift',settings:'submitSettings',archive:'submitArchive',game:'submitGame',auxiliary:'submitAuxiliary',report:'submitReport',backup:'submitBackup',notification:'submitNotificationTest'}[channel];
         const result=await client[method](pending.operation,{operationScope:pending.scope});
         if(!live())throw Error('Учётная запись изменилась');
         remove();return result;

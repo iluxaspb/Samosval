@@ -1,3 +1,4 @@
+import {enqueueNotification} from './notification-store.mjs';
 import {createHash} from 'node:crypto';
 import {fail} from './tabel-access.mjs';
 const validId=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(value);
@@ -43,6 +44,7 @@ export async function startShiftOperation(pool,uid,input,workspaceId=process.env
     if((await client.query('SELECT 1 FROM shifts WHERE workspace_id=$1 AND shift_id=$2',[workspaceId,shift.id])).rowCount)throw fail('shift-id-reused',409);
     await client.query('INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',[workspaceId,shift.id,shift]);
     await client.query("INSERT INTO line_audit(workspace_id,operation_id,uid,type,status) VALUES ($1,$2,$3,'start_shift','confirmed')",[workspaceId,op.id,uid]);
+    await enqueueNotification(client,workspaceId,op.id,'start',{object:shift.objectName,date:shift.startDate,actor:profile.display_name});
     const result={outcome:'confirmed',shift};
     await client.query('UPDATE shift_operation_receipts SET result=$3 WHERE workspace_id=$1 AND operation_id=$2',[workspaceId,op.id,result]);
     await client.query('COMMIT');return result;
