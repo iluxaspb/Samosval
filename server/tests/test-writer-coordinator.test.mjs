@@ -90,7 +90,7 @@ test('pending operations cannot be ignored during takeover',async()=>{
  firestore.docs.get(OWNER_DOC).leaseUntil=t0+1000;
  await assert.rejects(claim(firestore,nodeB,checkpoint,t0+FENCE_GRACE_MS+1001),/writer-pending-operations/);
  const after=p.until+FENCE_GRACE_MS+1;
- assert.ok(after>t0+OWNER_LEASE_MS+FENCE_GRACE_MS);
+ assert.ok(after>t0+1000+FENCE_GRACE_MS);
  assert.equal((await claim(firestore,nodeB,checkpoint,after)).epoch,2);
 });
 test('reserve promotion refuses unready mirror, live lease, or outstanding permits',async()=>{
