@@ -1,7 +1,7 @@
 name: Publish modular TEST build (production untouched)
 on:
   push:
-    branches: [root]
+    branches: [root, feature/test-red-icon-20261030]
     paths:
       - 'test-app/source/**'
       - 'test-app/tabel-v2/**'
@@ -90,7 +90,7 @@ jobs:
           git add index-test.html sw-test.js test-app/build-manifest.json test-app/build/ test-app/icons/icon-test-red-192.png test-app/icons/icon-test-red-512.png
           if ! git diff --cached --quiet; then
             git commit -m "build(test): publish current hashed assets"
-            git push origin HEAD:root
+            git push origin HEAD:"${GITHUB_REF_NAME}"
           else
             echo "Test build already up to date"
           fi
