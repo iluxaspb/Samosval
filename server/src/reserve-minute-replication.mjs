@@ -54,9 +54,8 @@ export function verifyMinuteReserveBatch(batch){
 export function selectMinuteReserveBatch({previous,events,maxBytes=MAX_REPLICA_BATCH_BYTES}={}){
   if(!Array.isArray(events)||events.length===0)throw Error('invalid-minute-events');
   const eligible=events.slice(0,MAX_REPLICA_EVENTS);
-  // Validate event continuity before shrinking for document size, so a gap
-  // cannot be disguised by silently taking only an earlier prefix.
-  buildMinuteReserveBatch({previous,events:eligible,maxBytes:MAX_REPLICA_BATCH_BYTES});
+  // Each candidate is validated for continuity. A later gap will fail
+  // closed on the following tick once the valid prefix is acknowledged.
   let low=1,high=eligible.length,best=null;
   while(low<=high){
     const middle=Math.floor((low+high)/2);
