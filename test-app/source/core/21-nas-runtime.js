@@ -45,6 +45,19 @@
     markSync('profile',false,false,profile?1:0);markSync('permissions',false,false,active?1:0);
     updateUserBadge();updateNavUI();applyRoleUI();renderAll();
   }
+  // NAS versions deployed before the server ticker fix return opaque truck IDs.
+  // The browser can safely render its verified catalog without changing NAS data.
+  function presentNasLineNotification(item){
+    if(!item||typeof item.id!=='string'||!item.id.startsWith('nas_')||!['arrive','load','ttn','reset'].includes(item.type))return item;
+    const labels={arrive:'Прибытие на линию',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'};
+    const truck=state.trucks.find(row=>row.id===item.truckId);
+    const visibleTruck=truck?truckLabelHtml(item.truckId):'<b>Самосвал</b>';
+    const log=item.type==='load'&&!item.logId?state.logs.find(row=>row.clientOperationId===item.actionId&&row.truckId===item.truckId&&row.shiftId===item.shiftId):null;
+    return {...item,html:labels[item.type]+' · '+visibleTruck,...(log?{logId:log.id}:{})};
+  }
+  function refreshNasLineNotificationDisplay(){
+    state.notifications=(state.notifications||[]).map(presentNasLineNotification);
+  }
   function acceptNasLineSnapshot(snapshot) {
     // A snapshot read before a committed receipt must not roll the UI backwards.
     for(const floor of nasReceiptFloors.values()){
@@ -59,6 +72,7 @@
     // NAS snapshots are authoritative: ticker load events must match confirmed logs.
     confirmedLoadIds=new Set(snapshot.logs.map(log=>log.id));
     offlineProjectState();initialized=true;
+    refreshNasLineNotificationDisplay();
     for(const [source,count] of [['trucks',snapshot.trucks.length],['status',snapshot.statuses.length],['logs',snapshot.logs.length],['shift',snapshot.shift?1:0]])markSync(source,false,false,count);
     markSync('nas',false,false,snapshot.logs.length);saveCache();renderAll();return true;
   }
@@ -91,7 +105,7 @@
     const work=(async()=>{const snapshot=await client.readAuxiliary();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration)return;
       const pluginsChanged=JSON.stringify(state.plugins)!==JSON.stringify(snapshot.plugins),patchesChanged=JSON.stringify(state.patches)!==JSON.stringify(snapshot.patches);
       markSync('nas-auxiliary',false,false,1);nasAuxSnapshot=snapshot;state.plugins=snapshot.plugins;state.patches=snapshot.patches;state.audit=snapshot.audit.slice(0,200);state.lineAudit=snapshot.audit;
-      state.notifications=snapshot.notifications;offlineProjectTicker();
+      state.notifications=snapshot.notifications;offlineProjectTicker();refreshNasLineNotificationDisplay();
       for(const key of ['plugins','patches','audit','notifications'])markSync(key,false,false,snapshot[key].length);
       if(pluginsChanged)initPlugins();if(patchesChanged){state.patches.sort((a,b)=>(a.order||0)-(b.order||0));if(!window.__nasPatchesApplied){window.__nasPatchesApplied=true;applyAllPatches();}}
       saveCache();renderStatusTicker();renderHeaderStats();if(canAdmin()){renderPluginsList();renderPatchesList();}
