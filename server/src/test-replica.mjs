@@ -155,6 +155,20 @@ async function bootstrap(pool,db){
   for(const row of snapshot.rows.slice(start,start+CHUNK))batch.set(rowRef(db,generation,row.table,row.key),row.envelope);
   await batch.commit();
  }
+ // Verify the actual remote generation, not just local checksum calculations.
+ // An incomplete upload is never published by the singleton metadata pointer.
+ const remoteDocs=(await db.collection(REPLICA_DOC+'/rows_'+generation).get()).docs;
+ if(remoteDocs.length!==snapshot.rows.length)throw Error('replica-snapshot-row-count-mismatch');
+ const check=createHash('sha256');
+ remoteDocs.sort((a,b)=>a.id.localeCompare(b.id,'en'));
+ for(const doc of remoteDocs){
+  const value=doc.data(),key=JSON.parse(value?.keyJson||'null');
+  if(value?.appliedSequence!==snapshot.sequence||!MIRROR_TABLES.includes(value?.table)||
+    doc.id!==rowId(value.table,key)||typeof value.rowJson!=='string')
+   throw Error('replica-snapshot-document-mismatch');
+  check.update(value.table+'\n'+value.keyJson+'\n'+value.rowJson+'\n');
+ }
+ if(check.digest('hex')!==snapshot.snapshotHash)throw Error('replica-snapshot-hash-mismatch');
  const baseHash=sha256('snapshot:'+snapshot.snapshotHash+':'+snapshot.sequence);
  const m={protocol:1,channel:'test',writer:'synology',projectId:'samosval-offline',
   generation,snapshotHash:snapshot.snapshotHash,baseSequence:snapshot.sequence,
