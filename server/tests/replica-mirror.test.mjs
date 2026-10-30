@@ -7,6 +7,7 @@ import {startTestReplica} from '../src/test-replica-runner.mjs';
 class FakeFirestore {
  constructor(){this.docs=new Map();this.offline=false;this.loseNextReply=false;}
  doc(path){return {path,get:async()=>this.snapshot(path)};}
+ collection(path){return {get:async()=>({docs:[...this.docs.entries()].filter(([k])=>k.startsWith(path+'/')).map(([k,value])=>({id:k.slice(path.length+1),data:()=>structuredClone(value)}))})};}
  snapshot(path){return {exists:this.docs.has(path),data:()=>structuredClone(this.docs.get(path))};}
  apply(items){for(const [mode,path,data] of items){
   if(mode==='delete')this.docs.delete(path);
