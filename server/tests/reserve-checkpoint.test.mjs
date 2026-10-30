@@ -72,8 +72,8 @@ test('snapshot capture uses one repeatable-read transaction, deterministic rows 
   await assert.rejects(captureReserveSnapshot({connect:async()=>c}),/test-database-required/);assert.equal(queries.at(-1),'ROLLBACK');assert.equal(released,true);
 });
 test('table inventory covers every checked-in migration and import table',()=>{
-  const names=new Set();for(let n=1;n<=12;n++){
-    const files=['001_init','002_tabel','003_shift_close','004_objects','005_controls','006_identity','007_line_history','008_workspace_services','009_auxiliary','010_reports','011_backups','012_notifications'];
+  const names=new Set();for(let n=1;n<=13;n++){
+    const files=['001_init','002_tabel','003_shift_close','004_objects','005_controls','006_identity','007_line_history','008_workspace_services','009_auxiliary','010_reports','011_backups','012_notifications','013_server_control'];
     const sql=readFileSync(new URL('../sql/'+files[n-1]+'.sql',import.meta.url),'utf8');for(const m of sql.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g))names.add(m[1]);
   }
   names.add('migration_documents');names.add('migration_imports');assert.deepEqual([...names].sort(),RESERVE_TABLES);
