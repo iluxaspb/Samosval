@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {RESERVE_TABLES,encodeReserveCheckpoint} from '../src/reserve-checkpoint.mjs';
-import {COLD_BACKUP_PERIODS,planColdBackup,runColdBackupCycle} from '../src/reserve-cold-policy.mjs';
+import {COLD_BACKUP_ZONE,COLD_BACKUP_HOUR,planColdBackup,runColdBackupCycle} from '../src/reserve-cold-policy.mjs';
 
 function snapshot(trip='trip-1'){
   const tables=Object.fromEntries(RESERVE_TABLES.map(name=>[name,[]]));
@@ -12,6 +12,7 @@ function snapshot(trip='trip-1'){
   return {format:'samosval-native-reserve',version:1,projectId:'samosval-offline',workspaceId:'main_workspace',schema,tables};
 }
 const hash=s=>encodeReserveCheckpoint(s).manifest.hash;
+const at=s=>Date.parse(s);
 function harness(versions=[snapshot(),snapshot()]){
   let captures=0,uploads=0,reads=0,stored=new Set(),allowRead=true;
   const capture=async()=>structuredClone(versions[Math.min(captures++,versions.length-1)]);
@@ -21,64 +22,77 @@ function harness(versions=[snapshot(),snapshot()]){
   };
   return {capture,store,counters:()=>({captures,uploads,reads}),corrupt:()=>{allowRead=false;}};
 }
-test('cold backup cadence is 12h by default or explicitly 24h, no NAS reads before due',async()=>{
-  const first=planColdBackup({now:10_000});
-  assert.equal(first.due,true);
-  assert.equal(COLD_BACKUP_PERIODS.twiceDaily,12*60*60*1000);
-  assert.equal(COLD_BACKUP_PERIODS.daily,24*60*60*1000);
-  for(const cadence of ['twiceDaily','daily']){
-    const period=COLD_BACKUP_PERIODS[cadence],previous={hash:'a'.repeat(64),verifiedAt:10_000};
-    assert.equal(planColdBackup({now:10_000+period-1,previous,cadence}).due,false);
-    assert.equal(planColdBackup({now:10_000+period,previous,cadence}).due,true);
-    const h=harness();
-    assert.equal((await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,now:10_001,previous,cadence})).status,'not-due');
-    assert.deepEqual(h.counters(),{captures:0,uploads:0,reads:0});
-  }
+test('daily archive is scheduled at 23:00 Pacific and does not repeat within a slot',async()=>{
+  const before=at('2026-10-31T05:59:00Z'),due=at('2026-10-31T06:00:00Z');
+  assert.equal(COLD_BACKUP_ZONE,'America/Los_Angeles');
+  assert.equal(COLD_BACKUP_HOUR,23);
+  assert.deepEqual({...planColdBackup({now:due}),due:true},
+    {due:true,slotKey:'2026-10-30',scheduledAt:due,nextDueAt:at('2026-11-01T06:00:00Z'),
+      timeZone:COLD_BACKUP_ZONE,hour:23});
+  assert.equal(planColdBackup({now:before}).slotKey,'2026-10-29');
+  const previous={hash:'a'.repeat(64),verifiedAt:due,slotKey:'2026-10-30'};
+  assert.equal(planColdBackup({now:at('2026-11-01T05:59:00Z'),previous}).due,false);
+  assert.equal(planColdBackup({now:at('2026-11-01T06:00:00Z'),previous}).due,true);
+  const h=harness();
+  assert.equal((await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,
+    now:at('2026-11-01T05:59:00Z'),previous})).status,'not-due');
+  assert.deepEqual(h.counters(),{captures:0,uploads:0,reads:0});
+});
+test('23:00 Pacific changes from 06:00 UTC to 07:00 UTC after daylight-saving ends',()=>{
+  const onSummer=planColdBackup({now:at('2026-11-01T06:00:00Z')});
+  const onWinter=planColdBackup({now:at('2026-11-02T07:00:00Z'),
+    previous:{hash:'a'.repeat(64),verifiedAt:at('2026-11-01T06:00:00Z'),slotKey:'2026-10-31'}});
+  assert.equal(onSummer.scheduledAt,at('2026-11-01T06:00:00Z'));
+  assert.equal(onWinter.slotKey,'2026-11-01');
+  assert.equal(onWinter.scheduledAt,at('2026-11-02T07:00:00Z'));
+  assert.equal(onWinter.due,true);
 });
 test('first cold snapshot uploads and confirms two NAS captures but grants no failover',async()=>{
-  const h=harness();
-  const result=await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,now:10_000});
+  const h=harness(),now=at('2026-10-31T06:00:00Z');
+  const result=await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,now});
   assert.equal(result.status,'archived');
-  assert.deepEqual(result.receipt,{hash:hash(snapshot()),verifiedAt:10_000});
+  assert.deepEqual(result.receipt,{hash:hash(snapshot()),verifiedAt:now,slotKey:'2026-10-30'});
   assert.equal(result.failoverEnabled,false);
   assert.equal(result.liveReplicaVerified,false);
   assert.deepEqual(h.counters(),{captures:2,uploads:1,reads:1});
 });
-test('unchanged 12h snapshot avoids new Firebase writes and confirms the stored archive',async()=>{
-  const h=harness(),now=10_000;
+test('unchanged next-day snapshot avoids new Firebase writes and verifies stored archive',async()=>{
+  const h=harness(),now=at('2026-10-31T06:00:00Z');
   const first=await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,now});
   const second=await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,
-    previous:first.receipt,now:now+COLD_BACKUP_PERIODS.twiceDaily});
+    previous:first.receipt,now:at('2026-11-01T06:00:00Z')});
   assert.equal(second.status,'unchanged');
   assert.equal(second.receipt.hash,first.receipt.hash);
   assert.deepEqual(h.counters(),{captures:4,uploads:1,reads:2});
 });
-test('a changed trip at the 12h boundary creates a new immutable archive',async()=>{
+test('changed trip at the next daily slot uploads a new immutable checkpoint (delta not yet wired)',async()=>{
   const one=snapshot(),two=snapshot('trip-2');
-  const h=harness([one,one,two,two]),now=10_000;
-  const first=await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,now});
+  const h=harness([one,one,two,two]);
+  const first=await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,
+    now:at('2026-10-31T06:00:00Z')});
   const second=await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,
-    previous:first.receipt,now:now+COLD_BACKUP_PERIODS.twiceDaily});
+    previous:first.receipt,now:at('2026-11-01T06:00:00Z')});
   assert.equal(second.status,'archived');
   assert.notEqual(first.receipt.hash,second.receipt.hash);
   assert.deepEqual(h.counters(),{captures:4,uploads:2,reads:2});
 });
 test('NAS changes while copying mean no successful receipt, even with equal row counts',async()=>{
   const h=harness([snapshot(),snapshot('trip-2')]);
-  await assert.rejects(runColdBackupCycle({pool:{},store:h.store,capture:h.capture,now:10_000}),
-    /cold-backup-source-changed/);
+  await assert.rejects(runColdBackupCycle({pool:{},store:h.store,capture:h.capture,
+    now:at('2026-10-31T06:00:00Z')}),/cold-backup-source-changed/);
 });
 test('lost or corrupt Firestore checkpoint prevents fresh verification',async()=>{
-  const h=harness(),now=10_000;
+  const h=harness(),now=at('2026-10-31T06:00:00Z');
   const first=await runColdBackupCycle({pool:{},store:h.store,capture:h.capture,now});
   h.corrupt();
   await assert.rejects(runColdBackupCycle({pool:{},store:h.store,capture:h.capture,
-    previous:first.receipt,now:now+COLD_BACKUP_PERIODS.twiceDaily}),/cold-backup-readback-not-verified/);
+    previous:first.receipt,now:at('2026-11-01T06:00:00Z')}),/cold-backup-readback-not-verified/);
 });
-test('untrusted clock, cadence, or receipt cannot be used to bypass the schedule',()=>{
+test('bad timestamp and invalid receipt cannot bypass the schedule',()=>{
   for(const args of [
-    {now:-1},{now:NaN},{now:10_000,cadence:'everySecond'},
-    {now:10_000,previous:{hash:'bad',verifiedAt:1}},
-    {now:10_000,previous:{hash:'a'.repeat(64),verifiedAt:20_000}},
+    {now:-1},{now:NaN},
+    {now:at('2026-10-31T06:00:00Z'),previous:{hash:'bad',verifiedAt:1,slotKey:'2026-10-29'}},
+    {now:at('2026-10-31T06:00:00Z'),previous:{hash:'a'.repeat(64),verifiedAt:at('2026-11-02T06:00:00Z'),slotKey:'2026-10-29'}},
+    {now:at('2026-10-31T06:00:00Z'),previous:{hash:'a'.repeat(64),verifiedAt:10,slotKey:'2026-11-02'}}
   ])assert.throws(()=>planColdBackup(args),/invalid-cold-backup/);
 });
