@@ -56,7 +56,8 @@ export function planTestSchemaUpgrade(release,baseline){
     release?.dependenciesSha256!==baseline.dependenciesSha256)
    throw Error('release-requires-bootstrap');
  if(release.schemaSha256===baseline.schemaSha256){
-   if(release.migrations?.length)throw Error('unexpected-migration-for-current-schema');
+   // The additive SQL may already have committed before an API rollback.
+   // A retry must reuse that verified schema without executing SQL 014 again.
    return null;
  }
  if(release.migrations?.length!==1||
