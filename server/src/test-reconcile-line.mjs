@@ -9,6 +9,7 @@ import {OWNER_DOC} from './test-writer-coordinator.mjs';
 import {submitLineOperation} from './line-store.mjs';
 
 const HASH=/^[0-9a-f]{64}$/;
+const WORKSPACE_ID=process.env.WORKSPACE_ID||'main_workspace';
 const FIELDS=['id','type','truckId','shiftId','createdAt','expectedRevision',
  'expectedTtnRevision','arrivalTimestamp','lastLoadTimestamp','wantArrived',
  'collect','cycleMinutes','logId'];
@@ -94,7 +95,7 @@ export async function beginReserveReplay({firestore,projectId,pool,
 }
 function validateEvent(event,recovery){
  if(!event||event.sequence!==recovery.appliedSequence+1||
-   event.epoch!==recovery.fromEpoch||event.workspaceId!=='main_workspace'||
+   event.epoch!==recovery.fromEpoch||event.workspaceId!==WORKSPACE_ID||
    !/^[A-Za-z0-9_-]{1,128}$/.test(event.uid||'')||
    event.previousHash!==recovery.appliedHash||!HASH.test(event.hash||'')||
    !event.op||typeof event.op!=='object'||!event.result)
