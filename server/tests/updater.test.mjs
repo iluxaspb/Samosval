@@ -46,7 +46,7 @@ test('schema release only accepts pinned TEST SQL 014 and exact previous schema'
  ])assert.throws(()=>normalizeRelease({...upgrade,...mutation}));
  assert.throws(()=>planTestSchemaUpgrade(parsed,{...base,schemaSha256:'e'.repeat(64)}),/release-requires-bootstrap/);
  assert.throws(()=>planTestSchemaUpgrade(parsed,{...base,dependenciesSha256:'e'.repeat(64)}),/release-requires-bootstrap/);
- assert.throws(()=>planTestSchemaUpgrade(parsed,{...base,schemaSha256:next}),/unexpected-migration/);
+ assert.equal(planTestSchemaUpgrade(parsed,{...base,schemaSha256:next}),null,'migration already applied: retry only the API image');
  assert.throws(()=>planTestSchemaUpgrade(normalizeRelease({...manifest(),schemaSha256:next}),base),/release-requires-bootstrap/);
 });
 test('migration is first rehearsed on restored TEST database, never production',async()=>{
@@ -103,6 +103,14 @@ test('schema update rehearses on restored copy before migrating live NAS and the
   assert(events.indexOf('live-migrate')<events.indexOf('switch-api'));
   const base=JSON.parse(await readFile(root+'/baseline.json','utf8'));
   assert.equal(base.schemaSha256,release.schemaSha256);
+  // SQL 014 has committed. A repeated admin update or recovery after API
+  // rollback must not run its DDL/trigger installation a second time.
+  await agent.execute({job_id:'test-schema-update',type:'update',request:{
+    id:'test-schema-update',type:'update',channel:'test',releaseId:'4.1.1',expectedImage:old.image
+  }});
+  assert.equal(events.filter(e=>e==='live-migrate').length,1);
+  assert.equal(events.filter(e=>e==='backup-and-rehearse').length,2);
+  assert.equal(events.filter(e=>e==='switch-api').length,2);
  }finally{await rm(root,{recursive:true,force:true});}
 });
 test('failed backup rehearsal leaves live schema and API untouched',async()=>{
