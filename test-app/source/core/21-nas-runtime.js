@@ -4,13 +4,13 @@
   function nasStorageScope() { return JSON.stringify(['synology','https://iluxa.synology.me:18443',WORKSPACE_ID,currentUid]); }
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0;
   const nasReceiptFloors = new Map();
-  let nasAdministration=null,nasAdminRead=null;
+  let nasAdministration=null,nasAdminRead=null,nasCatalogRead=null;
   function stopNasRuntime() {
     nasRuntimeEpoch++;
     nasRuntimeStop?.(); nasRuntimeStop = null;
     nasRuntimeClient?.stop(); nasRuntimeClient = null;
     nasReceiptFloors.clear();
-    nasAdministration=null;nasAdminRead=null;
+    nasAdministration=null;nasAdminRead=null;nasCatalogRead=null;
   }
   function loadNasSessionClient() { return import(new URL('./test-app/synology/session-client.mjs',document.baseURI).href); }
   function applyNasSession(session) {
@@ -58,11 +58,43 @@
       nasRuntimeStop=client.subscribeLine({
         onSession:session=>{if(epoch!==nasRuntimeEpoch)return;applyNasSession(session);
           if(session.identityReady&&!session.profile&&!registering){registering=true;void ensureNasPendingAccount(user).catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-registration',error);}).finally(()=>{registering=false;});}
+          if(session.profile?.status==='active'&&(session.permissions.tabs.includes('line')||session.permissions.tabs.includes('trucks')))void refreshNasObjects().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-objects',error);});
           if(canAdmin())void refreshNasAdministration().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-admin',error);});},
         onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal();},
         onError:error=>{if(epoch!==nasRuntimeEpoch)return;reportSyncError('nas',error);}
       });
     }catch(error){if(epoch===nasRuntimeEpoch)reportSyncError('nas',error);}
+  }
+  function loadNasTabelRemote(){return import(new URL('./test-app/synology/tabel-remote.mjs',document.baseURI).href);}
+  async function refreshNasObjects(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client||currentUserStatus!=='active')return;
+    if(nasCatalogRead)return nasCatalogRead;
+    const work=(async()=>{const catalog=await client.readCatalog();if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||!hasTabAccess('line')&&!hasTabAccess('trucks'))return;
+      state.objects=catalog.objects;if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName);
+      markSync('objects',false,false,state.objects.length);saveCache();window.dispatchEvent(new Event('samosval-objects-changed'));
+    })();nasCatalogRead=work;try{return await work;}finally{if(nasCatalogRead===work)nasCatalogRead=null;}
+  }
+  function nasTabelHost(){
+    const client=nasRuntimeClient,user=auth.currentUser,epoch=nasRuntimeEpoch;
+    if(!client||!user)throw Error('Сеанс Synology не загружен');
+    const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||auth.currentUser!==user||currentUid!==client.uid||currentUserStatus!=='active'||!permissionsLoaded||!hasTabAccess('timesheet'))throw Error('Доступ к табелю изменился');};
+    const remoteFactory=async jobGuard=>{
+      guard();const {createTabelRemote}=await loadNasTabelRemote();guard();
+      return createTabelRemote({baseUrl:'https://iluxa.synology.me:18443',
+        getIdToken:async force=>{guard();const token=await user.getIdToken(force);guard();return token;},
+        guard:job=>{guard();jobGuard?.(job);}});
+    };
+    return {session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,name:getUserName(),role:currentUserRole,
+      active:epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&currentUserStatus==='active',view:epoch===nasRuntimeEpoch&&permissionsLoaded&&hasTabAccess('timesheet'),edit:hasPermission('timesheet_edit'),objectId:state.shift?.objectId,runtimeId:epoch,
+      provider:'synology',providerScope:client.scope}),remoteFactory,
+      get shift(){return state.shift;},get objects(){return state.objects;},
+      users:async()=>{guard();const result=await client.readMembers();guard();return result.members.map(m=>({...m,id:m.uid}));},
+      readCatalog:async()=>{const remote=await remoteFactory();const row=await remote.read('_catalog/config');guard();const data=row.data||{};
+        if(data.equipment!==undefined&&!Array.isArray(data.equipment)||data.people!==undefined&&!Array.isArray(data.people))throw Error('Не подтверждён формат справочника табеля');
+        return {equipment:data.equipment||[],people:data.people||[]};},
+      snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive}),
+      createObject:async()=>{throw Error('Создание объекта через Synology ещё не подключено');}
+    };
   }
   async function ensureNasPendingAccount(user,getUser=()=>auth.currentUser) {
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');

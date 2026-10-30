@@ -290,7 +290,7 @@ export class Store {
             this.remote.commit(job),
             new Promise((_,reject) => {
               timer = setTimeout(() =>
-                reject(Error("Нет подтверждения Firebase за 25 секунд. Повтор будет с тем же ID операции.")), 25000);
+                reject(Error("Нет подтверждения "+(this.remote.provider==='synology'?'Synology':'Firebase')+" за 25 секунд. Повтор будет с тем же ID операции.")), 25000);
             })
           ]).finally(() => clearTimeout(timer));
           await this.serialize(async () => {
@@ -337,7 +337,7 @@ export class Store {
           this.uploadError = failure;
           this.error = failure;
           blocked.add(job.key);
-          console.error("[Табель Firebase]", failure);
+          console.error(this.remote.provider==='synology'?"[Табель Synology]":"[Табель Firebase]", failure);
           this.emit();
         } finally {
           this.uploading = null;

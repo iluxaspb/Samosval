@@ -36,6 +36,7 @@ export function createTabelRemote({baseUrl,getIdToken,fetchImpl=globalThis.fetch
     return rows;
   }
   const remote={
+    provider:'synology',
     async read(key) {const {record}=await request({key});if(!validRecord(record))throw Error('Некорректная запись Synology');return record;},
     async list(objectId) {const rows=await pages(objectId);if(rows.some(r=>!Array.isArray(r)||r.length!==2||typeof r[0]!=='string'||!r[0].startsWith(objectId+'/')||!validRecord(r[1])))throw Error('Некорректный список Synology');return rows;},
     async history(objectId) {return (await pages(objectId,'history')).map(row=>({id:row.id,key:row.key,before:row.before,after:row.after,data:row.after.data,label:row.label,time:row.time,author:{uid:row.author,name:row.after.authorName},confirmed:row.time}));},
@@ -48,7 +49,7 @@ export function createTabelRemote({baseUrl,getIdToken,fetchImpl=globalThis.fetch
       let stopped=false,busy=false;
       const poll=async()=>{if(stopped||busy)return;busy=true;try{
         const rows=await remote.list(objectId);
-        for(const key of ['_catalog/config','_defaults/config']){const row=await remote.read(key);if(row.data)rows.push([key,row]);}
+        for(const key of ['_catalog/config','_defaults/config']){const row=await remote.read(key);rows.push([key,row]);}
         if(!stopped)onData(rows);
       }catch(e){if(!stopped)onError?.(e);}finally{busy=false;}};
       const timer=setInterval(poll,pollMs);poll();

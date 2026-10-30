@@ -3,7 +3,8 @@ import { colorField, bindColorFields } from "./color-palette.mjs";
 import * as R from "./request-domain.mjs";
 import { arrivals } from "./line.mjs";
 import * as D from "./table-domain.mjs";
-import { Store, firestoreRemote } from "./store.mjs";
+import { Store } from "./store.mjs";
+import {storageScope,tableRemote,sameTableSession} from "./backend.mjs";
 import { esc, btn, input, field, dialog, message, error } from "./messages.mjs";
 import { sheetVisible, sheetManager } from "./sheet-access.mjs";
 import { autoConflicts } from "./conflict-view.mjs";
@@ -48,7 +49,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   };
   const account = () => {
     const a = host.session();
-    if (a.uid !== session.uid || a.status !== "active" || !a.tabAccess)
+    if (!sameTableSession(a,session) || a.status !== "active" || !a.tabAccess)
       throw Error("Доступ изменился. Откройте расширение заново.");
     return a;
   };
@@ -88,9 +89,10 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     if (!D.allowed(a, c, area, "edit"))
       throw Error("Нет права записи: " + area);
   };
-  s.remote = remoteEnabled ? firestoreRemote(host, guard) : null;
+  const remoteGuard=job=>job?guard(job):account();
+  s.remote = remoteEnabled ? await tableRemote(host, remoteGuard) : null;
   s.store = await new Store(
-    session.projectId + "_" + session.workspaceId + "_" + session.uid,
+    storageScope(session),
     s.remote,
     () => ({ uid: account().uid, name: account().name }),
   ).open();
@@ -320,6 +322,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     session.projectId,
     session.workspaceId,
     session.uid,
+    ...(session.provider==='synology'?[storageScope(session)]:[]),
   ]);
   let lastObject = null, lastClosed = null;
   try {
@@ -504,7 +507,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       if (s.store.closed) return;
       account();
       if (!s.remote) {
-        s.remote = firestoreRemote(host, guard);
+        s.remote = await tableRemote(host, remoteGuard);
         s.store.remote = s.remote;
       }
       void s.store.flush();

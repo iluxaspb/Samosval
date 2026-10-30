@@ -104,3 +104,19 @@ test('NAS registration screen branches before any Firestore transaction',async()
   let registered;h.client.registerPending=async data=>{registered=data;return {created:true};};
   vm.runInContext(source('05-authentication.js'),h.c);await h.c.ensurePendingAccount(h.c.auth.currentUser);assert.equal(registered.nickname,'');
 });
+test('NAS tabel host supplies only NAS transport and an independently scoped session',async()=>{
+  const h=harness();Object.assign(h.c,{firebaseConfig:{projectId:'samosval-offline'},getUserName:()=> 'Operator',hasTabAccess:()=>true,hasPermission:()=>true});
+  let options,checked=0;
+  h.c.tableFactory={createTabelRemote:value=>{options=value;return {read:async()=>({revision:1,data:{equipment:[{id:'machine'}],people:[{id:'person'}]}})};}};
+  vm.runInContext('loadNasTabelRemote=async()=>tableFactory',h.c);
+  await h.c.startNasRuntime(h.c.auth.currentUser);const host=h.c.nasTabelHost();
+  assert.equal(host.workspace,undefined);assert.equal(host.transaction,undefined);assert.equal(host.session().providerScope,h.client.scope);
+  const remote=await host.remoteFactory(()=>checked++);options.guard({key:'site/day:date:day'});assert.equal(checked,1);
+  assert.equal((await host.readCatalog()).equipment[0].id,'machine');assert.equal((await remote.read()).data.people[0].id,'person');
+});
+test('NAS tabel host invalidates reads and its active status immediately when the session stops',async()=>{
+  const h=harness();Object.assign(h.c,{firebaseConfig:{projectId:'samosval-offline'},getUserName:()=> 'Operator',hasTabAccess:()=>true,hasPermission:()=>true});
+  let options;h.c.tableFactory={createTabelRemote:value=>{options=value;return {};}};vm.runInContext('loadNasTabelRemote=async()=>tableFactory',h.c);
+  await h.c.startNasRuntime(h.c.auth.currentUser);const host=h.c.nasTabelHost();await host.remoteFactory();h.c.stopNasRuntime();
+  assert.equal(host.session().active,false);assert.throws(()=>options.guard(),/Доступ/);await assert.rejects(host.remoteFactory(),/Доступ/);
+});
