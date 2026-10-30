@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {sendJson as send} from './json-response.mjs';
 import {readNotifications,submitNotificationTest,deliverNotification} from './notification-store.mjs';
 import {installDatasetGuard,datasetRequest} from './dataset-guard.mjs';
 import {readBackups,submitBackup} from './backup-store.mjs';
@@ -35,10 +36,6 @@ const pool = new Pool({
 });
 installDatasetGuard(pool);
 const tabelPresence=createPresenceService({authorize:(uid,target)=>authorizeTabelPresence(pool,uid,target),workspaceId:process.env.WORKSPACE_ID||'main_workspace'});
-function send(res,status,body) {
-  res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
-  res.end(JSON.stringify(body));
-}
 function readJson(req,limit=32768) {
   return new Promise((resolve,reject)=>{
     const chunks=[];let bytes=0,aborted=false;
@@ -62,9 +59,9 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
     res.setHeader('Access-Control-Allow-Origin',origin);
     res.setHeader('Vary','Origin');
     res.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, X-Samosval-Epoch');
+    res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, X-Samosval-Epoch, If-None-Match');
     res.setHeader('Access-Control-Max-Age','600');
-    res.setHeader('Access-Control-Expose-Headers','X-Samosval-Epoch');
+    res.setHeader('Access-Control-Expose-Headers','X-Samosval-Epoch, ETag');
   }
   const requestUrl=new URL(req.url||'/', 'http://localhost');
   const path=requestUrl.pathname;

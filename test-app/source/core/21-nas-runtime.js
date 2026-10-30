@@ -8,7 +8,7 @@
   let nasAdministration=null,nasAdminRead=null,nasCatalogRead=null,nasCatalogSnapshot=null;
   let nasSettingsSnapshot=null,nasSettingsRead=null;
   let nasArchiveRead=null;
-  let nasGameRead=null,nasGameSnapshot=null,nasGameReady=false;
+  let nasGameRead=null,nasGameSnapshot=null,nasGameReady=false,nasGameReceiptFloor=0;
   let nasAuxSnapshot=null,nasAuxRead=null;
   const nasCommandFlights=new Map();
   function stopNasRuntime() {
@@ -20,12 +20,13 @@
     nasAdministration=null;nasAdminRead=null;nasCatalogRead=null;nasCatalogSnapshot=null;nasCommandFlights.clear();
     nasSettingsSnapshot=null;nasSettingsRead=null;
     nasArchiveRead=null;
-    nasGameRead=null;nasGameSnapshot=null;nasGameReady=false;
+    nasGameRead=null;nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;
     nasAuxSnapshot=null;nasAuxRead=null;
   }
   function loadNasSessionClient() { return import(new URL('./test-app/synology/session-client.mjs',document.baseURI).href); }
   function applyNasSession(session) {
     const profile=session.profile, active=session.identityReady&&profile?.status==='active'&&!profile.deleted;
+    if(currentUserRole&&currentUserRole!==profile?.role){nasReadGeneration++;nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;window.__gameAccessChanged?.();}
     currentUserRole=profile?.role||null;currentUserStatus=active?'active':profile?.status==='disabled'||profile?.deleted?'disabled':'pending';
     currentUserNickname=profile?.nickname||sanitizeName(currentEmail);
     permissionsConfig=active?{...(currentUserRole==='admin'?permissionsConfig:{}),[currentUserRole]:session.permissions}:{};permissionsLoaded=!!active;
@@ -35,7 +36,7 @@
     document.getElementById('mainHeader').style.display=active?'':'none';
     document.querySelector('.container').style.display=active?'':'none';document.querySelector('nav').style.display=active?'flex':'none';
     if(!active){
-      nasSettingsSnapshot=null;appConfig={};nasGameSnapshot=null;nasGameReady=false;window.__gameAccessChanged?.();
+      nasSettingsSnapshot=null;appConfig={};nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;window.__gameAccessChanged?.();
       state.trucks=[];state.logs=[];state.truckStatus={};state.shift=null;state.archive=[];state.trash=[];state.audit=[];state.users=[];
       offlineRemoteStatuses={};offlineRemoteLogs=[];initialized=false;cancelHold();
       document.querySelectorAll('dialog[open]').forEach(d=>d.close());
@@ -87,7 +88,7 @@
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
         onSession:session=>{if(epoch!==nasRuntimeEpoch)return;applyNasSession(session);
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasSettings().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-settings',error);});
-          if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch){nasGameReady=false;window.__gameAccessChanged?.();reportSyncError('nas-games',error);}});
+          if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch)nasGameReadError(error);});
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasAuxiliary().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-auxiliary',error);});
           if(session.profile?.status==='active'&&(hasTabAccess('archive')||hasTabAccess('analytics')))void refreshNasArchive().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-archive',error);});
           if(session.identityReady&&!session.profile&&!registering){registering=true;void ensureNasPendingAccount(user).catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-registration',error);}).finally(()=>{registering=false;});}
@@ -189,8 +190,24 @@
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
     if(nasGameRead)return nasGameRead;
     const work=(async()=>{const snapshot=await client.readGames();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration)return;
+      if(snapshot.head.gameRound<nasGameReceiptFloor)return;
       markSync('nas-games',false,false,snapshot.records.length);nasGameSnapshot=snapshot;nasGameReady=true;window.__gameAccessChanged?.();window.RoadArcade?.sync();})();
     nasGameRead=work;try{return await work;}finally{if(nasGameRead===work)nasGameRead=null;}
+  }
+  function nasGameReadError(error){
+    if([401,403].includes(error.status)){nasGameReady=false;nasGameSnapshot=null;nasGameReceiptFloor=0;}
+    // A failed background read cannot revoke a previously confirmed wallet.
+    // Every play still needs an authenticated server transaction and receipt.
+    window.__gameAccessChanged?.();window.RoadArcade?.sync();reportSyncError('nas-games',error);
+  }
+  function acceptNasGameReceipt(result){
+    const h=result?.confirmedHead;
+    if(!nasGameSnapshot||!h||!Number.isSafeInteger(h.gameRound)||h.gameRound<1||!Number.isSafeInteger(h.bank)||h.bank<0||h.userUid!==currentUid||h.player?.uid!==currentUid||typeof h.id!=='string')return false;
+    nasGameReceiptFloor=Math.max(nasGameReceiptFloor,h.gameRound);
+    const records=nasGameSnapshot.records.filter(r=>r.id!==h.id).concat(h);
+    const newer=h.gameRound>=nasGameSnapshot.head.gameRound;
+    nasGameSnapshot={...nasGameSnapshot,records,...(newer?{head:h}:{}),players:{...nasGameSnapshot.players,...(h.gameRound>=(nasGameSnapshot.players[currentUid]?._round||0)?{[currentUid]:{...h.player,_round:h.gameRound}}:{})}};
+    nasGameReady=true;window.__gameAccessChanged?.();window.RoadArcade?.sync();return true;
   }
   async function nasGameAction(action){
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
@@ -198,6 +215,10 @@
     const target=gameAction.kind==='slot'?'slot:'+id:gameAction.kind==='purchase'?'theme:'+gameAction.itemId:gameAction.kind+':'+gameAction.level+':'+(gameAction.coin??'');
     const receipt=await nasBusinessCommand('game',target,{type:'game.play',action:gameAction});
     if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
+    if(gameAction.kind!=='purchase'&&acceptNasGameReceipt(receipt.result)){
+      void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient)nasGameReadError(error);});
+      return receipt.result;
+    }
     await refreshNasGames();return receipt.result;
   }
   async function nasGrantCoins(targetUid,amount,reason){

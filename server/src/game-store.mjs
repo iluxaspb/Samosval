@@ -4,6 +4,7 @@ import {serviceActor,serviceCommand,validId} from './service-command.mjs';
 import {calculate} from './game-economy.mjs';
 import {settle,initialHead,initialPlayer,roundId,dayKey} from './arcade-rules.mjs';
 import {themePrices} from './theme-prices.mjs';
+import {gameTransferRecord} from './game-transfer.mjs';
 const WS=process.env.WORKSPACE_ID||'main_workspace';
 const allowedTypes=new Set(['history','game_penalty','game_purchase','game_arcade']);
 const purchaseId=(uid,itemId)=>'game_purchase_'+encodeURIComponent(uid)+'_'+itemId;
@@ -48,6 +49,7 @@ export async function readGames(pool,uid,ws=WS){
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const actor=await serviceActor(client,uid,null,{lock:false});
     const data=await gameData(client,ws);
     if(actor.role!=='admin')data.adjustments=data.adjustments.filter(r=>r.targetUid===uid);
+    data.records=data.records.map(gameTransferRecord);
     await client.query('COMMIT');return {format:'samosval-games',version:1,source:'synology',workspaceId:ws,...data};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }

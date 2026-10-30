@@ -57,6 +57,9 @@ function allowedUrl(raw, origin, firestorePort) {
 function rewriteDemoSource(source, isCore = false) {
   // Keep production source/build files untouched. Only deployment identifiers change.
   let result = source.replaceAll('samosval-offline', PROJECT);
+  // This suite explicitly exercises Firebase/emulator behavior. NAS acceptance
+  // is covered by the server transport suite and authenticated live NAS checks.
+  result = result.replace(/(<meta name="test-data-provider" content=")synology-candidate("\s*\/?>)/g, '$1firebase$2');
   if (isCore) {
     const pattern = /const firebaseConfig\s*=\s*\{[\s\S]*?\};/g;
     assert.equal([...result.matchAll(pattern)].length, 1, 'Expected exactly one Firebase config in built core');
@@ -131,7 +134,7 @@ function createLocalServer(root, firestorePort, requestLog) {
       const file = path.resolve(root, relative);
       if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()
           || !fs.realpathSync(file).startsWith(root + path.sep)
-          || !/^(?:index-test\.html|manifest-test\.webmanifest|sw-test\.js|test-app\/(?:build|vendor|icons|src|tabel|tabel-v2)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
+          || !/^(?:index-test\.html|manifest-test\.webmanifest|sw-test\.js|test-app\/(?:build|vendor|icons|src|tabel|tabel-v2|synology)\/[^?]+|assets\/[^?]+)$/.test(relative)) {
         res.writeHead(404); res.end(); return;
       }
       res.setHeader('Content-Type', types[path.extname(file)] || 'application/octet-stream');
