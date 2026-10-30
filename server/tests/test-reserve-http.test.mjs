@@ -133,3 +133,19 @@ test('reserve endpoint rejects old writer epochs, never writes with stale metada
   assert.equal(db.docs.get(OWNER_DOC).reserveSequence,0);
  }finally{await s.stop();}
 });
+
+test('owner status does not claim a ready reserve with stale head or wrong holder',async()=>{
+ const db=seed(),s=await live(db);
+ try{
+  const status=async()=>fetch(s.url+'/api/v1/owner/status',{headers:headers()}).then(r=>r.json());
+  assert.equal((await status()).readyForFailover,true);
+  db.docs.get(OWNER_DOC).observedSequence=16;
+  assert.equal((await status()).readyForFailover,false);
+  assert.equal((await fetch(s.url+'/api/v1/session',{headers:headers()})).status,503);
+  db.docs.get(OWNER_DOC).observedSequence=17;
+  db.docs.get(OWNER_DOC).holder='nas_handoff_pending';
+  assert.equal((await status()).readyForFailover,false);
+  assert.equal((await fetch(s.url+'/api/v1/line/snapshot',{headers:headers()})).status,503);
+  assert.equal(db.docs.get(OWNER_DOC).reserveSequence,0);
+ }finally{await s.stop();}
+});
