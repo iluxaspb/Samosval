@@ -469,6 +469,24 @@ def main():
         role_checks(clean)
         passed('fresh installation via current recovery page opens correct release')
         clean.screenshot(path=str(output / 'test-updater-verified.png'), full_page=True)
+
+        # Unregistering alone does not release an old worker while a client is
+        # still alive. Recovery must explicitly activate the verified worker.
+        phase['new'] = False
+        held_ctx = context()
+        held = held_ctx.new_page(); held.goto(base + 'index-test.html'); app_ready(held)
+        wait_for_page_state(held, '() => !!navigator.serviceWorker.controller && window.TestPWA.snapshot().activeVersion === '+json.dumps(old.build), timeout=45000)
+        held.evaluate("localStorage.setItem('qa-recovery-preservation','keep')")
+        phase['new'] = True
+        recovery = held_ctx.new_page(); recovery.on('dialog', lambda d: d.accept())
+        recovery.goto(base + 'update-test.html'); recovery.locator('#repair').click()
+        recovery.wait_for_url('**/index-test.html?repair=*', timeout=120000)
+        release_checks(recovery)
+        assert not held.is_closed(), 'Exercise an old client that remains alive'
+        assert recovery.evaluate("localStorage.getItem('qa-recovery-preservation')") == 'keep'
+        recovery.goto(base + 'index-test.html')
+        release_checks(recovery)
+        passed('recovery activates verified new worker despite a surviving old client; canonical URL and data preserved')
         check_errors()
         for number, item in enumerate(contexts):
             item.tracing.stop(path=str(output / f'upgrade-trace-{number}.zip'))

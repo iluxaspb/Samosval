@@ -38,6 +38,39 @@ button:disabled{opacity:.5}a{color:#93c5fd}#status{min-height:42px;white-space:p
     }
     return count;
   }
+  async function workerMessage(worker,message) {
+    return new Promise((resolve,reject)=>{
+      const channel=new MessageChannel();
+      const finish=(error,value)=>{clearTimeout(timer);channel.port1.close();channel.port2.close();error?reject(error):resolve(value);};
+      const timer=setTimeout(()=>finish(Error('Служебный файл обновления не ответил.')),5000);
+      channel.port1.onmessage=event=>finish(null,event.data);
+      try {worker.postMessage(message,[channel.port2]);}catch(error){finish(error);}
+    });
+  }
+  async function activateVerifiedRelease(version) {
+    const reg=await navigator.serviceWorker.register('./sw-test.js',{scope:'./index-test.html',updateViaCache:'none'});
+    await reg.update();
+    const deadline=Date.now()+95000;
+    let requested;
+    while(Date.now()<deadline){
+      if(pendingJournal()>0)throw Error('Появились ожидающие рейсы. Обновление отменено.');
+      const worker=reg.waiting||reg.active;
+      if(worker){
+        const state=await workerMessage(worker,{type:'TEST_PWA_STATUS'});
+        if(state?.type==='TEST_PWA_STATUS'&&state.version===version&&state.complete===true){
+          if(worker===reg.active&&worker.state==='activated')return;
+          if(worker===reg.waiting&&requested!==worker){
+            const applied=await workerMessage(worker,{type:'TEST_PWA_APPLY',version});
+            if(applied?.type!=='TEST_PWA_APPLY'||applied.version!==version||applied.accepted!==true)
+              throw Error('Новая сборка не подтвердила активацию.');
+            requested=worker;
+          }
+        }
+      }
+      await new Promise(resolve=>setTimeout(resolve,250));
+    }
+    throw Error('Не удалось полностью загрузить и активировать новую сборку. Повторите проверку с интернетом.');
+  }
   button.onclick=async()=>{
     button.disabled=true;
     try {
@@ -62,8 +95,11 @@ button:disabled{opacity:.5}a{color:#93c5fd}#status{min-height:42px;white-space:p
       show('Отключаю старую офлайн-регистрацию, не затрагивая данные…');
       const reg=await navigator.serviceWorker.getRegistration('./index-test.html');
       if (reg && !(await reg.unregister()))throw Error('Не удалось отключить старую офлайн-регистрацию.');
-      // The next worker verifies the new release and removes only old
-      // samosval-test-shell-* caches after successful activation.
+      // An unregistered worker can still control an existing client. Explicitly
+      // activate only the complete, hash-verified release approved above.
+      show('Загружаю файлы и дожидаюсь активации проверенной сборки…');
+      await activateVerifiedRelease(data.version);
+      if(pendingJournal()>0)throw Error('Появились ожидающие рейсы. Перезапуск отменён.');
       show('Открываю актуальную тестовую версию…');
       location.replace('./index-test.html?repair='+Date.now());
     } catch(error) {
