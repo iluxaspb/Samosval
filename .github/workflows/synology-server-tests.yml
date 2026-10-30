@@ -58,9 +58,11 @@ jobs:
             await client.query(readFileSync('sql/001_init.sql','utf8'));
             await client.query(readFileSync('sql/002_tabel.sql','utf8'));
             await client.query(readFileSync('sql/003_shift_close.sql','utf8'));
+            await client.query(readFileSync('sql/004_objects.sql','utf8'));
           } finally {
             await client.end();
           }
           NODE
       - run: npm test
+
 
