@@ -66,7 +66,7 @@ test('complete reserve-to-NAS handback publishes new verified generation',async(
  assert.equal(f.db.docs.get(OWNER_DOC).owner,'handoff');
  assert.equal(f.db.docs.get(REPLICA_DOC).readyForFailover,false);
  await assert.rejects(acquireNasWritePermit({
-  firestore:f.db,projectId:'samosval-offline',nodeId:'old_nas',now
+  firestore:f.db,projectId:'samosval-offline',nodeId:'old_nas_process',now
  }),/writer-synology-not-authorized/);
  const done=await f.finish();
  assert.equal(done.completed,true);
