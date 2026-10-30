@@ -26,7 +26,7 @@ async function context(db){
  if(meta?.protocol!==1||meta.projectId!=='samosval-offline'||
   meta.readyForFailover!==true||owner?.owner!=='firebase'||
   owner.projectId!=='samosval-offline'||meta.generation!==owner.generation||
-  owner.leaseUntil<=Date.now()||!Number.isSafeInteger(owner.epoch))
+  !Number.isSafeInteger(owner.epoch))
   throw fail('reserve-not-active');
  return {meta,owner};
 }
@@ -119,6 +119,23 @@ export function createReserveHttp({firestore,projectId,verifyToken,enabled=false
   const uid=identity?.uid;
   if(typeof uid!=='string'||!uid)return json(res,401,{error:'unauthorized'});
   try{
+   if(req.method==='GET'&&path==='/api/v1/owner/status'){
+    // Read the independent authority even when the reserve is not promoted.
+    // A browser never chooses the owner from NAS request timeouts alone.
+    const [ms,os]=await Promise.all([
+     firestore.doc(REPLICA_DOC).get(),firestore.doc(OWNER_DOC).get()]);
+    const m=ms.exists?ms.data():null,o=os.exists?os.data():null;
+    if(m?.protocol!==1||m.projectId!=='samosval-offline'||o?.protocol!==1||
+       o.projectId!=='samosval-offline'||
+       !['synology','firebase','reconciling','handoff'].includes(o.owner)||
+       m.generation!==o.generation||!Number.isSafeInteger(o.epoch))
+     throw fail('reserve-owner-unverified');
+    return json(res,200,{format:'samosval-owner-status',version:1,
+     projectId:'samosval-offline',owner:o.owner,epoch:o.epoch,
+     readyForFailover:o.owner==='firebase'&&m.readyForFailover===true,
+     confirmedSequence:m.lastSequence,reserveSequence:o.reserveSequence||0,
+     generation:m.generation,checkedAt:clock()});
+   }
    if(req.method==='GET'&&path==='/api/v1/reserve/status'){
     const {owner}=await context(firestore);
     return json(res,200,{source:'firebase',ready:true,epoch:owner.epoch,

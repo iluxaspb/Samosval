@@ -33,7 +33,7 @@ function checkedOwner(owner,meta,expectedEpoch,now){
     owner.owner!=='firebase'||owner.holder!=='firebase_reserve'||
     !Number.isSafeInteger(owner.epoch)||owner.epoch!==expectedEpoch||
     owner.generation!==meta.generation||
-    !Number.isSafeInteger(owner.leaseUntil)||owner.leaseUntil<=now)
+    !Number.isSafeInteger(owner.leaseUntil)||owner.leaseUntil<=0)
   throw bad('reserve-not-write-owner',503);
  if(owner.observedSequence!==meta.lastSequence)throw bad('reserve-base-checkpoint-changed',503);
  return owner;
