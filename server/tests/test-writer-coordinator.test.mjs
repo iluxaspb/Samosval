@@ -118,6 +118,25 @@ test('reserve promotion refuses unready mirror, live lease, or outstanding permi
  await assert.rejects(claim(firestore,nodeA,checkpoint,p.until+FENCE_GRACE_MS+2),/writer-owner-not-synology/);
  await assert.rejects(promote(firestore,1,p.until+FENCE_GRACE_MS+3),/writer-promotion-epoch-changed/);
 });
+
+test('unreplicated NAS commit forbids promotion even with no pending permits',async()=>{
+ const {firestore,checkpoint}=setup();
+ await claim(firestore,nodeA,checkpoint);
+ const p=await permit(firestore,nodeA,t0+1);
+ assert.equal(await releaseNasWritePermit({firestore,projectId:'samosval-offline',
+  nodeId:nodeA,permit:p,committedSequence:29}),true);
+ assert.equal(firestore.docs.get(OWNER_DOC).observedSequence,29);
+ assert.equal(Object.keys(firestore.docs.get(OWNER_DOC).pending).length,0);
+ firestore.docs.get(REPLICA_DOC).readyForFailover=true;
+ await assert.rejects(promote(firestore,1,t0+OWNER_LEASE_MS+FENCE_GRACE_MS+1),
+  /writer-reserve-not-ready/);
+ // A heartbeat must NEVER lower the confirmed high-water to the mirrored one.
+ await claim(firestore,nodeA,checkpoint,t0+1000);
+ assert.equal(firestore.docs.get(OWNER_DOC).observedSequence,29);
+ // Even a valid expiring lease does not override the stale backup.
+ await assert.rejects(promote(firestore,1,t0+OWNER_LEASE_MS+FENCE_GRACE_MS+2),
+  /writer-reserve-not-ready/);
+});
 test('invalid or tampered ownership blocks operations',async()=>{
  const {firestore,checkpoint}=setup();
  await claim(firestore,nodeA,checkpoint);
@@ -138,7 +157,7 @@ test('opt-in NAS HTTP guard refuses absent ownership, then leases and releases a
  const {startNasWriterFence,nasWriterFenceRuntime}=await import('../src/test-writer-guard.mjs');
  let now=t0;
  const guard=startNasWriterFence({
-  pool:{query:async()=>({rows:[checkpoint]})},projectId:'samosval-offline',
+  pool:{query:async sql=>sql.includes('last_sequence')?{rows:[{n:'27'}]}:{rows:[checkpoint]}},projectId:'samosval-offline',
   env:{TEST_WRITER_FENCE_ENABLED:'1'},firestoreFactory:()=>firestore,
   clock:()=>now,intervalMs:1000000
  });

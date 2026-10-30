@@ -70,7 +70,7 @@ export async function claimNasOwnership({firestore,projectId,nodeId,checkpoint,n
    if(state.leaseUntil<now+OPERATION_HOLD_MS)
     throw invalid('writer-lease-almost-expired');
    const leaseUntil=now+OWNER_LEASE_MS;
-   tx.update(ownerRef,{leaseUntil,observedSequence:m.lastSequence,updatedAt:now});
+   tx.update(ownerRef,{leaseUntil,observedSequence:Math.max(state.observedSequence,m.lastSequence),updatedAt:now});
    return {epoch:state.epoch,leaseUntil,created:false};
   }
   if(state.leaseUntil+FENCE_GRACE_MS>=now)
@@ -80,7 +80,7 @@ export async function claimNasOwnership({firestore,projectId,nodeId,checkpoint,n
   // longer authorize even a single write permit.
   const epoch=state.epoch+1,leaseUntil=now+OWNER_LEASE_MS;
   tx.update(ownerRef,{holder:nodeId,epoch,leaseUntil,pending:{},
-   observedSequence:m.lastSequence,updatedAt:now});
+   observedSequence:Math.max(state.observedSequence,m.lastSequence),updatedAt:now});
   return {epoch,leaseUntil,created:false,reclaimed:true};
  });
 }
@@ -100,7 +100,9 @@ export async function acquireNasWritePermit({firestore,projectId,nodeId,now=Date
   return {permitId,epoch:state.epoch,until:ticket.until};
  });
 }
-export async function releaseNasWritePermit({firestore,projectId,nodeId,permit}){
+export async function releaseNasWritePermit({firestore,projectId,nodeId,permit,committedSequence}){
+ if(committedSequence!==undefined&&(!Number.isSafeInteger(committedSequence)||committedSequence<0))
+  throw invalid('writer-invalid-committed-sequence');
  assertCoordinatorProject(projectId);
  if(!validId(nodeId)||!permit||!validId(permit.permitId)||!positive(permit.epoch))
   throw invalid('writer-invalid-permit');
@@ -113,7 +115,9 @@ export async function releaseNasWritePermit({firestore,projectId,nodeId,permit})
   if(!Object.hasOwn(state.pending,permit.permitId))return false;
   const pending={...state.pending};
   delete pending[permit.permitId];
-  tx.update(ref,{pending,updatedAt:Date.now()});
+  tx.update(ref,{pending,
+   observedSequence:committedSequence===undefined?state.observedSequence:
+    Math.max(state.observedSequence,committedSequence),updatedAt:Date.now()});
   return true;
  });
 }

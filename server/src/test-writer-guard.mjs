@@ -56,7 +56,16 @@ export function startNasWriterFence({pool,projectId,env=process.env,
    const permit=await acquireNasWritePermit({firestore:db,projectId,nodeId,now});
    nasWriterFenceRuntime.allowedWrites++;
    return {epoch:permit.epoch,release:async()=>{
-    try{return await releaseNasWritePermit({firestore:db,projectId,nodeId,permit});}
+    try{
+     // SQL 014 is commit ordered; read its head only AFTER the HTTP handler
+     // finished its PG transaction. Release the remote write-intent and
+     // advance the durable observed head together, atomically in Firestore.
+     const result=await pool.query('SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true');
+     const n=Number(result.rows?.[0]?.n);
+     if(!Number.isSafeInteger(n)||n<0)throw Error('writer-outbox-head-unavailable');
+     return await releaseNasWritePermit({firestore:db,projectId,nodeId,
+      permit,committedSequence:n});
+    }
     catch(e){nasWriterFenceRuntime.lastError=boundedError(e);throw e;}
    }};
   }catch(e){
