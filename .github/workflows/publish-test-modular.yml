@@ -71,6 +71,14 @@ jobs:
           assert m['version'] in (root/'sw-test.js').read_text()
           print('TEST_BUILD_OK',m['version'],len(m['assets']))
           PY
+          python3 tools/recolor_test_icons.py
+          python3 - <<'PY'
+          import json, pathlib
+          m=json.loads(pathlib.Path('manifest-test.webmanifest').read_text())
+          assert all('icon-test-red' in x['src'] and pathlib.Path(x['src']).exists() for x in m['icons'])
+          assert 'icon-test-red-192.png' in pathlib.Path('index-test.html').read_text()
+          print('TEST_RED_ICONS_OK')
+          PY
           node --check sw-test.js
           node tests/modular/line-motion-3425.cjs
           node tests/modular/line-motion-3426.cjs
@@ -79,7 +87,7 @@ jobs:
         run: |
           git config user.name "Samosval Test Build"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add index-test.html sw-test.js test-app/build-manifest.json test-app/build/
+          git add index-test.html sw-test.js test-app/build-manifest.json test-app/build/ test-app/icons/icon-test-red-192.png test-app/icons/icon-test-red-512.png
           if ! git diff --cached --quiet; then
             git commit -m "build(test): publish current hashed assets"
             git push origin HEAD:root
