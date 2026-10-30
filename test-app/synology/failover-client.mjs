@@ -68,3 +68,27 @@ export function createFailoverAdminController({getSession,read,setMode,confirm,n
     }
   });
 }
+
+/**
+ * Upper status indicator for TEST 4.1 emergency routing.
+ * The letter comes from the trusted shared write authority AND an actually
+ * connected transport. Neither a local preference nor a successful /health
+ * probe may change it. The released UI still uses its existing S/F indicator.
+ */
+export function failoverServerIndicator(state,{online=true,transportConfirmed=false,sessionValid=true}={}){
+  if(!online)return {letter:'О',provider:null,label:'Офлайн — действия сохраняются локально',connected:false};
+  if(!sessionValid)return {letter:'…',provider:null,label:'Нет подтверждённого сеанса',connected:false};
+  const valid=state?.format==='samosval-test-failover'&&state.version===1&&
+    state.projectId==='samosval-offline'&&state.workspaceId==='main_workspace'&&
+    state.enabled===true&&['synology','firebase'].includes(state.provider)&&
+    Number.isSafeInteger(state.epoch)&&state.epoch>0&&
+    Number.isSafeInteger(state.sequence)&&state.sequence>=0&&
+    state.head?.sequence===state.sequence&&/^[a-f0-9]{64}$/.test(state.head?.hash||'')&&
+    state.adapters?.[state.provider]===true&&
+    state.replicas?.[state.provider]?.sequence===state.sequence&&
+    state.replicas[state.provider].hash===state.head.hash;
+  if(!valid||transportConfirmed!==true)
+    return {letter:'…',provider:null,label:'Проверка активного сервера',connected:false};
+  return {letter:state.provider==='synology'?'S':'F',provider:state.provider,
+    label:names[state.provider]+' — подтверждённый сервер данных',connected:true,epoch:state.epoch};
+}
