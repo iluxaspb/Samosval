@@ -16,7 +16,7 @@ export const MIRROR_TABLES=Object.freeze([
  'workspace_service_audit','workspace_service_receipts','workspace_services_state',
  'workspace_settings','workspaces'
 ]);
-const LIMIT_ROWS=50000, LIMIT_BYTES=70000000, CHUNK=20;
+const LIMIT_ROWS=50000, LIMIT_BYTES=70000000, CHUNK=20, MAX_BATCH_BYTES=6500000;
 export function assertTestProject(projectId){
  if(projectId!=='samosval-offline')throw Error('replica-test-project-required');
 }
@@ -164,10 +164,16 @@ async function bootstrap(pool,db){
  // Keep all unverified rows invisible in a new immutable generation.
  const snapshot=await collectSnapshot(pool);
  const generation=sha256(randomUUID()).slice(0,24),metaRef=db.doc(REPLICA_DOC);
- for(let start=0;start<snapshot.rows.length;start+=CHUNK){
-  const batch=db.batch();
-  for(const row of snapshot.rows.slice(start,start+CHUNK))batch.set(rowRef(db,generation,row.table,row.key),row.envelope);
-  await batch.commit();
+ for(let start=0;start<snapshot.rows.length;){
+  const batch=db.batch();let total=0,count=0;
+  for(const row of snapshot.rows.slice(start,start+CHUNK)){
+   const bytes=Buffer.byteLength(JSON.stringify(row.envelope),'utf8')+1024;
+   if(count&&total+bytes>MAX_BATCH_BYTES)break;
+   if(bytes>MAX_BATCH_BYTES)throw Error('replica-snapshot-write-too-large');
+   batch.set(rowRef(db,generation,row.table,row.key),row.envelope);
+   total+=bytes;count++;
+  }
+  await batch.commit();start+=count;
  }
  // Verify the actual remote generation, not just local checksum calculations.
  // An incomplete upload is never published by the singleton metadata pointer.
@@ -230,8 +236,23 @@ export async function replicateOnce({pool,firestore,projectId}){
  }
  const recovered=await confirmRemoteAhead(pool,remote,receipt);
  if(recovered)return recovered;
- const rows=await eventsAfter(pool,receipt.sequence);
- if(!rows.length)return {idle:true,sequence:receipt.sequence,lag:(await cursor(pool))-receipt.sequence};
+ const pending=await eventsAfter(pool,receipt.sequence);
+ if(!pending.length)return {idle:true,sequence:receipt.sequence,lag:(await cursor(pool))-receipt.sequence};
+ // Firestore transaction size is capped. Every event stores both an immutable
+ // ledger entry and (if upsert) one materialized row, so count BOTH payloads.
+ const rows=[];let batchBytes=0;
+ for(const item of pending){
+  const ledger=validateRowSize({
+   sequence:item.sequence,table:item.table_name,action:item.action,
+   keyJson:canonical(item.row_key),rowJson:item.row_data===null?null:canonical(item.row_data)
+  });
+  const row=item.action==='upsert'?validateRowSize(rowEnvelope(item.table_name,item.row_key,item.row_data,item.sequence)):null;
+  const bytes=Buffer.byteLength(JSON.stringify(ledger),'utf8')+
+    (row?Buffer.byteLength(JSON.stringify(row),'utf8'):256)+2048;
+  if(rows.length&&batchBytes+bytes>MAX_BATCH_BYTES)break;
+  if(bytes>MAX_BATCH_BYTES)throw Error('replica-transaction-too-large');
+  rows.push(item);batchBytes+=bytes;
+ }
  contiguous(rows,receipt.sequence);
  let hash=receipt.hash;
  for(const event of rows)hash=nextHash(hash,event);
