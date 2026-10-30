@@ -254,7 +254,7 @@
     }catch(_){}
   }
   // Persistent, optimistic offline actions; server remains authoritative.
-  const offlineJournalKey=()=> 'samosval_offline_v1_'+firebaseConfig.projectId+'_'+WORKSPACE_ID+'_'+currentUid;
+  const offlineJournalKey=()=> isNasRuntime()?'samosval_offline_nas_v1:'+nasStorageScope():'samosval_offline_v1_'+firebaseConfig.projectId+'_'+WORKSPACE_ID+'_'+currentUid;
   let offlineReplayRunning=false,offlineRemoteStatuses={},offlineRemoteLogs=[];
   function offlineJournalRead(){
     if(!currentUid)return [];

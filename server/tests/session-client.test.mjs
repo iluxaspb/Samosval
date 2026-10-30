@@ -105,3 +105,18 @@ test('NAS unsubscribe suppresses callbacks from an already in-flight response',a
   while(!release)await new Promise(resolve=>setImmediate(resolve));close();release(reply(session()));
   await new Promise(resolve=>setImmediate(resolve));assert.equal(calls,0);client.stop();
 });
+test('NAS registration sends nickname only and rejects another UID in the result',async()=>{
+  let body;const {client}=fixture(async(_url,options)=>{body=JSON.parse(options.body);return reply({created:true,profile:{uid:'one',status:'pending'}});});
+  await client.registerPending({nickname:'Operator',role:'admin',uid:'foreign'});assert.deepEqual(body,{nickname:'Operator'});
+  const other=fixture(async()=>reply({created:true,profile:{uid:'foreign',status:'pending'}}));await assert.rejects(other.client.registerPending(),{code:'invalid-api-response',uncertain:true});
+});
+test('NAS admin confirmation is bound to operation and target user',async()=>{
+  for(const value of [{outcome:'confirmed',operationId:'different',result:{uid:'target'}},{outcome:'confirmed',operationId:'same',result:{uid:'foreign'}}]){
+    const {client}=fixture(async()=>reply(value));await assert.rejects(client.submitAdministration({id:'same',type:'user.role',uid:'target',role:'viewer',expectedRevision:1},{operationScope:client.scope}),{code:'invalid-api-response',uncertain:true});
+  }
+});
+test('NAS admin snapshot validates profile revisions and preserves pending request identity',async()=>{
+  const snapshot={format:'samosval-admin-access',version:1,source:'synology',users:[{uid:'one',revision:1}],deletedUsers:[],requests:[{uid:'one',revision:0}],permissions:{viewer:{tabs:['line'],actions:[],revision:1}}};
+  const {client}=fixture(async()=>reply(snapshot));assert.deepEqual(await client.readAdministration(),snapshot);
+  snapshot.users[0].revision=-1;await assert.rejects(client.readAdministration(),{code:'invalid-api-response'});
+});

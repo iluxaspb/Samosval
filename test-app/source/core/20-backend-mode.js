@@ -9,6 +9,7 @@
   }
 
   function getTestBackendMode() {
+    if(isNasRuntime())return 'synology';
     const key = testBackendPreferenceKey();
     if (!key) return 'firebase';
     try {
@@ -49,6 +50,7 @@
   }
 
   function getTestBackendIndicator(status) {
+    if(isNasRuntime())return {letter:status.state==='offline'?'О':'S',label:status.state==='offline'?'Synology — локальная очередь':status.state==='ok'?'Synology — сервер данных':'Synology — '+status.text,provider:'synology'};
     if (status.state === 'offline') return {letter:'О', label:'Офлайн', provider:'firebase'};
     if (!currentUid || status.state === 'init') return {letter:'…', label:'Firebase — подключение ещё не подтверждено', provider:'firebase'};
     if (status.state === 'error') return {letter:'!', label:'Firebase — требуется проверка синхронизации', provider:'firebase'};
@@ -110,13 +112,13 @@
     if (probeButton) probeButton.disabled = !allowed || !navigator.onLine || testSynologyCheckPending;
     const select = document.getElementById('testBackendMode');
     if (select) {
-      select.disabled = !allowed;
+      select.disabled = !allowed || isNasRuntime();
       select.value = getTestBackendMode();
     }
     const actual = document.getElementById('testBackendActual');
     if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
     const note = document.getElementById('testBackendModeNote');
-    if (note) note.textContent = getTestBackendMode() === 'auto'
+    if (note) note.textContent = isNasRuntime() ? 'Данные линии обслуживает Synology.' : getTestBackendMode() === 'auto'
       ? 'Сейчас автоматически используется Firebase. Synology станет доступен после подключения всех экранов; резервное переключение — после проверки синхронизации баз.'
       : 'Данные обслуживает Firebase. Режим Synology станет доступен после завершения подключения тестового интерфейса.';
   }

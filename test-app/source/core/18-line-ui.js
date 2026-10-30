@@ -102,10 +102,11 @@
     if (!canAdmin()) return;
     renderRegistrationRequests();
     const active = state.users.filter(u => u.status !== 'pending');
-    document.getElementById('usersListContainer').innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" value="${escapeHtml(u.nickname||'')}" onchange="updateUserNickname('${u.id}', this.value)"></div><div class="user-row-bottom"><select class="form-control" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
+    document.getElementById('usersListContainer').innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isNasRuntime()?u.protected===true:isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" value="${escapeHtml(u.nickname||'')}" onchange="updateUserNickname('${u.id}', this.value)"></div><div class="user-row-bottom"><select class="form-control" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
     document.querySelectorAll('[data-user-access]').forEach(input=>input.onchange=()=>setUserAccess(input.dataset.userAccess,input.checked));
   }
   async function setUserAccess(uid, enabled) {
+    if(isNasRuntime())return runNasAdminAction('user.access',{uid,enabled});
     if(!canAdmin()||userAccessWrites.has(uid))return;
     if(uid===currentUid){showError('Нельзя ограничить собственный доступ');renderAdminPanel();return;}
     if(!navigator.onLine){showError('Для изменения доступа требуется подключение к сети');renderAdminPanel();return;}
@@ -128,15 +129,16 @@
     }catch(e){showError('Не удалось изменить доступ: '+e.message);}
     finally{userAccessWrites.delete(uid);renderAdminPanel();}
   }
-  async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ nickname: nickname.trim() || null })); await addAudit('✏️ Изменено имя пользователя: ' + uid + ' → ' + nickname.trim(), {eventType:'user_nickname',targetUid:uid}); } catch(e) { showError(e.message); } }
-  async function changeUserRole(uid, newRole) { if (!canAdmin()) return; try { await tfAwait(usersRef.doc(uid).update({ role: newRole })); await addAudit('🔐 Изменена роль пользователя: ' + uid + ' → ' + newRole, {eventType:'user_role',targetUid:uid}); } catch(e) { showError(e.message); } }
-  async function deleteUser(uid) { if (!canAdmin() || !(await appConfirm('Удалить доступ?'))) return; try { await tfAwait(usersRef.doc(uid).delete()); await addAudit('🗑 Удалён доступ пользователя: ' + uid, {eventType:'user_delete',targetUid:uid}); } catch(e) { showError(e.message); } }
+  async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; if(isNasRuntime())return runNasAdminAction('user.nickname',{uid,nickname:nickname.trim()}); try { await tfAwait(usersRef.doc(uid).update({ nickname: nickname.trim() || null })); await addAudit('✏️ Изменено имя пользователя: ' + uid + ' → ' + nickname.trim(), {eventType:'user_nickname',targetUid:uid}); } catch(e) { showError(e.message); } }
+  async function changeUserRole(uid, newRole) { if (!canAdmin()) return; if(isNasRuntime())return runNasAdminAction('user.role',{uid,role:newRole}); try { await tfAwait(usersRef.doc(uid).update({ role: newRole })); await addAudit('🔐 Изменена роль пользователя: ' + uid + ' → ' + newRole, {eventType:'user_role',targetUid:uid}); } catch(e) { showError(e.message); } }
+  async function deleteUser(uid) { if (!canAdmin() || !(await appConfirm('Удалить доступ?'))) return; if(isNasRuntime())return runNasAdminAction('user.delete',{uid}); try { await tfAwait(usersRef.doc(uid).delete()); await addAudit('🗑 Удалён доступ пользователя: ' + uid, {eventType:'user_delete',targetUid:uid}); } catch(e) { showError(e.message); } }
   const registrationDecisions = new Set();
   async function decideRegistration(reqId, approve) {
     if (!canAdmin() || registrationDecisions.has(reqId)) return;
     const role=document.getElementById('req_role_'+reqId)?.value || 'viewer';
     if (approve && !Object.prototype.hasOwnProperty.call(ROLES,role)) {showError('Выберите роль');return;}
     if (!approve && !(await appConfirm('Отклонить заявку и закрыть доступ пользователю?'))) return;
+    if(isNasRuntime())return runNasAdminAction(approve?'registration.approve':'registration.reject',approve?{uid:reqId,role}:{uid:reqId});
     registrationDecisions.add(reqId);pendingStart();
     try {
       const cached=state.requests.find(r=>r.id===reqId) || state.users.find(u=>u.id===reqId&&u.status==='pending');
@@ -166,6 +168,12 @@
     if (!canAdmin()) return;
     const email = document.getElementById('newUserEmail').value.trim(); const pass = document.getElementById('newUserPassword').value; const role = document.getElementById('newUserRole').value;
     if (!email || !pass) { showError('Заполните поля'); return; }
+    if(isNasRuntime()){
+      const secAuth=secondaryApp.auth();
+      try{const credential=await secAuth.createUserWithEmailAndPassword(email,pass);await ensureNasPendingAccount(credential.user,()=>secAuth.currentUser);await refreshNasAdministration();await nasAdminAction('registration.approve',{uid:credential.user.uid,role});showToastEl('Пользователь создан на Synology',false);}
+      catch(error){showError('Создание доступа не завершено: '+error.message);}
+      finally{await secAuth.signOut();document.getElementById('newUserPassword').value='';}return;
+    }
     try { const secAuth = secondaryApp.auth(); const cred = await secAuth.createUserWithEmailAndPassword(email, pass); await secAuth.signOut(); await tfAwait(usersRef.doc(cred.user.uid).set({ email, role, status: 'active', nickname: sanitizeName(email) })); showToastEl('✅ Создан', false); }
     catch(e) { showError(e.message); }
   }
@@ -185,6 +193,7 @@
     const cont = document.getElementById('permissionsMatrixContainer');
     const tabs = Array.from(cont.querySelectorAll('input[data-type="tab"]:checked')).map(i => i.value);
     const actions = Array.from(cont.querySelectorAll('input[data-type="action"]:checked')).map(i => i.value);
+    if(isNasRuntime())return runNasAdminAction('permissions.replace',{role,permissions:{tabs,actions}});
     try { const update = {}; update[role] = { tabs, actions }; await tfAwait(permsRef.set(update, { merge: true })); addAudit(`Изменены права для роли: ${ROLES[role].label}`).catch(()=>{}); showToastEl('💾 Права сохранены', false); }
     catch(e) { showError(e.message); }
   }

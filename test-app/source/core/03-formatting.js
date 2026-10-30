@@ -58,7 +58,7 @@
     return logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
   }
 
-  function sessionCacheKey() { return 'dt_cache_v14:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + location.pathname + ':' + (currentUid || 'signed-out'); }
+  function sessionCacheKey() { if(isNasRuntime())return 'dt_cache_nas_v1:'+nasStorageScope()+':'+location.pathname; return 'dt_cache_v14:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + location.pathname + ':' + (currentUid || 'signed-out'); }
   function saveCache() { try { localStorage.setItem(sessionCacheKey(), JSON.stringify({ trucks: state.trucks, objects: state.objects, logs: offlinePendingCount()?offlineRemoteLogs:state.logs, truckStatus: offlinePendingCount()?offlineRemoteStatuses:state.truckStatus, shift: state.shift, archive: state.archive, trash: state.trash, audit: state.audit.slice(0, 100), lineAudit: state.lineAudit || [], notifications: (state.notifications || []).slice(0, 10), savedAt: Date.now() })); } catch(e) {} }
   function loadCache() { try { if (!currentUid) return; let raw = localStorage.getItem(sessionCacheKey()); if (!raw) return; let c = JSON.parse(raw); state.trucks = c.trucks||[]; state.objects = c.objects||[]; state.logs = c.logs||[]; state.truckStatus = c.truckStatus||{}; state.shift = c.shift||null; state.archive = c.archive||[]; state.trash = c.trash||[]; state.audit = c.audit||[]; state.lineAudit = c.lineAudit||[]; state.notifications = c.notifications||[]; } catch(e) {} }
 
@@ -129,6 +129,7 @@
     }
   }
   function stopSync() {
+    stopNasRuntime();
     lineCountAuditStop?.(); lineCountAuditStop = null; lineCountAuditKey = ''; state.lineAudit = [];
     unsubscribers.forEach(u => { try { u(); } catch(e){} }); unsubscribers = [];
     if (usersUnsubscriber) { try { usersUnsubscriber(); } catch(e){} usersUnsubscriber = null; }

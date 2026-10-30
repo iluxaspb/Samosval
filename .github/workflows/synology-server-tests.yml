@@ -66,6 +66,8 @@ jobs:
             await client.end();
           }
           NODE
+      - name: Verify TEST modular build without publishing
+        run: python3 ../tools/verify-test-modules.py
       - run: npm test
 
 
