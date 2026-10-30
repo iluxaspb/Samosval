@@ -85,26 +85,13 @@ test('lost confirmation remains retryable with identical document ID',async()=>{
   assert.equal(confirm,2);
 });
 
-test('minute outbox splits more than 500 records into consecutive documents', async()=>{
+test('minute outbox splits more than 500 records into consecutive documents',()=>{
   const events=Array.from({length:502},(_,i)=>event(10+i));
-  let cursor={...previous},writes=0;
-  const runner=createMinuteReplicaRunner({
-    now:()=>100000,
-    readPending:async seq=>events.filter(e=>e.sequence>seq).slice(0,501),
-    putImmutable:async()=>{writes++;},
-    readBack:async id=>{
-      const batch=latestBatch;return batch?.batchId===id?batch.document:null;
-    },
-    persistReceipt:async()=>{}
-  });
-  // Observe each generated document while preserving the same read-back contract.
-  let latestBatch=null;
-  // The first document contains 500 events, the second contains two.
-  const first=selectMinuteReserveBatch({previous:cursor,events:events.slice(0,501)});
+  const first=selectMinuteReserveBatch({previous,events:events.slice(0,501)});
   assert.equal(first.document.events.length,500);
   assert.equal(first.morePending,true);
-  cursor={sequence:first.document.to,hash:first.batchId};
-  const second=selectMinuteReserveBatch({previous:cursor,events:events.slice(500)});
+  const nextHead={sequence:first.document.to,hash:first.batchId};
+  const second=selectMinuteReserveBatch({previous:nextHead,events:events.slice(500)});
   assert.equal(second.document.from,510);
   assert.equal(second.document.events.length,2);
   assert.equal(second.morePending,false);
@@ -114,14 +101,9 @@ test('single oversized event cannot be silently lost',()=>{
   assert.throws(()=>selectMinuteReserveBatch({previous,
     events:[event(10,{row:{id:'huge',payload:'z'.repeat(3000)}})],maxBytes:1024}),/minute-event-exceeds-document-size/);
 });
-test('a row gap in the next packet blocks further acknowledgements',()=>{
-  const initial=selectMinuteReserveBatch({previous,events:[event(10),event(11),event(13)],maxBytes:1024});
-  // Either the preceding valid prefix can be safely staged, or the entire
-  // attempt fails. It may never report 13 as contiguous with 11.
-  assert.ok(initial.document.to<=11);
-  assert.equal(initial.morePending,true);
-  const next={sequence:initial.document.to,hash:initial.batchId};
-  assert.throws(()=>selectMinuteReserveBatch({previous:next,events:[event(13)]}),/invalid-minute-event/);
+test('row gaps are rejected rather than falsely acknowledging a missing event',()=>{
+  assert.throws(()=>selectMinuteReserveBatch({previous,events:[event(10),event(11),event(13)]}),/invalid-minute-event/);
+  assert.throws(()=>selectMinuteReserveBatch({previous:{sequence:11,hash:'b'.repeat(64)},events:[event(13)]}),/invalid-minute-event/);
 });
 test('size-based split retains the tail to send on the next tick',()=>{
   const events=Array.from({length:40},(_,i)=>event(10+i,{row:{id:'x'+i,comment:'abc'.repeat(80)}}));
