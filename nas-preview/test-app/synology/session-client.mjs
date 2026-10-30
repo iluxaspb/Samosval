@@ -71,7 +71,9 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
       guard();
       if(controller.signal.aborted)throw new NasClientError('api-timeout',{retryable:true,uncertain:write});
       if(error instanceof NasClientError)throw error;
-      throw new NasClientError('api-unreachable',{retryable:true,uncertain:write});
+      const failure=new NasClientError('api-unreachable',{retryable:true,uncertain:write});
+      const detail=['Failed to fetch','Illegal invocation','Load failed'].includes(error?.message)?error.message:error?.name||'network-error';
+      failure.message+=': '+detail;throw failure;
     }finally{clearTimeout(timer);controllers.delete(controller);}
   }
   const readSession=()=>request('/api/v1/session',{validate:x=>envelope(x,'samosval-session',workspaceId)&&typeof x.identityReady==='boolean'&&
