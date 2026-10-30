@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createReserveMinuteWorker} from '../src/reserve-minute-worker.mjs';
 const digest='a'.repeat(64);
-function fixture({bootstrapped=true}={}){
+function fixture({bootstrapped=true,missingTail=false}={}){
   let receipt=bootstrapped?{sequence:0,hash:digest}:null,attempts=0;
   const rows=[{sequence:'1',table_name:'line_logs',action:'upsert',
     row_key_json:JSON.stringify({workspace_id:'main_workspace',log_id:'1'}),
@@ -19,7 +19,8 @@ function fixture({bootstrapped=true}={}){
     if(query.includes('SELECT sequence::text AS sequence,hash FROM reserve_replica_receipt'))
       return {rows:receipt?[{...receipt,sequence:String(receipt.sequence)}]:[],rowCount:receipt?1:0};
     if(query.includes('FROM reserve_replica_outbox'))return {
-      rows:rows.filter(x=>Number(x.sequence)>args[0]).slice(0,args[1])};
+      rows:missingTail?[]:rows.filter(x=>Number(x.sequence)>args[0]).slice(0,args[1])};
+    if(query.includes('FROM reserve_outbox_cursor'))return {rows:[{last_sequence:'3'}]};
     if(query.includes('UPDATE reserve_replica_receipt')){
       attempts++;
       if(!receipt||receipt.sequence!==args[2]||receipt.hash!==args[3])
@@ -59,6 +60,13 @@ test('real composition writes one immutable Firestore document for line + tabel 
 test('missing verified initial receipt blocks upload and never creates Firestore documents',async()=>{
  const f=fixture({bootstrapped:false});
  await assert.rejects(f.worker.poll(),/invalid-durable-replica-receipt/);
+ assert.equal(f.docs.size,0);
+ assert.equal(f.attempts(),0);
+});
+
+test('a missing committed journal tail is never misclassified as an empty minute',async()=>{
+ const f=fixture({missingTail:true});
+ await assert.rejects(f.worker.poll(),/outbox-tail-missing/);
  assert.equal(f.docs.size,0);
  assert.equal(f.attempts(),0);
 });
