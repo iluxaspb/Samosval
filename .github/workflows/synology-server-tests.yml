@@ -127,6 +127,9 @@ jobs:
       - name: Build independent control image and verify Docker Compose availability
         run: |
           docker build -t samosval-test-api:ci server
+          # The failover API runs independently of NAS; prove its container
+          # builds without any Google Cloud credentials or production values.
+          docker build -f server/Dockerfile.reserve -t samosval-test-reserve:ci server
           docker build -f server/updater/Dockerfile --build-arg API_BASE=samosval-test-api:ci -t samosval-test-control:ci server
           docker run --rm --network none --entrypoint docker samosval-test-control:ci compose version
 
