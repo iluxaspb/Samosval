@@ -51,6 +51,15 @@ test('no NAS writer is created before the verified snapshot receipt',async()=>{
  assert.equal(established.created,true);
  assert.equal((await readWriteOwnership({firestore,projectId:'samosval-offline'})).epoch,1);
 });
+test('initial NAS ownership remembers unreplicated SQL014 head',async()=>{
+ const {firestore,checkpoint}=setup();
+ await claimNasOwnership({firestore,projectId:'samosval-offline',
+  nodeId:nodeA,checkpoint,headSequence:29,now:t0});
+ assert.equal(firestore.docs.get(OWNER_DOC).observedSequence,29);
+ firestore.docs.get(REPLICA_DOC).readyForFailover=true;
+ await assert.rejects(promote(firestore,1,t0+OWNER_LEASE_MS+FENCE_GRACE_MS+1),
+  /writer-reserve-not-ready/);
+});
 test('two NAS nodes cannot both own write permission',async()=>{
  const {firestore,checkpoint}=setup();
  await claim(firestore,nodeA,checkpoint);

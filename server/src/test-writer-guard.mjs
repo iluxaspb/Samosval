@@ -28,9 +28,13 @@ export function startNasWriterFence({pool,projectId,env=process.env,
   const raw=result.rows?.[0],sequence=Number(raw?.sequence);
   if(!raw||!Number.isSafeInteger(sequence)||sequence<0||
    !/^[0-9a-f]{64}$/.test(raw.hash||''))throw Error('writer-confirmed-receipt-required');
+  const latest=await pool.query('SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true');
+  const headSequence=Number(latest.rows?.[0]?.n);
+  if(!Number.isSafeInteger(headSequence)||headSequence<sequence)
+   throw Error('writer-invalid-nas-head');
   const stamp=clock();
   const lease=await claimNasOwnership({firestore:await getDb(),projectId,
-   nodeId,checkpoint:{sequence,hash:raw.hash},now:stamp});
+   nodeId,checkpoint:{sequence,hash:raw.hash},headSequence,now:stamp});
   nasWriterFenceRuntime.epoch=lease.epoch;
   nasWriterFenceRuntime.leaseUntil=lease.leaseUntil;
   nasWriterFenceRuntime.lastConfirmedAt=stamp;

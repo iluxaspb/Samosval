@@ -47,7 +47,11 @@ function requireCheckpoint(m,checkpoint){
   throw invalid('writer-mirror-not-confirmed-locally');
 }
 export function assertCoordinatorProject(projectId){assertTestProject(projectId);}
-export async function claimNasOwnership({firestore,projectId,nodeId,checkpoint,now=Date.now()}){
+export async function claimNasOwnership({firestore,projectId,nodeId,checkpoint,
+ headSequence=checkpoint?.sequence,now=Date.now()}){
+ if(!Number.isSafeInteger(headSequence)||headSequence<0||
+  !Number.isSafeInteger(checkpoint?.sequence)||headSequence<checkpoint.sequence)
+  throw invalid('writer-invalid-nas-head');
  assertCoordinatorProject(projectId);
  if(!validId(nodeId)||!Number.isSafeInteger(now)||now<1)throw invalid('writer-invalid-node');
  const metaRef=firestore.doc(REPLICA_DOC),ownerRef=firestore.doc(OWNER_DOC);
@@ -59,7 +63,7 @@ export async function claimNasOwnership({firestore,projectId,nodeId,checkpoint,n
   if(!current){
    const created={protocol:1,projectId:'samosval-offline',owner:'synology',
     holder:nodeId,epoch:1,leaseUntil:now+OWNER_LEASE_MS,
-    generation:m.generation,observedSequence:m.lastSequence,pending:{},updatedAt:now};
+    generation:m.generation,observedSequence:Math.max(m.lastSequence,headSequence),pending:{},updatedAt:now};
    tx.create(ownerRef,created);
    return {epoch:created.epoch,leaseUntil:created.leaseUntil,created:true};
   }
@@ -70,7 +74,7 @@ export async function claimNasOwnership({firestore,projectId,nodeId,checkpoint,n
    if(state.leaseUntil<now+OPERATION_HOLD_MS)
     throw invalid('writer-lease-almost-expired');
    const leaseUntil=now+OWNER_LEASE_MS;
-   tx.update(ownerRef,{leaseUntil,observedSequence:Math.max(state.observedSequence,m.lastSequence),updatedAt:now});
+   tx.update(ownerRef,{leaseUntil,observedSequence:Math.max(state.observedSequence,m.lastSequence,headSequence),updatedAt:now});
    return {epoch:state.epoch,leaseUntil,created:false};
   }
   if(state.leaseUntil+FENCE_GRACE_MS>=now)
@@ -80,7 +84,7 @@ export async function claimNasOwnership({firestore,projectId,nodeId,checkpoint,n
   // longer authorize even a single write permit.
   const epoch=state.epoch+1,leaseUntil=now+OWNER_LEASE_MS;
   tx.update(ownerRef,{holder:nodeId,epoch,leaseUntil,pending:{},
-   observedSequence:Math.max(state.observedSequence,m.lastSequence),updatedAt:now});
+   observedSequence:Math.max(state.observedSequence,m.lastSequence,headSequence),updatedAt:now});
   return {epoch,leaseUntil,created:false,reclaimed:true};
  });
 }
