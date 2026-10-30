@@ -4,6 +4,16 @@
 import {createHash, randomUUID} from 'node:crypto';
 
 export const REPLICA_DOC='samosval_test_replica/v1';
+const OWNER_DOC='samosval_test_replica/write_owner';
+// Every forward commit must be fenced by the same Firestore writer epoch.
+export function assertMirrorWriter(state,metadata,now=Date.now()){
+ if(!state)return;
+ if(!metadata||state.protocol!==1||state.projectId!=='samosval-offline'||
+   state.owner!=='synology'||state.generation!==metadata.generation||
+   !Number.isSafeInteger(state.leaseUntil)||state.leaseUntil<=now)
+  throw Error('replica-writer-not-synology');
+}
+
 export const MIRROR_TABLES=Object.freeze([
  'app_users','archive_overrides','control_audit','control_operation_receipts',
  'game_records','history_audit','history_receipts','identity_audit','identity_receipts',
@@ -227,6 +237,8 @@ export async function replicateOnce({pool,firestore,projectId}){
  assertTestProject(projectId);
  if(!pool||!firestore||typeof firestore.runTransaction!=='function')throw Error('replica-invalid-dependencies');
  let receipt=await readReceipt(pool),remote=await readMeta(firestore);
+ const ownerSnap=await firestore.doc(OWNER_DOC).get();
+ assertMirrorWriter(ownerSnap.exists?ownerSnap.data():null,remote);
  if(!receipt&&!remote)return bootstrap(pool,firestore);
  if(!remote)throw Error('replica-remote-checkpoint-missing');
  if(!receipt){
@@ -259,7 +271,9 @@ export async function replicateOnce({pool,firestore,projectId}){
  const latest=rows.at(-1).sequence;
  const ref=firestore.doc(REPLICA_DOC);
  await firestore.runTransaction(async tx=>{
-  const snap=await tx.get(ref),m=snap.exists?snap.data():null;
+  const [snap,ownership]=await Promise.all([tx.get(ref),tx.get(firestore.doc(OWNER_DOC))]);
+  const m=snap.exists?snap.data():null;
+  assertMirrorWriter(ownership.exists?ownership.data():null,m);
   if(!metadataValid(m)||m.generation!==remote.generation||
     m.lastSequence!==receipt.sequence||m.hash!==receipt.hash)throw Error('replica-remote-write-owner-changed');
   // Multiple changes to the same row can appear in one transaction. Fold

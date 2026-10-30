@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import {replicateOnce,rowId,REPLICA_DOC,assertTestProject,nextHash,readReplicaStatus} from '../src/test-replica.mjs';
+import {replicateOnce,rowId,REPLICA_DOC,assertTestProject,nextHash,readReplicaStatus,assertMirrorWriter} from '../src/test-replica.mjs';
+import {OWNER_DOC} from '../src/test-writer-coordinator.mjs';
 import {startTestReplica} from '../src/test-replica-runner.mjs';
 
 class FakeFirestore {
@@ -45,6 +46,16 @@ test('only the isolated samosval-offline project can receive mirrored data',()=>
  assert.notEqual(rowId('line_logs',{id:'L1'}),rowId('line_logs',{id:'L2'}));
  assert.throws(()=>nextHash('x',{}),/replica-invalid-event/);
 });
+test('forward replication is fenced by the shared writer epoch',()=>{
+ const meta={generation:'g'};
+ assert.doesNotThrow(()=>assertMirrorWriter(null,meta));
+ assert.doesNotThrow(()=>assertMirrorWriter({protocol:1,owner:'synology',
+  projectId:'samosval-offline',generation:'g',leaseUntil:200},meta,100));
+ assert.throws(()=>assertMirrorWriter({protocol:1,owner:'firebase',
+  projectId:'samosval-offline',generation:'g',leaseUntil:200},meta,100),/replica-writer-not-synology/);
+ assert.throws(()=>assertMirrorWriter({protocol:1,owner:'synology',
+  projectId:'samosval-offline',generation:'g',leaseUntil:100},meta,100),/replica-writer-not-synology/);
+});
 test('server background runner remains disabled unless explicitly opted in',async()=>{
  const runner=startTestReplica({pool:{},projectId:'samosval-production',env:{TEST_REPLICA_ENABLED:'0'}});
  assert.equal(runner.enabled,false);
@@ -67,6 +78,11 @@ test('Postgres -> Firebase: snapshot, exact receipts, outage, lost ACK, delete, 
   assert.equal(meta.writer,'synology');
   assert.equal(initial.rows,meta.rowCount);
   assert.equal(initial.sequence,meta.lastSequence);
+  firestore.docs.set(OWNER_DOC,{protocol:1,projectId:'samosval-offline',
+   owner:'firebase',holder:'firebase_reserve',epoch:2,generation:meta.generation,
+   leaseUntil:Date.now()+60000,pending:{},observedSequence:meta.lastSequence});
+  await assert.rejects(mirror(pool,firestore),/replica-writer-not-synology/);
+  firestore.docs.delete(OWNER_DOC);
   assert.ok(firestore.docs.has('legacy/application'),'never modify old Firebase paths');
   const status=await readReplicaStatus(pool,{enabled:true});
   assert.equal(status.lag,0);
