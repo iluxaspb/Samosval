@@ -13,6 +13,12 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const safeError=e=>/^[a-z0-9-]{1,100}$/.test(e.message)?e.message:'control-step-failed';
 const imageId=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const containerId=x=>typeof x==='string'&&/^[a-f0-9]{12,64}$/.test(x);
+// pg_restore --list reads only the archive TOC. Drain the remaining bytes
+// before closing Docker stdin, retaining the real pg_restore exit status.
+export const BACKUP_LIST_COMMAND='pg_restore --list; list_status=$?; cat >/dev/null; exit "$list_status"';
+// Validate every pinned module in one isolated container, avoiding one costly
+// Synology container mount/start per source file. Each file still uses --check.
+export const SYNTAX_CHECK_SCRIPT="import {spawnSync} from 'node:child_process'; for(const file of process.argv.slice(1)){const r=spawnSync(process.execPath,['--check',file],{stdio:'inherit'});if(r.status!==0)process.exit(r.status??1);}";
 export async function run(args,{inputFile,outputFile,timeout=180000}={}){
  return new Promise((accept,reject)=>{
   const child=spawn('docker',args,{stdio:['pipe','pipe','pipe']}),chunks=[];let size=0,done=false;
@@ -64,7 +70,7 @@ export class TestControlAgent{
   const dump=dir+'/database.dump',verify='sc_verify_'+Date.now();
   await this.docker(['exec',containers.postgres,'sh','-c','pg_dump -U "$POSTGRES_USER" -d samosval_test -Fc'],{outputFile:dump,timeout:300000});
   if((await stat(dump)).size<1)throw Error('empty-backup');
-  await this.docker(['exec','-i',containers.postgres,'pg_restore','--list'],{inputFile:dump,outputFile:dir+'/contents.txt'});
+  await this.docker(['exec','-i',containers.postgres,'sh','-c',BACKUP_LIST_COMMAND],{inputFile:dump,outputFile:dir+'/contents.txt'});
   await this.docker(['exec',containers.postgres,'sh','-c','createdb -U "$POSTGRES_USER" "$1"','sh',verify]);
   try{
    await this.docker(['exec','-i',containers.postgres,'sh','-c','pg_restore -U "$POSTGRES_USER" -d "$1" --exit-on-error --no-owner','sh',verify],{inputFile:dump,timeout:300000});
@@ -148,7 +154,8 @@ export class TestControlAgent{
   await writeFile(dir+'/Dockerfile',`FROM ${c.image}\nCOPY --chown=node:node src /app/src\nENV SAMOSVAL_RELEASE=${release.version}\n`);
   await this.docker(['build','--network','none','-t',tag,dir],{timeout:300000});
   const nextImage=await this.docker(['image','inspect','--format','{{.Id}}',tag]);if(!imageId(nextImage))throw Error('image-not-built');
-  for(const f of release.files)await this.docker(['run','--rm','--network','none','--read-only','--entrypoint','node',nextImage,'--check',f.path]);
+  await this.docker(['run','--rm','--network','none','--read-only','--entrypoint','node',nextImage,
+    '--input-type=module','-e',SYNTAX_CHECK_SCRIPT,...release.files.map(f=>f.path)]);
   await this.backup(job,c,{migrationFile});
   // Another administrator or maintenance script must not be overwritten.
   if((await this.containers()).image!==c.image)throw Error('server-image-changed');
