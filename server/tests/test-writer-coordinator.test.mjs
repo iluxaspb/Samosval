@@ -1,0 +1,122 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {REPLICA_DOC} from '../src/test-replica.mjs';
+import {OWNER_DOC,OWNER_LEASE_MS,FENCE_GRACE_MS,OPERATION_HOLD_MS,
+ claimNasOwnership,acquireNasWritePermit,releaseNasWritePermit,
+ promoteTestReserve,readWriteOwnership} from '../src/test-writer-coordinator.mjs';
+
+class Firestore {
+ constructor(){this.docs=new Map();this.offline=false;}
+ doc(path){return {path,get:async()=>this.snapshot(path)};}
+ snapshot(path){return {exists:this.docs.has(path),data:()=>structuredClone(this.docs.get(path))};}
+ async runTransaction(fn){
+  if(this.offline)throw Error('firebase-offline');
+  const writes=[];
+  const tx={
+   get:async ref=>this.snapshot(ref.path),
+   create:(ref,data)=>writes.push(['create',ref.path,data]),
+   update:(ref,data)=>writes.push(['update',ref.path,data])
+  };
+  const result=await fn(tx);
+  if(this.offline)throw Error('firebase-offline');
+  for(const [mode,path,data] of writes){
+   if(mode==='create'){if(this.docs.has(path))throw Error('already-exists');this.docs.set(path,structuredClone(data));}
+   else {if(!this.docs.has(path))throw Error('not-found');this.docs.set(path,{...this.docs.get(path),...structuredClone(data)});}
+  }
+  return result;
+ }
+}
+const t0=1900000000000, hash='a'.repeat(64),nodeA='nas_instance_A',nodeB='nas_instance_B';
+function setup(){
+ const firestore=new Firestore(),checkpoint={sequence:27,hash};
+ firestore.docs.set(REPLICA_DOC,{protocol:1,channel:'test',writer:'synology',
+  projectId:'samosval-offline',generation:'verified_generation',lastSequence:27,
+  hash,readyForFailover:false});
+ return {firestore,checkpoint};
+}
+const claim=(f,node,checkpoint,now=t0)=>claimNasOwnership({
+ firestore:f,projectId:'samosval-offline',nodeId:node,checkpoint,now});
+const permit=(f,node,now=t0,id)=>acquireNasWritePermit({
+ firestore:f,projectId:'samosval-offline',nodeId:node,now,...(id?{permitId:id}:{})});
+const release=(f,node,p)=>releaseNasWritePermit({
+ firestore:f,projectId:'samosval-offline',nodeId:node,permit:p});
+const promote=(f,epoch,now)=>promoteTestReserve({
+ firestore:f,projectId:'samosval-offline',expectedEpoch:epoch,now});
+
+test('no NAS writer is created before the verified snapshot receipt',async()=>{
+ const {firestore,checkpoint}=setup();
+ await assert.rejects(claim(firestore,nodeA,{sequence:26,hash}),/writer-mirror-not-confirmed-locally/);
+ assert.equal(firestore.docs.has(OWNER_DOC),false);
+ const established=await claim(firestore,nodeA,checkpoint);
+ assert.equal(established.created,true);
+ assert.equal((await readWriteOwnership({firestore,projectId:'samosval-offline'})).epoch,1);
+});
+test('two NAS nodes cannot both own write permission',async()=>{
+ const {firestore,checkpoint}=setup();
+ await claim(firestore,nodeA,checkpoint);
+ await assert.rejects(claim(firestore,nodeB,checkpoint,t0+2000),/writer-lease-held-by-another-process/);
+ await assert.rejects(permit(firestore,nodeB,t0+2000),/writer-synology-not-authorized/);
+ const valid=await permit(firestore,nodeA,t0+2000);
+ assert.equal(valid.epoch,1);
+ assert.equal(await release(firestore,nodeB,valid),false);
+ assert.equal(await release(firestore,nodeA,valid),true);
+ assert.equal(await release(firestore,nodeA,valid),false);
+});
+test('an unreachable authority fails closed, including permit delivery',async()=>{
+ const {firestore,checkpoint}=setup();
+ await claim(firestore,nodeA,checkpoint);
+ firestore.offline=true;
+ await assert.rejects(permit(firestore,nodeA,t0+1),/firebase-offline/);
+ await assert.rejects(claim(firestore,nodeA,checkpoint,t0+2),/firebase-offline/);
+ firestore.offline=false;
+ assert.equal((await permit(firestore,nodeA,t0+3)).epoch,1);
+});
+test('stale NAS process is fenced after lease and grace',async()=>{
+ const {firestore,checkpoint}=setup();
+ await claim(firestore,nodeA,checkpoint);
+ const after=t0+OWNER_LEASE_MS+FENCE_GRACE_MS+1;
+ const next=await claim(firestore,nodeB,checkpoint,after);
+ assert.equal(next.epoch,2);
+ await assert.rejects(permit(firestore,nodeA,after+1),/writer-synology-not-authorized/);
+ assert.equal((await permit(firestore,nodeB,after+1)).epoch,2);
+});
+test('pending operations cannot be ignored during takeover',async()=>{
+ const {firestore,checkpoint}=setup();
+ await claim(firestore,nodeA,checkpoint);
+ const p=await permit(firestore,nodeA,t0+OWNER_LEASE_MS-OPERATION_HOLD_MS-1);
+ await assert.rejects(claim(firestore,nodeB,checkpoint,t0+OWNER_LEASE_MS+FENCE_GRACE_MS+1),/writer-pending-operations/);
+ const after=p.until+FENCE_GRACE_MS+1;
+ assert.ok(after>t0+OWNER_LEASE_MS+FENCE_GRACE_MS);
+ assert.equal((await claim(firestore,nodeB,checkpoint,after)).epoch,2);
+});
+test('reserve promotion refuses unready mirror, live lease, or outstanding permits',async()=>{
+ const {firestore,checkpoint}=setup();
+ await claim(firestore,nodeA,checkpoint);
+ const after=t0+OWNER_LEASE_MS+FENCE_GRACE_MS+1;
+ await assert.rejects(promote(firestore,1,after),/writer-reserve-not-ready/);
+ firestore.docs.get(REPLICA_DOC).readyForFailover=true;
+ await assert.rejects(promote(firestore,1,t0+1),/writer-promotion-wait-for-nas/);
+ const p=await permit(firestore,nodeA,t0+OWNER_LEASE_MS-OPERATION_HOLD_MS-1);
+ await assert.rejects(promote(firestore,1,after),/writer-promotion-wait-for-nas/);
+ const changed=await promote(firestore,1,p.until+FENCE_GRACE_MS+1);
+ assert.equal(changed.owner,'firebase');
+ assert.equal(changed.epoch,2);
+ assert.equal(changed.recoveryPoint,27);
+ await assert.rejects(permit(firestore,nodeA,p.until+FENCE_GRACE_MS+2),/writer-synology-not-authorized/);
+ await assert.rejects(claim(firestore,nodeA,checkpoint,p.until+FENCE_GRACE_MS+2),/writer-owner-not-synology/);
+ await assert.rejects(promote(firestore,1,p.until+FENCE_GRACE_MS+3),/writer-promotion-epoch-changed/);
+});
+test('invalid or tampered ownership blocks operations',async()=>{
+ const {firestore,checkpoint}=setup();
+ await claim(firestore,nodeA,checkpoint);
+ firestore.docs.get(OWNER_DOC).epoch=-1;
+ await assert.rejects(permit(firestore,nodeA),/writer-ownership-invalid/);
+ firestore.docs.delete(OWNER_DOC);
+ firestore.docs.get(REPLICA_DOC).hash='bad';
+ await assert.rejects(claim(firestore,nodeB,checkpoint),/writer-mirror-checkpoint-invalid/);
+});
+test('only the dedicated TEST Firebase project is accepted',async()=>{
+ const {firestore,checkpoint}=setup();
+ await assert.rejects(claimNasOwnership({
+  firestore,projectId:'samosval-test',nodeId:nodeA,checkpoint,now:t0}),/replica-test-project-required/);
+});
