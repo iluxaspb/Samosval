@@ -9,6 +9,7 @@
   }
 
   function getTestBackendMode() {
+    if(isTestAutoNasRuntime())return 'auto';
     if(isNasRuntime())return 'synology';
     const key = testBackendPreferenceKey();
     if (!key) return 'firebase';
@@ -50,6 +51,12 @@
   }
 
   function getTestBackendIndicator(status) {
+    if(isTestAutoNasRuntime()){
+      const owner=nasRuntimeClient?.activeProvider;
+      if(owner==='firebase')return {letter:'F',label:'Firebase — резерв линии; остальные операции временно недоступны',provider:'firebase'};
+      if(owner==='synology')return {letter:status.state==='offline'?'О':'S',label:status.state==='offline'?'Synology — локальная очередь':'Synology — основной сервер (авторежим)',provider:'synology'};
+      return {letter:'?',label:'Авторежим: сервер записи ещё не подтверждён',provider:'unknown'};
+    }
     if(isNasRuntime())return {letter:status.state==='offline'?'О':'S',label:status.state==='offline'?'Synology — локальная очередь':status.state==='ok'?'Synology — сервер данных':'Synology — '+status.text,provider:'synology'};
     if (status.state === 'offline') return {letter:'О', label:'Офлайн', provider:'firebase'};
     if (!currentUid || status.state === 'init') return {letter:'…', label:'Firebase — подключение ещё не подтверждено', provider:'firebase'};
@@ -118,7 +125,7 @@
     const actual = document.getElementById('testBackendActual');
     if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
     const note = document.getElementById('testBackendModeNote');
-    if (note) note.textContent = isNasRuntime() ? 'Данные линии обслуживает Synology.' : getTestBackendMode() === 'auto'
+    if (note) note.textContent = isTestAutoNasRuntime() ? 'Отдельный TEST-кандидат: переключение линии только после подтверждения координатора. Табель, архив, игры и администрирование при работе резерва не записываются на NAS.' : isNasRuntime() ? 'Данные линии обслуживает Synology.' : getTestBackendMode() === 'auto'
       ? 'Сейчас автоматически используется Firebase. Synology станет доступен после подключения всех экранов; резервное переключение — после проверки синхронизации баз.'
       : 'Данные обслуживает Firebase. Режим Synology станет доступен после завершения подключения тестового интерфейса.';
   }
