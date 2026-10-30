@@ -35,6 +35,8 @@ const showError=s=>{window.lastError=s},showToastEl=s=>{window.lastToast=s};
             page=context.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
             page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(f'http://127.0.0.1:{server.server_port}') else r.abort())
             page.goto(f'http://127.0.0.1:{server.server_port}/')
+            out=ROOT/'test-results';out.mkdir(exist_ok=True)
+            page.screenshot(path=str(out/'backend-mode-initial.png'),full_page=True)
             indicator=page.locator('#syncDot');select=page.locator('#testBackendMode')
             assert indicator.inner_text()=='F'
             assert select.input_value()=='firebase'
@@ -54,11 +56,12 @@ const showError=s=>{window.lastError=s},showToastEl=s=>{window.lastToast=s};
             assert select.input_value()=='auto' and indicator.inner_text()=='F'
             page.evaluate('offlineServerUnreachable=true;updateSyncUI()')
             assert indicator.inner_text()=='О'
-            assert page.evaluate('getComputedStyle(document.querySelector("#syncDot")).backgroundColor')=='rgb(100, 116, 139)'
+            page.wait_for_function('getComputedStyle(document.querySelector("#syncDot")).backgroundColor==="rgb(100, 116, 139)"')
             assert page.evaluate('queued')==2
             page.evaluate('offlineServerUnreachable=false;updateSyncUI()')
             for width,height in [(320,740),(393,852),(915,412)]:
                 page.set_viewport_size({'width':width,'height':height})
+                page.screenshot(path=str(out/f'backend-mode-{width}.png'),full_page=True)
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),f'Horizontal overflow at {width}'
                 box=indicator.bounding_box();assert 20<=box['width']<=28 and 20<=box['height']<=28
                 assert page.locator('.sync-dot-wrap').get_attribute('aria-label').startswith('Firebase')
