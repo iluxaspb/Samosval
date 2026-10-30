@@ -23,7 +23,7 @@ function mirrorMetadata(m){
 }
 function ownerState(value){
  if(!value||value.protocol!==1||value.projectId!=='samosval-offline'||
-    !['synology','firebase','reconciling'].includes(value.owner)||!positive(value.epoch)||
+    !['synology','firebase','reconciling','handoff'].includes(value.owner)||!positive(value.epoch)||
     !validId(value.holder)||!positive(value.leaseUntil)||
     typeof value.generation!=='string'||!Number.isSafeInteger(value.observedSequence)||
     value.observedSequence<0||!value.pending||

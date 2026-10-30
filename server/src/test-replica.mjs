@@ -46,7 +46,7 @@ export function rowId(table,key){
  if(!MIRROR_TABLES.includes(table)||!key||typeof key!=='object'||Array.isArray(key)||!Object.keys(key).length)throw Error('replica-invalid-row-key');
  return table+'_'+sha256(table+'\n'+canonical(key));
 }
-const rowRef=(db,generation,table,key)=>db.doc(REPLICA_DOC+'/rows_'+generation+'/'+rowId(table,key));
+export const rowRef=(db,generation,table,key)=>db.doc(REPLICA_DOC+'/rows_'+generation+'/'+rowId(table,key));
 const eventRef=(db,generation,sequence)=>db.doc(REPLICA_DOC+'/events_'+generation+'/'+String(sequence).padStart(20,'0'));
 const rowEnvelope=(table,key,row,seq)=>({
  table,keyJson:canonical(key),rowJson:canonical(row),appliedSequence:seq
@@ -80,7 +80,7 @@ async function readReceipt(pool){
  const r=await pool.query('SELECT sequence::text,hash,updated_at FROM reserve_replica_receipt WHERE singleton=true');
  return r.rows.length?{sequence:int(r.rows[0].sequence),hash:r.rows[0].hash,updatedAt:r.rows[0].updated_at}:null;
 }
-async function storeReceipt(pool,sequence,hash){
+export async function storeReceipt(pool,sequence,hash){
  if(!hex(hash))throw Error('replica-invalid-hash');
  await pool.query(
  'INSERT INTO reserve_replica_receipt(singleton,sequence,hash) VALUES(true,$1,$2) '+
@@ -120,7 +120,7 @@ function sqlIdentifier(x){
  if(!/^[a-z][a-z0-9_]*$/.test(x))throw Error('replica-invalid-table');
  return '"'+x+'"';
 }
-async function collectSnapshot(pool){
+export async function collectSnapshot(pool){
  const c=await pool.connect(),h=createHash('sha256'),rows=[];
  let totalBytes=0,sequence=0;
  try{
