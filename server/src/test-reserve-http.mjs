@@ -25,7 +25,8 @@ async function context(db){
  const meta=m.exists?m.data():null,owner=o.exists?o.data():null;
  if(meta?.protocol!==1||meta.projectId!=='samosval-offline'||
   meta.readyForFailover!==true||owner?.owner!=='firebase'||
-  owner.projectId!=='samosval-offline'||meta.generation!==owner.generation||
+  owner.projectId!=='samosval-offline'||owner.holder!=='firebase_reserve'||
+  owner.observedSequence!==meta.lastSequence||meta.generation!==owner.generation||
   !Number.isSafeInteger(owner.epoch))
   throw fail('reserve-not-active');
  return {meta,owner};
@@ -128,11 +129,14 @@ export function createReserveHttp({firestore,projectId,verifyToken,enabled=false
     if(m?.protocol!==1||m.projectId!=='samosval-offline'||o?.protocol!==1||
        o.projectId!=='samosval-offline'||
        !['synology','firebase','reconciling','handoff'].includes(o.owner)||
-       m.generation!==o.generation||!Number.isSafeInteger(o.epoch))
+       m.generation!==o.generation||!Number.isSafeInteger(o.epoch)||o.epoch<1||
+       !Number.isSafeInteger(m.lastSequence)||m.lastSequence<0||
+       !Number.isSafeInteger(o.observedSequence)||o.observedSequence<0)
      throw fail('reserve-owner-unverified');
     return json(res,200,{format:'samosval-owner-status',version:1,
      projectId:'samosval-offline',owner:o.owner,epoch:o.epoch,
-     readyForFailover:o.owner==='firebase'&&m.readyForFailover===true,
+     readyForFailover:o.owner==='firebase'&&o.holder==='firebase_reserve'&&
+       o.observedSequence===m.lastSequence&&m.readyForFailover===true,
      confirmedSequence:m.lastSequence,reserveSequence:o.reserveSequence||0,
      generation:m.generation,checkedAt:clock()});
    }
