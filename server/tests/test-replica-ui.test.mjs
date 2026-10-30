@@ -18,3 +18,15 @@ test('TEST client refuses silent auto-failover until business adapters are fence
  assert.match(s,/select\.disabled = !allowed \|\| isNasRuntime\(\)/);
  assert.match(s,/mode === 'synology'/);
 });
+
+test('isolated auto candidate requires explicit shell meta; normal TEST stays on Firebase',()=>{
+ const mode=readFileSync(new URL('test-app/source/core/20-backend-mode.js',root),'utf8');
+ const runtime=readFileSync(new URL('test-app/source/core/21-nas-runtime.js',root),'utf8');
+ const shell=readFileSync(new URL('test-app/source/shell.html',root),'utf8');
+ assert.match(runtime,/synology-auto-candidate/);
+ assert.match(runtime,/test-reserve-api-url/);
+ assert.match(runtime,/createTestAutoLineClient/);
+ assert.match(mode,/isTestAutoNasRuntime\(\)/);
+ assert.match(mode,/остальные операции временно недоступны/);
+ assert.doesNotMatch(shell,/test-data-provider[^>]*synology-auto-candidate/);
+});
