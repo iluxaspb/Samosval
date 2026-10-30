@@ -1,0 +1,192 @@
+{
+  "format": "samosval-api-release",
+  "protocol": 1,
+  "channel": "test",
+  "commit": "a22824d1cd5db3e4fef0b1425048f988bbb25eac",
+  "version": "4.1.0",
+  "dependenciesSha256": "28a370249d464a95ae0fbbb919752974553a384b363ee5f2729c3c8061a90276",
+  "schemaSha256": "e64d6beab5671a897e6b778f875f985449f7c3ebc951e8796a0d83ec51a143df",
+  "notes": "TEST 4.1.0: центр управления NAS, проверенные копии PostgreSQL и обновления API.",
+  "files": [
+    {
+      "path": "src/arcade-rules.mjs",
+      "sha256": "78d98b978b9fc3d68cbc19fcfa4fe918237fabc016cb8f279212907abf48ae16",
+      "bytes": 3336
+    },
+    {
+      "path": "src/archive-read.mjs",
+      "sha256": "02ed466756558e7b5e14a6d252690ab9d4e0b06e07d85f0b2a628d1b4aa437d2",
+      "bytes": 3409
+    },
+    {
+      "path": "src/archive-store.mjs",
+      "sha256": "6dfb9dc697744dc7a11a3f64190966a08eda22b9e2927de334633a3d52e7ace7",
+      "bytes": 5538
+    },
+    {
+      "path": "src/auth.mjs",
+      "sha256": "b5a67937c72a8e418c53905ab764accae787d6bd87f766e3787d0715ad5b79d8",
+      "bytes": 904
+    },
+    {
+      "path": "src/auxiliary-store.mjs",
+      "sha256": "798c33c91f88a4cec83edc26424f3746b44571221b3d78c2e08e4ee8b8c75600",
+      "bytes": 10928
+    },
+    {
+      "path": "src/backup-store.mjs",
+      "sha256": "b1b5d07f1b2d58645d4381efa8a371e890c724c58571c94c3810d6b57a8cbf1b",
+      "bytes": 11581
+    },
+    {
+      "path": "src/control-rules.mjs",
+      "sha256": "16e2fc62226f12b0b4b3c57bcc98e75e273b03c69cfc66178ad6d1ec17d04830",
+      "bytes": 3574
+    },
+    {
+      "path": "src/control-store.mjs",
+      "sha256": "e0a1fc2a06067ee3aed42cb4097ab3ee4e16b78a2ab17f6e8512ba77b089dabe",
+      "bytes": 7573
+    },
+    {
+      "path": "src/dataset-guard.mjs",
+      "sha256": "933429f4cea84711c896d029bf9a6f98d4d2c79f2ce1442a5d1ed592531f6749",
+      "bytes": 1632
+    },
+    {
+      "path": "src/game-economy.mjs",
+      "sha256": "2deb744b33cc9c50edf23644c48c2b4447e903a829044593e50400dcd6cf1198",
+      "bytes": 8884
+    },
+    {
+      "path": "src/game-store.mjs",
+      "sha256": "026947b996099898c1a4ffbeb4b75064b1fde3707d03e989d3add9df26fb126e",
+      "bytes": 9036
+    },
+    {
+      "path": "src/game-transfer.mjs",
+      "sha256": "c276e952007ffae08a1c027e7125f56c3b68a1818262b88b326ce1655279e211",
+      "bytes": 1274
+    },
+    {
+      "path": "src/history-store.mjs",
+      "sha256": "cc90306b1072ed152b876852736edc0f3ec71f52361e7aa21e9d56a011fa9b77",
+      "bytes": 11015
+    },
+    {
+      "path": "src/identity-rules.mjs",
+      "sha256": "924b5e96a61515e2b9c66d8ba5e915583e8ec19b5793ad00983acc6c2c95730b",
+      "bytes": 4761
+    },
+    {
+      "path": "src/identity-store.mjs",
+      "sha256": "dc506cac7e2d54a774662cc4ef16d07d9f5e0aa68db17c77f1195b5ff1268699",
+      "bytes": 11136
+    },
+    {
+      "path": "src/index.mjs",
+      "sha256": "475b81dff2fd68c7c8bebea71d5e2078c5d9e02c871ac15de03b5a20205c32b7",
+      "bytes": 18448
+    },
+    {
+      "path": "src/json-response.mjs",
+      "sha256": "ca516df3ca33d965f4c138f038cfdbc562ebc9fdddc78707a054eacdb40b70ff",
+      "bytes": 701
+    },
+    {
+      "path": "src/line-read.mjs",
+      "sha256": "ae01032da09121c25b5ba2a2c873dad485502f0fbb8b6e798529eeb441e242c6",
+      "bytes": 2873
+    },
+    {
+      "path": "src/line-rules.mjs",
+      "sha256": "5617e6e025a8aafa9bd2c490dc20be3c8d3df095e7e537b926fa5ee9650184d6",
+      "bytes": 5303
+    },
+    {
+      "path": "src/line-store.mjs",
+      "sha256": "1ee5f6ba3842f555342f6a34a8a6a49f1730559f6ea20fc955413711f5eba7bd",
+      "bytes": 5312
+    },
+    {
+      "path": "src/notification-store.mjs",
+      "sha256": "506877197e16a0ea082f731e827f4ed7e0ab7978fc4cb1d745612d605c2d3a9b",
+      "bytes": 4212
+    },
+    {
+      "path": "src/report-store.mjs",
+      "sha256": "ca4529f6572033f9246b0f2b852eb356bc730e85e2a2cb6b31f1ba748e1c31f2",
+      "bytes": 7646
+    },
+    {
+      "path": "src/seed-identity.mjs",
+      "sha256": "7e58663755137b76ba7b14a1b20a94db753f89d3a896e26ab501e76d06e34271",
+      "bytes": 4541
+    },
+    {
+      "path": "src/seed-objects.mjs",
+      "sha256": "427342a54cfb015a957d5ede6f8ff937e5aebd17d5fd68f38a71244a0a97253f",
+      "bytes": 2097
+    },
+    {
+      "path": "src/seed-services.mjs",
+      "sha256": "b851aa233598eb42d3f204ccdf25276b4093c57fc022affe30ae2e5a7bf14f0c",
+      "bytes": 3019
+    },
+    {
+      "path": "src/server-control.mjs",
+      "sha256": "9dbbe3239379e95dac454a56569b6218036f80bb3a6d5f6dea6ae06248733e48",
+      "bytes": 6200
+    },
+    {
+      "path": "src/service-command.mjs",
+      "sha256": "2d236e0c4341c7a52aac7cbc28e90e363c1c10ace8798a1daa9a73e10b34f2b9",
+      "bytes": 2619
+    },
+    {
+      "path": "src/settings-store.mjs",
+      "sha256": "85d991c8d704b9c524dedda4eb81809298d49233f57cf4a99a08ad1f58ffbdba",
+      "bytes": 4580
+    },
+    {
+      "path": "src/shift-archive.mjs",
+      "sha256": "d461b2202674739a9ed1f63b2eac65f83e8cb505ec816fee9e36260f13283ad6",
+      "bytes": 3129
+    },
+    {
+      "path": "src/shift-close.mjs",
+      "sha256": "99dbb9a6366257f37e173092e20f7564b064f3a1ee472dd9c4a8205b06a8a54a",
+      "bytes": 6249
+    },
+    {
+      "path": "src/shift-start.mjs",
+      "sha256": "3e2a5e5d14ab53bb3b29b4192a016d354aff4bb1535ea4a79a05690ff89b5d16",
+      "bytes": 4864
+    },
+    {
+      "path": "src/tabel-access.mjs",
+      "sha256": "a823825f9217a4be88978533aede5c49ce0183212e92b2117bbb3bf1dea08484",
+      "bytes": 2477
+    },
+    {
+      "path": "src/tabel-merge.mjs",
+      "sha256": "cc8b8059761b7da46292e5dc8a2545d8f0cd36496bf177df70487b9c161a7ceb",
+      "bytes": 5346
+    },
+    {
+      "path": "src/tabel-presence.mjs",
+      "sha256": "15eb7872f9a16748b4bad49d175c9267c5867dc3a1a4544a024206ab1227e93c",
+      "bytes": 4769
+    },
+    {
+      "path": "src/tabel-store.mjs",
+      "sha256": "d13e728bc3be810bf62e4f53ee821d58f3803346426a9144a652e824f6a258db",
+      "bytes": 8534
+    },
+    {
+      "path": "src/theme-prices.mjs",
+      "sha256": "672ac118c5b8bdb948945491a1b6e45c0270d2c9b7ab7e01ebe3d09f8db21010",
+      "bytes": 476
+    }
+  ]
+}
