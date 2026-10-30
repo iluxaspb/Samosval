@@ -131,7 +131,6 @@ sqltest('SQL 014 accepts an isolated TEST verification database but rejects prod
   await assert.rejects(wrong.connect().then(async()=>{
     try{await wrong.query(source);}finally{await wrong.end();}
   }),/TEST database required/);
-  assert.match(source,/current_database\(\)\s*!~\s*'\^sc_verify_\[0-9\]\+\
-});
-/);
+  assert.match(source,/current_database\(\)\s*!~\s*'/);
+  assert.ok(source.includes('sc_verify_[0-9]+'));
 });
