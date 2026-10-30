@@ -6,6 +6,20 @@ DO $guard$ BEGIN
  IF current_database()<>'samosval_test' THEN RAISE EXCEPTION 'TEST database required'; END IF;
 END $guard$;
 
+-- These two immutable original-import tables are created by the legacy TEST
+-- import script, not migrations 001-013. Install their exact existing schema
+-- on a fresh isolated CI database before checking the 39-table inventory.
+CREATE TABLE IF NOT EXISTS migration_imports (
+ sha256 text PRIMARY KEY, workspace_id text NOT NULL,
+ source_project text NOT NULL, exported_at bigint NOT NULL,
+ imported_at timestamptz NOT NULL DEFAULT now(), counts jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS migration_documents (
+ import_sha256 text NOT NULL REFERENCES migration_imports(sha256),
+ document_path text NOT NULL, payload jsonb NOT NULL,
+ PRIMARY KEY(import_sha256,document_path)
+);
+
 CREATE TABLE IF NOT EXISTS reserve_outbox_cursor (
  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
  last_sequence bigint NOT NULL DEFAULT 0 CHECK(last_sequence>=0)
