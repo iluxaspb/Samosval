@@ -104,32 +104,6 @@ jobs:
           node tests/tabel-v2/simple-keypad-browser.cjs
           node tests/tabel-v2/release-410-browser.cjs
           node tests/tabel-v2/table-tools-browser.cjs
-
-
-
-  verify-control-browser:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install browser test tools
-        run: |
-          npm install --prefix tests/pwa --ignore-scripts --no-audit --no-fund
-          npx --prefix tests/pwa playwright install --with-deps chromium
-      - name: Real browser update, roles, queue warning and file progress
-        env:
-          NODE_PATH: ${{ github.workspace }}/tests/pwa/node_modules
-        run: node tests/pwa/update-ui.cjs
-      - name: Numeric selection, keypad, context tools, merging and borders
-        env:
-          PLAYWRIGHT_MODULE: ${{ github.workspace }}/tests/pwa/node_modules/playwright-core
-          PWA_BROWSER: ''
-        run: |
-          node tests/tabel-v2/simple-keypad-browser.cjs
-          node tests/tabel-v2/table-tools-browser.cjs
       - name: Build independent control image and verify Docker Compose availability
         run: |
           docker build -t samosval-test-api:ci server
