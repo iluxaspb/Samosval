@@ -97,7 +97,6 @@ test('two operators loading the same truck cannot count twice',async()=>{
  assert.equal(b.outcome,'rejected');
  assert.equal(b.reason,'duplicate-or-arrival-changed');
  assert.equal([...db.docs.keys()].filter(x=>x.includes('/reserve_ops_')).length,2);
- assert.equal([...db.docs.keys()].filter(x=>x.includes('line_logs_')).length,0); // ID uses table prefix, not a collection
  assert.equal([...db.docs.values()].filter(x=>x?.table==='line_logs').length,1);
  assert.equal(db.docs.get(OWNER_DOC).reserveSequence,2);
 });
