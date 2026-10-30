@@ -8,6 +8,7 @@ import {submitReport} from './report-store.mjs';
 import {readArchiveSnapshot} from './archive-read.mjs';
 import {readLineHistory,historyOperation} from './history-store.mjs';
 import { Pool } from 'pg';
+import {startTestReplica} from './test-replica-runner.mjs';
 import { verifyFirebaseUser, verifyFirebaseIdentity } from './auth.mjs';
 import {readSession,registerPending,readAdministration,identityOperation,readMembers} from './identity-store.mjs';
 import { submitLineOperation } from './line-store.mjs';
@@ -36,6 +37,7 @@ const pool = new Pool({
   connectionTimeoutMillis:2000, idleTimeoutMillis:30000
 });
 installDatasetGuard(pool);
+const testReplica=startTestReplica({pool,projectId:process.env.FIREBASE_PROJECT_ID});
 const tabelPresence=createPresenceService({authorize:(uid,target)=>authorizeTabelPresence(pool,uid,target),workspaceId:process.env.WORKSPACE_ID||'main_workspace'});
 function readJson(req,limit=32768) {
   return new Promise((resolve,reject)=>{
