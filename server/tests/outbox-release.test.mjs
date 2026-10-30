@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import {readFileSync} from 'node:fs';
+import {readFileSync,readdirSync} from 'node:fs';
 
 const enabled=Boolean(process.env.TEST_DATABASE_URL);
 const sqltest=(name,fn)=>test(name,{skip:!enabled},fn);
@@ -83,23 +83,30 @@ sqltest('volatile NAS heartbeat never generates Firebase replication writes',asy
  }finally{await pool.end();}
 });
 
-sqltest('SQL 014 can rehearse in an isolated restored TEST clone but rejects production database',async()=>{
+sqltest('SQL 014 accepts an isolated TEST verification database but rejects production',async()=>{
   const source=readFileSync(new URL('../sql/014_reserve_outbox.sql',import.meta.url),'utf8');
   const id='sc_verify_'+String(Date.now());
-  const rejectedName='unsafe_verify_'+String(Date.now());
-  // This exercise does NOT modify samosval_test. Admin connection only creates
-  // a fresh scratch database with the exact same naming as NAS recovery uses.
-  const url=new URL(process.env.TEST_DATABASE_URL),database=url.pathname.slice(1);
+  // Never TEMPLATE-clone a live test DB: parallel integration tests keep
+  // connections open and PostgreSQL refuses CREATE DATABASE ... TEMPLATE.
+  // Set up the identical pre-014 schema in an isolated verification database.
+  // The actual NAS worker separately tests full pg_dump/pg_restore rehearsal.
+  const url=new URL(process.env.TEST_DATABASE_URL);
   url.pathname='/postgres';
   const admin=new pg.Client({connectionString:url.toString()});
   await admin.connect();
   let created=false;
   try{
-    await admin.query('CREATE DATABASE '+id+' TEMPLATE '+database);created=true;
+    await admin.query('CREATE DATABASE '+id);created=true;
     const verifyUrl=new URL(process.env.TEST_DATABASE_URL);verifyUrl.pathname='/'+id;
     const verify=new pg.Client({connectionString:verifyUrl.toString()});
     await verify.connect();
     try{
+      for(let n=1;n<=13;n++){
+        const filename=readdirSync(new URL('../sql/',import.meta.url))
+          .find(name=>name.startsWith(String(n).padStart(3,'0')+'_')&&name.endsWith('.sql'));
+        assert.ok(filename,'missing base schema migration '+n);
+        await verify.query(readFileSync(new URL('../sql/'+filename,import.meta.url),'utf8'));
+      }
       await verify.query(source);
       const triggerCount=(await verify.query(
         "SELECT count(*)::integer AS n FROM pg_trigger WHERE tgname='reserve_row_change' AND NOT tgisinternal"
@@ -110,10 +117,10 @@ sqltest('SQL 014 can rehearse in an isolated restored TEST clone but rejects pro
     if(created)await admin.query('DROP DATABASE '+id+' WITH (FORCE)');
     await admin.end();
   }
-    const wrong=new pg.Client({connectionString:url.toString()});
-    // PostgreSQL "postgres" is a real administrative DB, but migration
-    // must refuse it before changing any schema.
-    await assert.rejects(wrong.connect().then(async()=>{try{await wrong.query(source);}finally{await wrong.end();}}),
-      /TEST database required/);
-  assert.match(source,/current_database\(\)\s*!~\s*'\^sc_verify_\[0-9\]\+\$'/);
+  const wrong=new pg.Client({connectionString:url.toString()});
+  // "postgres" is an administrative DB; SQL 014 must fail without touching it.
+  await assert.rejects(wrong.connect().then(async()=>{
+    try{await wrong.query(source);}finally{await wrong.end();}
+  }),/TEST database required/);
+  assert.match(source,/current_database\\(\\)\\s*!~\\s*'\\^sc_verify_\\[0-9\\]\\+\\$'/);
 });
