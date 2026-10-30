@@ -35,8 +35,8 @@ pgtest('INSERT/UPDATE/DELETE and changed primary key all produce committed, gapl
   await c.query('BEGIN');
   await insert(c,id);
   await c.query("UPDATE tabel_records SET payload=jsonb_set(payload,'{hours}','0'::jsonb) WHERE record_id=$1",[id]);
-  await c.query('UPDATE tabel_records SET record_key=$2 WHERE record_id=$1',[id,id+'-moved']);
-  await c.query('DELETE FROM tabel_records WHERE record_id=$1',[id]);
+  await c.query('UPDATE tabel_records SET record_id=$2,record_key=$2 WHERE record_id=$1',[id,id+'-moved']);
+  await c.query('DELETE FROM tabel_records WHERE record_id=$1',[id+'-moved']);
   await c.query('COMMIT');
   const rows=(await pool.query(
    'SELECT sequence::text AS sequence,action,row_key::text AS key,row_data::text AS data FROM reserve_replica_outbox WHERE sequence>$1 ORDER BY sequence',[start]
