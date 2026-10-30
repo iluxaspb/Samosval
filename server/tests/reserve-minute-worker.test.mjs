@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createReserveMinuteWorker} from '../src/reserve-minute-worker.mjs';
 const digest='a'.repeat(64);
-function fixture(){
-  let receipt={sequence:0,hash:digest},attempts=0;
+function fixture({bootstrapped=true}={}){
+  let receipt=bootstrapped?{sequence:0,hash:digest}:null,attempts=0;
   const rows=[{sequence:'1',table_name:'line_logs',action:'upsert',
     row_key_json:JSON.stringify({workspace_id:'main_workspace',log_id:'1'}),
     row_data_json:JSON.stringify({workspace_id:'main_workspace',log_id:'1',payload:{trips:1}})},
@@ -56,8 +56,9 @@ test('real composition writes one immutable Firestore document for line + tabel 
   assert.equal((await f.worker.poll({force:true})).status,'unchanged');
   assert.equal(f.docs.size,1,'quiet minute must not add a Firestore document');
 });
-test('missing receipt means the initial archive was not safely bootstrapped',async()=>{
- const f=fixture();
- const broken={...f.worker};
- assert.equal(typeof broken.initializeReceipt,'function');
+test('missing verified initial receipt blocks upload and never creates Firestore documents',async()=>{
+ const f=fixture({bootstrapped:false});
+ await assert.rejects(f.worker.poll(),/invalid-durable-replica-receipt/);
+ assert.equal(f.docs.size,0);
+ assert.equal(f.attempts(),0);
 });
