@@ -1,4 +1,5 @@
   function renderAppSettingsIfActive() {
+    renderTestBackendControls();
     if (!document.getElementById('tab-admin')?.classList.contains('active')) return;
     if (!document.getElementById('admin-sub-appsettings')?.classList.contains('active')) return;
     const cycle=document.getElementById('adminCycleMinutes');if(cycle&&!cycle.disabled&&document.activeElement!==cycle)cycle.value=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES);
