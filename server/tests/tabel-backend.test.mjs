@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {storageScope,tableRemote,sameTableSession} from '../../test-app/tabel-v2/backend.mjs';
+import {storageScope,tableRemote,sameTableSession,connectTable} from '../../test-app/tabel-v2/backend.mjs';
 import {createTabelRemote} from '../../test-app/synology/tabel-remote.mjs';
 import {Store} from '../../test-app/tabel-v2/store.mjs';
 const session=(uid='one',origin='https://nas.test',workspaceId='main_workspace')=>({projectId:'samosval-offline',workspaceId,uid,provider:'synology',providerScope:JSON.stringify(['synology',origin,workspaceId,uid])});
@@ -40,4 +40,13 @@ test('Tabel NAS watch delivers deleted global config instead of retaining stale 
   const remote=createTabelRemote({baseUrl:'https://nas.test',getIdToken:async()=> 'token',fetchImpl:async url=>response(url.includes('objectId=')?{rows:[],cursor:null}:{record:{revision:4,data:null}})});
   let stop;const rows=await new Promise((resolve,reject)=>{stop=remote.watch('site','','',value=>{stop();resolve(value);},reject);});
   assert.deepEqual(rows,[['_catalog/config',{revision:4,data:null}],['_defaults/config',{revision:4,data:null}]]);
+});
+test('Tabel NAS attaches its queue while catalog is pending and keeps it attached if catalog fails',async()=>{
+  let rejectCatalog,attached=false;
+  const pending=connectTable({session},{connect:async()=>{attached=true;},refresh:async()=>{}},()=>new Promise((_resolve,reject)=>{rejectCatalog=reject;}));
+  assert.equal(attached,true);rejectCatalog(Error('catalog unavailable'));await assert.rejects(pending,/catalog unavailable/);assert.equal(attached,true);
+});
+test('Tabel Firebase still respects an explicitly disabled online policy',async()=>{
+  const calls=[];await connectTable({session:()=>({})},{connect:async()=>calls.push('connect'),refresh:async()=>calls.push('refresh'),notice:()=>calls.push('notice')},async()=>false);
+  assert.deepEqual(calls,['refresh','notice']);
 });

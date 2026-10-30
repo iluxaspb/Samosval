@@ -21,3 +21,14 @@ export async function tableRemote(host,guard) {
   return firestoreRemote(host,guard);
 }
 export function sameTableSession(a,b){try{return a.uid===b.uid&&a.projectId===b.projectId&&a.workspaceId===b.workspaceId&&a.runtimeId===b.runtimeId&&storageScope(a)===storageScope(b);}catch{return false;}}
+export async function connectTable(host,runtime,prepare,isDisposed=()=>false){
+  if(isDisposed())return;
+  if(host.session().provider==='synology'){
+    // Attaching the outbox cannot wait for a separate catalog request. Otherwise
+    // an initially unreachable server leaves the queue disconnected until reload.
+    await Promise.all([runtime.connect(),prepare()]);
+    if(!isDisposed())await runtime.refresh();return;
+  }
+  const enabled=await prepare();if(isDisposed())return;
+  if(enabled)await runtime.connect();else{await runtime.refresh();runtime.notice('На устройстве: сервер не подключён');}
+}

@@ -1,4 +1,4 @@
-import {storageScope,sameTableSession} from "./backend.mjs";
+import {storageScope,sameTableSession,connectTable} from "./backend.mjs";
 import { onlinePolicy } from "./online-policy.mjs";
 import { mount } from "./workspace.mjs";
 import { normalizedObject, migrate } from "./migration.mjs";
@@ -111,7 +111,7 @@ async function openInner(
   };
   const runtime=await mount({ledgerHost,refs:host.refs},container,{remoteEnabled:false});
   let disposed=false;
-  const connect=()=>{if(disposed)return;void background().then(async enabled=>{if(disposed)return;if(enabled)await runtime.connect();else {await runtime.refresh();runtime.notice('На устройстве: сервер не подключён');}}).catch(e=>{if(!disposed)runtime.notice('На устройстве · ошибка подключения сервера: '+e.message);});};
+  const connect=()=>{if(disposed)return;void connectTable(host,runtime,background,()=>disposed).catch(e=>{if(!disposed)runtime.notice('На устройстве · ошибка подключения сервера: '+e.message);});};
   connect();globalThis.addEventListener('online',connect);
   let timer;
   opened = {
