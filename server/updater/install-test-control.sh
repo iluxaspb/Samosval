@@ -4,7 +4,7 @@ set -eu
 umask 077
 PATH=/usr/local/bin:/usr/bin:/bin:/var/packages/ContainerManager/target/usr/bin:$PATH
 export PATH
-INSTALL=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+INSTALL=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 BASE=/volume2/docker/samosval-test-control
 STATE=$BASE/state
 CAND=/volume2/docker/samosval-test-candidate/compose.yaml
