@@ -2,11 +2,11 @@
   "format": "samosval-api-release",
   "protocol": 1,
   "channel": "test",
-  "commit": "a22824d1cd5db3e4fef0b1425048f988bbb25eac",
-  "version": "4.1.0",
+  "commit": "9b8b8d965c972aca382be8e33d0de7ebdfcff882",
+  "version": "4.1.1",
   "dependenciesSha256": "28a370249d464a95ae0fbbb919752974553a384b363ee5f2729c3c8061a90276",
-  "schemaSha256": "e64d6beab5671a897e6b778f875f985449f7c3ebc951e8796a0d83ec51a143df",
-  "notes": "TEST 4.1.0: центр управления NAS, проверенные копии PostgreSQL и обновления API.",
+  "schemaSha256": "a60ec21217320ba5dbdc02a65969125d2552029062c80dc2b5fe7fb081e97932",
+  "notes": "TEST: проверенная SQL-миграция журнала без включения Firebase failover",
   "files": [
     {
       "path": "src/arcade-rules.mjs",
@@ -187,6 +187,14 @@
       "path": "src/theme-prices.mjs",
       "sha256": "672ac118c5b8bdb948945491a1b6e45c0270d2c9b7ab7e01ebe3d09f8db21010",
       "bytes": 476
+    }
+  ],
+  "previousSchemaSha256": "e64d6beab5671a897e6b778f875f985449f7c3ebc951e8796a0d83ec51a143df",
+  "migrations": [
+    {
+      "path": "sql/014_reserve_outbox.sql",
+      "sha256": "9c4aa69f2c0a1dc0391e7e33715bb19105933f0a125538ab008f5b1ae676a47b",
+      "bytes": 6532
     }
   ]
 }
