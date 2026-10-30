@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { Pool } from 'pg';
-import { verifyFirebaseUser } from './auth.mjs';
+import { verifyFirebaseUser, verifyFirebaseIdentity } from './auth.mjs';
+import {readSession,registerPending,readAdministration,identityOperation,readMembers} from './identity-store.mjs';
 import { submitLineOperation } from './line-store.mjs';
 import { readLineSnapshot } from './line-read.mjs';
 import { readTabel, commitTabel } from './tabel-store.mjs';
@@ -57,6 +58,32 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET' && path==='/health/ready'){
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
+  }
+  if(path==='/api/v1/registration'&&req.method==='POST'){
+    const identity=await verifyFirebaseIdentity(req);
+    if(!identity)return send(res,401,{error:'unauthorized'});
+    try{
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await registerPending(pool,identity,await readJson(req)));
+    }catch(e){
+      const status=[400,403,409,413].includes(e.status)?e.status:500;
+      if(status===500)console.error('[registration-api] request failed',e?.code||e?.name||'unknown');
+      return send(res,status,{error:status===500?'server-error':e.code||e.message});
+    }
+  }
+  if(req.method==='GET'&&['/api/v1/session','/api/v1/members','/api/v1/admin/access'].includes(path)||req.method==='POST'&&path==='/api/v1/admin/access'){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(path==='/api/v1/session')return send(res,200,await readSession(pool,uid));
+      if(path==='/api/v1/members')return send(res,200,await readMembers(pool,uid));
+      if(req.method==='GET')return send(res,200,await readAdministration(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await identityOperation(pool,uid,await readJson(req)));
+    }catch(e){
+      const status=[400,403,409,413].includes(e.status)?e.status:500;
+      if(status===500)console.error('[identity-api] request failed',e?.code||e?.name||'unknown');
+      return send(res,status,{error:status===500?'server-error':e.code||e.message});
+    }
   }
   if((path==='/api/v1/catalog'&&req.method==='GET')||(path==='/api/v1/controls'&&req.method==='POST')){
     const uid=await verifyFirebaseUser(req);
@@ -152,5 +179,6 @@ async function shutdown(){
 }
 process.on('SIGTERM',shutdown);
 process.on('SIGINT',shutdown);
+
 
 
