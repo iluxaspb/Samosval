@@ -82,13 +82,19 @@ SWITCHED=1
 compose -p samosval-test-control -f "$INSTALL/compose.control.test.yaml" \
   up -d --no-deps --no-build --force-recreate control
 
+EXPECTED_IMAGE=$(docker image inspect --format '{{.Id}}' "$NEWIMAGE")
+NEWCTRL=$(docker ps -q --filter label=com.docker.compose.project=samosval-test-control \
+  --filter label=com.docker.compose.service=control)
+test "$(printf '%s\n' "$NEWCTRL" | wc -w)" -eq 1
+ACTUAL_IMAGE=$(docker inspect --format '{{.Image}}' "$NEWCTRL")
+test "$EXPECTED_IMAGE" = "$ACTUAL_IMAGE" || { printf 'WORKER_IMAGE_MISMATCH\n'; exit 1; }
+
 READY=0
 i=0
 while test "$i" -lt 40; do
   # Verify a NEW heartbeat in the existing TEST control table.
-  COUNT=$(docker exec "$PG" sh -c 'psql -X -U "$POSTGRES_USER" -d samosval_test -At \
-    -c "SELECT count(*) FROM server_control_state WHERE channel=chr(116)||chr(101)||chr(115)||chr(116) \
-    AND heartbeat>=to_timestamp($1)"' sh "$STARTED" 2>/dev/null) || COUNT=0
+  SQL="SELECT count(*) FROM server_control_state WHERE channel='test' AND heartbeat>=to_timestamp($STARTED) AND payload->>'workerVersion'='4.1.1'"
+  COUNT=$(docker exec "$PG" sh -c 'psql -X -U "$POSTGRES_USER" -d samosval_test -At -c "$1"' sh "$SQL" 2>/dev/null) || COUNT=0
   if test "$COUNT" = 1; then READY=1; break; fi
   sleep 2
   i=$((i+1))
