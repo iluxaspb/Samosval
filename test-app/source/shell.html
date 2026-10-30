@@ -296,6 +296,8 @@
             </select>
           </div>
           <p id="testBackendModeNote" class="admin-settings-note" role="status">Synology станет доступен после подключения тестового интерфейса.</p>
+          <button id="testSynologyCheck" type="button" class="btn btn-secondary" onclick="checkTestSynologyConnection()" disabled>Проверить Synology</button>
+          <p id="testSynologyCheckResult" class="admin-settings-note" role="status" aria-live="polite"></p>
         </div>
       </details>
       <p class="admin-settings-note">Общие настройки применяются ко всем пользователям. Изменения сохраняются автоматически.</p>
@@ -592,6 +594,7 @@
 <!-- Shared paper viewer is installed with Summary. -->
 </body>
 </html>
+
 
 
 
