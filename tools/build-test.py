@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from recolor_test_icons import build_icons
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / 'test-app'
@@ -24,12 +25,16 @@ def body(module):
     return ''.join((SOURCE / p).read_text() for p in module['sources'])
 
 def build():
+    # Generate TEST-only red icons; never overwrite blue originals or production assets.
+    build_icons(APP / 'icons')
     spec = json.loads((APP / 'modules.json').read_text())
     inputs = [APP / 'modules.json', Path(__file__)] + sorted(p for p in SOURCE.rglob('*') if p.is_file() and p.suffix in ['.js','.css','.html'])
     inputs += sorted(p for p in (APP / 'tabel-v2').iterdir() if p.suffix in ['.js','.mjs','.css','.html'])
     inputs += [APP / 'vendor' / 'exceljs-4.4.0.min.js']
     # The update bridge is cached with the shell and must change its build ID.
     inputs += [APP / 'src' / 'pwa.js']
+    inputs += [APP / 'icons' / p for p in ['icon-192.png','icon-512.png','icon-test-red-192.png','icon-test-red-512.png']]
+    inputs += [ROOT / 'manifest-test.webmanifest']
     inputs += [APP / 'synology' / p for p in ['connection-check.mjs','session-client.mjs','tabel-remote.mjs']]
     inputs += sorted(p for p in (APP / 'tabel').iterdir() if p.suffix in ['.js','.mjs','.css'])
     build_id = sha(b''.join(str(p.relative_to(ROOT)).encode()+p.read_bytes() for p in inputs))[:16]
@@ -51,8 +56,8 @@ def build():
     assert '<!-- TEST-MODULE:' not in html
     (ROOT / 'index-test.html').write_text(html)
     old = json.loads((APP / 'build-manifest.json').read_text())
-    assets = [ROOT / 'index-test.html']
-    assets += [ROOT / r['url'] for r in old['assets'] if r['url'] != './index-test.html' and r['url'] not in ['./test-app/synology/connection-check.mjs','./test-app/synology/session-client.mjs','./test-app/synology/tabel-remote.mjs'] and not r['url'].startswith('./test-app/build/') and 'timesheet-' not in r['url'] and '/test-app/tabel/' not in r['url'] and '/test-app/tabel-v2/' not in r['url']]
+    assets = [ROOT / 'index-test.html', APP / 'icons' / 'icon-test-red-192.png', APP / 'icons' / 'icon-test-red-512.png']
+    assets += [ROOT / r['url'] for r in old['assets'] if r['url'] not in ['./index-test.html', './test-app/icons/icon-192.png', './test-app/icons/icon-512.png', './test-app/icons/icon-test-red-192.png', './test-app/icons/icon-test-red-512.png'] and r['url'] not in ['./test-app/synology/connection-check.mjs','./test-app/synology/session-client.mjs','./test-app/synology/tabel-remote.mjs'] and not r['url'].startswith('./test-app/build/') and 'timesheet-' not in r['url'] and '/test-app/tabel/' not in r['url'] and '/test-app/tabel-v2/' not in r['url']]
     assets += sorted(p for p in (APP / 'tabel-v2').iterdir() if p.suffix in ['.js','.mjs','.css','.html'])
     assets += [APP / 'vendor' / 'exceljs-4.4.0.min.js']
     assets += sorted(out.glob('*.js'))
