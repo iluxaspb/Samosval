@@ -53,7 +53,7 @@ test('migration is first rehearsed on restored TEST database, never production',
  const commands=[];
  const agent=new TestControlAgent({},{docker:async(args,opts)=>{
    commands.push({args,hasInput:!!opts?.inputFile});
-   if(args[0]==='exec'&&args[1]==='pg-test'&&args.includes('-At')&&args.includes('-c'))
+   if(args[0]==='exec'&&args[1]==='pg-test')
      return '39,1,0';
    return '';
  }});
