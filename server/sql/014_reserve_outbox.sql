@@ -112,7 +112,7 @@ DECLARE tracked text[]:=ARRAY[
 'tabel_records','workspace_aux_records','workspace_backups','workspace_objects',
 'workspace_service_audit','workspace_service_receipts','workspace_services_state',
 'workspace_settings','workspaces'];
-DECLARE names text[]; t text; pk text;
+names text[]; t text; pk text;
 BEGIN
  SELECT array_agg(tablename ORDER BY tablename) INTO names
  FROM pg_tables WHERE schemaname='public' AND tablename NOT IN
