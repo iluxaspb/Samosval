@@ -1,0 +1,53 @@
+services:
+  verify:
+    image: samosval-test-api:controls-v1-20261030
+    restart: "no"
+    env_file:
+      - ../samosval-test/.env.test
+    environment:
+      PGHOST: postgres
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - node
+      - --input-type=module
+      - -e
+      - |-
+        import {readFileSync} from 'node:fs';
+        import {createHash} from 'node:crypto';
+        import assert from 'node:assert/strict';
+        import {Pool} from 'pg';
+        const expected={"src/control-rules.mjs":"cc01f57f61f8843cc9c3ef18ec06a8192361c4936439ad00486d6388de6adf99","src/control-store.mjs":"054af2905307d63e9507c49dbaede06b8c022e997c0f307ed090b6a6c9490064","src/index.mjs":"8c17717c2f5b66d397456e8cda8561d06ff57b40dd37d290cec0e1d951c942fb","src/line-store.mjs":"6d1b678555195d54aaa81790c769e80283ce35c9579ac47dbb1d7d3f4fec3e07","src/seed-objects.mjs":"427342a54cfb015a957d5ede6f8ff937e5aebd17d5fd68f38a71244a0a97253f","src/shift-start.mjs":"dd64fd1bd3551c5b604a0cbc1fd69083da4cb2b4e56640aa668a4c225db256ae","package.json":"ea5cff21eed33a044b1a6ba14b0353cd426a7658a86260f4b40e34f6a86fdf0c"};
+        for(const [file,digest] of Object.entries(expected))assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'),digest,'source mismatch: '+file);
+        console.log('SOURCE_HASHES_MATCH',Object.keys(expected).length);
+        const {seedObjects}=await import('./src/seed-objects.mjs');
+        const sha='818ea286194112353a2182a86868b1bfdcdd05832dfd9376f5db6d0c61d2f5d3';
+        const pool=new Pool({host:process.env.PGHOST||'postgres',database:process.env.POSTGRES_DB,user:process.env.POSTGRES_USER,password:process.env.POSTGRES_PASSWORD,max:2,connectionTimeoutMillis:5000});
+        try {
+        const counts=async()=>(await pool.query('SELECT (SELECT count(*)::int FROM line_trucks) trucks,(SELECT count(*)::int FROM line_truck_statuses) statuses,(SELECT count(*)::int FROM line_logs) logs,(SELECT count(*)::int FROM tabel_records) tabel')).rows[0];
+        const before=await counts();console.log('BEFORE',JSON.stringify(before));
+        console.log('SEED',JSON.stringify(await seedObjects(pool,{sha256:sha})));
+        const match=(await pool.query("SELECT count(*)::int total,count(*) FILTER(WHERE w.payload=d.payload)::int matched FROM workspace_objects w LEFT JOIN migration_documents d ON d.import_sha256=$$1 AND d.document_path='workspaces/main_workspace/objects/'||w.object_id WHERE w.workspace_id='main_workspace'",[sha])).rows[0];
+        assert.deepEqual(match,{total:3,matched:3});console.log('OBJECTS_MATCH',JSON.stringify(match));
+        const after=await counts();assert.deepEqual(after,before);console.log('AFTER_UNCHANGED',JSON.stringify(after));
+        }finally{await pool.end();}
+        const base='http://samosval-test-candidate-api-1:8080';
+        for(const [path,options,status] of [
+        ['/health/ready',{},200],['/api/v1/catalog',{},401],['/api/v1/line/snapshot',{},401],['/api/v1/tabel/records',{},401],
+        ['/api/v1/controls',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},401],
+        ['/api/v1/shifts/start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},401],
+        ['/api/v1/catalog',{method:'OPTIONS',headers:{Origin:'https://iluxaspb.github.io','Access-Control-Request-Method':'GET','Access-Control-Request-Headers':'authorization'}},204],
+        ['/health/ready',{headers:{Origin:'https://untrusted.example'}},403]]){
+        const r=await fetch(base+path,{...options,signal:AbortSignal.timeout(10000)});assert.equal(r.status,status,path);if(options.method==='OPTIONS')assert.equal(r.headers.get('access-control-allow-origin'),'https://iluxaspb.github.io');console.log('HTTP',options.method||'GET',path,r.status);await r.text();}
+        console.log('NAS_CONTROLS_VERIFIED');
+    networks:
+      - existing
+networks:
+  existing:
+    external: true
+    name: samosval-test_default
