@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildMinuteReserveBatch,verifyMinuteReserveBatch,createMinuteReplicaRunner,MINUTE_REPLICA_MS} from '../src/reserve-minute-replication.mjs';
+import {buildMinuteReserveBatch,verifyMinuteReserveBatch,createMinuteReplicaRunner,selectMinuteReserveBatch,MINUTE_REPLICA_MS} from '../src/reserve-minute-replication.mjs';
 const previous={sequence:9,hash:'a'.repeat(64)};
 function event(sequence,{table='line_logs',action='upsert',row={id:'trip-'+sequence},operationId='action-'+sequence}={}){
   return {sequence,operationId,rowId:'row-'+sequence,table,action,row,
@@ -83,4 +83,52 @@ test('lost confirmation remains retryable with identical document ID',async()=>{
   assert.equal(docs.size,1);
   assert.equal(attempts,2);
   assert.equal(confirm,2);
+});
+
+test('minute outbox splits more than 500 records into consecutive documents', async()=>{
+  const events=Array.from({length:502},(_,i)=>event(10+i));
+  let cursor={...previous},writes=0;
+  const runner=createMinuteReplicaRunner({
+    now:()=>100000,
+    readPending:async seq=>events.filter(e=>e.sequence>seq).slice(0,501),
+    putImmutable:async()=>{writes++;},
+    readBack:async id=>{
+      const batch=latestBatch;return batch?.batchId===id?batch.document:null;
+    },
+    persistReceipt:async()=>{}
+  });
+  // Observe each generated document while preserving the same read-back contract.
+  let latestBatch=null;
+  // The first document contains 500 events, the second contains two.
+  const first=selectMinuteReserveBatch({previous:cursor,events:events.slice(0,501)});
+  assert.equal(first.document.events.length,500);
+  assert.equal(first.morePending,true);
+  cursor={sequence:first.document.to,hash:first.batchId};
+  const second=selectMinuteReserveBatch({previous:cursor,events:events.slice(500)});
+  assert.equal(second.document.from,510);
+  assert.equal(second.document.events.length,2);
+  assert.equal(second.morePending,false);
+  assert.equal(new Set([...first.document.events,...second.document.events].map(e=>e.operationId)).size,502);
+});
+test('single oversized event cannot be silently lost',()=>{
+  assert.throws(()=>selectMinuteReserveBatch({previous,
+    events:[event(10,{row:{id:'huge',payload:'z'.repeat(3000)}})],maxBytes:1024}),/minute-event-exceeds-document-size/);
+});
+test('a row gap in the next packet blocks further acknowledgements',()=>{
+  const initial=selectMinuteReserveBatch({previous,events:[event(10),event(11),event(13)],maxBytes:1024});
+  // Either the preceding valid prefix can be safely staged, or the entire
+  // attempt fails. It may never report 13 as contiguous with 11.
+  assert.ok(initial.document.to<=11);
+  assert.equal(initial.morePending,true);
+  const next={sequence:initial.document.to,hash:initial.batchId};
+  assert.throws(()=>selectMinuteReserveBatch({previous:next,events:[event(13)]}),/invalid-minute-event/);
+});
+test('size-based split retains the tail to send on the next tick',()=>{
+  const events=Array.from({length:40},(_,i)=>event(10+i,{row:{id:'x'+i,comment:'abc'.repeat(80)}}));
+  const first=selectMinuteReserveBatch({previous,events,maxBytes:2000});
+  assert.ok(first.document.events.length>0&&first.document.events.length<40);
+  assert.equal(first.morePending,true);
+  const tail=events.slice(first.document.events.length);
+  const next=selectMinuteReserveBatch({previous:{sequence:first.document.to,hash:first.batchId},events:tail,maxBytes:2000});
+  assert.equal(next.document.from,first.document.to+1);
 });
