@@ -42,7 +42,10 @@ test('lost NAS acknowledgement does not create an independent Firebase history',
   const s=ready(),old=proof(s);
   const published=publishCommit(s,old,{sequence:1,hash:b},1001);
   assert.equal(writable(published,old,1002),false,'a server with unapplied local state must recover first');
-  const f=mode(published,'firebase',1002);
+  assert.equal(published.replicas.firebase.sequence,0,'NAS acknowledgement alone cannot certify a Firebase copy');
+  assert.throws(()=>mode(published,'firebase',1002),/replica-not-caught-up/);
+  const replicated=recordReplica(published,'firebase',{sequence:1,hash:b},1003);
+  const f=mode(replicated,'firebase',1004);
   assert.deepEqual(f.head,{sequence:1,hash:b},'takeover includes the already durable mutation and its receipt');
   assert.throws(()=>publishCommit(f,old,{sequence:1,hash:b},1003),/writer-fenced/);
 });
