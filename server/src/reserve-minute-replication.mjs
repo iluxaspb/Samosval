@@ -49,6 +49,28 @@ export function verifyMinuteReserveBatch(batch){
       rest.from===rest.previous.sequence+1&&rest.to===rest.events.at(-1).sequence;
   }catch{return false;}
 }
+// Choose the largest contiguous prefix that fits one Firestore document.
+// The remaining committed rows are kept pending and sent in following batches.
+export function selectMinuteReserveBatch({previous,events,maxBytes=MAX_REPLICA_BATCH_BYTES}={}){
+  if(!Array.isArray(events)||events.length===0)throw Error('invalid-minute-events');
+  const eligible=events.slice(0,MAX_REPLICA_EVENTS);
+  // Validate event continuity before shrinking for document size, so a gap
+  // cannot be disguised by silently taking only an earlier prefix.
+  buildMinuteReserveBatch({previous,events:eligible,maxBytes:MAX_REPLICA_BATCH_BYTES});
+  let low=1,high=eligible.length,best=null;
+  while(low<=high){
+    const middle=Math.floor((low+high)/2);
+    try{
+      const candidate=buildMinuteReserveBatch({previous,events:eligible.slice(0,middle),maxBytes});
+      best=candidate;low=middle+1;
+    }catch(error){
+      if(error?.message!=='minute-batch-too-large')throw error;
+      high=middle-1;
+    }
+  }
+  if(!best)throw Error('minute-event-exceeds-document-size');
+  return {...best,morePending:events.length>best.document.events.length};
+}
 // readPending must only return COMMITTED, sequence-contiguous outbox rows.
 // persistReceipt is a durable NAS write, done only after Firebase readback.
 // For a failed upload/readback we NEVER advance the checkpoint; the same ID retries.
@@ -58,26 +80,26 @@ export function createMinuteReplicaRunner({readPending,putImmutable,readBack,per
   let busy=false;
   return Object.freeze({
     get busy(){return busy;},
-    async tick({previous,lastAttemptAt=null}={}){
+    async tick({previous,lastAttemptAt=null,force=false}={}){
       if(busy)return {status:'busy'};
       const time=now();
       if(!integer(time)||lastAttemptAt!==null&&(!integer(lastAttemptAt)||lastAttemptAt>time))
         throw TypeError('invalid-minute-clock');
-      if(lastAttemptAt!==null&&time-lastAttemptAt<MINUTE_REPLICA_MS)return {status:'not-due',nextDueAt:lastAttemptAt+MINUTE_REPLICA_MS};
+      if(force!==true&&lastAttemptAt!==null&&time-lastAttemptAt<MINUTE_REPLICA_MS)return {status:'not-due',nextDueAt:lastAttemptAt+MINUTE_REPLICA_MS};
       if(!previous||!integer(previous.sequence)||!digest(previous.hash))throw TypeError('invalid-minute-replica-head');
       busy=true;
       try{
-        const events=await readPending(previous.sequence,MAX_REPLICA_EVENTS);
+        const events=await readPending(previous.sequence,MAX_REPLICA_EVENTS+1);
         if(!Array.isArray(events))invalid('invalid-minute-events');
         if(!events.length)return {status:'unchanged',lastAttemptAt:time,writes:0};
-        const batch=buildMinuteReserveBatch({previous,events});
+        const batch=selectMinuteReserveBatch({previous,events});
         await putImmutable(batch); // create-only; hash ID makes retries idempotent
         const saved=await readBack(batch.batchId);
         if(!saved||canonicalReserve(saved)!==canonicalReserve(batch.document))
           invalid('minute-batch-readback-mismatch');
         const receipt={sequence:batch.document.to,hash:batch.batchId};
         await persistReceipt({receipt,previous,batchId:batch.batchId}); // CAS in production
-        return {status:'replicated',receipt,lastAttemptAt:time,writes:1,events:events.length};
+        return {status:'replicated',receipt,lastAttemptAt:time,writes:1,events:batch.document.events.length,morePending:batch.morePending};
       }finally{busy=false;}
     }
   });
