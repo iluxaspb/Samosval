@@ -18,6 +18,7 @@ function harness(){
     offlineProjectState:()=>{c.state.truckStatus=c.offlineRemoteStatuses;c.state.logs=c.offlineRemoteLogs;},
     offlineAdoptResult:(_op,result)=>{c.state.truckStatus.truck=result.status;},refs:{},window:{dispatchEvent(){},addEventListener(){}},
   };
+  c.truckLabelHtml=id=>{const t=c.state.trucks.find(r=>r.id===id);return t?'<b>'+t.brand+'</b> '+t.number:'<b>Самосвал</b>';};
   vm.createContext(c);vm.runInContext(source('21-nas-runtime.js'),c);
   const client={uid:'one',scope:JSON.stringify(['synology','https://iluxa.synology.me:18443','main_workspace','one']),readAdministration:async()=>({users:[{uid:'one',revision:1,role:'admin',status:'active'},{uid:'target',revision:1,role:'viewer',status:'pending'}],deletedUsers:[],requests:[{uid:'target',revision:1}],permissions:{viewer:{tabs:[],actions:[],revision:1}}}),subscribeLine:handlers=>{onSession=handlers.onSession;onSnapshot=handlers.onSnapshot;return ()=>calls.push(['unsubscribe']);},stop:()=>calls.push(['stop']),submitLine:async(op,options)=>{calls.push(['submit',op,options]);return {outcome:'confirmed',status:{shiftId:'shift',cycleRevision:2,ttnRevision:0}};}};
   c.testModule={createNasClient:()=>client};vm.runInContext('loadNasSessionClient=async()=>testModule',c);
@@ -58,6 +59,19 @@ test('NAS logout during write discards reply instead of resolving another accoun
   const h=harness();h.setJournal([operation()]);let release;h.client.submitLine=()=>new Promise(resolve=>{release=resolve;});await h.c.startNasRuntime(h.c.auth.currentUser);
   const pending=h.c.replayNasOfflineJournal();h.c.stopNasRuntime();h.c.currentUid='other';release({outcome:'confirmed',status:{cycleRevision:2}});await pending;
   assert.equal(h.readJournal()[0].status,'pending');assert.equal(h.writes.length,0);
+});
+test('NAS client renders real plate from catalog for older NAS APIs and derives confirmed load IDs',async()=>{
+  const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);
+  const action={id:'nas_op_1',actionId:'op_1',type:'load',truckId:'truck',shiftId:'shift',timestamp:123,html:'Погрузка · truck'};
+  const before=h.c.presentNasLineNotification(action);
+  assert.equal(before.html,'Погрузка · <b>Самосвал</b>');
+  h.c.acceptNasLineSnapshot({...snapshot(),trucks:[{id:'truck',brand:'КамАЗ',number:'А123АА178'}],
+    logs:[{id:'load_1',truckId:'truck',shiftId:'shift',clientOperationId:'op_1'}]});
+  const after=h.c.presentNasLineNotification(action);
+  assert.match(after.html,/КамАЗ/);assert.match(after.html,/А123АА178/);
+  assert.ok(!after.html.includes(' · truck'));
+  assert.equal(after.logId,'load_1');
+  assert.equal(h.c.confirmedLoadIds.has('load_1'),true);
 });
 test('NAS snapshots register server-confirmed load IDs for the ticker',async()=>{
   const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);

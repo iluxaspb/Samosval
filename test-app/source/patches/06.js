@@ -388,6 +388,10 @@
 
         lastTickerTs = last.timestamp || 0;
         lastTickerId = last.id;
+      } else {
+        // The same NAS event can acquire a human-readable plate after catalog hydration.
+        const currentText = t.querySelector('.ticker-left.active');
+        if (currentText && currentText.innerHTML !== cleanHtml) currentText.innerHTML = cleanHtml;
       }
 
       // Имя всегда обновляем (не зависит от анимации нижней строки)
