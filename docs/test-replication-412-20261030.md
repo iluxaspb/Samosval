@@ -111,3 +111,40 @@ checks inner center navigation against the fixed app bottom nav.
 Firestore security rules deployment, an actual NAS install of 4.1.2, two
 real user accounts/phones, browser cold PWA offline launch, failover/back-sync
 and split-brain under real partition. These remain blockers to final failover.
+
+## Work-in-progress ownership gate (PR #71, not a deployable failover)
+
+In the test development branch, `server/src/test-writer-coordinator.mjs`
+adds Firestore ownership epochs and per-request write permits. The opt-in
+`server/src/test-writer-guard.mjs` checks the server-side owner before each
+TEST API business POST; the admin center reports the last known epoch and
+lease. `server/src/test-replica.mjs` now reads the same authority inside the
+outbox transaction, preventing NAS from overwriting an active Firebase owner.
+No direct browser write access to private replica documents is permitted.
+
+- **Default:** `TEST_WRITER_FENCE_ENABLED=0`. No phone or production change.
+- To even experiment with this gate, the NAS must have a verified initial
+  mirror, confirmed local Firestore receipt and server-only credentials.
+- Lease: 60 seconds; per-request permit: 15 seconds; takeover grace: 30 seconds.
+  Tests simulate parallel NAS nodes, lost coordinator connection, expired
+  leases, stale permits and fencing the forward mirror.
+- **This is not yet a complete distributed transaction fence.** Expiring a
+  permit does not, by itself, cancel a PostgreSQL transaction that might still
+  be running. No automatic promotion should be allowed until that race and
+  durability/ordering on both sides are addressed.
+- **Availability tradeoff:** With this experimental flag enabled, loss of
+  Firestore access prevents new NAS writes, even if PostgreSQL is healthy.
+  This is deliberate fail-closed behavior, but is NOT acceptable as a final
+  production failover policy without explicit operational review.
+- Neither the Firebase business operation adapter, reverse receipts, client
+  automatic source switching, nor a real two-account phone exercise is
+  implemented by this gate. The present passive mirror keeps
+  `readyForFailover=false`; `promoteTestReserve` is test-only and cannot
+  promote that mirror.
+- Do not enable `TEST_WRITER_FENCE_ENABLED=1` on the live TEST shift just to
+  "try the switch": that would make valid NAS actions fail closed without a
+  working Firebase business endpoint. Test first with isolated data.
+
+No API installation or Firebase credential deployment is performed by
+merging development code to the feature branch. Existing 4.1.1 on NAS remains
+untouched until the user installs a verified TEST release through Admin.
