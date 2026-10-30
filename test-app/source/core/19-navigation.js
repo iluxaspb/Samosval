@@ -40,6 +40,7 @@
 
 
   function tabelV2Host(){
+      if(isNasRuntime())return nasTabelHost();
       const session = () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
         uid: currentUid, name: getUserName(), role: currentUserRole, active: currentUserStatus === 'active',
         view: permissionsLoaded && hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit'),
@@ -62,7 +63,6 @@
   }
   let tabelBackgroundStarting=false;
   function startTabelBackground(){
-    if(isNasRuntime())return; // NAS tabel host is connected in the next integration stage.
     if(tabelBackgroundStarting||tabelV2Opening||!permissionsLoaded||currentUserStatus!=='active'||!hasTabAccess('timesheet'))return;
     tabelBackgroundStarting=true;
     import(new URL('./test-app/tabel-v2/entry.mjs',document.baseURI).href).then(m=>m.background(tabelV2Host())).catch(e=>console.warn('Табель: фоновая очередь',e.message)).finally(()=>{tabelBackgroundStarting=false;});

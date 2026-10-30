@@ -39,7 +39,7 @@ export function presence(s, onChange) {
   function watch(next) {
     generation++;const token=generation;
     stop?.();stop=null;peers=[];failure=''; sheetId=next;
-    if (!collection) { failure='Совместное выделение доступно после подключения Firebase'; emit(); return; }
+    if (!collection) { failure=actor.provider==='synology'?'Совместное выделение Synology ещё не подключено':'Совместное выделение доступно после подключения Firebase'; emit(); return; }
     try {
       stop=collection.where('objectId','==',objectId).where('sheetId','==',sheetId).onSnapshot(snapshot=>{
         if(stopped||token!==generation)return;
