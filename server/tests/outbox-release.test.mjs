@@ -86,6 +86,7 @@ sqltest('volatile NAS heartbeat never generates Firebase replication writes',asy
 sqltest('SQL 014 can rehearse in an isolated restored TEST clone but rejects production database',async()=>{
   const source=readFileSync(new URL('../sql/014_reserve_outbox.sql',import.meta.url),'utf8');
   const id='sc_verify_'+String(Date.now());
+  const rejectedName='unsafe_verify_'+String(Date.now());
   // This exercise does NOT modify samosval_test. Admin connection only creates
   // a fresh scratch database with the exact same naming as NAS recovery uses.
   const url=new URL(process.env.TEST_DATABASE_URL),database=url.pathname.slice(1);
@@ -94,17 +95,11 @@ sqltest('SQL 014 can rehearse in an isolated restored TEST clone but rejects pro
   await admin.connect();
   let created=false;
   try{
-    await admin.query('CREATE DATABASE '+id);created=true;
+    await admin.query('CREATE DATABASE '+id+' TEMPLATE '+database);created=true;
     const verifyUrl=new URL(process.env.TEST_DATABASE_URL);verifyUrl.pathname='/'+id;
     const verify=new pg.Client({connectionString:verifyUrl.toString()});
     await verify.connect();
     try{
-      for(const file of [
-        '001_init','002_tabel','003_shift_close','004_objects','005_controls',
-        '006_identity','007_line_history','008_workspace_services',
-        '009_auxiliary','010_reports','011_backups','012_notifications',
-        '013_server_control'
-      ]) await verify.query(readFileSync(new URL('../sql/'+file+'.sql',import.meta.url),'utf8'));
       await verify.query(source);
       const triggerCount=(await verify.query(
         "SELECT count(*)::integer AS n FROM pg_trigger WHERE tgname='reserve_row_change' AND NOT tgisinternal"
@@ -115,5 +110,10 @@ sqltest('SQL 014 can rehearse in an isolated restored TEST clone but rejects pro
     if(created)await admin.query('DROP DATABASE '+id+' WITH (FORCE)');
     await admin.end();
   }
+    const wrong=new pg.Client({connectionString:url.toString()});
+    // PostgreSQL "postgres" is a real administrative DB, but migration
+    // must refuse it before changing any schema.
+    await assert.rejects(wrong.connect().then(async()=>{try{await wrong.query(source);}finally{await wrong.end();}}),
+      /TEST database required/);
   assert.match(source,/current_database\(\)\s*!~\s*'\^sc_verify_\[0-9\]\+\$'/);
 });
