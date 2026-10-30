@@ -8,6 +8,21 @@ DO $guard$ BEGIN
  END IF;
 END $guard$;
 
+-- A legacy cleanup retained probe evidence outside the business schema.
+-- Preserve it unchanged, but only accept its exact documented two-column shape.
+DO $evidence_guard$
+DECLARE columns text[];
+BEGIN
+ IF to_regclass('public.migration_probe_evidence') IS NOT NULL THEN
+   SELECT array_agg(attname||':'||format_type(atttypid,atttypmod)||':'||attnotnull::text ORDER BY attnum)
+   INTO columns FROM pg_attribute
+   WHERE attrelid='public.migration_probe_evidence'::regclass AND attnum>0 AND NOT attisdropped;
+   IF columns IS DISTINCT FROM ARRAY['recorded_at:timestamp with time zone:true','evidence:jsonb:true'] THEN
+     RAISE EXCEPTION 'reserve-outbox-legacy-evidence-schema-mismatch';
+   END IF;
+ END IF;
+END $evidence_guard$;
+
 -- These two immutable original-import tables are created by the legacy TEST
 -- import script, not migrations 001-013. Install their exact existing schema
 -- on a fresh isolated CI database before checking the 39-table inventory.
@@ -123,7 +138,8 @@ names text[]; t text; pk text;
 BEGIN
  SELECT array_agg(tablename ORDER BY tablename) INTO names
  FROM pg_tables WHERE schemaname='public' AND tablename NOT IN
- ('reserve_outbox_cursor','reserve_replica_outbox','reserve_replica_receipt');
+ ('reserve_outbox_cursor','reserve_replica_outbox','reserve_replica_receipt',
+  'migration_probe_evidence');
  IF names IS DISTINCT FROM (SELECT array_agg(x ORDER BY x) FROM unnest(tracked) x) THEN
    RAISE EXCEPTION 'reserve-outbox-schema-inventory-mismatch';
  END IF;
