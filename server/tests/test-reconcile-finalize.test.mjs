@@ -51,11 +51,12 @@ function fixture(){
    status:'applied'}});
  const stage=(head=sequence)=>stageRecoveredGeneration({
   firestore:db,projectId:'samosval-offline',pool:{},
-  snapshotReader:async()=>snapshot,headReader:async()=>head});
+  snapshotReader:async()=>snapshot,headReader:async()=>head,fenceEnabled:true});
  const receipts=[];
  const finish=(reader=async()=>snapshot)=>completeNasHandback({
   firestore:db,projectId:'samosval-offline',pool:{},
-  snapshotReader:reader,receiptWriter:async(_pool,n,h)=>receipts.push({n,h}),now});
+  snapshotReader:reader,receiptWriter:async(_pool,n,h)=>receipts.push({n,h}),now,
+ fenceEnabled:true});
  return {db,snapshot,stage,finish,receipts};
 }
 test('complete reserve-to-NAS handback publishes new verified generation',async()=>{
@@ -111,7 +112,7 @@ test('lost local receipt keeps handoff fenced for retry',async()=>{
  const f=fixture();await f.stage();
  await assert.rejects(completeNasHandback({firestore:f.db,projectId:'samosval-offline',
   pool:{},snapshotReader:async()=>f.snapshot,
-  receiptWriter:async()=>{throw Error('postgres-offline');},now}),/postgres-offline/);
+  receiptWriter:async()=>{throw Error('postgres-offline');},now,fenceEnabled:true}),/postgres-offline/);
  assert.equal(f.db.docs.get(OWNER_DOC).owner,'handoff');
  assert.equal((await f.finish()).completed,true);
 });

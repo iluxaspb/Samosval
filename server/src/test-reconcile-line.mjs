@@ -54,7 +54,9 @@ function recoveryState(s,m){
  return r;
 }
 export async function beginReserveReplay({firestore,projectId,pool,
- baselineReader=readNasReplayBaseline,now=Date.now()}={}){
+ baselineReader=readNasReplayBaseline,now=Date.now(),
+ fenceEnabled=process.env.TEST_WRITER_FENCE_ENABLED==='1'}={}){
+ if(!fenceEnabled)throw fail('reconcile-nas-fence-required');
  assertTestProject(projectId);
  const current=snap(await firestore.doc(OWNER_DOC).get());
  if(current?.owner==='reconciling'){
@@ -107,7 +109,9 @@ function validateEvent(event,recovery){
  return original;
 }
 export async function replayReserveNext({firestore,projectId,pool,
- apply=submitLineOperation}={}){
+ apply=submitLineOperation,
+ fenceEnabled=process.env.TEST_WRITER_FENCE_ENABLED==='1'}={}){
+ if(!fenceEnabled)throw fail('reconcile-nas-fence-required');
  assertTestProject(projectId);
  const ref=firestore.doc(OWNER_DOC),metaRef=firestore.doc(REPLICA_DOC);
  const [stateDoc,metaDoc]=await Promise.all([ref.get(),metaRef.get()]);

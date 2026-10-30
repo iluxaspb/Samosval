@@ -52,9 +52,9 @@ function fixture(){
  return {db,first,second,path,base:{sequence:20,hash}};
 }
 const begin=({db,base})=>beginReserveReplay({firestore:db,projectId:'samosval-offline',
- pool:{},baselineReader:async()=>base,now});
+ pool:{},baselineReader:async()=>base,now,fenceEnabled:true});
 const next=(db,apply)=>replayReserveNext({
- firestore:db,projectId:'samosval-offline',pool:{},apply});
+ firestore:db,projectId:'samosval-offline',pool:{},apply,fenceEnabled:true});
 test('reverse replay rejects a NAS head beyond last confirmed snapshot',async()=>{
  const fix=fixture();
  await assert.rejects(begin({...fix,base:{sequence:21,hash}}),/reconcile-nas-base-diverged/);

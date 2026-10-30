@@ -62,7 +62,8 @@ export async function stageRecoveredGeneration({firestore,projectId,pool,
  snapshotReader=collectSnapshot,headReader=async pool=>{
   const r=await pool.query('SELECT last_sequence::text AS value FROM reserve_outbox_cursor WHERE singleton=true');
   return Number(r.rows[0]?.value);
- }}={}){
+ },fenceEnabled=process.env.TEST_WRITER_FENCE_ENABLED==='1'}={}){
+ if(!fenceEnabled)throw bad('handoff-nas-fence-required');
  assertTestProject(projectId);
  const {m,o}=await readRemote(firestore);
  if(o?.owner==='handoff'&&o.recovery?.status==='staged')
@@ -99,7 +100,9 @@ export async function stageRecoveredGeneration({firestore,projectId,pool,
 // Only then is it safe to acknowledge the new PostgreSQL snapshot and hand
 // writer ownership back to NAS.
 export async function completeNasHandback({firestore,projectId,pool,
- snapshotReader=collectSnapshot,receiptWriter=storeReceipt,now=Date.now()}={}){
+ snapshotReader=collectSnapshot,receiptWriter=storeReceipt,now=Date.now(),
+ fenceEnabled=process.env.TEST_WRITER_FENCE_ENABLED==='1'}={}){
+ if(!fenceEnabled)throw bad('handoff-nas-fence-required');
  assertTestProject(projectId);
  const {m,o}=await readRemote(firestore);
  if(o?.owner==='synology'&&o.recovery?.status==='completed')
