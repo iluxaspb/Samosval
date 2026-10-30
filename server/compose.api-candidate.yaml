@@ -1,0 +1,29 @@
+# API-only candidate. Keep the existing TEST PostgreSQL volume and old API intact.
+# Place this file in /volume2/docker/samosval-test-candidate/compose.yaml.
+services:
+  api:
+    image: samosval-test-api:tabel-close-v1-20261030
+    build:
+      context: ../samosval-test
+    restart: unless-stopped
+    env_file:
+      - ../samosval-test/.env.test
+    environment:
+      PGHOST: postgres
+      PORT: "8080"
+    ports:
+      - "192.168.1.171:18081:8080"
+    networks:
+      - existing_test
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:http').get('http://127.0.0.1:8080/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 4s
+      retries: 3
+networks:
+  existing_test:
+    external: true
+    name: samosval-test_default

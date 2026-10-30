@@ -3,15 +3,16 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node src/index.mjs",
-    "check": "node --check src/index.mjs && node --check src/line-rules.mjs && node --check src/line-store.mjs && node --check src/auth.mjs && node --check src/line-read.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "check": "node --check src/index.mjs && node --check src/line-rules.mjs && node --check src/line-store.mjs && node --check src/auth.mjs && node --check src/line-read.mjs && node --check src/tabel-access.mjs && node --check src/tabel-store.mjs && node --check src/tabel-merge.mjs && node --check scripts/seed-tabel.mjs && node --check ../test-app/synology/tabel-remote.mjs && node --check src/shift-close.mjs && node --check src/shift-archive.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs"
   },
   "dependencies": {
     "pg": "^8.13.3",
     "firebase-admin": "^13.5.0"
   }
 }
-

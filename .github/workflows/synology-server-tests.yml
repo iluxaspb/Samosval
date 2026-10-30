@@ -7,6 +7,13 @@ on:
       - "server/**"
       - "test-app/synology/**"
       - ".github/workflows/synology-server-tests.yml"
+  pull_request:
+    branches:
+      - "feature/synology-**"
+    paths:
+      - "server/**"
+      - "test-app/synology/**"
+      - ".github/workflows/synology-server-tests.yml"
   workflow_dispatch:
 
 permissions:
@@ -49,6 +56,8 @@ jobs:
           await client.connect();
           try {
             await client.query(readFileSync('sql/001_init.sql','utf8'));
+            await client.query(readFileSync('sql/002_tabel.sql','utf8'));
+            await client.query(readFileSync('sql/003_shift_close.sql','utf8'));
           } finally {
             await client.end();
           }
