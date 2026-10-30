@@ -1,6 +1,7 @@
-  // Activated only in an isolated NAS candidate build, never by a stored preference.
-  // The normal TEST build remains Firebase until every feature has a NAS adapter.
-  function isNasRuntime() { return document.querySelector('meta[name="test-data-provider"]')?.content === 'synology-candidate'; }
+  // Activated only in an isolated, explicitly tagged NAS candidate build.
+  // Normal TEST and production remain unchanged; no local preference can opt in.
+  function isTestAutoNasRuntime() { return document.querySelector('meta[name="test-data-provider"]')?.content === 'synology-auto-candidate'; }
+  function isNasRuntime() { return isTestAutoNasRuntime() || document.querySelector('meta[name="test-data-provider"]')?.content === 'synology-candidate'; }
   function nasStorageScope() { const base='https://iluxa.synology.me:18443';let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval_nas_dataset_epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify(['synology',base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0;
   const nasReceiptFloors = new Map();
@@ -82,7 +83,19 @@
     try{
       const {createNasClient}=await loadNasSessionClient();
       if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid)return;
-      const client=createNasClient({getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
+      let client=createNasClient({getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});
+      if(isTestAutoNasRuntime()){
+        // The HTTPS reserve address is configured only in a dedicated candidate
+        // shell after server deployment. Do not guess an endpoint or enable
+        // failover from an administrator's preference.
+        const endpoint=document.querySelector('meta[name="test-reserve-api-url"]')?.content;
+        const {createTestAutoLineClient}=await import(new URL('./test-app/synology/auto-line-client.mjs',document.baseURI).href);
+        if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid){client.stop();return;}
+        client=createTestAutoLineClient({nasClient:client,reserveBaseUrl:endpoint,
+          getUser:()=>auth.currentUser,
+          onProviderChange:()=>{if(epoch===nasRuntimeEpoch&&nasRuntimeClient===client){updateSyncUI();renderTestBackendControls();}}});
+      }
+      nasRuntimeClient=client;
       for(const name of ['plugins','patches','audit','notifications'])refs[name]=nasAuxCollection(name,client,epoch);
       let registering=false;
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
