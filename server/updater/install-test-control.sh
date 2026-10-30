@@ -49,7 +49,9 @@ exec > "$BACK/bootstrap.log" 2>&1
 printf 'BOOTSTRAP_TEST_BEGIN\n'
 cp "$CAND" "$BACK/compose.yaml"
 printf '{"services":{"api":{"image":"%s","environment":{"SAMOSVAL_RELEASE":"%s"}}}}\n' "$OLD" "$OLD_VERSION" > "$BACK/previous-override.json"
-printf '{"image":"%s","version":"%s"}\n' "$OLD" "$OLD_VERSION" > "$STATE/previous.json"
+# The pre-control API cannot expose the new administration endpoints. Keep its
+# image in the bootstrap recovery files, not as an app rollback target.
+printf 'null\n' > "$STATE/previous.json"
 docker cp "$API:/app/src" "$BACK/old-src"
 docker cp "$API:/app/package.json" "$BACK/package.json"
 printf 'FROM %s\nCOPY --chown=node:node src /app/src\nENV SAMOSVAL_RELEASE=4.1.0\n' "$OLD" > "$INSTALL/Dockerfile.api"
