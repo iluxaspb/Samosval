@@ -27,8 +27,8 @@
       pointer-events:none;
     }
     .version-text { opacity: 1; color: #22c55e; font-weight: 800; font-size: 11px; }
-    /* Номер версии скрыт до проверки роли администратора; индикатор синхронизации остаётся видимым. */
-    body:not([data-release-admin="1"]) .version-text { display: none !important; }
+    /* Номер сборки виден всем; подробности сборки и история доступны администратору. */
+    body:not([data-release-admin="1"]) .release-diagnostics { display: none !important; }
 
     .sync-dot-wrap {
       position: relative; display: inline-flex; align-items: center; justify-content: center;

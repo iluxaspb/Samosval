@@ -1,4 +1,5 @@
   function isForcedAdminEmail(email) { return String(email || '').toLowerCase() === FORCED_ADMIN_EMAIL; }
+  function canViewReleaseHistory() { return permissionsLoaded && currentUserStatus === 'active' && ['admin','foreman'].includes(currentUserRole); }
   function canAdmin() { return currentUserStatus === 'active' && currentUserRole === 'admin'; }
 
   // === SECURITY: пока permissionsLoaded === false, разрешаем только 'line' (и админа) ===

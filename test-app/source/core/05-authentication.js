@@ -56,6 +56,7 @@
     document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
     if(btn) btn.classList.add('active');
     document.getElementById('admin-sub-' + tab).classList.add('active');
+    if (tab === 'server') openServerControl();
     if (tab === 'permissions') renderPermissionsMatrix();
     if (tab === 'requests' || tab === 'users') renderAdminPanel();
     if (tab === 'requests') refreshRegistrationRequests();

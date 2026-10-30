@@ -28,6 +28,8 @@ def build():
     inputs = [APP / 'modules.json', Path(__file__)] + sorted(p for p in SOURCE.rglob('*') if p.is_file() and p.suffix in ['.js','.css','.html'])
     inputs += sorted(p for p in (APP / 'tabel-v2').iterdir() if p.suffix in ['.js','.mjs','.css','.html'])
     inputs += [APP / 'vendor' / 'exceljs-4.4.0.min.js']
+    # The update bridge is cached with the shell and must change its build ID.
+    inputs += [APP / 'src' / 'pwa.js']
     inputs += [APP / 'synology' / p for p in ['connection-check.mjs','session-client.mjs','tabel-remote.mjs']]
     inputs += sorted(p for p in (APP / 'tabel').iterdir() if p.suffix in ['.js','.mjs','.css'])
     build_id = sha(b''.join(str(p.relative_to(ROOT)).encode()+p.read_bytes() for p in inputs))[:16]

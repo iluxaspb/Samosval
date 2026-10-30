@@ -118,6 +118,7 @@ async function openInner(
   let timer;
   opened = {
     uid:initial.uid,scope:storageScope(initial),runtimeId:initial.runtimeId,
+    prepareUpdate:()=>runtime.prepareUpdate(),
     async show(settings=false){container.hidden=false;await runtime.show();if(settings)await runtime.settings(host.session().objectId);},
     hide(){container.hidden=true;},
     async dispose() {
@@ -195,3 +196,6 @@ async function pickRequestObject(host) {
     el.addEventListener("close", () => resolve(result), { once: true });
   });
 }
+
+// The PWA update checks persisted table operations before reloading this window.
+globalThis.__tabelPrepareUpdate=()=>opened?.prepareUpdate()||Promise.resolve({pending:0,uploading:false});

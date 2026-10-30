@@ -2,6 +2,8 @@ import { chooseColor, colorField, bindColorFields } from "./color-palette.mjs";
 import {FORMULAS} from "./formula-catalog.mjs";
 import {openFormulaGuide} from "./formula-help.mjs";
 import {syntaxParts,formulaReferences} from "./formula-syntax.mjs";
+import {applyBorders,borderLine,BORDER_PRESETS} from './cell-borders.mjs';
+import {mergeCells,unmergeCells,intersectingMerges} from './cell-merge.mjs';
 import { numberInput } from "./number-input.mjs";
 import * as D from "./table-domain.mjs";
 import { esc, btn, input, field, dialog, error } from "./messages.mjs";
@@ -57,6 +59,11 @@ export async function mount(s, host) {
   host.querySelector('.tn-grid-tools').after(transferTools);
   const onlineUsers=document.createElement('div');onlineUsers.className='tn-presence';onlineUsers.setAttribute('aria-label','Пользователи этого листа');
   transferTools.after(onlineUsers);
+  const numericActions=document.createElement('div');numericActions.className='tn-numeric-actions';numericActions.hidden=true;
+  numericActions.innerHTML=btn('Заполнить автоматически','numeric-autofill')+'<span data-numeric-range></span>';
+  onlineUsers.after(numericActions);
+  const numericFill=numericActions.querySelector('[data-action=numeric-autofill]');
+  numericFill.onclick=()=>queue(()=>fill(selected,end));
   let others=[],presenceError='',lastPresence='';
   const actor=s.host.session();
   function paintPresence(){
@@ -474,7 +481,6 @@ export async function mount(s, host) {
     hasSelection = true;
     mark();
     edit.value = raw(k);
-    if (simple()) return openHours(k);
   }
   function cellStyle(k) {
     const { row, p } = linkedAt(k),
@@ -529,8 +535,9 @@ export async function mount(s, host) {
       host.querySelector(`[data-action=${action}]`).hidden = simple();
     host.querySelector(".tn-cell-tools").hidden = simple();
     symbols.hidden = simple();
+    for(const action of ['tool-merge','tool-unmerge'])host.querySelector(`[data-action=${action}]`).hidden=sheetId==='linked';
     if (disposed) return;
-    const dim = dimensions();
+    const dim = dimensions(),axes=!simple();table.classList.toggle('tn-grid-axis',axes);
     host.querySelector("[data-period]").hidden = sheetId !== "linked";
     host.querySelector("[data-week]").hidden =
       sheetId !== "linked" || period !== "week";
@@ -545,7 +552,7 @@ export async function mount(s, host) {
     const memo = new Map(),
       displayCells = formulaCells();
     table.style.width =
-      (sheetId === "linked" ? 0 : 32) +
+      (axes ? 32 : 0) +
       Array.from(
         { length: dim.cols },
         (_, col) =>
@@ -558,14 +565,14 @@ export async function mount(s, host) {
     table.style.fontSize = 12 * scale + "px";
     table.innerHTML =
       "<colgroup>" +
-      (sheetId === "linked" ? "" : '<col style="width:32px">') +
+      (axes ? '<col style="width:32px">' : "") +
       Array.from(
         { length: dim.cols },
         (_, col) =>
           `<col style="width:${(sheet.widths[widthKey(col)] || (sheetId === "linked" ? (col === 0 ? 145 : autoWidth(col)) : 80)) * scale}px">`,
       ).join("") +
       "</colgroup>" +
-      (sheetId === "linked"
+      (!axes
         ? ""
         : '<thead><tr><th class="tn-corner"></th>' +
           Array.from(
@@ -584,10 +591,10 @@ export async function mount(s, host) {
             (sheet.heights[heightKey(r)] ||
               (sheetId === "linked" && r === 1 ? 36 : 27)) * scale;
         if (sheetId === "linked" && r === 0)
-          return `<tr class="tn-address"><td data-cell="A1" colspan="${dim.cols}" style="background:#ff9900"><div>${esc(c.name || s.object.address || s.object.location)}</div></td></tr>`;
+          return `<tr class="tn-address">${axes?'<th data-row="0">1<span class="tn-resize-row" data-resize-row="0"></span></th>':''}<td data-cell="A1" colspan="${dim.cols}" style="background:#ff9900"><div>${esc(c.name || s.object.address || s.object.location)}</div></td></tr>`;
         return (
           `<tr style="height:${height}px">` +
-          (sheetId === "linked"
+          (!axes
             ? ""
             : `<th data-row="${r}">${r + 1}<span class="tn-resize-row" data-resize-row="${r}"></span></th>`) +
           Array.from({ length: dim.cols }, (_, col) => {
@@ -711,6 +718,13 @@ export async function mount(s, host) {
     paintReference();
     renderFormulaSyntax();
     announceSelection();
+    numericActions.hidden=!simple()||!hasSelection||selected===end;
+    if(!numericActions.hidden){
+      const valid=D.range(selected,end).every(k=>{const {row,day,p}=linkedAt(k);return row&&!row.section&&p.c>0&&day&&day.date<=D.today();});
+      let writable=true;try{s.require('table','edit');}catch{writable=false;}
+      numericFill.disabled=!valid||!writable||raw(selected)==='';
+      numericActions.querySelector('[data-numeric-range]').textContent=rangeInput.value+' · '+D.range(selected,end).length+' ячеек'+(raw(selected)===''?' · сначала введите исходное число':'');
+    }
   }
   async function persist(next, label) {
     s.require("table", "edit");
@@ -931,6 +945,12 @@ export async function mount(s, host) {
       menu();
       return;
     }
+    if(simple()){
+      const repeated=hasSelection&&!dirty&&selected===end&&selected===k;
+      selectCell(k);
+      if(repeated)return openHours(k);
+      return;
+    }
     if (!simple()) {
       try { s.require("table", "edit"); } catch { selectCell(k); return; }
       // Focus during the user gesture: Android will not open the keyboard after an awaited save.
@@ -962,6 +982,7 @@ export async function mount(s, host) {
     const col = e.target.closest("[data-column]"),
       row = e.target.closest("[data-row]"),
       dim = dimensions();
+    if(col||row){if(dirty)void queueCommit();hasSelection=true;referencePick=null;edit.blur();}
     if (col) {
       selected = D.cell(0, Number(col.dataset.column));
       end = D.cell(dim.rows - 1, Number(col.dataset.column));
@@ -1039,6 +1060,10 @@ export async function mount(s, host) {
         delete target.dataset.size;
       };
       const up = (event) => {
+        if(Math.abs((isCol?event.clientX:event.clientY)-initial)<3){
+          cleanup();if(dirty)void queueCommit();const dim=dimensions();hasSelection=true;suppressClick=true;edit.blur();
+          selected=isCol?D.cell(0,index):D.cell(index,0);end=isCol?D.cell(dim.rows-1,index):D.cell(index,dim.cols-1);mark();return;
+        }
         move(event);
         const value = Number(target.dataset.size);
         cleanup();
@@ -1130,6 +1155,11 @@ export async function mount(s, host) {
         cleanup();
         suppressClick = true;
         if (!moved) {
+          // The compatibility click can otherwise land on a newly opened dialog.
+          // Consume only this touch's click, never a subsequent pointer gesture.
+          const pointerId=e.pointerId;
+          const block=event=>{if(event.pointerId===pointerId){event.preventDefault();event.stopImmediatePropagation();document.removeEventListener('click',block,true);}};
+          document.addEventListener('click',block,true);setTimeout(()=>document.removeEventListener('click',block,true),500);
           if (expectsReference()) pickReference(anchor, anchor, referenceParts());
           else activateCell(anchor);
         }
@@ -1177,6 +1207,12 @@ export async function mount(s, host) {
       };
     }
     await persist(next, "Автозаполнение " + a + ":" + b);
+  }
+  async function mergeSelection(split=false){
+    s.require('table','edit');if(sheetId==='linked')throw Error('Объединение доступно на свободных листах. Учёт часов сохраняется по дням.');
+    if(dirty)await queueCommit();
+    if(split){await persist(unmergeCells(sheet,selected,end),'Разъединение ячеек');return;}
+    const merged=mergeCells(sheet,selected,end);selected=merged.first;end=merged.last;await persist(merged.sheet,'Объединение ячеек');
   }
   function format() {
     const st = cellStyle(selected),
@@ -1315,12 +1351,15 @@ export async function mount(s, host) {
         (s.gridClipboard !== undefined || !!navigator.clipboard?.readText),
       sum: keys.length > 1 && keys.some((k) => typeof computed(k) === "number"),
       edit: keys.length === 1 && writable && factRange,
+      merge: sheetId!=='linked'&&writable&&keys.length>1,
+      unmerge: sheetId!=='linked'&&writable&&intersectingMerges(sheet,selected,end).length>0,
       fill: keys.length > 1 && raw(selected) !== "" && writable && factRange,
       clear: filled && writable && factRange,
       "clear-all": (filled || styled) && writable && factRange,
       undo: !!undo.length,
       redo: !!redo.length,
       format: writable,
+      borders: writable,
       rename: sheetId !== "linked" && s.sheetManager(),
       "add-col": writable,
       "add-row": writable,
@@ -1329,28 +1368,13 @@ export async function mount(s, host) {
         !simple() &&
       (sheetId !== "linked" || !!linkedAt(selected).row),
     };
-    const el = dialog(
-      "Ячейки " + rangeInput.value,
-      `<div class="tn-menu">${[
-        ["copy", "Копировать"],
-        ["cut", "Вырезать"],
-        ["paste", "Вставить"],
-        ["sum", "Сумма выделенного"],
-        ["edit", "Ввести значение / формулу"],
-        ["fill", "Заполнить автоматически"],
-        ["clear", "Очистить содержимое"],
-        ["clear-all", "Очистить всё"],
-        ["undo", "Отменить"],
-        ["redo", "Повторить"],
-        ["format", "Форматирование"],
-        ["rename", "Переименовать лист"],
-        ["add-col", "Добавить столбцы"],
-        ["add-row", "Добавить строки"],
-        ["delete-row", "Удалить строку целиком"],
-      ]
-        .map(([a, l]) => btn(l, a))
-        .join("")}</div>`,
-    );
+    const labels={copy:'Копировать',cut:'Вырезать',paste:'Вставить',sum:'Сумма выделенного',edit:simple()?'Ввести число':'Значение / формула',fill:'Заполнить автоматически',merge:'Объединить ячейки',unmerge:'Разъединить ячейки',clear:'Очистить содержимое','clear-all':'Очистить всё',undo:'Отменить',redo:'Повторить',format:'Формат ячеек',borders:'Границы',rename:'Переименовать лист','add-col':'Добавить столбцы','add-row':'Добавить строки','delete-row':'Удалить строки'};
+    const pictograms={copy:icons.copy,paste:icons.paste,cut:icon('<path d="m8 8 12 12M8 16 12 12l8-8"/><circle cx="5" cy="5" r="3"/><circle cx="5" cy="19" r="3"/>'),edit:icon('<path d="m4 16 12-12 4 4L8 20H4z"/>'),fill:icon('<path d="M5 3h14v18H5zM5 9h14M5 15h14M12 3v18M9 12h6"/>'),merge:icon('<rect x="3" y="5" width="18" height="14"/><path d="M7 12h10m-3-3 3 3-3 3M10 9l-3 3 3 3"/>'),unmerge:icon('<rect x="3" y="5" width="18" height="14"/><path d="M12 5v14"/>'),borders:icons.border,format:icons.text,clear:icons.clear,'clear-all':icons.clear,undo:'↶',redo:'↷',sum:'Σ',rename:'Aa','add-col':'↔','add-row':'↕','delete-row':'−'};
+    const actionButton=(a,compact=false)=>btn('<span aria-hidden="true">'+(pictograms[a]||'•')+'</span>'+(compact?'':'<span>'+labels[a]+'</span>'),a,'class="'+(compact?'tn-context-icon':'tn-context-action')+'" aria-label="'+labels[a]+'" title="'+labels[a]+'"');
+    const shortcuts=['copy','cut','paste','undo','redo'].filter(a=>available[a]);
+    const groups=[['edit','fill','merge','unmerge'],['sum','borders','format'],['clear','clear-all'],['rename','add-col','add-row','delete-row']].map(g=>g.filter(a=>available[a])).filter(g=>g.length);
+    const el=dialog('Ячейки '+rangeInput.value,(shortcuts.length?'<div class="tn-context-shortcuts">'+shortcuts.map(a=>actionButton(a,true)).join('')+'</div>':'')+groups.map(g=>'<div class="tn-context-group">'+g.map(a=>actionButton(a)).join('')+'</div>').join(''));
+    el.classList.add('tn-context-menu');
     const actions = {
       edit: () => {
         if (simple()) return openHours(selected);
@@ -1374,9 +1398,12 @@ export async function mount(s, host) {
         );
       },
       fill: () => fill(selected, end),
+      merge: () => mergeSelection(),
+      unmerge: () => mergeSelection(true),
       clear: () => clear(false),
       "clear-all": () => clear(true),
       format,
+      borders,
       undo: () => restore(undo, redo),
       redo: () => restore(redo, undo),
       rename: () => {
@@ -1394,7 +1421,7 @@ export async function mount(s, host) {
     };
     for (const [action, fn] of Object.entries(actions)) {
       const button = el.querySelector("[data-action=" + action + "]");
-      button.hidden = !available[action];
+      if(!button)continue;
       button.onclick = () => {
         el.close();
         queue(fn);
@@ -1664,69 +1691,21 @@ export async function mount(s, host) {
     await persist(next, "Оформление " + rangeInput.value);
   }
   function borders() {
-    const el = dialog(
-      "Границы выделенного диапазона",
-      '<div class="tn-menu">' +
-        [
-          ["all", "Все границы"],
-          ["outer", "Внешняя рамка"],
-          ["none", "Без границ"],
-        ]
-          .map(([id, label]) => btn(label, "border-" + id))
-          .join("") +
-        "</div>",
-    );
-    for (const mode of ["all", "outer", "none"])
-      el.querySelector("[data-action=border-" + mode + "]").onclick = () => {
-        el.close();
-        queue(async () => {
-          const next = D.copy(sheet),
-            a = D.coords(selected),
-            b = D.coords(end),
-            top = Math.min(a.r, b.r),
-            bottom = Math.max(a.r, b.r),
-            left = Math.min(a.c, b.c),
-            right = Math.max(a.c, b.c);
-          for (const k of D.range(selected, end)) {
-            const p = D.coords(k),
-              id = styleKey(k),
-              line = "1px solid #111111",
-              none = "0px solid transparent";
-            next.cells[id] = {
-              ...next.cells[id],
-              style: {
-                ...next.cells[id]?.style,
-                border: mode === "all" ? line : none,
-                borderTop:
-                  mode === "outer" && p.r === top
-                    ? line
-                    : mode === "all"
-                      ? line
-                      : none,
-                borderBottom:
-                  mode === "outer" && p.r === bottom
-                    ? line
-                    : mode === "all"
-                      ? line
-                      : none,
-                borderLeft:
-                  mode === "outer" && p.c === left
-                    ? line
-                    : mode === "all"
-                      ? line
-                      : none,
-                borderRight:
-                  mode === "outer" && p.c === right
-                    ? line
-                    : mode === "all"
-                      ? line
-                      : none,
-              },
-            };
-          }
-          await persist(next, "Границы диапазона");
-        });
-      };
+    s.require('table','edit');
+    const names={all:'Все',outer:'Внешние',inner:'Внутренние',horizontal:'Горизонтальные',vertical:'Вертикальные',top:'Сверху',bottom:'Снизу',left:'Слева',right:'Справа',none:'Убрать все'};
+    const drawing=p=>{
+      const edges={all:['M4 4h24v24H4z','M16 4v24M4 16h24'],outer:['M4 4h24v24H4z'],inner:['M16 4v24M4 16h24'],horizontal:['M4 16h24'],vertical:['M16 4v24'],top:['M4 4h24'],bottom:['M4 28h24'],left:['M4 4v24'],right:['M28 4v24'],none:['M6 26 26 6']}[p];
+      return '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 4h24v24H4zM16 4v24M4 16h24" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="2 3"/><path d="'+edges.join(' ')+'" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+    };
+    let preset='all';
+    const el=dialog('Границы · '+rangeInput.value,'<div class="tn-border-presets">'+BORDER_PRESETS.map(p=>btn(drawing(p)+'<span>'+names[p]+'</span>','border-'+p,'aria-pressed="'+(p==='all')+'" title="'+names[p]+'"')).join('')+'</div><div class="tn-border-options">'+field('Толщина','<select name="width"><option value="1">Тонкая · 1 px</option><option value="2">Средняя · 2 px</option><option value="3">Жирная · 3 px</option><option value="4">Очень жирная · 4 px</option></select>')+field('Линия','<select name="pattern"><option value="solid">Сплошная</option><option value="dashed">Штриховая</option><option value="dotted">Точечная</option><option value="double">Двойная</option></select>')+field('Цвет','<input type="color" name="color" value="#111111">')+'</div><div class="tn-border-preview" aria-label="Предпросмотр границы"><span>Предпросмотр</span></div>',async f=>{
+      const options={preset,width:Number(f.get('width')),pattern:f.get('pattern'),color:f.get('color')};
+      const work=chain.then(()=>persist(applyBorders(sheet,selected,end,options,styleKey,dimensions()),'Границы '+rangeInput.value));chain=work.catch(error);await work;
+    });
+    el.classList.add('tn-borders-dialog');el.querySelector('[type=submit]').textContent='Применить';
+    const preview=()=>{const data=new FormData(el.querySelector('form'));el.querySelector('.tn-border-preview span').style.border=preset==='none'?'0px solid transparent':borderLine({width:Number(data.get('width')),pattern:data.get('pattern'),color:data.get('color')});};
+    for(const p of BORDER_PRESETS)el.querySelector('[data-action=border-'+p+']').onclick=()=>{preset=p;el.querySelectorAll('.tn-border-presets button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.action==='border-'+p)));preview();};
+    el.querySelectorAll('select,input').forEach(input=>input.oninput=preview);preview();
   }
   const icon = (paths) =>
     '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -1756,6 +1735,8 @@ export async function mount(s, host) {
     ["tool-copy", icons.copy, "Копировать"],
     ["tool-paste", icons.paste, "Вставить"],
     ["tool-clear", icons.clear, "Очистить"],
+    ["tool-merge", "↔", "Объединить ячейки"],
+    ["tool-unmerge", "⋮", "Разъединить ячейки"],
     ["tool-format", "⋯", "Все настройки"],
   ];
   host.querySelector(".tn-cell-tools").innerHTML = tools
@@ -1764,6 +1745,8 @@ export async function mount(s, host) {
     )
     .join("");
   const toolActions = {
+    "tool-merge":()=>queue(()=>mergeSelection()),
+    "tool-unmerge":()=>queue(()=>mergeSelection(true)),
     "tool-fill": () =>
       chooseColor("Заливка ячеек", cellStyle(selected).background, (color) =>
         queue(() => setStyles({ background: color })),

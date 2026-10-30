@@ -336,7 +336,8 @@ def main():
             # synthetic roles, never pretending to be authenticated to a service.
             p.evaluate("document.getElementById('authOverlay').style.display='none';document.getElementById('mainHeader').style.display='';document.querySelector('.container').style.display=''")
             p.evaluate("permissionsLoaded=true;currentUserRole='viewer';currentUserStatus='active';applyRoleUI()")
-            assert p.locator('#mainHeader .version-text').is_hidden()
+            assert p.locator('#mainHeader .version-text').is_visible()
+            assert p.locator('#mainHeader .version-text').is_disabled()
             p.locator('#mainHeader .version-text').evaluate('(e)=>e.click()')
             assert p.locator('#releaseHistoryDialog').count() == 0
             p.evaluate("currentUserRole='admin';applyRoleUI()")
@@ -345,14 +346,19 @@ def main():
             p.locator('#mainHeader .version-text').click()
             p.locator('#releaseHistoryDialog[open]').wait_for(state='visible')
             assert p.locator('#releaseHistoryDialog h3').first.inner_text().startswith(new.version + ' — ')
+            p.evaluate("currentUserRole='foreman';applyRoleUI()")
+            assert p.locator('#mainHeader .version-text').is_enabled()
+            assert p.locator('#releaseHistoryDialog[open]').is_visible()
             # Changing access closes a currently-open history, not just its launcher.
             p.evaluate("currentUserStatus='disabled';applyRoleUI()")
             p.locator('#releaseHistoryDialog').wait_for(state='detached')
-            assert p.locator('#mainHeader .version-text').is_hidden()
+            assert p.locator('#mainHeader .version-text').is_visible()
+            assert p.locator('#mainHeader .version-text').is_disabled()
             p.locator('#mainHeader .version-text').evaluate('(e)=>e.click()')
             assert p.locator('#releaseHistoryDialog').count() == 0
             p.evaluate("currentUserStatus='active';permissionsLoaded=false;applyRoleUI()")
-            assert p.locator('#mainHeader .version-text').is_hidden()
+            assert p.locator('#mainHeader .version-text').is_visible()
+            assert p.locator('#mainHeader .version-text').is_disabled()
             p.locator('#mainHeader .version-text').evaluate('(e)=>e.click()')
             assert p.locator('#releaseHistoryDialog').count() == 0
             p.evaluate("currentUserRole=null;currentUserStatus=null;applyRoleUI();document.getElementById('authOverlay').style.display='flex'")

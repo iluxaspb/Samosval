@@ -248,11 +248,13 @@ async function assertSummarySheets() {
 }
 
 async function authenticationCases() {
-  await step('admin-only-release-history-and-role-revocation', async () => {
+  await step('shared-build-number-restricted-history-and-role-revocation', async () => {
     await launch(path.join(work,'roles'),'qa-viewer',false);
-    assert.equal(await page.locator('#mainHeader .version-text').isVisible(),false,'Signed-out release label');
+    assert.equal(await page.locator('#mainHeader .version-text').isVisible(),true,'Build number remains visible');
+    assert(await page.locator('#mainHeader .version-text').isDisabled(),'Signed-out history is disabled');
     await login('qa-viewer'); await ready();
-    assert.equal(await page.locator('#mainHeader .version-text').isVisible(),false,'Viewer release label');
+    assert.equal(await page.locator('#mainHeader .version-text').isVisible(),true,'Viewer sees build number');
+    assert(await page.locator('#mainHeader .version-text').isDisabled(),'Viewer cannot open history');
     // Deliberate negative authorization probe, not a claimed visible user click.
     await page.locator('#mainHeader .version-text').evaluate(node=>node.click());
     assert.equal(await page.locator('#releaseHistoryDialog').count(),0);
@@ -266,10 +268,15 @@ async function authenticationCases() {
     await page.locator('#mainHeader .version-text').click();
     await page.locator('#releaseHistoryDialog[open]').waitFor({state:'visible'});
     assert((await page.locator('#releaseHistoryDialog h3').first().innerText()).startsWith(report.release.replace(/^Версия /,'')));
+    await writeDoc('users/qa-viewer',{role:'foreman'},true);
+    await wait(()=>permissionsLoaded && currentUserRole==='foreman');
+    assert(await page.locator('#mainHeader .version-text').isEnabled(),'Foreman can open history');
+    assert(await page.locator('#releaseHistoryDialog[open]').isVisible(),'Foreman keeps history access');
     await writeDoc('users/qa-viewer',{role:'viewer'},true);
     await wait(()=>permissionsLoaded && currentUserRole==='viewer');
     await page.locator('#releaseHistoryDialog').waitFor({state:'detached'});
-    assert.equal(await page.locator('#mainHeader .version-text').isVisible(),false);
+    assert.equal(await page.locator('#mainHeader .version-text').isVisible(),true);
+    assert(await page.locator('#mainHeader .version-text').isDisabled(),'Revocation disables history, keeps build number');
     await assertNoUnexpectedErrors(); await closeContext();
   });
   await step('registration-pending-approval-logout', async () => {
@@ -653,7 +660,7 @@ async function main() {
   const releaseHtml=fs.readFileSync(path.join(root,'index-test.html'),'utf8');
   const releaseVersion=releaseHtml.match(/<meta name="test-app-version" content="([^"]+)"/)?.[1];
   assert(releaseVersion,'Missing test release version');
-  report.release='Версия '+releaseVersion;
+  report.release=releaseVersion;
   const jar = process.env.FIRESTORE_EMULATOR_JAR; assert(jar && fs.existsSync(jar), 'Set FIRESTORE_EMULATOR_JAR to an installed local Firestore emulator JAR');
   ({chromium} = require('playwright')); sdk = require('firebase/firestore');
   const {initializeTestEnvironment} = require('@firebase/rules-unit-testing');

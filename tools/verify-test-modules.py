@@ -58,7 +58,7 @@ assert expected == html, 'Generated markup/styles/handlers/order do not match so
 assert '<!-- TEST-MODULE:' not in html
 release = re.search(r'<meta name="test-app-version" content="([^"]+)"', html)[1]
 assert "version:'" + release + "'" in (SOURCE / 'features' / 'test-release.js').read_text()
-assert re.search(r'class="version-text"[^>]*>Версия ([^<]+)', html)[1] == release, 'Initial header version differs'
+assert re.search(r'class="version-text"[^>]*>([^<]+)', html)[1] == release, 'Initial header version differs'
 assert re.search(r"version:'([^']+)'", (SOURCE / 'features' / 'release-history.js').read_text())[1] == release, 'Runtime history version differs'
 assert manifest['channel'].startswith('test-' + release + '-')
 assert manifest['baseline_commit'] == model['baseline_commit']

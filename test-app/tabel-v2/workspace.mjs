@@ -492,6 +492,10 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   });
   observer.observe(container, { attributes: true, attributeFilter: ["class"] });
   return {
+    async prepareUpdate() {
+      await s.grid?.finish?.();await s.store.chain;
+      return {pending:s.store.state.jobs.filter(j=>['queued','conflict'].includes(j.status)).length,uploading:!!s.store.uploading};
+    },
     async settings(id) {
       if (id && s.object?.id !== id) await s.select(id);
       return s.openSettings();

@@ -8,6 +8,11 @@ const BASE = new URL('./', self.location.href);
 const PAGE = new URL('index-test.html', BASE).href;
 const ALLOWED = new Set(RECORDS.map(r => new URL(r.url, BASE).href));
 const COMPLETE = new URL('test-app/.complete-' + VERSION, BASE).href;
+let completedFiles=0;
+async function publishProgress(){
+  const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+  for(const client of windows){if(new URL(client.url).pathname===new URL(PAGE).pathname)client.postMessage({type:'TEST_PWA_PROGRESS',version:VERSION,completed:completedFiles,total:RECORDS.length});}
+}
 const hash = async buffer => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',buffer)),b=>b.toString(16).padStart(2,'0')).join('');
 
 self.addEventListener('install', event => event.waitUntil((async () => {
@@ -21,7 +26,7 @@ self.addEventListener('install', event => event.waitUntil((async () => {
         const response = await fetch(new Request(url, {cache:'reload',credentials:'same-origin'}));
         if (!response.ok || response.type === 'opaque') throw Error('Cannot cache '+url);
         if (await hash(await response.clone().arrayBuffer()) !== record.sha256) throw Error('Release mismatch: '+url);
-        await cache.put(url,response);
+        await cache.put(url,response);completedFiles++;await publishProgress().catch(()=>{});
       }
     }));
     const failed = results.find(r => r.status === 'rejected');
@@ -37,8 +42,8 @@ self.addEventListener('install', event => event.waitUntil((async () => {
 self.addEventListener('activate', event => event.waitUntil((async () => {
   const cache = await caches.open(CACHE);
   if (!await cache.match(COMPLETE)) throw Error('Incomplete test release');
-  // Activation waits for the old test clients to close. Never touch production caches or IndexedDB.
-  for (const key of await caches.keys()) if (key.startsWith(PREFIX) && key !== CACHE) await caches.delete(key);
+  // Explicit APPLY can activate with open windows. Cache housekeeping must not
+  // delay activation; the reloaded page requests it after taking the new controller.
   await self.clients.claim();
 })()));
 
@@ -66,18 +71,26 @@ self.addEventListener('fetch', event => {
 
 self.addEventListener('message', event => {
   const type = event.data?.type, port = event.ports?.[0];
+  if(type==='TEST_PWA_PRUNE'){
+    event.waitUntil((async()=>{
+      const keys=(await caches.keys()).filter(key=>key.startsWith(PREFIX)&&key!==CACHE);
+      // Keep two older complete app shells for existing windows and recovery.
+      for(const key of keys.slice(0,-2))await caches.delete(key);
+    })());return;
+  }
   if (!port || (type !== 'TEST_PWA_STATUS' && type !== 'TEST_PWA_APPLY')) return;
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
     const complete = !!await cache.match(COMPLETE);
     if (type === 'TEST_PWA_STATUS') {
-      port.postMessage({type:'TEST_PWA_STATUS',version:VERSION,complete});
+      port.postMessage({type:'TEST_PWA_STATUS',version:VERSION,complete,completed:complete?RECORDS.length:completedFiles,total:RECORDS.length});
       return;
     }
     // Only activate a complete, hash-verified release requested explicitly by
     // the user. Never call skipWaiting during automatic installation.
     const accepted = complete && event.data?.version === VERSION;
     port.postMessage({type:'TEST_PWA_APPLY',version:VERSION,accepted});
-    if (accepted) await self.skipWaiting();
+    // Do not keep the APPLY message event pending on activation itself.
+    if (accepted) void self.skipWaiting();
   })());
 });

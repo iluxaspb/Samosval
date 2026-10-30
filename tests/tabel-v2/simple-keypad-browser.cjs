@@ -1,7 +1,7 @@
 const { spawn } = require("child_process"),
   assert = require("node:assert/strict");
 const { chromium } = require(
-  process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES + "/playwright",
+  process.env.PLAYWRIGHT_MODULE || process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES + "/playwright",
 );
 const server = spawn(
   "python3",
@@ -12,7 +12,7 @@ const server = spawn(
   let b;
   try {
     b = await chromium.launch({
-      executablePath: "/tmp/tabel-chromium",
+      executablePath: process.env.PWA_BROWSER || undefined,
       args: ["--no-sandbox"],
     });
     const p = await b.newPage({
@@ -39,11 +39,19 @@ const server = spawn(
     await p.locator(".tn-grid").waitFor();
     assert(!(await p.locator(".tn-cell-tools").isVisible()));
     await p.locator("[data-cell=S4]").tap();
+    assert.equal(await p.locator("dialog.tn-hours-dialog[open]").count(),0,'First tap selects without keypad');
+    assert.equal(await p.locator('[data-range]').inputValue(),'S4');
+    await p.locator("[data-cell=S4]").tap();
     await p.locator("dialog.tn-hours-dialog[open]").waitFor();
     await p.locator('[data-value="12"]').click();
     await p.locator("dialog[open]").waitFor({ state: "hidden" });
 
     await p.locator("[data-cell=S4]").tap();
+    await p.locator("dialog.tn-hours-dialog[open]").waitFor();
+    await p.locator("dialog[open] [data-action=close]").first().click();
+    await p.locator("[data-cell=R4]").tap();
+    assert.equal(await p.locator("dialog.tn-hours-dialog[open]").count(),0,'Changing cell selects only');
+    await p.locator("[data-cell=R4]").tap();
     await p.locator("dialog.tn-hours-dialog[open]").waitFor();
     await p.locator("dialog[open] [data-action=close]").first().click();
     await p.evaluate(async () => {
@@ -62,7 +70,7 @@ const server = spawn(
     const label = await p.locator("[data-cell=A4]").textContent();
     await p.locator("[data-action=menu]").click();
     await p
-      .getByRole("button", { name: "Удалить строку целиком", exact: true })
+      .getByRole("button", { name: "Удалить строки", exact: true })
       .click();
     await p.locator("dialog[open] [type=submit]").click();
     await p.locator("dialog[open]").waitFor({ state: "hidden" });
@@ -128,7 +136,7 @@ const server = spawn(
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS touch: simple-mode tap/repeated tap opens numeric panel; lower tools hidden only in simple mode",
+      "PASS touch: simple-mode first tap selects, second tap opens numeric panel; lower tools hidden only in simple mode",
     );
   } finally {
     await b?.close();

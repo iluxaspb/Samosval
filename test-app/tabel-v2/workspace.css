@@ -1090,7 +1090,7 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 @media(prefers-reduced-motion:reduce){dialog.tn[open]{animation:none;}}
 
 /* 3.4.41: readable grid, fill preview and operator history. */
-.tn .tn-grid th,.tn .tn-grid td{border-right-color:#000!important;border-bottom-color:#000!important;}
+.tn .tn-grid th,.tn .tn-grid td{border-right-color:#000;border-bottom-color:#000;}
 .tn .tn-grid{border-top:1px solid #000;border-left:1px solid #000;}
 .tn .tn-grid .tn-fill-target{box-shadow:inset 0 0 0 2px #188038!important;background-image:linear-gradient(#18803830,#18803830)!important;}
 .tn-fill-preview{position:fixed;top:80px;right:12px;z-index:50;pointer-events:none;padding:4px 8px;background:var(--tn-card);color:var(--tn-text);border:2px solid #188038;border-radius:8px;}
@@ -1368,3 +1368,24 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
  .tn .tn-formula-editor [data-editor],
  .tn .tn-formula-editor .tn-formula-render{font-size:15px!important;}
 }
+
+.tn-numeric-actions:not([hidden]){display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--tn-border,#64748b);border-radius:10px;margin:6px 0;background:var(--tn-card,#fff)}
+.tn-numeric-actions span{font-size:11px;opacity:.8}
+
+/* Compact contextual tools; only actions allowed by the current selection exist. */
+dialog.tn.tn-context-menu{width:min(330px,calc(100vw - 28px));padding:0;border-radius:15px}
+.tn-context-menu form>header{padding:11px 14px}.tn-context-menu .tn-dialog-body{padding:0 8px 8px!important}.tn-context-menu form>footer,.tn-context-menu form>p[role=alert]:empty{display:none}
+.tn-context-shortcuts{display:flex;gap:5px;padding:5px 5px 10px;border-bottom:1px solid var(--tn-border,#cbd5e1)}
+.tn-context-menu .tn-context-icon{display:grid;place-items:center;width:42px;min-height:38px;padding:7px!important;border-radius:9px;font-size:22px;background:transparent!important;border:1px solid transparent!important}
+.tn-context-group{padding:5px 0}.tn-context-group+.tn-context-group{border-top:1px solid var(--tn-border,#cbd5e1)}
+.tn-context-menu .tn-context-action{display:flex;align-items:center;gap:11px;width:100%;min-height:35px;padding:7px 9px!important;border:0!important;background:transparent!important;box-shadow:none!important;text-align:left;font-size:13px;font-weight:500;border-radius:8px}
+.tn-context-action>span:first-child{display:grid;place-items:center;width:23px;flex-shrink:0;font-size:20px}.tn-context-action svg{width:19px;height:19px}
+.tn-context-menu button:hover,.tn-context-menu button:focus-visible{background:#38bdf81c!important;outline-color:#38bdf8}
+.tn-border-presets button>span{max-width:100%;overflow-wrap:anywhere;line-height:1.2}
+.tn-border-options label{display:flex;flex-direction:column;gap:6px;min-width:0}
+.tn-border-options select{box-sizing:border-box;width:100%;min-width:0;font-size:12px}
+dialog.tn.tn-borders-dialog{width:min(380px,calc(100vw - 24px));border-radius:18px}.tn-border-presets{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}.tn-border-presets button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:69px;padding:7px 2px!important;font-size:9px;font-weight:500;border-radius:9px;background:transparent!important}.tn-border-presets svg{width:29px;height:29px}.tn-border-presets [aria-pressed=true]{border-color:#0ea5e9!important;background:#0ea5e91c!important}.tn-border-options{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.tn-border-options label:last-child{grid-column:1/-1}.tn-border-options input[type=color]{width:100%;height:34px;padding:3px}.tn-border-preview{display:grid;place-items:center;padding:14px;margin-top:10px;background:#94a3b811;border-radius:9px}.tn-border-preview span{padding:8px 20px;font-size:12px}
+
+.tn-grid-axis tbody th[data-row]{position:sticky;left:0;z-index:5;background:var(--tn-card,#fff);color:var(--tn-text,#111);min-width:32px;font-weight:500;text-align:center;cursor:pointer}.tn-linked.tn-grid-axis tbody td:first-of-type{left:32px}.tn-grid-axis thead th{cursor:pointer}
+
+.tn-border-presets button span{display:block;max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.15;text-align:center}.tn-border-options label{display:flex;flex-direction:column;align-items:stretch;gap:5px;font-size:11px}.tn-border-options select{width:100%;box-sizing:border-box}

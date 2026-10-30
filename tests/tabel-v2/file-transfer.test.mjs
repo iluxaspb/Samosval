@@ -47,3 +47,9 @@ test('presence uses consistent distinct colors and includes only cells in the ex
   assert(selectionContains({a:'B3',b:'B3',rowKeys:['water'],colKeys:['day:2026-10-29:day']},'M3','water','day:2026-10-29:day'));
   assert(!selectionContains({a:'B3',b:'B3',rowKeys:['water'],colKeys:['day:2026-10-29:day']},'B3','water','day:2026-10-12:day'));
 });
+
+test('new border styles export to Excel and import with matching width, pattern and colour',async()=>{
+ const sheet={name:'Границы',rows:3,cols:3,widths:{},heights:{},cells:{A1:{raw:12,style:{borderTop:'3px dashed #2255aa',borderRight:'0px solid transparent'}},B1:{raw:13,style:{borderBottom:'3px double #111111'}},C1:{raw:14,style:{borderLeft:'1px dotted #aa2255'}}},merges:[]};
+ const book=new E.Workbook(),ws=toWorksheet(book,sheet);assert.equal(ws.getCell('A1').border.top.style,'mediumDashed');assert.equal(ws.getCell('A1').border.right.style,undefined);assert.equal(ws.getCell('B1').border.bottom.style,'double');assert.equal(ws.getCell('C1').border.left.style,'dotted');
+ const round=fromWorksheet(ws);assert.equal(round.cells.A1.raw,12);assert.equal(round.cells.A1.style.borderTop,'2px dashed #2255AA');assert.equal(round.cells.B1.style.borderBottom,'3px double #111111');
+});
