@@ -32,6 +32,26 @@ test('minute packet combines different business tables into one immutable Firest
   const tampered=structuredClone(batch);tampered.document.events[0].row.id='changed';
   assert.equal(verifyMinuteReserveBatch(tampered),false);
 });
+test('same-length metadata substitutions and extra fields cannot impersonate an immutable minute batch',()=>{
+  const packet=buildMinuteReserveBatch({previous,events:[event(10),event(11,{table:'tabel_records'})]});
+  for(const change of [
+    b=>{b.document.projectId='production-00000';},
+    b=>{b.document.workspaceId='prod_workspace';},
+    b=>{b.document.format='famosval-minute-reserve';},
+    b=>{b.document.version=2;},
+    b=>{b.document.unauthorized=true;}
+  ]){
+    const corrupt=structuredClone(packet);
+    change(corrupt);
+    // The unchanged batch ID must not authenticate changed envelope fields.
+    assert.equal(verifyMinuteReserveBatch(corrupt),false);
+  }
+  const sameLength=structuredClone(packet);
+  sameLength.document.projectId='production-00000';
+  assert.equal(Buffer.byteLength(JSON.stringify(sameLength.document)),
+    Buffer.byteLength(JSON.stringify(packet.document)));
+  assert.equal(verifyMinuteReserveBatch(packet),true);
+});
 test('missing sequence, cross-project row or invalid deletion blocks sending entire packet',()=>{
   for(const events of [
     [event(11)],[event(10),event(12)],
