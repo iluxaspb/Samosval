@@ -146,7 +146,21 @@ async function collectSnapshot(pool){
  }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
  finally{c.release();}
 }
+async function assertFreshVerifiedBackup(pool){
+ const state=(await pool.query("SELECT heartbeat,payload FROM server_control_state WHERE channel='test'")).rows[0];
+ const freshness=Date.now()-Date.parse(state?.heartbeat||0);
+ if(!Number.isFinite(freshness)||freshness<0||freshness>120000)
+  throw Error('replica-control-worker-not-current');
+ const copies=state.payload?.backups||[];
+ if(!Array.isArray(copies)||!copies.some(b=>b.restored===true&&
+  Number.isFinite(Number(b.createdAt))&&Date.now()-Number(b.createdAt)>=0&&
+  Date.now()-Number(b.createdAt)<6*60*60*1000))
+   throw Error('replica-fresh-verified-backup-required');
+}
 async function bootstrap(pool,db){
+ // The initial transfer requires a restored DB backup made within 6 hours.
+ // It does not use or restore that dump, so no stale state overwrites NAS.
+ await assertFreshVerifiedBackup(pool);
  // Keep all unverified rows invisible in a new immutable generation.
  const snapshot=await collectSnapshot(pool);
  const generation=sha256(randomUUID()).slice(0,24),metaRef=db.doc(REPLICA_DOC);
