@@ -75,7 +75,8 @@ export function createFailoverAdminController({getSession,read,setMode,confirm,n
  * connected transport. Neither a local preference nor a successful /health
  * probe may change it. The released UI still uses its existing S/F indicator.
  */
-export function failoverServerIndicator(state,{online=true,transportConfirmed=false,sessionValid=true}={}){
+export function failoverServerIndicator(state,{online=true,transportConfirmed=false,
+  transportProvider=null,transportEpoch=null,sessionValid=true}={}){
   if(!online)return {letter:'О',provider:null,label:'Офлайн — действия сохраняются локально',connected:false};
   if(!sessionValid)return {letter:'…',provider:null,label:'Нет подтверждённого сеанса',connected:false};
   const valid=state?.format==='samosval-test-failover'&&state.version===1&&
@@ -87,7 +88,10 @@ export function failoverServerIndicator(state,{online=true,transportConfirmed=fa
     state.adapters?.[state.provider]===true&&
     state.replicas?.[state.provider]?.sequence===state.sequence&&
     state.replicas[state.provider].hash===state.head.hash;
-  if(!valid||transportConfirmed!==true)
+  // A successful request to the WRONG server or a stale epoch cannot certify
+  // the S/F icon. The proof must originate from the selected live transport.
+  if(!valid||transportConfirmed!==true||transportProvider!==state.provider||
+     transportEpoch!==state.epoch)
     return {letter:'…',provider:null,label:'Проверка активного сервера',connected:false};
   return {letter:state.provider==='synology'?'S':'F',provider:state.provider,
     label:names[state.provider]+' — подтверждённый сервер данных',connected:true,epoch:state.epoch};
