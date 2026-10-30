@@ -110,7 +110,8 @@ export function createReserveHttp({firestore,projectId,verifyToken,enabled=false
   if(req.method==='OPTIONS')return json(res,204,{});
   const path=new URL(req.url||'/', 'http://localhost').pathname;
   if(req.method==='GET'&&path==='/health/live')
-   return json(res,200,{status:'ok',source:'firebase'});
+   return json(res,200,{status:'ok',source:'firebase',projectId:'samosval-offline',
+    mode:enabled?'line-test-only':'disabled'});
   if(!enabled)return json(res,503,{error:'reserve-service-disabled'});
   const match=/^Bearer ([A-Za-z0-9._-]+)$/.exec(String(req.headers.authorization||''));
   if(!match)return json(res,401,{error:'unauthorized'});
