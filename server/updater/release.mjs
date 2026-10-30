@@ -48,3 +48,20 @@ export async function sourceBytes(release,file,fetchImpl=fetch){
  const bytes=await download(`https://raw.githubusercontent.com/${REPO}/${release.commit}/server/${file.path}`,{fetchImpl});
  if(bytes.length!==file.bytes||digest(bytes)!==file.sha256)throw Error('source-checksum-mismatch');return bytes;
 }
+
+// The installed TEST worker must be bootstrapped to support migration plans.
+// Existing workers fail closed on schema change; no generic SQL execution path.
+export function planTestSchemaUpgrade(release,baseline){
+ if(!baseline||!hex(baseline.schemaSha256)||!hex(baseline.dependenciesSha256)||
+    release?.dependenciesSha256!==baseline.dependenciesSha256)
+   throw Error('release-requires-bootstrap');
+ if(release.schemaSha256===baseline.schemaSha256){
+   if(release.migrations?.length)throw Error('unexpected-migration-for-current-schema');
+   return null;
+ }
+ if(release.migrations?.length!==1||
+    release.previousSchemaSha256!==baseline.schemaSha256||
+    release.migrations[0].path!=='sql/014_reserve_outbox.sql')
+   throw Error('release-requires-bootstrap');
+ return release.migrations[0];
+}
