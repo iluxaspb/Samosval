@@ -109,7 +109,7 @@ sqltest('SQL 014 accepts an isolated TEST verification database but rejects prod
         // Pre-014 migrations intentionally accept only samosval_test. For this
         // isolated CI fixture alone, also allow our freshly created verification
         // clone; never change the on-disk migrations or production updater.
-        const guard=/current_database\\(\\)\\s*<>\\s*'samosval_test'/g;
+        const guard=/current_database\(\)\s*<>\s*'samosval_test'/g;
         const matches=[...baseSql.matchAll(guard)];
         assert.equal(matches.length,n===1?0:1,'unexpected TEST guard in '+filename);
         const fixtureSql=baseSql.replace(guard,
@@ -131,5 +131,7 @@ sqltest('SQL 014 accepts an isolated TEST verification database but rejects prod
   await assert.rejects(wrong.connect().then(async()=>{
     try{await wrong.query(source);}finally{await wrong.end();}
   }),/TEST database required/);
-  assert.match(source,/current_database\\(\\)\\s*!~\\s*'\\^sc_verify_\\[0-9\\]\\+\\$'/);
+  assert.match(source,/current_database\(\)\s*!~\s*'\^sc_verify_\[0-9\]\+\
+});
+/);
 });
