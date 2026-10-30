@@ -126,3 +126,34 @@ test('only the dedicated TEST Firebase project is accepted',async()=>{
  await assert.rejects(claimNasOwnership({
   firestore,projectId:'samosval-test',nodeId:nodeA,checkpoint,now:t0}),/replica-test-project-required/);
 });
+
+test('opt-in NAS HTTP guard refuses absent ownership, then leases and releases a write',async()=>{
+ const {firestore,checkpoint}=setup();
+ const {startNasWriterFence,nasWriterFenceRuntime}=await import('../src/test-writer-guard.mjs');
+ let now=t0;
+ const guard=startNasWriterFence({
+  pool:{query:async()=>({rows:[checkpoint]})},projectId:'samosval-offline',
+  env:{TEST_WRITER_FENCE_ENABLED:'1'},firestoreFactory:()=>firestore,
+  clock:()=>now,intervalMs:1000000
+ });
+ try{
+  await assert.rejects(guard.acquire(),/writer-no-current-lease/);
+  await guard.runOnce();
+  const ticket=await guard.acquire();
+  assert.equal(ticket.epoch,1);
+  assert.equal(Object.keys(firestore.docs.get(OWNER_DOC).pending).length,1);
+  assert.equal(await ticket.release(),true);
+  assert.equal(Object.keys(firestore.docs.get(OWNER_DOC).pending).length,0);
+  assert.equal(nasWriterFenceRuntime.allowedWrites,1);
+  firestore.offline=true;
+  await assert.rejects(guard.acquire(),/firebase-offline/);
+  assert.equal(nasWriterFenceRuntime.refusedWrites,2);
+ }finally{await guard.stop();}
+});
+test('the writer gate remains disabled unless explicitly opted into TEST',async()=>{
+ const {startNasWriterFence}=await import('../src/test-writer-guard.mjs');
+ const guard=startNasWriterFence({pool:{},projectId:'production-project',
+  env:{TEST_WRITER_FENCE_ENABLED:'0'}});
+ assert.equal(guard.enabled,false);
+ await guard.stop();
+});

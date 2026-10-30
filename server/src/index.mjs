@@ -9,6 +9,7 @@ import {readArchiveSnapshot} from './archive-read.mjs';
 import {readLineHistory,historyOperation} from './history-store.mjs';
 import { Pool } from 'pg';
 import {startTestReplica,replicaRuntime} from './test-replica-runner.mjs';
+import {startNasWriterFence} from './test-writer-guard.mjs';
 import { verifyFirebaseUser, verifyFirebaseIdentity } from './auth.mjs';
 import {readSession,registerPending,readAdministration,identityOperation,readMembers} from './identity-store.mjs';
 import { submitLineOperation } from './line-store.mjs';
@@ -41,6 +42,7 @@ installDatasetGuard(pool);
 // business API. The mirror remains disabled and reports a bounded error.
 try{startTestReplica({pool,projectId:process.env.FIREBASE_PROJECT_ID});}
 catch{replicaRuntime.enabled=false;replicaRuntime.lastError='replica-configuration-blocked';}
+const writerFence=startNasWriterFence({pool,projectId:process.env.FIREBASE_PROJECT_ID});
 const tabelPresence=createPresenceService({authorize:(uid,target)=>authorizeTabelPresence(pool,uid,target),workspaceId:process.env.WORKSPACE_ID||'main_workspace'});
 function readJson(req,limit=32768) {
   return new Promise((resolve,reject)=>{
@@ -58,7 +60,7 @@ function readJson(req,limit=32768) {
     req.on('error',reject);
   });
 }
-const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
+const serve=(req,res)=>datasetRequest(pool,req,res,async()=>{
   observeServerRequest(req,res);
   const origin=req.headers.origin;
   if(origin){
@@ -276,7 +278,28 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
     }
   }
   return send(res,404,{error:'not-found'});
-}));
+});
+const server=http.createServer(async(req,res)=>{
+  const path=new URL(req.url||'/', 'http://localhost').pathname;
+  const fenced=writerFence.enabled&&req.method==='POST'&&path.startsWith('/api/v1/')&&
+    path!=='/api/v1/admin/server';
+  // Authentication and origin checks remain in each route. Unknown origins
+  // and requests lacking Bearer tokens get their existing 401/403 response.
+  if(!fenced||(req.headers.origin&&!permittedOrigins.has(req.headers.origin))||
+    !/^Bearer /.test(String(req.headers.authorization||'')))return serve(req,res);
+  let permit;
+  try{permit=await writerFence.acquire();}
+  catch{
+    if(req.headers.origin){res.setHeader('Access-Control-Allow-Origin',req.headers.origin);res.setHeader('Vary','Origin');}
+    return send(res,503,{error:'write-owner-unavailable'});
+  }
+  try{return await serve(req,res);}
+  finally{
+    // A lost release confirmation leaves a remote pending ticket. The
+    // coordinator conservatively waits for its deadline plus grace.
+    await permit.release().catch(()=>{});
+  }
+});
 const port=Number(process.env.PORT||8080);
 server.listen(port,'0.0.0.0',()=>console.info(`Samosval TEST API listening on ${port}`));
 let notificationBusy=false;const notificationTimer=setInterval(async()=>{if(notificationBusy)return;notificationBusy=true;try{await deliverNotification(pool);}catch(e){console.error('[notification-worker] failed',e?.code||e?.name||'unknown');}finally{notificationBusy=false;}},2000);
@@ -285,7 +308,7 @@ async function shutdown(){
   if(stopping)return;
   stopping=true;clearInterval(notificationTimer);
   server.close();
-  try{await pool.end();}finally{process.exit(0);}
+  try{await writerFence.stop();await pool.end();}finally{process.exit(0);}
 }
 process.on('SIGTERM',shutdown);
 process.on('SIGINT',shutdown);

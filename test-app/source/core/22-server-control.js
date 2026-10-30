@@ -46,7 +46,9 @@ function renderServerControl(){
     scCard('Последняя квитанция',scDate(r.lastConfirmedAt))+
     scCard('Последний успешный цикл',scDate(r.lastSuccessAt))+
     scCard('Состояние резерва',r.readyForFailover?'Готов':'НЕ готов к переключению')+
-    scCard('Ошибки репликатора',r.lastError||'Не зарегистрированы')+'</div>';
+    scCard('Ошибки репликатора',r.lastError||'Не зарегистрированы')+
+    scCard('Координатор записи',r.writerFence?.enabled?'TEST · включён':'Ещё не включён',r.writerFence?.epoch?'Эпоха '+r.writerFence.epoch:'Эпоха не выдана')+
+    scCard('Срок полномочий NAS',scDate(r.writerFence?.leaseUntil),r.writerFence?.lastError||'Ошибок нет')+'</div>';
    html+='<p class="sc-note">Только серверная копия PostgreSQL в отдельном пространстве проекта samosval-offline. Она не совместима напрямую со старой схемой Firestore. Автопереключение и обратная синхронизация отключены: даже нулевое отставание не разрешает запись в две базы. При потере NAS сохраняйте локальные очереди телефонов.</p>';
   }
   if(serverControlSection==='objects')html+='<div class="sc-actions">'+scButton('users','Пользователи и права')+'</div><ul class="sc-list">'+s.objects.map(o=>'<li><b>'+scText(o.name||o.id)+'</b><span>Открытых смен: '+scText(o.active_shifts)+'</span></li>').join('')+'</ul>';
