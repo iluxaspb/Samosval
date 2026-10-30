@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import {recordLineHistory} from './history-store.mjs';
 import { applyLineOperation, validateLineOperation } from './line-rules.mjs';
 
 const WORKSPACE_ID = process.env.WORKSPACE_ID || 'main_workspace';
@@ -43,7 +44,7 @@ export async function submitLineOperation(pool, uid, input) {
       return {...old.result,replayed:true};
     }
     const shift = (await client.query(
-      'SELECT is_active FROM shifts WHERE workspace_id=$1 AND shift_id=$2 FOR SHARE',
+      'SELECT is_active,payload FROM shifts WHERE workspace_id=$1 AND shift_id=$2 FOR SHARE',
       [WORKSPACE_ID,op.shiftId])).rows[0];
     const statusRow = (await client.query(
       'SELECT payload FROM line_truck_statuses WHERE workspace_id=$1 AND truck_id=$2 FOR UPDATE',
@@ -56,7 +57,7 @@ export async function submitLineOperation(pool, uid, input) {
       [WORKSPACE_ID])).rows[0];
     const before = statusRow?.payload || {};
     let result;
-    if (!shift?.is_active) result = {outcome:'rejected',reason:'shift-changed',status:before};
+    if (!shift?.is_active || shift.payload?.closing) result = {outcome:'rejected',reason:'shift-changed',status:before};
     else if (!statusRow || !truckRow || truckRow.payload.deleted || !before.onLine || before.shiftId!==op.shiftId)
       result = {outcome:'rejected',reason:'truck-not-on-line',status:before};
     else result = applyLineOperation({
@@ -74,6 +75,7 @@ export async function submitLineOperation(pool, uid, input) {
       if (!inserted.rowCount) result = {outcome:'rejected',reason:'duplicate',status:before};
     }
     if (result.outcome==='confirmed') {
+      await recordLineHistory(client,{workspaceId:WORKSPACE_ID,uid,op,before,result});
       await client.query(
         'UPDATE line_truck_statuses SET payload=$3::jsonb WHERE workspace_id=$1 AND truck_id=$2',
         [WORKSPACE_ID,op.truckId,JSON.stringify(result.status)]);
