@@ -50,7 +50,7 @@ def build():
     (ROOT / 'index-test.html').write_text(html)
     old = json.loads((APP / 'build-manifest.json').read_text())
     assets = [ROOT / 'index-test.html']
-    assets += [ROOT / r['url'] for r in old['assets'] if r['url'] != './index-test.html' and not r['url'].startswith('./test-app/build/') and 'timesheet-' not in r['url'] and '/test-app/tabel/' not in r['url'] and '/test-app/tabel-v2/' not in r['url']]
+    assets += [ROOT / r['url'] for r in old['assets'] if r['url'] != './index-test.html' and r['url'] != './test-app/synology/connection-check.mjs' and not r['url'].startswith('./test-app/build/') and 'timesheet-' not in r['url'] and '/test-app/tabel/' not in r['url'] and '/test-app/tabel-v2/' not in r['url']]
     assets += sorted(p for p in (APP / 'tabel-v2').iterdir() if p.suffix in ['.js','.mjs','.css','.html'])
     assets += [APP / 'vendor' / 'exceljs-4.4.0.min.js']
     assets += sorted(out.glob('*.js'))
