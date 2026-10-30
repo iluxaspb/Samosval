@@ -13,7 +13,11 @@ mkdir -p "$BASE"
 mkdir "$BASE/bootstrap.lock" || { printf 'Another bootstrap is running\n'; exit 1; }
 SWITCHED=0
 CONTROL_STARTED=0
-compose() { docker compose "$@"; }
+if command -v docker-compose >/dev/null 2>&1; then
+  compose() { docker-compose "$@"; }
+else
+  compose() { docker compose "$@"; }
+fi
 rollback() {
   code=$?
   trap - EXIT
