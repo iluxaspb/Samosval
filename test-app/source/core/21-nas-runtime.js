@@ -197,8 +197,9 @@
   async function nasBusinessCommand(channel,target,fields) {
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
     if(!client||currentUserStatus!=='active'||!navigator.onLine)throw Error('Нужно соединение с Synology');
+    const captured=JSON.parse(JSON.stringify(fields));
     const key='samosval_nas_commands_v1:'+client.scope,slot=channel+':'+target;
-    const {expectedRevision,expectedTtnRevision,expectedObjectId,...desired}=fields,intent=JSON.stringify(desired);
+    const {expectedRevision,expectedTtnRevision,expectedObjectId,...desired}=captured,intent=JSON.stringify(desired);
     const flightKey=key+':'+slot;
     const inflight=nasCommandFlights.get(flightKey);
     if(inflight){if(inflight.intent!==intent)throw Error('Предыдущее изменение ещё отправляется');return inflight.work;}
@@ -209,7 +210,7 @@
       let pending=queue.find(x=>x.slot===slot);
       if(pending&&pending.intent!==intent)throw Error('Сначала повторите предыдущее неподтверждённое изменение');
       if(!pending){
-        const id='cmd_'+crypto.randomUUID().replaceAll('-',''),operation={id,...fields};
+        const id='cmd_'+crypto.randomUUID().replaceAll('-',''),operation={id,...captured};
         if(channel==='control'&&operation.type.endsWith('.create'))operation.recordId='record_'+id;
         if(channel==='start')operation.createdAt=Date.now();
         pending={slot,intent,operation,scope:client.scope};queue.push(pending);localStorage.setItem(key,JSON.stringify(queue));

@@ -193,3 +193,11 @@ test('NAS membership handlers preserve local trip status until server confirmati
   await h.c.addTruckToLine('truck');await h.c.removeTruckFromLine('truck');
   assert.deepEqual(requests,[['truck',true],['truck',false]]);assert.equal(h.c.state.truckStatus.truck.lastLoadTimestamp,123);
 });
+
+test('NAS command captures nested form data before waiting for a cross-tab lock',async()=>{
+  const h=harness();await h.c.startNasRuntime(h.c.auth.currentUser);let unlock,sent;
+  h.c.navigator.locks={request:(_key,run)=>new Promise(resolve=>{unlock=()=>resolve(run());})};
+  h.client.submitControl=async op=>{sent=structuredClone(op);return {outcome:'confirmed'};};
+  const fields={type:'object.create',expectedRevision:0,data:{name:'Original'}};
+  const pending=h.c.nasBusinessCommand('control','object:new',fields);fields.data.name='Changed';unlock();await pending;assert.equal(sent.data.name,'Original');
+});
