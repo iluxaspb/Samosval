@@ -93,6 +93,25 @@ jobs:
       - name: Tabel calculation and queue regressions
         working-directory: .
         run: node --test tests/tabel-v2/*.test.mjs
+      - name: Build immutable TEST 4.1.1 release candidate after all server tests
+        run: |
+          node scripts/prepare-control-release.mjs 4.1.1 --with-outbox-migration
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {normalizeRelease} from './updater/release.mjs';
+          const m=normalizeRelease(JSON.parse(readFileSync('../releases/nas-test.json','utf8')));
+          if(m.version!=='4.1.1'||m.migrations.length!==1||
+             m.migrations[0].path!=='sql/014_reserve_outbox.sql')
+            throw Error('candidate-incomplete');
+          console.log('TEST_OUTBOX_RELEASE_CANDIDATE',m.commit,m.version);
+          NODE
+      - name: Upload verified-structure NAS TEST release candidate (not published)
+        uses: actions/upload-artifact@v4
+        with:
+          name: samosval-nas-test-411-release-candidate
+          path: releases/nas-test.json
+          if-no-files-found: error
+          retention-days: 7
 
   verify-control-browser:
     runs-on: ubuntu-22.04
