@@ -132,6 +132,19 @@ jobs:
           docker build -f server/Dockerfile.reserve -t samosval-test-reserve:ci server
           docker build -f server/updater/Dockerfile --build-arg API_BASE=samosval-test-api:ci -t samosval-test-control:ci server
           docker run --rm --network none --entrypoint docker samosval-test-control:ci compose version
+      - name: Smoke-test isolated Firebase container with reserve disabled
+        run: |
+          reserve_id=$(docker run -d -p 127.0.0.1:18080:8080 samosval-test-reserve:ci)
+          trap 'docker rm -f "$reserve_id" >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/health/live | grep -q '"source":"firebase"'; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "1" ]; then docker logs "$reserve_id"; exit 1; fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/api/v1/session)
+          if [ "$code" != "503" ]; then echo "Reserve unexpectedly active: $code"; exit 1; fi
+          echo "RESERVE_CONTAINER_DISABLED_BY_DEFAULT_OK"
 
   package-tested-release:
     name: Package TEST release only after both suites pass
