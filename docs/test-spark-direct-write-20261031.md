@@ -123,13 +123,45 @@ Firestore Rules Emulator ограничивает выражения до 1000 �
 ошибке SQL, двух параллельных исполнителей и запрет посторонних
 изменений в PostgreSQL. Нужен успешный итоговый прогон CI для подтверждения.
 
+## Новый TEST-этап: typed handback после SQL replay (без автоматического запуска)
+
+Добавлен изолированный модуль `server/src/test-spark-handback.mjs` — он **не подключён**
+к HTTP API, updater, фоновой репликации и телефонам.
+
+- `stageSparkTypedHandback` допускается только после `state=applied` в
+  durable SQL 015 checkpoint. Повторно сверяет исходный frozen
+  Firestore manifest, все SQL operation receipts и алиасы рейсов.
+- PostgreSQL собирает полный согласованный снимок; новая **детерминированная**
+  generation содержит SQL row mirror, typed LINE config/trucks/statuses,
+  UID-scoped ACL. При новой generation история `reserveHistory` очищена:
+  прежние операции уже атомарно восстановлены в PostgreSQL.
+- Все документы загружаются в скрытую generation небольшими пакетами
+  с предварительным ограничением бесплатных Spark-записей и полностью
+  считываются обратно; несовпадение документов или числа записей блокирует
+  публикацию. Одной транзакцией меняются metadata и owner на `handoff`,
+  **не** на `synology`. `readyForFailover=false` сохраняется.
+- `completeSparkTypedHandback` сверяет SQL checkpoint, неизменность
+  outbox, snapshot SHA-256, ACL и typed документы. Только после сверки
+  записывает SQL receipt нового snapshot и переводит owner в
+  `synology/nas_handoff_pending`; новый NAS worker обязан забрать
+  отдельную эпоху через `claimNasOwnership`.
+- Повторный запуск после потерянного Firestore ACK не создаёт новую
+  generation. Повторение после потерянного SQL receipt ACK разрешено;
+  подмена документов, незавершённый SQL replay и посторонний NAS write
+  запрещают handback. Механизм намеренно остаётся TEST-only.
+
+Интеграционные проверки добавлены в
+`server/tests/test-spark-pg-replay.test.mjs` (PostgreSQL 16 и
+изолированные временные БД). Действующий Synology и production не менялись.
+
 ## Не готово до релиза
 
 1. **SQL replay реализован в TEST-коде; подтвердить полный CI и испытать
    на восстановленной из бэкапа TEST базе NAS.** Не включать механизм
    автоматически, пока не готов контролируемый upgrade SQL 015.
-2. Завершить обратную синхронизацию, формирование нового поколения
-   и процедуру handoff, предотвращающую split brain.
+2. Проверить новый typed handback в CI и на восстановленной TEST БД;
+   провести управляемое реальное переключение, исключить split brain
+   и предусмотреть несколько последовательных циклов failover.
 3. Подключить test-only Spark Web SDK router в PWA с реактивными
    слушателями без расходования 50 тысяч бесплатных чтений в сутки
    на частые опросы.
