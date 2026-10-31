@@ -1,0 +1,61 @@
+// DRAFT. Insert only INSIDE the deployed Firebase Security Rules
+// match /databases/{database}/documents {} block, preserving all existing
+// rules. Do not publish until Firestore Emulator and two-user permission
+// tests pass. These permissions are READ-ONLY. No browser may edit owner,
+// mirror rows, user grants, receipts or history.
+//
+// Spark Web SDK reads a trusted PostgreSQL-projected ACL for its OWN Firebase
+// Auth UID. No access is based on the older /users/{uid} Firestore profiles.
+match /samosval_test_replica/{controlDoc} {
+  // The control pointer has no personal data. A user must sign in before
+  // discovering the active generation; all client writes remain prohibited.
+  allow get: if request.auth != null
+    && controlDoc in ['v1', 'write_owner'];
+  allow list, create, update, delete: if false;
+
+  match /{collectionId}/{recordId} {
+    function mirrorMeta() {
+      return get(/databases/$(database)/documents/samosval_test_replica/v1).data;
+    }
+    function trustedGrant(gen) {
+      let collectionName = 'access_' + gen;
+      return get(
+        /databases/$(database)/documents/samosval_test_replica/v1/$(collectionName)/$(request.auth.uid)
+      ).data;
+    }
+    function validLineAccess() {
+      let m = mirrorMeta();
+      let a = trustedGrant(m.generation);
+      return request.auth != null
+        && controlDoc == 'v1'
+        && m.protocol == 1
+        && m.projectId == 'samosval-offline'
+        && collectionId == 'rows_' + m.generation
+        && a.protocol == 1
+        && a.projectId == 'samosval-offline'
+        && a.generation == m.generation
+        && a.uid == request.auth.uid
+        && a.active == true
+        && a.lineRead == true
+        && a.sourceSequence <= m.lastSequence
+        && 'line' in a.permissions.tabs
+        && resource.data.table in ['line_trucks', 'shifts',
+          'line_truck_statuses', 'line_logs', 'workspaces'];
+    }
+
+    // No list permission for access grants; everyone can only GET their own
+    // grant to learn whether the source considers them active or disabled.
+    allow get: if request.auth != null && controlDoc == 'v1'
+      && collectionId == 'access_' + mirrorMeta().generation
+      && recordId == request.auth.uid;
+
+    // A row query MUST include equality filter where('table','==',kind).
+    // Firestore Rules are not filters: a bare query is rejected because it
+    // could potentially return unrelated SQL tables and user profiles.
+    allow get: if request.auth != null && validLineAccess();
+    allow list: if request.auth != null
+      && request.query.limit <= 301
+      && validLineAccess();
+    allow create, update, delete: if false;
+  }
+}
