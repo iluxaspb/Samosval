@@ -1,197 +1,126 @@
-// EXPERIMENTAL, EMULATOR-ONLY. Add this separately to the previous read-only
-// fragment only for isolated tests. Do not publish to live Firestore until
-// all business modules and back-replication have been implemented.
-// Typed LINE status, immutable operation and log are the ONLY writable docs.
+// EMULATOR-ONLY EXPERIMENT. A single status update includes the new line
+// state and the immutable, append-only log/receipt. No cross-document getAfter()
+// cycles and one Firestore write per truck action. NEVER DEPLOY until every
+// module and NAS reverse replay is certified.
 match /samosval_test_replica/v1/{typedCollection}/{documentId} {
   function mirror() {
     return get(/databases/$(database)/documents/samosval_test_replica/v1).data;
   }
-  function writer() {
+  function owner() {
     return get(/databases/$(database)/documents/samosval_test_replica/write_owner).data;
   }
-  function grantPath() {
-    let name = 'access_' + mirror().generation;
-    return /databases/$(database)/documents/samosval_test_replica/v1/$(name)/$(request.auth.uid);
+  function access() {
+    let collectionName = 'access_' + mirror().generation;
+    return get(/databases/$(database)/documents/samosval_test_replica/v1/$(collectionName)/$(request.auth.uid)).data;
   }
-  function grant() { return get(grantPath()).data; }
-  function activeWriter() {
+  function activeConfig() {
+    let collectionName = 'typed_config_' + mirror().generation;
+    return get(/databases/$(database)/documents/samosval_test_replica/v1/$(collectionName)/active).data;
+  }
+  function truck(truckId) {
+    let collectionName = 'typed_trucks_' + mirror().generation;
+    return get(/databases/$(database)/documents/samosval_test_replica/v1/$(collectionName)/$(truckId)).data;
+  }
+  function typed(prefix) {return typedCollection == prefix + mirror().generation;}
+  function authorized() {
     let m = mirror();
-    let o = writer();
+    let o = owner();
+    let a = access();
+    let c = activeConfig();
     return request.auth != null &&
-      m.projectId == 'samosval-offline' &&
-      m.protocol == 1 && m.readyForFailover == true &&
-      o.projectId == 'samosval-offline' &&
-      o.protocol == 1 && o.owner == 'firebase' &&
-      o.holder == 'firebase_reserve' &&
-      o.generation == m.generation &&
-      o.observedSequence == m.lastSequence &&
-      o.pending.size() == 0 && o.epoch is int && o.epoch >= 1;
+      m.protocol == 1 && m.projectId == 'samosval-offline' &&
+      m.readyForFailover == true &&
+      o.protocol == 1 && o.projectId == 'samosval-offline' &&
+      o.owner == 'firebase' && o.holder == 'firebase_reserve' &&
+      o.generation == m.generation && o.observedSequence == m.lastSequence &&
+      o.pending.size() == 0 && o.epoch is int && o.epoch > 0 &&
+      a.projectId == 'samosval-offline' && a.generation == m.generation &&
+      a.uid == request.auth.uid && a.active == true && a.lineRead == true &&
+      a.sourceSequence <= m.lastSequence && a.profile.status == 'active' &&
+      a.profile.deleted == false && 'line' in a.permissions.tabs &&
+      c.protocol == 1 && c.projectId == 'samosval-offline' &&
+      c.generation == m.generation && c.active == true &&
+      c.sourceSequence <= m.lastSequence &&
+      c.shiftId.size() > 0 && c.cycleMinutes is int &&
+      c.cycleMinutes >= 15 && c.cycleMinutes <= 10080;
   }
-  function activeGrant() {
-    let a = grant();
-    return request.auth != null && a.projectId == 'samosval-offline' &&
-      a.generation == mirror().generation &&
-      a.uid == request.auth.uid && a.active == true &&
-      a.lineRead == true && a.sourceSequence <= mirror().lastSequence &&
-      a.profile.status == 'active' && a.profile.deleted == false &&
-      'line' in a.permissions.tabs;
-  }
-  function configPath() {
-    let c = 'typed_config_' + mirror().generation;
-    return /databases/$(database)/documents/samosval_test_replica/v1/$(c)/active;
-  }
-  function config() { return get(configPath()).data; }
-  function truckPath(truckId) {
-    let c = 'typed_trucks_' + mirror().generation;
-    return /databases/$(database)/documents/samosval_test_replica/v1/$(c)/$(truckId);
-  }
-  function statePath(truckId) {
-    let c = 'typed_status_' + mirror().generation;
-    return /databases/$(database)/documents/samosval_test_replica/v1/$(c)/$(truckId);
-  }
-  function operationPath(opId) {
-    let c = 'typed_ops_' + mirror().generation;
-    return /databases/$(database)/documents/samosval_test_replica/v1/$(c)/$(opId);
-  }
-  function logPath(logId) {
-    let c = 'typed_logs_' + mirror().generation;
-    return /databases/$(database)/documents/samosval_test_replica/v1/$(c)/$(logId);
-  }
-  function typed(name) { return typedCollection == name + mirror().generation; }
-  function bound() {
-    return activeWriter() && activeGrant() &&
-      config().protocol == 1 &&
-      config().projectId == 'samosval-offline' &&
-      config().generation == mirror().generation &&
-      config().workspaceId == 'main_workspace' &&
-      config().sourceSequence <= mirror().lastSequence &&
-      config().active == true && config().shiftId.size() > 0 &&
-      config().cycleMinutes is int &&
-      config().cycleMinutes >= 15 && config().cycleMinutes <= 10080;
-  }
-  function actionPermission(kind) {
-    return ('action_' + kind) in grant().permissions.actions;
-  }
-  function validOperation(opId, truckId, kind, oldRevision) {
-    let op = getAfter(operationPath(opId)).data;
-    // Receipt creation itself is enforced by the immutable typed_ops rule.
-    // getAfter sees the entire atomic batch, so an exists() precondition here
-    // can reject a valid newly-created receipt and is not an idempotency gate.
-    return op.protocol == 1 && op.projectId == 'samosval-offline' &&
-      op.generation == mirror().generation &&
-      op.epoch == writer().epoch &&
-      op.uid == request.auth.uid &&
-      op.operationId == opId &&
-      op.truckId == truckId &&
-      op.shiftId == config().shiftId &&
-      op.type == kind &&
-      op.expectedRevision == oldRevision &&
-      op.cycleMinutes is int && op.cycleMinutes >= 15 &&
-      op.cycleMinutes <= 10080 &&
-      op.at == request.time &&
-      op.requestHash is string && op.requestHash.size() == 64;
-  }
-  function gapOK(opId) {
-    let op = getAfter(operationPath(opId)).data;
+  function gapOK(op) {
     return resource.data.lastLoadAt == null ||
       (request.time - resource.data.lastLoadAt >=
-         duration.value(config().cycleMinutes, 'm') &&
+       duration.value(activeConfig().cycleMinutes, 'm') &&
        request.time - resource.data.lastLoadAt >=
-         duration.value(op.cycleMinutes, 'm'));
+       duration.value(op.cycleMinutes, 'm'));
   }
   function statusUpdate() {
-    let old = resource.data;
-    let next = request.resource.data;
-    let opId = next.lastOperationId;
-    let kind = next.lastActionType;
-    return bound() && typed('typed_status_') &&
-      documentId == old.id && old.protocol == 1 &&
-      old.projectId == 'samosval-offline' &&
-      old.generation == mirror().generation &&
-      old.sourceSequence <= mirror().lastSequence &&
-      old.onLine == true && old.shiftId == config().shiftId &&
-      next.diff(old).affectedKeys().hasOnly([
-        'arrivedAt', 'lastLoadAt','lastLogId','cycleRevision',
-        'lastOperationId','lastActionType','lastActorUid','loadedAfterArrive'
+    let b = resource.data;
+    let n = request.resource.data;
+    let count = b.reserveHistory.size();
+    let op = n.reserveHistory[count];
+    return typed('typed_status_') && authorized() &&
+      b.protocol == 1 && b.projectId == 'samosval-offline' &&
+      b.generation == mirror().generation &&
+      b.sourceSequence <= mirror().lastSequence &&
+      documentId == b.id && b.onLine == true &&
+      b.shiftId == activeConfig().shiftId &&
+      b.reserveHistory is list && count < 256 &&
+      n.reserveHistory.size() == count + 1 &&
+      n.reserveHistory[0:count] == b.reserveHistory &&
+      n.diff(b).affectedKeys().hasOnly([
+        'cycleRevision','arrivedAt','lastLoadAt','lastLogId',
+        'loadedAfterArrive','lastOperationId','lastActionType',
+        'lastActorUid','reserveHistory'
       ]) &&
-      next.cycleRevision == old.cycleRevision + 1 &&
-      next.lastActorUid == request.auth.uid &&
-      opId is string && opId.size() > 0 && opId.size() <= 128 &&
-      (kind == 'arrive' || kind == 'load') &&
-      actionPermission(kind) &&
-      validOperation(opId, documentId, kind, old.cycleRevision) &&
-      gapOK(opId) &&
+      n.cycleRevision == b.cycleRevision + 1 &&
+      n.lastActorUid == request.auth.uid &&
+      op.keys().hasAll(['operationId','uid','type','epoch','generation',
+       'truckId','shiftId','expectedRevision','revision','cycleMinutes',
+       'requestHash','at','logId','volume','isGAI']) &&
+      op.keys().hasOnly(['operationId','uid','type','epoch','generation',
+       'truckId','shiftId','expectedRevision','revision','cycleMinutes',
+       'requestHash','at','logId','volume','isGAI']) &&
+      op.operationId is string && op.operationId.size() > 0 &&
+      op.operationId.size() <= 128 &&
+      op.uid == request.auth.uid &&
+      op.type == n.lastActionType &&
+      (op.type == 'arrive' || op.type == 'load') &&
+      ('action_' + op.type) in access().permissions.actions &&
+      op.epoch == owner().epoch &&
+      op.generation == mirror().generation &&
+      op.truckId == documentId && op.shiftId == b.shiftId &&
+      op.expectedRevision == b.cycleRevision &&
+      op.revision == n.cycleRevision &&
+      op.cycleMinutes is int && op.cycleMinutes >= 15 &&
+      op.cycleMinutes <= 10080 &&
+      op.requestHash is string && op.requestHash.size() == 64 &&
+      op.at == request.time &&
+      n.lastOperationId == op.operationId &&
+      gapOK(op) &&
       (
-        (kind == 'arrive' &&
-         old.arrivedAt == null &&
-         next.arrivedAt == request.time &&
-         next.lastLoadAt == old.lastLoadAt &&
-         next.lastLogId == old.lastLogId &&
-         next.loadedAfterArrive == false) ||
-        (kind == 'load' &&
-         old.arrivedAt is timestamp &&
-         request.time >= old.arrivedAt &&
-         next.arrivedAt == null &&
-         next.lastLoadAt == request.time &&
-         next.lastLogId == 'load_' + opId &&
-         next.loadedAfterArrive == true)
+        (op.type == 'arrive' &&
+         b.arrivedAt == null && n.arrivedAt == request.time &&
+         n.lastLoadAt == b.lastLoadAt &&
+         n.lastLogId == b.lastLogId &&
+         n.loadedAfterArrive == false &&
+         op.logId == '' && op.volume == 0 && op.isGAI == false)
+        ||
+        (op.type == 'load' &&
+         b.arrivedAt is timestamp && request.time >= b.arrivedAt &&
+         n.arrivedAt == null && n.lastLoadAt == request.time &&
+         n.lastLogId == 'load_' + op.operationId &&
+         n.loadedAfterArrive == true &&
+         op.logId == n.lastLogId &&
+         truck(documentId).id == documentId &&
+         truck(documentId).sourceSequence <= mirror().lastSequence &&
+         op.isGAI == truck(documentId).isGAI &&
+         op.volume == truck(documentId).volume)
       );
   }
-  function opCreate() {
-    let data = request.resource.data;
-    // Intents are independently validated; only a status update that links
-    // this receipt may confirm an actual trip. Avoid a getAfter(status)
-    // reference: it creates a cycle with statusUpdate()->getAfter(operation).
-    let b = get(statePath(data.truckId)).data;
-    return bound() && typed('typed_ops_') &&
-      data.keys().hasOnly([
-       'protocol','projectId','generation','epoch','uid','operationId',
-       'truckId','shiftId','type','expectedRevision','cycleMinutes',
-       'requestHash','at','logId','volume','isGAI'
-      ]) &&
-      data.keys().hasAll([
-       'protocol','projectId','generation','epoch','uid','operationId',
-       'truckId','shiftId','type','expectedRevision','cycleMinutes',
-       'requestHash','at','logId','volume','isGAI'
-      ]) &&
-      documentId == data.operationId &&
-      data.operationId is string && data.operationId.size() <= 128 &&
-      data.truckId is string && data.truckId.size() > 0 &&
-      data.uid == request.auth.uid &&
-      data.protocol == 1 && data.projectId == 'samosval-offline' &&
-      data.generation == mirror().generation && data.epoch == writer().epoch &&
-      data.shiftId == config().shiftId &&
-      (data.type == 'arrive' || data.type == 'load') &&
-      actionPermission(data.type) &&
-      b.onLine == true && b.shiftId == config().shiftId &&
-      data.expectedRevision == b.cycleRevision &&
-      data.at == request.time && data.requestHash is string &&
-      data.requestHash.size() == 64 &&
-      ((data.type == 'arrive' && data.logId == '' &&
-        data.volume == 0 && data.isGAI == false) ||
-       (data.type == 'load' && data.logId == 'load_' + documentId &&
-        get(truckPath(data.truckId)).data.id == data.truckId &&
-        get(truckPath(data.truckId)).data.sourceSequence <= mirror().lastSequence &&
-        get(truckPath(data.truckId)).data.volume == data.volume &&
-        get(truckPath(data.truckId)).data.isGAI == data.isGAI));
-  }
-  // No writable typed_logs collection: typed_ops is the immutable log.
 
-  allow get: if request.auth != null && activeGrant() &&
-    (typed('typed_config_') ||
-     typed('typed_trucks_') ||
-     typed('typed_status_') ||
-     // A transaction must be allowed to check a missing receipt before
-     // creating it. Existing receipts remain private to their actor.
-     (typed('typed_ops_') && (resource == null ||
-       resource.data.uid == request.auth.uid)) ||
-     false);
+  allow get: if request.auth != null && access().uid == request.auth.uid &&
+    access().active == true && access().lineRead == true &&
+    (typed('typed_config_') || typed('typed_trucks_') || typed('typed_status_'));
   allow list: if false;
-  // Dispatch by the exact typed collection before evaluating branch-specific
-  // getAfter() references. A LOG lacks receipt-only fields and vice versa.
-  allow create: if request.auth != null &&
-    typed('typed_ops_') && opCreate();
   allow update: if request.auth != null &&
     typed('typed_status_') && statusUpdate();
-  allow delete: if false;
+  allow create, delete: if false;
 }
