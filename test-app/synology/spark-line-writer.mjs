@@ -56,13 +56,15 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
  async function submitLine(input,{operationScope}={}){
   guard();
   if(!record(input)||!validId(input.id)||!validId(input.truckId)||
-    !validId(input.shiftId)||!['arrive','load'].includes(input.type)||
+    !validId(input.shiftId)||!['arrive','load','ttn'].includes(input.type)||
     !integer(input.expectedRevision)||!integer(input.arrivalTimestamp)||
     !integer(input.lastLoadTimestamp)||!integer(input.createdAt)||
     input.createdAt>clock()+300000||
     !Number.isSafeInteger(input.cycleMinutes)||
     input.cycleMinutes<15||input.cycleMinutes>10080||
-    (input.type==='arrive'&&input.wantArrived!==true))
+    (input.type==='arrive'&&input.wantArrived!==true)||
+    (input.type==='ttn'&&(!integer(input.expectedTtnRevision)||
+     typeof input.collect!=='boolean')))
    throw bad('spark-invalid-operation');
   if(typeof operationScope!=='string'||!operationScope.includes(uid))
    throw bad('spark-outbox-scope-mismatch');
@@ -115,13 +117,17 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
     const lastLoad=millis(before.lastLoadAt)||0;
     const arrival=millis(before.arrivedAt)||0;
     if(input.lastLoadTimestamp!==lastLoad)throw bad('spark-last-load-changed',{retryable:true});
-    if(input.type==='arrive'){
+    if(input.type==='ttn'){
+     if(before.ttnRevision!==input.expectedTtnRevision||
+        Boolean(before.ttnStatus)===input.collect)
+      throw bad('spark-ttn-changed',{retryable:true});
+    }else if(input.type==='arrive'){
      if(before.arrivedAt!==null||input.arrivalTimestamp!==0)
       throw bad('spark-arrival-changed',{retryable:true});
     }else if(!arrival||arrival!==input.arrivalTimestamp)
      throw bad('spark-duplicate-or-arrival-changed',{retryable:true});
     const eventAt=serverTimestamp();
-    const revision=before.cycleRevision+1;
+    const revision=before.cycleRevision+(input.type==='ttn'?0:1);
     const event={
      operationId:input.id,uid,type:input.type,epoch:state.epoch,
      generation:gen,truckId:input.truckId,shiftId:input.shiftId,
@@ -129,21 +135,38 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
      cycleMinutes:input.cycleMinutes,requestHash,
      at:eventAt,logId:input.type==='load'?'load_'+input.id:'',
      volume:input.type==='load'?(truck.isGAI===true?0:truck.volume):0,
-     isGAI:input.type==='load'&&truck.isGAI===true
+     isGAI:input.type==='load'&&truck.isGAI===true,
+     ...(input.type==='ttn'?{
+      collect:input.collect,expectedTtnRevision:input.expectedTtnRevision,
+      ttnRevision:before.ttnRevision+1
+     }:{})
     };
     const changes={
-     cycleRevision:revision,
-     arrivedAt:input.type==='arrive'?eventAt:null,
-     lastLoadAt:input.type==='load'?eventAt:before.lastLoadAt,
-     lastLogId:input.type==='load'?event.logId:before.lastLogId,
-     loadedAfterArrive:input.type==='load',
      lastOperationId:input.id,lastActionType:input.type,lastActorUid:uid,
      reserveHistory:{...before.reserveHistory,[input.id]:event}
     };
+    if(input.type==='ttn'){
+     changes.ttnRevision=before.ttnRevision+1;
+     changes.ttnStatus=input.collect?
+      (before.loadedAfterArrive&&before.lastLogId?true:'pending'):null;
+     changes.ttnLogId=input.collect&&before.loadedAfterArrive?
+      before.lastLogId:'';
+     changes.ttnByUid=input.collect?uid:'';
+    }else{
+     changes.cycleRevision=revision;
+     changes.arrivedAt=input.type==='arrive'?eventAt:null;
+     changes.lastLoadAt=input.type==='load'?eventAt:before.lastLoadAt;
+     changes.lastLogId=input.type==='load'?event.logId:before.lastLogId;
+     changes.loadedAfterArrive=input.type==='load';
+     if(input.type==='load'&&before.ttnStatus==='pending'){
+      changes.ttnStatus=true;changes.ttnLogId=event.logId;
+     }
+    }
     submitted=true;
     tx.update(firestore.doc(prefix+'typed_status_'+gen+'/'+input.truckId),changes);
     return {outcome:'confirmed',operationId:input.id,
-     revision,logId:event.logId};
+     revision,logId:event.logId,
+     ...(input.type==='ttn'?{ttnRevision:before.ttnRevision+1}:{})};
    });
    guard();
    return result;
