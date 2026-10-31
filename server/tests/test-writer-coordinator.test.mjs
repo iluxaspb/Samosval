@@ -31,7 +31,9 @@ function setup(){
  const firestore=new Firestore(),checkpoint={sequence:27,hash};
  firestore.docs.set(REPLICA_DOC,{protocol:1,channel:'test',writer:'synology',
   projectId:'samosval-offline',generation:'verified_generation',lastSequence:27,
-  hash,readyForFailover:false});
+  hash,readyForFailover:false,typedProtocol:1,typedSequence:27,accessProtocol:1,
+  promotionProof:{protocol:2,writerGate:'sql016',generation:'verified_generation',
+   epoch:1,sequence:27,hash,snapshotHash:hash,documents:12}});
  return {firestore,checkpoint};
 }
 const claim=(f,node,checkpoint,now=t0)=>claimNasOwnership({
@@ -190,4 +192,24 @@ test('the writer gate remains disabled unless explicitly opted into TEST',async(
   env:{TEST_WRITER_FENCE_ENABLED:'0'}});
  assert.equal(guard.enabled,false);
  await guard.stop();
+});
+
+test('a ready flag alone cannot promote without a full SQL016 exact-epoch certificate',async()=>{
+ const {firestore,checkpoint}=setup();
+ await claim(firestore,nodeA,checkpoint);
+ const meta=firestore.docs.get(REPLICA_DOC),at=t0+OWNER_LEASE_MS+FENCE_GRACE_MS+1;
+ meta.readyForFailover=true;
+ for(const invalid of [
+  {promotionProof:null},
+  {promotionProof:{...meta.promotionProof,epoch:2}},
+  {promotionProof:{...meta.promotionProof,sequence:26}},
+  {promotionProof:{...meta.promotionProof,writerGate:'legacy'}},
+  {typedSequence:26},
+  {accessProtocol:0}
+ ]){
+  const previous={...meta};Object.assign(meta,invalid);
+  await assert.rejects(promote(firestore,1,at),/writer-reserve-not-ready/);
+  Object.assign(meta,previous);
+ }
+ assert.equal((await promote(firestore,1,at)).owner,'firebase');
 });
