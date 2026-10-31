@@ -673,3 +673,27 @@ sqltest('epoch rebind rolls back if Firestore ownership changes during verificat
   /spark-rebind-firestore-owner-not-certified/);
  assert.equal(await gateEpoch(f.pool),claim.oldEpoch);
 }));
+
+
+sqltest('armed SQL016 blocks replay without a recovery-scoped permit and keeps owner frozen',
+ async()=>withIsolatedDatabase(async f=>{
+ const sql=readFileSync(new URL('../sql/016_spark_global_fence.sql',import.meta.url),'utf8');
+ await f.pool.query(sql);
+ await f.pool.query("UPDATE reserve_control.writer_gate "+
+  "SET armed=true,coverage_certified=true,owner_epoch=7 WHERE singleton=true");
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ await assert.rejects(replaySparkPostgresNext(opts(f)),/spark-fence-permit-required/,
+  'the existing replay worker has no valid SQL016-scoped writer authorization');
+ const cp=(await f.pool.query(
+  'SELECT applied_count,state FROM reserve_spark_replay_checkpoint')).rows[0];
+ assert.equal(cp.applied_count,0);
+ assert.equal(cp.state,'replaying');
+ assert.equal(await count(f.pool,'line_logs'),0);
+ assert.equal(await count(f.pool,'line_operation_receipts'),0);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'reconciling',
+  'failed replay must never hand ownership back or enable NAS writes');
+ await assert.rejects(f.pool.query(
+  "UPDATE workspaces SET cycle_minutes=61 WHERE id='main_workspace'"),
+  /spark-fence-permit-required/);
+}));
