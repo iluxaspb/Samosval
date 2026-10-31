@@ -88,7 +88,8 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       op.cycleMinutes <= 10080 &&
       op.at == request.time &&
       op.requestHash is string && op.requestHash.size() == 64 &&
-      op.logId == (kind == 'load' ? 'load_' + opId : '');
+      ((kind == 'load' && op.logId == 'load_' + opId) ||
+       (kind == 'arrive' && op.logId == ''));
   }
   function gapOK(opId) {
     let op = getAfter(operationPath(opId)).data;
@@ -169,7 +170,8 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       a.lastActorUid == request.auth.uid &&
       data.at == request.time && data.requestHash is string &&
       data.requestHash.size() == 64 &&
-      data.logId == (data.type == 'load' ? 'load_' + documentId : '');
+      ((data.type == 'load' && data.logId == 'load_' + documentId) ||
+       (data.type == 'arrive' && data.logId == ''));
   }
   function logCreate() {
     let data = request.resource.data;
