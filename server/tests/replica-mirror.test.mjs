@@ -162,6 +162,30 @@ test('Postgres -> Firebase: snapshot, exact receipts, outage, lost ACK, delete, 
    await rollback.query('ROLLBACK');
   }finally{rollback.release();}
   assert.equal((await readReplicaStatus(pool)).lag,0,'rollback does not create a phantom event');
+  // A test account is granted/revoked by PostgreSQL, NEVER by an old
+  // Firebase users/{uid} record. The ACL and mirror metadata commit together.
+  const testUid='spark_acl_ci_operator_01';
+  const aclPath=REPLICA_DOC+'/access_'+meta.generation+'/'+testUid;
+  await pool.query(
+   "INSERT INTO app_users(uid,email,display_name,role,status) VALUES($1,$2,$3,'viewer','active') "+
+   "ON CONFLICT(uid) DO UPDATE SET status='active',revision=app_users.revision+1",
+   [testUid,'spark-ci@example.invalid','Spark test account']
+  );
+  for(let i=0;i<10&&(await readReplicaStatus(pool)).lag>0;i++)await mirror(pool,firestore);
+  const granted=firestore.docs.get(aclPath);
+  assert.equal(granted?.active,true);
+  assert.equal(granted?.profile?.uid,testUid);
+  assert.equal(granted?.lineRead,false,'viewer without line rights must not receive line read permission');
+  assert.ok(granted.sourceSequence<=firestore.docs.get(REPLICA_DOC).lastSequence);
+  await pool.query("UPDATE app_users SET status='disabled',revision=revision+1 WHERE uid=$1",[testUid]);
+  for(let i=0;i<10&&(await readReplicaStatus(pool)).lag>0;i++)await mirror(pool,firestore);
+  const revoked=firestore.docs.get(aclPath);
+  assert.equal(revoked?.active,false,'revocation must be published in the same mirror batch');
+  assert.equal(revoked?.lineRead,false);
+  assert.ok(revoked.sourceSequence<=firestore.docs.get(REPLICA_DOC).lastSequence);
+  await pool.query('DELETE FROM app_users WHERE uid=$1',[testUid]);
+  for(let i=0;i<10&&(await readReplicaStatus(pool)).lag>0;i++)await mirror(pool,firestore);
+  assert.equal(firestore.docs.has(aclPath),false,'deleted user grant must be deleted, not left active');
  }finally{await pool.end();}
 });
 test('Postgres -> Firebase: reject missing remote checkpoint, never reinitialize silently',{skip:!hasDatabase},async()=>{
