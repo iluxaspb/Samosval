@@ -54,17 +54,17 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
   function statusUpdate() {
     let b = resource.data;
     let n = request.resource.data;
-    let count = b.reserveHistory.size();
-    let op = n.reserveHistory[count];
+    let count = b.reserveHistory.keys().size();
+    let op = n.reserveHistory[n.lastOperationId];
     return typed('typed_status_') && authorized() &&
       b.protocol == 1 && b.projectId == 'samosval-offline' &&
       b.generation == mirror().generation &&
       b.sourceSequence <= mirror().lastSequence &&
       documentId == b.id && b.onLine == true &&
       b.shiftId == activeConfig().shiftId &&
-      b.reserveHistory is list && count < 256 &&
-      n.reserveHistory.size() == count + 1 &&
-      n.reserveHistory[0:count] == b.reserveHistory &&
+      b.reserveHistory is map && n.reserveHistory is map && count < 256 &&
+      n.reserveHistory.keys().size() == count + 1 &&
+      n.reserveHistory.diff(b.reserveHistory).affectedKeys().hasOnly([n.lastOperationId]) &&
       n.diff(b).affectedKeys().hasOnly([
         'cycleRevision','arrivedAt','lastLoadAt','lastLogId',
         'loadedAfterArrive','lastOperationId','lastActionType',
