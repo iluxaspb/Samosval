@@ -5,7 +5,7 @@ import {createSparkTypedLineReader} from '../../test-app/synology/spark-typed-li
 const GEN='0123456789abcdef01234567',WS='main_workspace',UID='operator_a';
 const baseOwner=()=>({owner:'firebase',readyForFailover:true,generation:GEN,
  epoch:5,confirmedSequence:88,reserveSequence:0});
-const snap=(data,exists=true)=>({exists,data:()=>structuredClone(data)});
+const snap=(data,exists=true)=>({exists,data:()=>data});
 const timestamp=ms=>({toMillis:()=>ms});
 function mock(){
  let auth={uid:UID},latest=baseOwner(),ownerCalls=0,readCalls=0;
