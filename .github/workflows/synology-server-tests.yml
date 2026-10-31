@@ -11,6 +11,7 @@ on:
       - "test-app/synology/**"
       - "test-app/source/core/20-backend-mode.js"
       - "test-app/source/core/21-nas-runtime.js"
+      - "test-app/source/core/22-server-control.js"
       - ".github/workflows/synology-server-tests.yml"
   pull_request:
     branches:
@@ -22,6 +23,7 @@ on:
       - "test-app/synology/**"
       - "test-app/source/core/20-backend-mode.js"
       - "test-app/source/core/21-nas-runtime.js"
+      - "test-app/source/core/22-server-control.js"
       - ".github/workflows/synology-server-tests.yml"
   workflow_dispatch:
 
