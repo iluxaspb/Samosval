@@ -86,6 +86,11 @@
     state.truckStatus=statuses;state.logs=logs.sort((x,y)=>(y.timestamp||0)-(x.timestamp||0));offlineProjectTicker();
   }
   function offlineQueueAction(type,id,intent){
+    if(isTestAutoNasRuntime()&&nasRuntimeClient?.activeProvider==='firebase'&&
+       !['arrive','load','ttn'].includes(type)){
+      showError('В резервном Firebase это действие пока недоступно. Данные на Synology не изменены.');
+      return false;
+    }
     if(!currentUid||!intent||!intent.status||!state.shift||state.shift.id!==intent.shiftId)return false;
     if(type==='reset'&&!canAdmin()){showError('Только для администратора');return false;}
     const before=intent.status,now=Date.now(),gap=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES)*60000;
