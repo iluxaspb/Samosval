@@ -19,7 +19,7 @@
   zoom.innerHTML = '<option value="1">Вписать</option><option value="2">200%</option><option value="4">400%</option>';
   panel.querySelector('header').append(zoom);
   const canvas = el('canvas'), ctx = canvas.getContext('2d');
-  let ws, mode = 'view', frames = 0, decoding = false, pending, viewport, ready = false;
+  let ws, mode = 'view', frames = 0, decoding = false, pending, viewport, ready = false, targetClosed = false;
   const send = m => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); };
   function updateTouch() {
     canvas.style.touchAction = mode === 'view' && Number(zoom.value) > 1 ? 'pan-x pan-y' : 'none';
@@ -47,7 +47,7 @@
   launch.onclick = () => {
     panel.hidden = false;
     if (ws && ws.readyState < 2) return;
-    ready = false; el('mode').disabled = true;
+    ready = false; targetClosed = false; el('mode').disabled = true;
     ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/__browser/stream`);
     ws.onmessage = e => {
       if (typeof e.data !== 'string') { draw(e.data); return; }
@@ -55,10 +55,10 @@
       if (m.type === 'viewport') viewport = m;
       if (m.type === 'viewerState') { ready = true; mode = m.mode; updateTouch(); el('mode').disabled = handoff.chat === chatPath() && handoff.phase === 'working'; el('mode').value = mode; el('input').disabled = mode !== 'manual'; el('status').textContent = `Steel: ${m.session.status}; target ${m.session.target}; ${mode === 'view' ? 'просмотр' : 'ручное управление — не запускайте автоматизацию одновременно'}`; }
       if (m.data) draw(new Blob([Uint8Array.from(atob(m.data), c => c.charCodeAt(0))], { type: 'image/jpeg' }));
-      if (m.type === 'targetClosed') el('status').textContent = 'Страница закрыта';
+      if (m.type === 'targetClosed') { targetClosed = true; el('status').textContent = 'Страница закрыта'; }
     };
     const connection = ws;
-    ws.onclose = () => { if (ws !== connection) return; ready = false; el('mode').disabled = true; el('status').textContent = 'Поток завершён / соединение закрыто'; mode = 'view'; el('input').disabled = true; };
+    ws.onclose = () => { if (ws !== connection) return; ready = false; el('mode').disabled = true; el('status').textContent = targetClosed ? 'Страница закрыта' : 'Поток завершён / соединение закрыто'; mode = 'view'; el('input').disabled = true; };
     ws.onerror = () => { el('status').textContent = 'Ошибка подключения к live-view'; };
   };
   el('mode').onchange = e => send({ type: 'mode', value: e.target.value, chat: chatPath() });

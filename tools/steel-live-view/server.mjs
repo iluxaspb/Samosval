@@ -75,8 +75,13 @@ export function start() {
       // Only the existing OpenCode HTTP interface is proxied, never arbitrary URLs or Steel APIs.
       const url = new URL(upstream); url.pathname = u.pathname; url.search = u.search;
       const input = { ...req.headers, ...headers, host: url.host, 'accept-encoding': 'identity' };
+      if (req.headers.origin) {
+        if (req.headers.origin !== origin) { res.writeHead(403); res.end('Foreign origin'); return; }
+        input.origin = new URL(upstream).origin;
+      }
       delete input.connection;
       const proxy = http.request(url, { method: req.method, headers: input }, response => {
+        res.on('close', () => response.destroy());
         const out = { ...response.headers, 'cache-control': 'no-store' };
         delete out['transfer-encoding'];
         if (String(out['content-type']).includes('text/html')) {
@@ -88,6 +93,7 @@ export function start() {
         } else { res.writeHead(response.statusCode, out); response.pipe(res); }
       });
       proxy.on('error', () => { res.writeHead(502); res.end('OpenCode unavailable'); });
+      res.on('close', () => proxy.destroy());
       req.pipe(proxy);
     } catch { res.writeHead(503); res.end('Browser target unavailable'); }
   });
@@ -149,6 +155,15 @@ export function start() {
         }
         remote.on('message', data => {
           const m = JSON.parse(data.toString());
+          if (m.method === 'Target.detachedFromTarget' && m.params.sessionId === attached) {
+            attached = undefined;
+            mode = 'view';
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({ type: 'targetClosed' }));
+              client.close(1000, 'Pinned page closed');
+            }
+            remote.close();
+          }
           if (m.id && waiting.has(m.id)) {
             const p = waiting.get(m.id); waiting.delete(m.id); clearTimeout(p.timer);
             if (m.error) p.reject(Error('CDP rejected command')); else p.resolve(m.result);

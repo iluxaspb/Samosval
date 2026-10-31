@@ -7,7 +7,10 @@ import { start } from './server.mjs';
 
 test('authenticated OpenCode upgrade relays text and binary to fixed upstream', async () => {
   const original = { ...process.env };
-  const upstream = http.createServer();
+  const upstream = http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ origin: req.headers.origin }));
+  });
   const wss = new WebSocketServer({ server: upstream });
   let path, auth;
   wss.on('connection', (ws, req) => {
@@ -21,6 +24,12 @@ test('authenticated OpenCode upgrade relays text and binary to fixed upstream', 
   const proxy = start(); await once(proxy, 'listening');
   let client;
   try {
+    const base = `http://127.0.0.1:${proxy.address().port}`;
+    const authorization = 'Basic ' + Buffer.from('opencode:test-only').toString('base64');
+    const same = await fetch(base + '/api/test', { headers: { Authorization: authorization, Origin: 'http://test.local' } });
+    assert.equal((await same.json()).origin, process.env.OPENCODE_UPSTREAM);
+    const foreign = await fetch(base + '/api/test', { headers: { Authorization: authorization, Origin: 'https://foreign.example' } });
+    assert.equal(foreign.status, 403);
     client = new WebSocket(`ws://127.0.0.1:${proxy.address().port}/api/test?cursor=1`, {
       headers: { Origin: 'http://test.local', Authorization: 'Basic ' + Buffer.from('opencode:test-only').toString('base64') },
     });
