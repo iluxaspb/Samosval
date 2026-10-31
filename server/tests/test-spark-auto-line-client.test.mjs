@@ -144,32 +144,39 @@ test('owner change after a Spark write has an uncertain receipt, not an invented
 test('firebase subscriptions are event-driven, not a four-second collection scan',async()=>{
  const f=fixtures();f.owner({owner:'firebase',readyForFailover:true,epoch:8});
  const client=f.create(),events=[];
- const close=client.subscribeLine({
-  onSession:s=>events.push('session:'+s.source),
-  onSnapshot:s=>events.push('line:'+s.source),onError:e=>events.push('error:'+e.code)
- });
- await until(()=>events.includes('line:firebase'));
- assert.equal(f.nasSubscriptions,0);
- const readCount=f.sparkReads;
- await delay(90);
- assert.equal(f.sparkReads,readCount,'no timer-based Firestore polling');
- f.typedStop?.();
- await until(()=>f.sparkReads>readCount);
- assert.equal(events.at(-1),'line:firebase');
- assert.equal(f.nasWrites,0);
- close();client.stop();
+ let close=()=>{};
+ try{
+  close=client.subscribeLine({
+   onSession:s=>events.push('session:'+s.source),
+   onSnapshot:s=>events.push('line:'+s.source),onError:e=>events.push('error:'+e.code)
+  });
+  await until(()=>events.includes('line:firebase'));
+  assert.equal(f.nasSubscriptions,0);
+  const readCount=f.sparkReads;
+  await delay(90);
+  assert.equal(f.sparkReads,readCount,'no timer-based Firestore polling');
+  f.typedStop?.();
+  await until(()=>f.sparkReads>readCount);
+  assert.equal(events.at(-1),'line:firebase');
+  assert.equal(f.nasWrites,0);
+ }finally{close();client.stop();}
 });
 test('NAS subscription closes on ownership change and never emits the old dataset',async()=>{
  const f=fixtures(),client=f.create(),events=[];
- const close=client.subscribeLine({onSession:s=>events.push('session:'+s.source),
-  onSnapshot:s=>events.push('line:'+s.source),onError:e=>events.push('error:'+e.code)});
- await until(()=>events.includes('line:synology'));
- f.owner({owner:'firebase',readyForFailover:true,epoch:2});
- f.trigger('samosval_test_replica/write_owner');
- await until(()=>events.includes('line:firebase'));
- assert.ok(f.nasStops>=1);
- assert.equal(client.activeProvider,'firebase');
- close();client.stop();
+ let close=()=>{};
+ try{
+  close=client.subscribeLine({onSession:s=>events.push('session:'+s.source),
+   onSnapshot:s=>events.push('line:'+s.source),onError:e=>events.push('error:'+e.code)});
+  await until(()=>events.includes('line:synology'));
+  // Native Firestore listeners always deliver one initial snapshot. The
+  // router ignores that initial event and reacts to the next owner change.
+  f.trigger('samosval_test_replica/write_owner');
+  f.owner({owner:'firebase',readyForFailover:true,epoch:2});
+  f.trigger('samosval_test_replica/write_owner');
+  await until(()=>events.includes('line:firebase'));
+  assert.ok(f.nasStops>=1);
+  assert.equal(client.activeProvider,'firebase');
+ }finally{close();client.stop();}
 });
 test('session replacement blocks every authenticated reserve operation',async()=>{
  const f=fixtures(),client=f.create();
