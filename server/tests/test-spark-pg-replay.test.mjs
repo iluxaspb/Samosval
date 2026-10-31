@@ -15,6 +15,7 @@ import {claimNasOwnership,promoteTestReserve}
  from '../src/test-writer-coordinator.mjs';
 import {submitLineOperation} from '../src/line-store.mjs';
 import {exactSparkReplayAlias} from '../src/test-spark-replay-receipt.mjs';
+import {rebindSparkSqlWriterEpoch} from '../src/test-spark-sql-epoch-rebind.mjs';
 import {collectSnapshot,rowId} from '../src/test-replica.mjs';
 import {buildSparkTypedLineSnapshot,sparkTypedPaths} from '../src/test-spark-typed.mjs';
 import {accessRowsFromMirrorSnapshot,sparkAccessRef} from '../src/test-spark-access.mjs';
@@ -547,4 +548,127 @@ sqltest('certificate rejects incomplete fence, forged reserve projection, pendin
   /spark-certify-nas-not-fully-mirrored/);
  assert.equal(f.db.docs.get(REPLICA_DOC).readyForFailover,false);
  assert.equal(f.db.docs.get(OWNER_DOC).owner,'synology');
+}));
+
+
+// SQL016 rebinding is an EXPLICIT TEST-only action after a new NAS process
+// has claimed a fresh owner epoch. It is not run by current updater/HTTP.
+async function claimedAfterTypedHandback(f){
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ for(let i=0;i<3;i++)await replaySparkPostgresNext(opts(f));
+ await stageSparkTypedHandback(opts(f));
+ await completeSparkTypedHandback(opts(f));
+ const m=f.db.docs.get(REPLICA_DOC),o=f.db.docs.get(OWNER_DOC);
+ assert.equal(o.holder,'nas_handoff_pending');
+ await f.pool.query(readFileSync(
+  new URL('../sql/016_spark_global_fence.sql',import.meta.url),'utf8'));
+ // Simulate a SQL016 gate that was armed before reserve ownership moved.
+ await f.pool.query(
+  'UPDATE reserve_control.writer_gate SET armed=true,coverage_certified=true,owner_epoch=$1 WHERE singleton=true',
+  [o.recovery.fromEpoch-1]);
+ const nodeId='new_nas_rebind_worker';
+ const lease=await claimNasOwnership({
+  firestore:f.db,projectId:'samosval-offline',nodeId,
+  checkpoint:{sequence:m.lastSequence,hash:m.hash},now:Date.now()
+ });
+ assert.ok(lease.epoch>o.recovery.frozenEpoch+2);
+ return {m,nodeId,lease,oldEpoch:o.recovery.fromEpoch-1};
+}
+const rebindArgs=(f,claim)=>({
+ pool:f.pool,firestore:f.db,projectId:'samosval-offline',fenceEnabled:true,
+ nodeId:claim.nodeId,expectedEpoch:claim.lease.epoch
+});
+const gateEpoch=async pool=>Number((await pool.query(
+ 'SELECT owner_epoch::text AS n FROM reserve_control.writer_gate WHERE singleton=true'
+)).rows[0].n);
+sqltest('typed handback epoch rebind is durable, idempotent, and rejects old SQL permits',
+ async()=>withIsolatedDatabase(async f=>{
+ const claim=await claimedAfterTypedHandback(f);
+ assert.equal(await gateEpoch(f.pool),claim.oldEpoch);
+ const args=rebindArgs(f,claim);
+ const fresh=await rebindSparkSqlWriterEpoch(args);
+ assert.equal(fresh.resumed,false);
+ assert.equal(fresh.epoch,claim.lease.epoch);
+ assert.equal(await gateEpoch(f.pool),claim.lease.epoch);
+ const repeated=await rebindSparkSqlWriterEpoch(args);
+ assert.equal(repeated.resumed,true);
+ assert.equal(await gateEpoch(f.pool),claim.lease.epoch);
+ await assert.rejects(withNasWriterPermit({
+  epoch:claim.oldEpoch,permitId:'old_epoch_test_permit'
+ },async()=>{
+  const c=await f.pool.connect();
+  try{await c.query('BEGIN');
+   await c.query("UPDATE workspaces SET cycle_minutes=58 WHERE id='main_workspace'");
+  }finally{await c.query('ROLLBACK').catch(()=>{});c.release();}
+ }),/spark-fence-permit-required/);
+ await withNasWriterPermit({
+  epoch:claim.lease.epoch,permitId:'new_epoch_test_permit'
+ },async()=>{
+  const c=await f.pool.connect();
+  try{
+   await c.query('BEGIN');
+   await c.query("UPDATE workspaces SET cycle_minutes=59 WHERE id='main_workspace'");
+   await c.query('COMMIT');
+  }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
+  finally{c.release();}
+ });
+ assert.equal((await f.pool.query(
+  "SELECT cycle_minutes FROM workspaces WHERE id='main_workspace'"
+ )).rows[0].cycle_minutes,59);
+}));
+sqltest('epoch rebind fails closed on wrong holder, outstanding writes, mirror or SQL015 drift',
+ async()=>withIsolatedDatabase(async f=>{
+ const claim=await claimedAfterTypedHandback(f),args=rebindArgs(f,claim);
+ const owner=f.db.docs.get(OWNER_DOC),meta=f.db.docs.get(REPLICA_DOC);
+ await assert.rejects(rebindSparkSqlWriterEpoch({...args,fenceEnabled:false}),
+  /spark-rebind-fence-required/);
+ await assert.rejects(rebindSparkSqlWriterEpoch({...args,nodeId:'wrong_nas_worker'}),
+  /spark-rebind-firestore-owner-not-certified/);
+ owner.pending={unresolved_permit_123:{epoch:claim.lease.epoch,until:Date.now()+10000}};
+ await assert.rejects(rebindSparkSqlWriterEpoch(args),
+  /spark-rebind-firestore-owner-not-certified/);
+ owner.pending={};
+ meta.hash='b'.repeat(64);
+ await assert.rejects(rebindSparkSqlWriterEpoch(args),
+  /spark-rebind-firestore-owner-not-certified/);
+ meta.hash=claim.m.hash;
+ await f.pool.query("UPDATE reserve_spark_replay_checkpoint SET manifest_hash=$1",
+  ['c'.repeat(64)]);
+ await assert.rejects(rebindSparkSqlWriterEpoch(args),
+  /spark-rebind-sql015-checkpoint-diverged/);
+ assert.equal(await gateEpoch(f.pool),claim.oldEpoch);
+}));
+sqltest('epoch rebind refuses late NAS outbox changes and incomplete SQL016 coverage',
+ async()=>withIsolatedDatabase(async f=>{
+ const claim=await claimedAfterTypedHandback(f),args=rebindArgs(f,claim);
+ await f.pool.query('DROP TRIGGER spark_writer_gate_truncate ON workspaces');
+ await assert.rejects(rebindSparkSqlWriterEpoch(args),
+  /spark-rebind-sql016-inventory-diverged/);
+ assert.equal(await gateEpoch(f.pool),claim.oldEpoch);
+ await f.pool.query(readFileSync(
+  new URL('../sql/016_spark_global_fence.sql',import.meta.url),'utf8'));
+ // The control outbox cursor has no business trigger: simulate unexpected
+ // writes from a bypassing legacy worker. An intact checkpoint must reject.
+ await f.pool.query(
+  'UPDATE reserve_outbox_cursor SET last_sequence=last_sequence+1 WHERE singleton=true');
+ await assert.rejects(rebindSparkSqlWriterEpoch(args),
+  /spark-rebind-sql015-checkpoint-diverged/);
+ assert.equal(await gateEpoch(f.pool),claim.oldEpoch);
+}));
+sqltest('epoch rebind rolls back if Firestore ownership changes during verification',
+ async()=>withIsolatedDatabase(async f=>{
+ const claim=await claimedAfterTypedHandback(f),args=rebindArgs(f,claim);
+ let ownerReads=0;
+ const unstable={doc:path=>{
+  const original=f.db.doc(path);
+  if(path!==OWNER_DOC)return original;
+  return {...original,get:async()=>{
+   if(++ownerReads===2)f.db.docs.get(OWNER_DOC).epoch++;
+   return original.get();
+  }};
+ }};
+ await assert.rejects(rebindSparkSqlWriterEpoch({...args,firestore:unstable}),
+  /spark-rebind-firestore-owner-not-certified/);
+ assert.equal(await gateEpoch(f.pool),claim.oldEpoch);
 }));
