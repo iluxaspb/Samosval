@@ -51,6 +51,47 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
        request.time - resource.data.lastLoadAt >=
        duration.value(op.cycleMinutes, 'm'));
   }
+  // A single server-timestamped status document carries the authoritative
+  // append-only reserve journal. No client can rewrite an old event.
+  function arriveRules(b,n,op) {
+    return b.arrivedAt == null && n.arrivedAt == request.time &&
+      n.lastLoadAt == b.lastLoadAt && n.lastLogId == b.lastLogId &&
+      n.loadedAfterArrive == false &&
+      n.ttnRevision == b.ttnRevision && n.ttnStatus == b.ttnStatus &&
+      n.ttnLogId == b.ttnLogId && n.ttnByUid == b.ttnByUid &&
+      op.logId == '' && op.volume == 0 && op.isGAI == false;
+  }
+  function loadRules(b,n,op) {
+    return b.arrivedAt is timestamp && request.time >= b.arrivedAt &&
+      n.arrivedAt == null && n.lastLoadAt == request.time &&
+      n.lastLogId == 'load_' + op.operationId &&
+      n.loadedAfterArrive == true &&
+      n.ttnRevision == b.ttnRevision && n.ttnByUid == b.ttnByUid &&
+      (b.ttnStatus == 'pending' ?
+        (n.ttnStatus == true && n.ttnLogId == n.lastLogId) :
+        (n.ttnStatus == b.ttnStatus && n.ttnLogId == b.ttnLogId)) &&
+      op.logId == n.lastLogId &&
+      truck(documentId).id == documentId &&
+      truck(documentId).sourceSequence <= mirror().lastSequence &&
+      op.isGAI == truck(documentId).isGAI &&
+      op.volume == truck(documentId).volume;
+  }
+  function ttnRules(b,n,op) {
+    return b.ttnRevision is int &&
+      op.expectedTtnRevision == b.ttnRevision &&
+      n.ttnRevision == b.ttnRevision + 1 &&
+      op.ttnRevision == n.ttnRevision &&
+      op.collect is bool &&
+      (op.collect ? b.ttnStatus == null : b.ttnStatus != null) &&
+      n.ttnStatus == (op.collect ?
+        (b.loadedAfterArrive && b.lastLogId != '' ? true : 'pending') : null) &&
+      n.ttnLogId == (op.collect && b.loadedAfterArrive ? b.lastLogId : '') &&
+      n.ttnByUid == (op.collect ? request.auth.uid : '') &&
+      n.arrivedAt == b.arrivedAt && n.lastLoadAt == b.lastLoadAt &&
+      n.lastLogId == b.lastLogId &&
+      n.loadedAfterArrive == b.loadedAfterArrive &&
+      op.logId == '' && op.volume == 0 && op.isGAI == false;
+  }
   function statusUpdate() {
     let b = resource.data;
     let n = request.resource.data;
@@ -68,21 +109,26 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       n.diff(b).affectedKeys().hasOnly([
         'cycleRevision','arrivedAt','lastLoadAt','lastLogId',
         'loadedAfterArrive','lastOperationId','lastActionType',
-        'lastActorUid','reserveHistory'
+        'lastActorUid','reserveHistory','ttnStatus','ttnLogId','ttnByUid','ttnRevision'
       ]) &&
-      n.cycleRevision == b.cycleRevision + 1 &&
+      (op.type == 'ttn' ?
+        n.cycleRevision == b.cycleRevision : n.cycleRevision == b.cycleRevision + 1) &&
       n.lastActorUid == request.auth.uid &&
       op.keys().hasAll(['operationId','uid','type','epoch','generation',
-       'truckId','shiftId','expectedRevision','revision','cycleMinutes',
-       'requestHash','at','logId','volume','isGAI']) &&
+        'truckId','shiftId','expectedRevision','revision','cycleMinutes',
+        'requestHash','at','logId','volume','isGAI']) &&
       op.keys().hasOnly(['operationId','uid','type','epoch','generation',
-       'truckId','shiftId','expectedRevision','revision','cycleMinutes',
-       'requestHash','at','logId','volume','isGAI']) &&
+        'truckId','shiftId','expectedRevision','revision','cycleMinutes',
+        'requestHash','at','logId','volume','isGAI',
+        'collect','expectedTtnRevision','ttnRevision']) &&
+      (op.type == 'ttn' ?
+        op.keys().hasAll(['collect','expectedTtnRevision','ttnRevision']) :
+        !op.keys().hasAny(['collect','expectedTtnRevision','ttnRevision'])) &&
       op.operationId is string && op.operationId.size() > 0 &&
       op.operationId.size() <= 128 &&
       op.uid == request.auth.uid &&
       op.type == n.lastActionType &&
-      (op.type == 'arrive' || op.type == 'load') &&
+      (op.type == 'arrive' || op.type == 'load' || op.type == 'ttn') &&
       ('action_' + op.type) in access().permissions.actions &&
       op.epoch == owner().epoch &&
       op.generation == mirror().generation &&
@@ -94,26 +140,10 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       op.requestHash is string && op.requestHash.size() == 64 &&
       op.at == request.time &&
       n.lastOperationId == op.operationId &&
-      gapOK(op) &&
-      (
-        (op.type == 'arrive' &&
-         b.arrivedAt == null && n.arrivedAt == request.time &&
-         n.lastLoadAt == b.lastLoadAt &&
-         n.lastLogId == b.lastLogId &&
-         n.loadedAfterArrive == false &&
-         op.logId == '' && op.volume == 0 && op.isGAI == false)
-        ||
-        (op.type == 'load' &&
-         b.arrivedAt is timestamp && request.time >= b.arrivedAt &&
-         n.arrivedAt == null && n.lastLoadAt == request.time &&
-         n.lastLogId == 'load_' + op.operationId &&
-         n.loadedAfterArrive == true &&
-         op.logId == n.lastLogId &&
-         truck(documentId).id == documentId &&
-         truck(documentId).sourceSequence <= mirror().lastSequence &&
-         op.isGAI == truck(documentId).isGAI &&
-         op.volume == truck(documentId).volume)
-      );
+      (op.type == 'ttn' || gapOK(op)) &&
+      ((op.type == 'arrive' && arriveRules(b,n,op)) ||
+       (op.type == 'load' && loadRules(b,n,op)) ||
+       (op.type == 'ttn' && ttnRules(b,n,op)));
   }
 
   allow get: if request.auth != null && access().uid == request.auth.uid &&
