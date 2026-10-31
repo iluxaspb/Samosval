@@ -96,7 +96,7 @@ test('typed reader fails closed on missing status, mismatched generation or tamp
 test('typed reader rejects owner changes during multi-doc reads',async()=>{
  const f=mock(),reader=f.create();
  let n=0;
- f.authority.readOwner=async()=>{n++;return {...baseOwner(),epoch:n>2?6:5};};
+ f.authority.readOwner=async()=>{n++;return {...baseOwner(),epoch:n>1?6:5};};
  await assert.rejects(reader.readLine(),{code:'spark-typed-owner-changed-during-read'});
 });
 test('stale auth never exposes any typed status document',async()=>{
