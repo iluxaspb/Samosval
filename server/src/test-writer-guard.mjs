@@ -1,6 +1,18 @@
 // TEST-only primary write gate. All permissions and owner state stay on the server.
 // When enabled, any failure to reach the Firebase authority rejects NAS writes.
 import {randomUUID} from 'node:crypto';
+import {AsyncLocalStorage} from 'node:async_hooks';
+// A permit is propagated only through the async call that owns the SQL
+// transaction. An unrelated timer or connection never inherits it.
+const permitContext=new AsyncLocalStorage();
+export function currentNasWriterPermit(){return permitContext.getStore()||null;}
+export function withNasWriterPermit(permit,work){
+ if(!permit||typeof work!=='function'||
+    !Number.isSafeInteger(permit.epoch)||permit.epoch<1||
+    typeof permit.permitId!=='string'||!/^[A-Za-z0-9_-]{8,160}$/.test(permit.permitId))
+  throw new TypeError('writer-permit-context-invalid');
+ return permitContext.run({epoch:permit.epoch,permitId:permit.permitId},work);
+}
 import {claimNasOwnership,acquireNasWritePermit,releaseNasWritePermit,
  assertCoordinatorProject,OPERATION_HOLD_MS} from './test-writer-coordinator.mjs';
 
@@ -62,7 +74,7 @@ export function startNasWriterFence({pool,projectId,env=process.env,
    const db=await getDb();
    const permit=await acquireNasWritePermit({firestore:db,projectId,nodeId,now});
    nasWriterFenceRuntime.allowedWrites++;
-   return {epoch:permit.epoch,release:async()=>{
+   return {epoch:permit.epoch,permitId:permit.permitId,release:async()=>{
     try{
      // SQL 014 is commit ordered; read its head only AFTER the HTTP handler
      // finished its PG transaction. Release the remote write-intent and
