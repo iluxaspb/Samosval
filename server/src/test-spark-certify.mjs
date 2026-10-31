@@ -59,9 +59,22 @@ async function sqlProof(pool){
      !seq(Number(gate.epoch))||Number(gate.epoch)<1)
    throw bad('spark-certify-global-writer-coverage-required');
   const triggers=(await c.query(
-   "SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='spark_writer_gate' AND NOT tgisinternal"
+   "SELECT count(*) FILTER(WHERE tgname='spark_writer_gate')::int AS row_count,"+
+   " count(*) FILTER(WHERE tgname='spark_writer_gate_truncate')::int AS truncate_count"+
+   " FROM pg_trigger WHERE NOT tgisinternal"
+  )).rows[0];
+  // Both trigger forms must protect EXACTLY the tables mirrored by outbox.
+  // A TRUNCATE silently bypasses row-level INSERT/UPDATE/DELETE triggers.
+  const uncovered=(await c.query(
+   "SELECT count(*)::int AS n FROM pg_trigger src "+
+   "WHERE src.tgname='reserve_row_change' AND NOT src.tgisinternal "+
+   "AND (NOT EXISTS(SELECT 1 FROM pg_trigger gate WHERE gate.tgrelid=src.tgrelid "+
+   "AND gate.tgname='spark_writer_gate' AND NOT gate.tgisinternal) "+
+   "OR NOT EXISTS(SELECT 1 FROM pg_trigger gate WHERE gate.tgrelid=src.tgrelid "+
+   "AND gate.tgname='spark_writer_gate_truncate' AND NOT gate.tgisinternal))"
   )).rows[0]?.n;
-  if(triggers!==39)throw bad('spark-certify-global-fence-inventory-diverged');
+  if(triggers?.row_count!==39||triggers?.truncate_count!==39||uncovered!==0)
+   throw bad('spark-certify-global-fence-inventory-diverged');
   const head=Number((await c.query(
    'SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true'
   )).rows[0]?.n);
