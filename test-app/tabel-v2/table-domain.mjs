@@ -2,10 +2,19 @@ import {evaluateWorkbookFormula} from "./formula-engine.mjs";
 import { countEquipment } from "./domain.mjs";
 export const VERSION = "2.1.0-test.1";
 export const copy = (x) => structuredClone(x);
-export const today = () =>
-  new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow" }).format(
-    new Date(),
-  );
+export const today = () => {
+  // formatToParts does not depend on the engine's locale data. Some Node builds
+  // return 10/31/2026 for the "sv-SE" locale instead of ISO, which used to break
+  // config() and every schedule calculation built on it.
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const part = (type) => parts.find((item) => item.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
 export function date(s) {
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(s) ||
