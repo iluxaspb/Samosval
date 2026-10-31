@@ -45,7 +45,8 @@ beforeEach(async()=>{
   await setDoc(doc(db,STATE),{
    protocol:1,projectId:'samosval-offline',generation:G,workspaceId:'main_workspace',
    sourceSequence:23,id:'truck1',shiftId:'shift1',onLine:true,
-   cycleRevision:0,ttnRevision:0,arrivedAt:null,lastLoadAt:null,
+   cycleRevision:0,ttnRevision:0,ttnStatus:null,ttnLogId:'',ttnByUid:'',
+   arrivedAt:null,lastLoadAt:null,
    lastLogId:'',lastOperationId:'',lastActionType:'',lastActorUid:'',
    loadedAfterArrive:false,reserveHistory:{}
   });
@@ -55,7 +56,7 @@ beforeEach(async()=>{
     workspaceId:'main_workspace',generation:G,uid,
     sourceSequence:23,active:true,lineRead:true,
     profile:{uid,status:'active',role:'lopater',deleted:false},
-    permissions:{tabs:['line'],actions:['action_arrive','action_load']}
+    permissions:{tabs:['line'],actions:['action_arrive','action_load','action_ttn']}
    });
   }
  });
@@ -90,6 +91,12 @@ const load=(id,revision,arrivedAt,lastLoadAt=0)=>({
  id,type:'load',truckId:'truck1',shiftId:'shift1',expectedRevision:revision,
  arrivalTimestamp:arrivedAt,lastLoadTimestamp:lastLoadAt,
  wantArrived:false,collect:false,cycleMinutes:60,createdAt:Date.now()
+});
+const ttn=(id,{revision=0,ttnRevision=0,collect=true,lastLoadAt=0}={})=>({
+ id,type:'ttn',truckId:'truck1',shiftId:'shift1',
+ expectedRevision:revision,expectedTtnRevision:ttnRevision,
+ arrivalTimestamp:0,lastLoadTimestamp:lastLoadAt,
+ wantArrived:false,collect,cycleMinutes:60,createdAt:Date.now()
 });
 test('transaction preflight can read existing typed documents and probe missing receipts',async()=>{
  for(const path of [
@@ -237,6 +244,67 @@ test('same operator ID is idempotent, but it cannot be reused with changed inten
   {operationScope:scope('operatorA')}),e=>e.code==='spark-operation-id-reused');
  const state=(await getDoc(doc(alice,STATE))).data();
  assert.equal(state.cycleRevision,1);
+});
+test('TTN can be collected before load, then links automatically to confirmed trip',async()=>{
+ const writer=make(alice,'operatorA');
+ await writer.submitLine(arrive('arrival_ttn_pending'),{operationScope:scope('operatorA')});
+ const pending=await writer.submitLine(ttn('ttn_collect_pending',{revision:1}),
+  {operationScope:scope('operatorA')});
+ assert.equal(pending.outcome,'confirmed');
+ const afterPending=(await getDoc(doc(alice,STATE))).data();
+ assert.equal(afterPending.cycleRevision,1,'TTN must not advance the load cycle');
+ assert.equal(afterPending.ttnRevision,1);
+ assert.equal(afterPending.ttnStatus,'pending');
+ assert.equal(afterPending.ttnByUid,'operatorA');
+ assert.equal(afterPending.ttnLogId,'');
+ const arrived=afterPending.arrivedAt.toMillis();
+ const loaded=await writer.submitLine(load('load_after_ttn',1,arrived),
+  {operationScope:scope('operatorA')});
+ assert.equal(loaded.outcome,'confirmed');
+ const afterLoad=(await getDoc(doc(alice,STATE))).data();
+ assert.equal(afterLoad.cycleRevision,2);
+ assert.equal(afterLoad.ttnRevision,1,'load must not mutate TTN revision');
+ assert.equal(afterLoad.ttnStatus,true);
+ assert.equal(afterLoad.ttnLogId,'load_load_after_ttn');
+ assert.equal(Object.keys(afterLoad.reserveHistory).length,3);
+ const clear=await writer.submitLine(ttn('ttn_uncollect',{revision:2,
+  ttnRevision:1,collect:false,lastLoadAt:afterLoad.lastLoadAt.toMillis()}),
+  {operationScope:scope('operatorA')});
+ assert.equal(clear.outcome,'confirmed');
+ const afterClear=(await getDoc(doc(alice,STATE))).data();
+ assert.equal(afterClear.cycleRevision,2);
+ assert.equal(afterClear.ttnRevision,2);
+ assert.equal(afterClear.ttnStatus,null);
+ assert.equal(afterClear.ttnLogId,'');
+ assert.equal(afterClear.ttnByUid,'');
+ assert.equal(Object.keys(afterClear.reserveHistory).length,4);
+});
+test('two operators racing to mark TTN at same revision cannot both confirm',async()=>{
+ const a=make(alice,'operatorA'),b=make(bob,'operatorB');
+ const [first,second]=await Promise.allSettled([
+  a.submitLine(ttn('ttn_by_A'),{operationScope:scope('operatorA')}),
+  b.submitLine(ttn('ttn_by_B'),{operationScope:scope('operatorB')})
+ ]);
+ assert.equal([first,second].filter(x=>x.status==='fulfilled').length,1);
+ const status=(await getDoc(doc(alice,STATE))).data();
+ assert.equal(status.ttnRevision,1);
+ assert.equal(status.cycleRevision,0);
+ assert.equal(Object.values(status.reserveHistory).filter(x=>x.type==='ttn').length,1);
+});
+test('stale TTN revision or missing action permission never changes a truck',async()=>{
+ const writer=make(alice,'operatorA');
+ await assert.rejects(writer.submitLine(ttn('ttn_stale',{ttnRevision:5}),
+  {operationScope:scope('operatorA')}),e=>e.code==='spark-ttn-changed');
+ await env.withSecurityRulesDisabled(async ctx=>{
+  await updateDoc(doc(ctx.firestore(),ACCESS+'/operatorA'),{
+   permissions:{tabs:['line'],actions:['action_arrive','action_load']}
+  });
+ });
+ await assert.rejects(writer.submitLine(ttn('ttn_denied'),
+  {operationScope:scope('operatorA')}),e=>e.code==='spark-permission-denied');
+ const status=(await getDoc(doc(alice,STATE))).data();
+ assert.equal(status.ttnRevision,0);
+ assert.deepEqual(status.reserveHistory,{});
 });
 test('rules deny a forged status update without a corresponding receipt',async()=>{
  await assertFails(updateDoc(doc(alice,STATE),{
