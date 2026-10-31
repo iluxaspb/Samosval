@@ -104,8 +104,22 @@ test('transaction preflight can read existing typed documents and probe missing 
 });
 test('legitimate arrive creates exactly one immutable operation and status',async()=>{
  const writer=make(alice,'operatorA');
- const result=await writer.submitLine(arrive('arrival01'),
-  {operationScope:scope('operatorA')});
+ let result;
+ try{result=await writer.submitLine(arrive('arrival01'),
+  {operationScope:scope('operatorA')});}
+ catch(error){
+  // The Emulator exposes execution coverage only locally. Capture a bounded
+  // diagnostic for tests; it never queries or changes real Firebase.
+  try{
+   const resp=await fetch('http://127.0.0.1:8089/emulator/v1/projects/demo-samosval-spark-ci:ruleCoverage');
+   const json=await resp.json();
+   const keys=Object.keys(json);
+   console.error('SPARK_RULE_COVERAGE_KEYS',keys.join(','));
+   const tail=JSON.stringify(json).slice(-6500);
+   console.error('SPARK_RULE_COVERAGE_TAIL',tail);
+  }catch(e){console.error('SPARK_RULE_COVERAGE_UNAVAILABLE',e.message);}
+  throw error;
+ }
  assert.equal(result.outcome,'confirmed');
  const status=(await getDoc(doc(alice,STATE))).data();
  assert.equal(status.cycleRevision,1);
