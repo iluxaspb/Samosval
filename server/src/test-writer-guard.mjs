@@ -11,7 +11,10 @@ function boundedError(error){
  return /^writer-[a-z0-9-]{1,90}$/.test(code)?code:'writer-authority-unavailable';
 }
 export function startNasWriterFence({pool,projectId,env=process.env,
- firestoreFactory,clock=()=>Date.now(),intervalMs=8000}={}){
+ firestoreFactory,clock=()=>Date.now(),intervalMs=30000}={}){
+ // A 30-second heartbeat uses approximately 2,880 Firestore owner writes/day
+ // instead of ~10,800 at 8 seconds, while the 60-second lease remains valid.
+ // Every business write still obtains its own transactional permit.
  const enabled=env.TEST_WRITER_FENCE_ENABLED==='1';
  Object.assign(nasWriterFenceRuntime,{enabled,epoch:null,leaseUntil:null,
   lastConfirmedAt:null,lastError:null,allowedWrites:0,refusedWrites:0});
