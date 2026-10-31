@@ -129,3 +129,18 @@ test('same certified epoch reuses immutable baseline but rechecks ACL per refres
  assert.equal(f.reads,2,'new ownership epoch invalidates baseline cache');
  reader.stop();
 });
+
+test('incremental status refresh reads only changed IDs, while checking ACL and owner',async()=>{
+ const f=mock(),reader=f.create();
+ await reader.readLine();
+ const baselineReads=f.gets;
+ await reader.readLine({changedTruckIds:[]});
+ assert.equal(f.gets,baselineReads+1,'immutable status cached; config server-checked');
+ assert.equal(f.sessions,1,'user ACL still checked');
+ await reader.readLine({changedTruckIds:['truck_a']});
+ assert.equal(f.gets,baselineReads+3,'one changed status and one config');
+ assert.equal(f.reads,1,'same immutable PostgreSQL baseline');
+ await assert.rejects(reader.readLine({changedTruckIds:['forged_truck']}),
+  {code:'spark-typed-changed-id-unknown'});
+ reader.stop();
+});
