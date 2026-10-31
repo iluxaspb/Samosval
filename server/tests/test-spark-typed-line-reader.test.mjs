@@ -8,12 +8,12 @@ const baseOwner=()=>({owner:'firebase',readyForFailover:true,generation:GEN,
 const snap=(data,exists=true)=>({exists,data:()=>data});
 const timestamp=ms=>({toMillis:()=>ms});
 function mock(){
- let auth={uid:UID},latest=baseOwner(),ownerCalls=0,readCalls=0;
+ let auth={uid:UID},latest=baseOwner(),ownerCalls=0,readCalls=0,sessionCalls=0;
  const raw={
-  readSession:async()=>({format:'samosval-session',version:1,source:'firebase',
+  readSession:async()=>{sessionCalls++;return {format:'samosval-session',version:1,source:'firebase',
    workspaceId:WS,identityReady:true,
    profile:{uid:UID,status:'active',deleted:false},
-   permissions:{tabs:['line'],actions:['action_load']}}),
+   permissions:{tabs:['line'],actions:['action_load']}};},
   readLine:async()=>{readCalls++;return structuredClone({
    format:'samosval-line-snapshot',version:1,source:'firebase',
    workspaceId:WS,shift:{id:'shift_a',isActive:true},
@@ -60,6 +60,7 @@ function mock(){
  return {create,docs,config,status,raw,authority,triggers,
   changeOwner:o=>{latest={...latest,...o};},changeAuth:()=>{auth={uid:UID};},
   get ownerCalls(){return ownerCalls;},get reads(){return readCalls;},
+  get sessions(){return sessionCalls;},
   get gets(){return gets;},get listens(){return listens;}
  };
 }
@@ -115,4 +116,16 @@ test('status listeners only wake from fresh server notifications and are cleaned
  f.triggers.get(key)({metadata:{fromCache:false}});
  assert.equal(woken,1);
  close();assert.equal(f.triggers.size,0);reader.stop();
+});
+
+test('same certified epoch reuses immutable baseline but rechecks ACL per refresh',async()=>{
+ const f=mock(),reader=f.create();
+ await reader.readLine();
+ await reader.readLine();
+ assert.equal(f.reads,1,'5 baseline table queries are not repeated per reserve LOAD');
+ assert.equal(f.sessions,1,'cached baseline still requires current ACL');
+ f.changeOwner({epoch:6});
+ await reader.readLine();
+ assert.equal(f.reads,2,'new ownership epoch invalidates baseline cache');
+ reader.stop();
 });
