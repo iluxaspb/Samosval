@@ -85,12 +85,11 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
      config:firestore.doc(prefix+'typed_config_'+g+'/active'),
      truck:firestore.doc(prefix+'typed_trucks_'+g+'/'+input.truckId),
      status:firestore.doc(prefix+'typed_status_'+g+'/'+input.truckId),
-     receipt:firestore.doc(prefix+'typed_ops_'+g+'/'+input.id),
-     log:firestore.doc(prefix+'typed_logs_'+g+'/load_'+input.id)
+     receipt:firestore.doc(prefix+'typed_ops_'+g+'/'+input.id)
     };
-    const [aclSnap,configSnap,truckSnap,statusSnap,receiptSnap,logSnap]=await Promise.all([
+    const [aclSnap,configSnap,truckSnap,statusSnap,receiptSnap]=await Promise.all([
      tx.get(docs.acl),tx.get(docs.config),tx.get(docs.truck),
-     tx.get(docs.status),tx.get(docs.receipt),tx.get(docs.log)
+     tx.get(docs.status),tx.get(docs.receipt)
     ]);
     const acl=aclSnap.exists?aclSnap.data():null;
     const config=configSnap.exists?configSnap.data():null;
@@ -116,7 +115,6 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
        before.generation!==g||before.cycleRevision!==input.expectedRevision||
        !seq(before.sourceSequence)||before.sourceSequence>state.sequence)
      throw bad('spark-line-stale',{retryable:true});
-    if(logSnap.exists)throw bad('spark-line-log-conflict');
     const previousLoad=time(before.lastLoadAt)||0;
     const arrival=time(before.arrivedAt)||0;
     if(input.type==='arrive'){
@@ -136,7 +134,12 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
      uid,operationId:input.id,truckId:input.truckId,shiftId:input.shiftId,
      type:input.type,expectedRevision:input.expectedRevision,
      cycleMinutes:input.cycleMinutes,requestHash,
-     at:stamp,logId:input.type==='load'?'load_'+input.id:''
+     at:stamp,logId:input.type==='load'?'load_'+input.id:'',
+     // The immutable receipt itself is the audit/load ledger record. Do not
+     // create a third document: that exceeds the Spark rules evaluation
+     // budget and spends an extra Firestore write on every trip.
+     volume:input.type==='load'?(truck.isGAI===true?0:truck.volume):0,
+     isGAI:input.type==='load'&&truck.isGAI===true
     };
     const changes={
      cycleRevision:before.cycleRevision+1,
@@ -146,18 +149,10 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
      loadedAfterArrive:input.type==='load',
      lastOperationId:input.id,lastActionType:input.type,lastActorUid:uid
     };
-    // All documents are committed in one Firestore transaction. Security
-    // Rules check getAfter(op) and getAfter(status), and for a load the log.
+    // Two writes, one atomic transaction: status and immutable operation.
+    // A LOAD operation is also the permanent log record.
     tx.update(docs.status,changes);
     tx.set(docs.receipt,event);
-    if(input.type==='load'){
-     tx.set(docs.log,{
-      protocol:1,projectId:PROJECT,generation:g,epoch:state.epoch,
-      id:event.logId,operationId:input.id,uid,truckId:input.truckId,
-      shiftId:input.shiftId,isGAI:truck.isGAI===true,
-      volume:truck.isGAI===true?0:truck.volume,at:stamp
-     });
-    }
     submitted=true;
     return {outcome:'confirmed',operationId:input.id,
      expectedRevision:input.expectedRevision+1};
