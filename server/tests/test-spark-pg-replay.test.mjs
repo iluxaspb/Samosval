@@ -119,6 +119,8 @@ sqltest('typed Spark is frozen and ARRIVE, TTN, LOAD commit atomically with PG a
  assert.equal(started.total,3);
  const arriving=await replaySparkPostgresNext(opts(f));
  assert.equal(arriving.operationId,'arrive01');
+ const recoveredOwner=await beginSparkTypedRecovery(opts(f));
+ assert.equal(recoveredOwner.resumed,true,'restarting after a committed SQL step is safe');
  const ttn=await replaySparkPostgresNext(opts(f));
  assert.equal(ttn.operationId,'ttn01');
  const load=await replaySparkPostgresNext(opts(f));
