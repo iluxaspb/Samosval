@@ -105,6 +105,12 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
      const r=receiptSnap.data();
      if(r.uid!==uid||r.requestHash!==requestHash||r.epoch!==state.epoch)
       throw bad('spark-operation-id-reused');
+     // A signed-in client can submit a well-formed intent independently.
+     // A receipt alone is NOT evidence of an applied trip. Only an atomic
+     // status revision with that operation ID proves confirmation.
+     if(before?.lastOperationId!==input.id||
+        before.cycleRevision!==input.expectedRevision+1)
+      throw bad('spark-intent-not-confirmed',{retryable:true,uncertain:true});
      return {outcome:'confirmed',replayed:true,operationId:input.id,
       typedStatus:before};
     }
