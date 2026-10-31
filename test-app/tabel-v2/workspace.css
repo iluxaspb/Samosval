@@ -587,8 +587,6 @@ dialog.tn footer {
 .tn-linked .tn-address td {
   padding: 4px 6px;
   white-space: normal;
-  /* The orange header is one wide cell; the address caption fills it without shifting rows. */
-  position: static;
 }
 .tn-linked .tn-address div {
   width: calc(100vw - 20px);
@@ -1171,14 +1169,6 @@ dialog.tn .tn-numberpad button {border-radius:10px;}
 .tn-peer-tag{position:absolute;bottom:100%;left:0;z-index:6;color:#fff;font:10px Arial;padding:2px 4px;border-radius:3px;white-space:nowrap;pointer-events:none}
 .tn-grid [data-peer]{overflow:visible}
 .tn-selection-box{border-color:var(--tn-own-color,#1466cc)!important}
-/* A cell picked by a user is marked for everyone in that user's colour and stays
-   marked after focus moves to another tab or app until the user picks another cell. */
-.tn .tn-grid [data-peer]{box-shadow:inset 0 0 0 2px #6b7280 !important}
-.tn .tn-grid td.tn-own-cell{box-shadow:inset 0 0 0 2px var(--tn-own-color,#1466cc) !important;background-image:none !important}
-.tn .tn-grid td.tn-selected.tn-own-cell{background-image:linear-gradient(rgba(20,102,204,.12),rgba(20,102,204,.12)) !important}
-.tn-own-tag{position:absolute;bottom:100%;left:0;z-index:8;background:var(--tn-own-color,#1466cc);color:#fff;font:10px Arial;padding:2px 4px;border-radius:3px;white-space:nowrap;pointer-events:none}
-/* Cells are replaced on every redraw; the address row must not keep a stale relative position. */
-.tn .tn-grid td.tn-address{position:static}
 
 
 /* Calendar layer is independent of user-selected cell fill/colors.

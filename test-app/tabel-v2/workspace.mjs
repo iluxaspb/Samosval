@@ -638,19 +638,6 @@ async function render(s) {
       const grid = await module.mount(s, main);
       if (rendering !== s.rendering || !main.isConnected) grid.dispose();
       else s.grid = grid;
-      // Returning from another app or tab re-checked the presence record immediately.
-      const presenceWake=()=>{if(!s.root.hidden&&s.grid?.wake)s.grid.wake();};
-      document.addEventListener("visibilitychange",presenceWake);
-      globalThis.addEventListener("pageshow",presenceWake);
-      const unwatchWake=()=>{
-        document.removeEventListener("visibilitychange",presenceWake);
-        globalThis.removeEventListener("pageshow",presenceWake);
-      };
-      const observer=new MutationObserver(()=>{
-        if(!s.root.hidden)return;
-        unwatchWake();observer.disconnect();s.grid?.dispose();s.grid=null;
-      });
-      observer.observe(s.root,{attributes:true,attributeFilter:["hidden"]});
       return;
     }
     if (s.view === "request") request(s, main);

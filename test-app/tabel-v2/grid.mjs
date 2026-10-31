@@ -21,8 +21,6 @@ export async function mount(s, host) {
     startRow = 0;
   let dirty = false,
     hasSelection = false,
-    // Redraws rebuild the table; the selected cell, ours or a peer's, must survive them.
-    selectionDrawn = false,
     suppressClick = false,
     referencePick = null,
     pickingReference = false;
@@ -64,9 +62,6 @@ export async function mount(s, host) {
   const numericActions=document.createElement('div');numericActions.className='tn-numeric-actions';numericActions.hidden=true;
   numericActions.innerHTML=btn('Заполнить автоматически','numeric-autofill')+'<span data-numeric-range></span>';
   onlineUsers.after(numericActions);
-  const selectionBand=document.createElement('div');selectionBand.className='tn-selection-band';selectionBand.setAttribute('aria-hidden','true');
-  scroll.append(selectionBand);
-  let bandFrame=0;
   const numericFill=numericActions.querySelector('[data-action=numeric-autofill]');
   numericFill.onclick=()=>queue(()=>fill(selected,end));
   let others=[],presenceError='',lastPresence='';
@@ -81,7 +76,6 @@ export async function mount(s, host) {
     const note=document.createElement('small');note.textContent=presenceError||(navigator.onLine===false?'Офлайн · присутствие не обновляется':'Сейчас на листе: '+people.size);onlineUsers.append(note);
     table.style.setProperty('--tn-own-color',colors[actor.uid]);
     host.style.setProperty('--tn-own-color',colors[actor.uid]);
-    paintBand();
     table.querySelectorAll('.tn-peer-tag').forEach(n=>n.remove());
     const tagged=new Set();
     table.querySelectorAll('[data-cell]').forEach(td=>{
@@ -95,27 +89,7 @@ export async function mount(s, host) {
         const tag=document.createElement('span');tag.className='tn-peer-tag';tag.style.background=colors[peer.uid];tag.textContent=peer.name;td.append(tag);}
     });
   }
-  const live=presence(s,(peers,failure)=>{others=peers;presenceError=failure;ownColorValue='';paintPresence();});
-  // The selected cell stays visible for other users, without depending on keyboard focus.
-  function paintOwnCell(){
-    if(disposed)return;
-    table.querySelectorAll('.tn-own-cell').forEach(n=>n.classList.remove('tn-own-cell'));
-    table.querySelectorAll('.tn-own-tag').forEach(n=>n.remove());
-    if(!hasSelection)return;
-    const td=table.querySelector(`[data-cell="${selected}"]`);
-    if(!td||!table.isConnected)return;
-    td.classList.add('tn-own-cell');
-    const tag=document.createElement('span');
-    tag.className='tn-own-tag';tag.textContent=actorName();td.append(tag);
-  }
-  function actorName(){return String(actor.nickname||actor.name||actor.uid);}
-  function labelOf(k){
-    try{
-      const {row,day}=linkedAt(k);
-      if(sheetId==='linked')return day?D.display(day.date):(row?row.name:null);
-    }catch{}
-    return k;
-  }
+  const live=presence(s,(peers,failure)=>{others=peers;presenceError=failure;paintPresence();});
   function announceSelection(){
     let stable={};
     if(sheetId==='linked'&&hasSelection){
@@ -124,9 +98,9 @@ export async function mount(s, host) {
       for(let col=Math.min(a.c,b.c);col<=Math.max(a.c,b.c);col++){const day=visibleDays[col-1];colKeys.push(day?D.dayKey(day.date,day.shift):'label');}
       stable={rowKeys,colKeys};
     }
-    const signature=JSON.stringify([sheetId,selected,end,hasSelection,stable,others.length>0]);
+    const signature=JSON.stringify([sheetId,selected,end,hasSelection,stable]);
     if(signature!==lastPresence){lastPresence=signature;live.update(sheetId,selected,end,hasSelection,stable);}
-    if(selectionDrawn)paintPresence();
+    paintPresence();
   }
   function snapshotSheet(){
     const dim=dimensions(), cells={},widths={},heights={};
@@ -234,7 +208,6 @@ export async function mount(s, host) {
     selected = end = "A1";
     referencePick = null;
     hasSelection = false;
-    lastPresence = "";
     const draft = s.store.get(s.key("draft:grid:" + id)).data;
     if (draft) {
       selected = end = draft.cell;
@@ -681,8 +654,6 @@ export async function mount(s, host) {
           .join("");
       host.querySelector(".tn-sheets").before(panel);
     }
-    // Cells are replaced on every redraw; repaint the kept selection and presence.
-    selectionDrawn = false;
     mark();
     scroll.scrollTop = previousScroll.top;
     scroll.scrollLeft = previousScroll.left;
@@ -741,14 +712,12 @@ export async function mount(s, host) {
       td.append(handle);
     }
     rangeInput.value = selected === end ? selected : selected + ":" + end;
-    if (!dirty && selectionDrawn) edit.value = raw(selected);
+    if (!dirty) edit.value = raw(selected);
     outline(keys);
     selectionTotal();
     paintReference();
     renderFormulaSyntax();
-    paintOwnCell();
     announceSelection();
-    selectionDrawn = true;
     numericActions.hidden=!simple()||!hasSelection||selected===end;
     if(!numericActions.hidden){
       const valid=D.range(selected,end).every(k=>{const {row,day,p}=linkedAt(k);return row&&!row.section&&p.c>0&&day&&day.date<=D.today();});
@@ -1928,7 +1897,6 @@ export async function mount(s, host) {
   }
   return {
     finish: () => (dirty ? queueCommit() : chain),
-    wake: () => live.wake?.(),
     snapshot() {
       return {
         sheetId,
@@ -1945,9 +1913,6 @@ export async function mount(s, host) {
       disposed = true;
       live.dispose();
       host.style.paddingBottom = "";
-      cancelAnimationFrame(bandFrame);
-      scroll.removeEventListener("scroll", scheduleBand);
-      globalThis.removeEventListener("resize", scheduleBand);
       globalThis.removeEventListener("resize", viewport);
       saveStacks();
       globalThis.visualViewport?.removeEventListener("resize", viewport);
