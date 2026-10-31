@@ -140,6 +140,9 @@ Firestore Rules Emulator ограничивает выражения до 1000 �
   считываются обратно; несовпадение документов или числа записей блокирует
   публикацию. Одной транзакцией меняются metadata и owner на `handoff`,
   **не** на `synology`. `readyForFailover=false` сохраняется.
+- На момент транзакции публикации/возврата владельца удерживается SQL
+  `reserve_outbox_cursor FOR UPDATE`: параллельная запись PostgreSQL не
+  может незаметно пройти между проверкой снимка и сменой владельца.
 - `completeSparkTypedHandback` сверяет SQL checkpoint, неизменность
   outbox, snapshot SHA-256, ACL и typed документы. Только после сверки
   записывает SQL receipt нового snapshot и переводит owner в
