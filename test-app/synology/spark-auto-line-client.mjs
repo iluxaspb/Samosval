@@ -106,6 +106,7 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
    throw new TypeError('spark-auto-subscription-invalid');
   let closed=false,timer=null,nasClose=null,typedClose=null,unsubscribe=[];
   let inFlight=false,scheduled=false,again=false,kind='all',lastSnapshot=null;
+  const changedTrucks=new Set();
   const ownerRefs=[firestore.doc(META),firestore.doc(OWNER)];
   const accessPath=gen=>META+'/access_'+gen+'/'+uid;
   let accessWatchGen=null,accessClose=null;
@@ -128,10 +129,11 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
    try{onError(e);}catch{}
    if(e?.code==='spark-auto-session-changed'){close();return;}
   }
-  function wake(request='all',delay=150){
+  function wake(request='all',delay=150,truckId=null){
    if(closed||stopped)return;
-   if(request==='all')kind='all';
+   if(request==='all'){kind='all';changedTrucks.clear();}
    else if(kind!=='all')kind=request;
+   if(request==='line'&&truckId)changedTrucks.add(truckId);
    if(inFlight){again=true;return;}
    if(scheduled)return;
    scheduled=true;
@@ -152,11 +154,13 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
    const fingerprint=snapshot.typedGeneration+':'+snapshot.statuses.map(x=>x.id).sort().join('|');
    if(lastSnapshot===fingerprint)return;
    typedClose?.();typedClose=null;lastSnapshot=fingerprint;
-   typedClose=reader.watchStatuses(snapshot,()=>wake('line',250),report);
+   typedClose=reader.watchStatuses(snapshot,id=>wake('line',250,id),report);
   }
   async function refresh(){
    if(inFlight||closed||stopped)return;
    inFlight=true;
+   const requestKind=kind,changedIds=[...changedTrucks];
+   kind='line';changedTrucks.clear();
    try{
     const before=await authority();
     if(closed)return;
@@ -189,7 +193,10 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
      if(closed)return;
      const validLine=session.identityReady&&session.profile?.status==='active'&&
       !session.profile.deleted&&session.permissions?.tabs?.includes('line');
-     const snapshot=validLine?await reader.readLine():null;
+     const snapshot=validLine?await reader.readLine(
+      requestKind==='line'&&changedIds.length>0?
+       {changedTruckIds:changedIds}:{}
+     ):null;
      const after=await authority();
      if(!same(before,after))throw bad('spark-auto-owner-changed-during-read');
      if(closed)return;
@@ -202,12 +209,17 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
    }catch(e){
     // Invalidate old provider immediately on any unresolved authority or
     // adapter failure. A timeout cannot force a Firebase promotion.
-    stopProvider();ownerState=null;
+    stopProvider();ownerState=null;kind='all';changedTrucks.clear();
     if(!closed&&getUser()===user)publish(null);
     report(e);
    }finally{
     inFlight=false;
-    if(again&&!closed){again=false;wake('all',100);}
+    if(again&&!closed){
+     again=false;
+     if(!scheduled){scheduled=true;timer=setTimeout(()=>{
+      scheduled=false;void refresh();
+     },100);}
+    }
    }
   }
   try{
