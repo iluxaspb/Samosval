@@ -18,7 +18,10 @@ const sleepError=e=>{
  return /^replica-[a-z0-9-]{1,110}$/.test(code)?code:'replica-remote-unavailable';
 };
 export function startTestReplica({pool,projectId,env=process.env,firestoreFactory,
-  intervalMs=4000,clock=Date.now}={}){
+  intervalMs=4000,clock=Date.now,replicateImpl=replicateOnce,
+  initialDelayMs=100}={}){
+  if(typeof replicateImpl!=='function'||!Number.isSafeInteger(initialDelayMs)||initialDelayMs<0)
+    throw TypeError('replica-invalid-runner-options');
   if(typeof clock!=='function')throw TypeError('replica-invalid-clock');
   let lastAuditAt=null;
   replicaRuntime.skippedRemoteChecks=0;
@@ -47,7 +50,7 @@ export function startTestReplica({pool,projectId,env=process.env,firestoreFactor
       return {idle:true,skippedRemote:true,sequence:receipt,lag:0};
     }
     const db=await (firestoreFactory?firestoreFactory():import('firebase-admin/firestore').then(m=>m.getFirestore()));
-    const result=await replicateOnce({pool,firestore:db,projectId});
+    const result=await replicateImpl({pool,firestore:db,projectId});
     lastAuditAt=now;replicaRuntime.lastRemoteAuditAt=now;
     replicaRuntime.lastSuccessAt=now;replicaRuntime.lastError=null;attempt=0;
     return result;
@@ -66,7 +69,7 @@ export function startTestReplica({pool,projectId,env=process.env,firestoreFactor
    if(!closed&&enabled)timer=setTimeout(loop,Math.min(60000,intervalMs*Math.pow(2,attempt)));
   }
  }
- if(enabled)timer=setTimeout(loop,100);
+ if(enabled)timer=setTimeout(loop,initialDelayMs);
  return {enabled,runOnce:tick,stop:async()=>{
   closed=true;if(timer)clearTimeout(timer);
   if(inFlight)await inFlight.catch(()=>{});
