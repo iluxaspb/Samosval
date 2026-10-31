@@ -7,10 +7,11 @@ on:
       - "server/compose.spark-lab.test.yaml"
       - "server/scripts/run-spark-isolated-lab.mjs"
       - "server/scripts/verify-spark-lab-compose.mjs"
+      - "server/scripts/run-spark-lab-on-synology.sh"
+      - "server/scripts/package-spark-lab.py"
       - "server/src/**"
       - "server/sql/**"
-      - "server/tests/test-spark-*"
-      - "server/tests/test-writer-coordinator.test.mjs"
+      - "server/tests/**"
       - "server/package*.json"
       - "test-app/synology/**"
       - ".github/workflows/spark-isolated-lab.yml"
@@ -28,18 +29,34 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Validate isolated Compose — no volumes, host ports or live credentials
+      - name: Package exactly this Git revision for DSM without secrets
         run: |
-          docker compose -p samosval-spark-lab -f server/compose.spark-lab.test.yaml config --format json >/tmp/spark-lab.json
+          sh -n server/scripts/run-spark-lab-on-synology.sh
+          python3 server/scripts/package-spark-lab.py /tmp/samosval-spark-lab.zip
+          mkdir -p /tmp/spark-lab-package
+          unzip -q /tmp/samosval-spark-lab.zip -d /tmp/spark-lab-package
+          test "$(cat /tmp/spark-lab-package/samosval-spark-lab/SOURCE_COMMIT)" = "$GITHUB_SHA"
+          ( cd /tmp/spark-lab-package/samosval-spark-lab && sha256sum -c SHA256SUMS )
+      - name: Validate extracted Compose — no host volumes, ports or live credentials
+        run: |
+          docker compose -p samosval-spark-lab -f /tmp/spark-lab-package/samosval-spark-lab/server/compose.spark-lab.test.yaml config --format json >/tmp/spark-lab.json
           node server/scripts/verify-spark-lab-compose.mjs /tmp/spark-lab.json
-      - name: Start disposable PostgreSQL16 and exercise SQL/owner/phone-client flow
+      - name: Run extracted DSM package with the exact one-command Synology launcher
         run: |
-          docker compose -p samosval-spark-lab -f server/compose.spark-lab.test.yaml up --build --abort-on-container-exit --exit-code-from runner
-      - name: Always destroy temporary DB and containers
+          sh /tmp/spark-lab-package/samosval-spark-lab/run-spark-lab.sh
+      - name: Always destroy temporary lab resources
         if: always()
         run: |
-          docker compose -p samosval-spark-lab -f server/compose.spark-lab.test.yaml down --volumes --remove-orphans || true
+          docker compose -p samosval-spark-lab -f /tmp/spark-lab-package/samosval-spark-lab/server/compose.spark-lab.test.yaml down --volumes --remove-orphans || true
+      - name: Publish portable, pinned TEST-only lab package after full success
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samosval-spark-synology-lab
+          path: /tmp/samosval-spark-lab.zip
+          retention-days: 7
+          if-no-files-found: error
       - name: Record safety boundary
         if: always()
         run: |
-          echo "Synthetic test-only database; no NAS credentials, no host volumes, no ports, no live Firebase, no production update." >> "$GITHUB_STEP_SUMMARY"
+          echo "Synthetic test-only database. No NAS credentials, host volumes, ports, live Firebase, or production update." >> "$GITHUB_STEP_SUMMARY"
