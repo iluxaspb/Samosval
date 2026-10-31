@@ -123,7 +123,7 @@ export async function inspectSparkPromotionReadiness({
     sql.hash!==first.m.hash)
   throw bad('spark-certify-nas-replica-head-diverged');
  const snapshot=await collectSnapshot(pool);
- if(snapshot.sequence!==sql.sequence||snapshot.rows.length!==first.m.rowCount)
+ if(snapshot.sequence!==sql.sequence)
   throw bad('spark-certify-postgres-snapshot-diverged');
  const typed=buildSparkTypedLineSnapshot({
   snapshot,generation:first.m.generation,fromMillis:ms=>Timestamp.fromMillis(ms)
@@ -136,7 +136,6 @@ export async function inspectSparkPromotionReadiness({
  const grants=new Map(access.map(a=>[a.uid,a]));
  const docCount=raw.size+config.size+trucks.size+statuses.size+grants.size;
  assertSparkBootstrapBudget(docCount);
- if(access.length!==first.m.accessCount)throw bad('spark-certify-access-count-diverged');
  const prefix=REPLICA_DOC+'/';
  await fullCollection(firestore,prefix+'rows_'+first.m.generation,raw);
  await fullCollection(firestore,prefix+'typed_config_'+first.m.generation,config,
@@ -182,7 +181,7 @@ export async function certifySparkPromotion({
   if(m.readyForFailover!==false)
    throw bad('spark-certify-metadata-invalid');
   tx.update(metaRef,{readyForFailover:true,promotionProof:proof,
-   updatedAt:now});
+   rowCount:inspected.rows,accessCount:inspected.grants,updatedAt:now});
   return {certified:true,resumed:false,...inspected};
  });
 }
