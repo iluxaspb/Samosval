@@ -307,3 +307,41 @@ sqltest('typed handback blocks unexpected SQL changes after staging',async()=>wi
   /spark-handback-replay-not-complete/);
  assert.equal(f.db.docs.get(OWNER_DOC).owner,'handoff');
 }));
+
+sqltest('typed handback resumes safely after SQL receipt commits but Firebase ACK is lost',async()=>withIsolatedDatabase(async f=>{
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ for(let i=0;i<3;i++)await replaySparkPostgresNext(opts(f));
+ await stageSparkTypedHandback(opts(f));
+ const meta=f.db.docs.get(REPLICA_DOC);
+ f.db.loseAck=true;
+ await assert.rejects(completeSparkTypedHandback(opts(f)),/simulated-firestore-lost-ack/);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'synology',
+  'the transaction succeeded remotely despite its lost response');
+ assert.equal((await completeSparkTypedHandback(opts(f))).resumed,true);
+ const receipt=(await f.pool.query('SELECT sequence::text AS n,hash FROM reserve_replica_receipt WHERE singleton=true')).rows[0];
+ assert.equal(Number(receipt.n),meta.lastSequence);
+ assert.equal(receipt.hash,meta.hash);
+ assert.equal(await count(f.pool,'line_operation_receipts'),3);
+}));
+sqltest('typed handback refuses missing SQL load aliases even if all events were committed',async()=>withIsolatedDatabase(async f=>{
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ for(let i=0;i<3;i++)await replaySparkPostgresNext(opts(f));
+ await f.pool.query('DELETE FROM reserve_spark_log_aliases');
+ await assert.rejects(stageSparkTypedHandback(opts(f)),/spark-handback-log-aliases-diverged/);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'reconciling');
+}));
+sqltest('typed handback refuses a missing published SQL mirror row',async()=>withIsolatedDatabase(async f=>{
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ for(let i=0;i<3;i++)await replaySparkPostgresNext(opts(f));
+ await stageSparkTypedHandback(opts(f));
+ const meta=f.db.docs.get(REPLICA_DOC);
+ const prefix=REPLICA_DOC+'/rows_'+meta.generation+'/';
+ const key=[...f.db.docs.keys()].find(x=>x.startsWith(prefix));
+ assert.ok(key);
+ f.db.docs.delete(key);
+ await assert.rejects(completeSparkTypedHandback(opts(f)),/spark-handback-document-count-diverged/);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'handoff');
+}));
