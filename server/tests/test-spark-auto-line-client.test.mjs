@@ -61,8 +61,8 @@ function fixtures(){
    return {outcome:'confirmed',operationId:op.id,revision:2};
   },stop(){}};
  const ownerReader={async readOwner(){authorityReads++;return {...authority};},stop(){}};
- const create=()=>createSparkAutoLineClient({nasClient:nas,reader,writer,ownerReader,
-  firestore,getUser:()=>auth,onProviderChange:p=>providerEvents.push(p),heartbeatMs:30000});
+ const create=({promoter=null}={})=>createSparkAutoLineClient({nasClient:nas,reader,writer,ownerReader,
+  promoter,firestore,getUser:()=>auth,onProviderChange:p=>providerEvents.push(p),heartbeatMs:30000});
  return {create,firestore,triggers,subscriptions,providerEvents,
   owner:changes=>{authority={...authority,...changes};},
   swap:()=>{auth={uid:UID};},
@@ -189,4 +189,41 @@ test('session replacement blocks every authenticated reserve operation',async()=
   {code:'spark-auto-session-changed'});
  assert.equal(f.nasWrites+f.sparkWrites,0);
  client.stop();
+});
+
+test('an expired, independently certified NAS lease schedules direct phone promotion',async()=>{
+ const f=fixtures();let attempts=0;
+ f.owner({leaseUntil:Date.now()-100000,promotionCertified:true});
+ const promoter={async tryPromote(){
+  attempts++;
+  f.owner({owner:'firebase',epoch:2,readyForFailover:true,
+   promotionCertified:false});
+  return {promoted:true,epoch:2};
+ },stop(){}};
+ const client=f.create({promoter}),events=[];
+ let close=()=>{};
+ try{
+  close=client.subscribeLine({onSession:s=>events.push('session:'+s.source),
+   onSnapshot:s=>events.push('line:'+s.source),onError:e=>events.push('error:'+e.code)});
+  await until(()=>events.includes('line:firebase'));
+  assert.equal(attempts,1);
+  assert.equal(client.activeProvider,'firebase');
+  assert.equal(f.nasWrites,0,'promotion never writes a NAS business operation');
+  assert.ok(f.nasStops>=1);
+ }finally{close();client.stop();}
+});
+test('an expired NAS lease without SQL016 certificate never attempts promotion',async()=>{
+ const f=fixtures();let attempts=0;
+ f.owner({leaseUntil:Date.now()-100000,promotionCertified:false});
+ const promoter={async tryPromote(){attempts++;return {promoted:true};},stop(){}};
+ const client=f.create({promoter}),events=[];
+ let close=()=>{};
+ try{
+  close=client.subscribeLine({onSession:s=>events.push('session:'+s.source),
+   onSnapshot:s=>events.push('line:'+s.source),onError:e=>events.push('error:'+e.code)});
+  await until(()=>events.includes('line:synology'));
+  await delay(300);
+  assert.equal(attempts,0);
+  assert.equal(client.activeProvider,'synology');
+ }finally{close();client.stop();}
 });
