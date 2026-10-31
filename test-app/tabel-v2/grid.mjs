@@ -1896,6 +1896,15 @@ export async function mount(s, host) {
     scroll.scrollLeft = position.left;
   }
   return {
+    async refresh() {
+      if (disposed || !sheetId) return;
+      const current = s.store.get(key());
+      if (current?.data) {
+        base = current;
+        sheet = current.data;
+        draw();
+      }
+    },
     finish: () => (dirty ? queueCommit() : chain),
     snapshot() {
       return {
