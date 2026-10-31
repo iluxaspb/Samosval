@@ -130,6 +130,18 @@ test('legitimate arrive creates exactly one immutable operation and status',asyn
     JSON.stringify(entries.filter(x=>x[2]>0).sort((a,b)=>a[0]-b[0]).slice(-120)));
    console.error('SPARK_RULE_COVERAGE_TRUE',
     JSON.stringify(entries.filter(x=>x[3]>0).sort((a,b)=>a[0]-b[0]).slice(-55)));
+   const details=[];
+   const detailWalk=x=>{
+    if(Array.isArray(x)){for(const item of x)detailWalk(item);return;}
+    if(!x||typeof x!=='object')return;
+    if(x.sourcePosition?.line>=535&&x.sourcePosition?.line<=565&&Array.isArray(x.values))
+     details.push({line:x.sourcePosition.line,col:x.sourcePosition.column,
+      values:x.values.slice(0,4)});
+    for(const [name,value] of Object.entries(x))
+     if(name!=='values'&&name!=='sourcePosition')detailWalk(value);
+   };
+   detailWalk(json);
+   console.error('SPARK_LOG_RULE_DETAILS',JSON.stringify(details).slice(-12500));
   }catch(e){console.error('SPARK_RULE_COVERAGE_UNAVAILABLE',e.message);}
   throw error;
  }
@@ -173,6 +185,18 @@ test('load is tied to arrival and written with an immutable log and receipt',asy
     JSON.stringify(entries.filter(x=>x[2]>0).sort((a,b)=>a[0]-b[0]).slice(-120)));
    console.error('SPARK_RULE_COVERAGE_TRUE',
     JSON.stringify(entries.filter(x=>x[3]>0).sort((a,b)=>a[0]-b[0]).slice(-55)));
+   const details=[];
+   const detailWalk=x=>{
+    if(Array.isArray(x)){for(const item of x)detailWalk(item);return;}
+    if(!x||typeof x!=='object')return;
+    if(x.sourcePosition?.line>=535&&x.sourcePosition?.line<=565&&Array.isArray(x.values))
+     details.push({line:x.sourcePosition.line,col:x.sourcePosition.column,
+      values:x.values.slice(0,4)});
+    for(const [name,value] of Object.entries(x))
+     if(name!=='values'&&name!=='sourcePosition')detailWalk(value);
+   };
+   detailWalk(json);
+   console.error('SPARK_LOG_RULE_DETAILS',JSON.stringify(details).slice(-12500));
   }catch(e){console.error('SPARK_RULE_COVERAGE_UNAVAILABLE',e.message);}
   throw error;
  }
