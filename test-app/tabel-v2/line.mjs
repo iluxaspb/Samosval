@@ -18,12 +18,17 @@ export function arrivals(
   const trucks = new Map((snapshot.trucks || []).map((t) => [t.id, t]));
   const rows = [];
   let uncertain = false;
-  const calendar = (ts) =>
-    Number.isFinite(Number(ts))
-      ? new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow" }).format(
-          new Date(Number(ts)),
-        )
-      : "";
+  const calendar = (ts) => {
+    if (!Number.isFinite(Number(ts))) return "";
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Moscow",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(Number(ts)));
+    const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  };
   for (const e of [...(snapshot.audit || []), ...(snapshot.lineAudit || []), ...events]) {
     // Modern audit stores before/after truckStatus snapshots, including removed trucks.
     if (e.objectId === objectId && (asDate(e.date || e.startDate) || calendar(e.timestamp)) === day) {

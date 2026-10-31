@@ -2,10 +2,16 @@ import {evaluateWorkbookFormula} from "./formula-engine.mjs";
 import { countEquipment } from "./domain.mjs";
 export const VERSION = "2.1.0-test.1";
 export const copy = (x) => structuredClone(x);
-export const today = () =>
-  new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow" }).format(
-    new Date(),
-  );
+export const today = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
 export function date(s) {
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(s) ||
