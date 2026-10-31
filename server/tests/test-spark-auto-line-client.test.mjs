@@ -22,7 +22,7 @@ async function until(predicate,timeout=1300){
  }
 }
 function fixtures(){
- let auth={uid:UID},authority=owner(),authorityReads=0;
+ let auth={uid:UID},authority=owner(),authorityReads=0,ownerFailure=null;
  let nasWrites=0,sparkWrites=0,nasReads=0,sparkReads=0,nasSessions=0,sparkSessions=0,
   readOptions=[],
   nasSubscriptions=0,nasStops=0,typedWatches=0,typedStop=null;
@@ -60,11 +60,12 @@ function fixtures(){
    if(overrideSparkWrite)return overrideSparkWrite(op);
    return {outcome:'confirmed',operationId:op.id,revision:2};
   },stop(){}};
- const ownerReader={async readOwner(){authorityReads++;return {...authority};},stop(){}};
+ const ownerReader={async readOwner(){authorityReads++;if(ownerFailure)throw ownerFailure;return {...authority};},stop(){}};
  const create=({promoter=null}={})=>createSparkAutoLineClient({nasClient:nas,reader,writer,ownerReader,
   promoter,firestore,getUser:()=>auth,onProviderChange:p=>providerEvents.push(p),heartbeatMs:30000});
  return {create,firestore,triggers,subscriptions,providerEvents,
   owner:changes=>{authority={...authority,...changes};},
+  ownerUnavailable:()=>{ownerFailure=Error('firestore-offline');},
   swap:()=>{auth={uid:UID};},
   sparkReadOverride:fn=>overrideSparkRead=fn,
   nasReadOverride:fn=>overrideNasRead=fn,
@@ -122,6 +123,29 @@ test('handoff and uncertified Firebase never perform either provider read/write'
   client.stop();
  }
 });
+test('a handoff immediately invalidates a previously active NAS provider and blocks writes',async()=>{
+ const f=fixtures(),client=f.create();
+ assert.equal((await client.readLine()).source,'synology');
+ assert.equal(client.activeProvider,'synology');
+ f.owner({owner:'handoff',epoch:2});
+ await assert.rejects(client.readLine(),{code:'spark-auto-handoff-active'});
+ assert.equal(client.activeProvider,null,'stale NAS controls must be hidden');
+ await assert.rejects(client.submitLine({id:'op_a',type:'load'},
+  {operationScope:SCOPE}),{code:'spark-auto-handoff-active'});
+ assert.equal(f.nasWrites+f.sparkWrites,0);
+ client.stop();
+});
+test('lost Firestore authority revokes previously confirmed provider without promoting reserve',async()=>{
+ const f=fixtures(),client=f.create();
+ await client.readLine();
+ assert.equal(client.activeProvider,'synology');
+ f.ownerUnavailable();
+ await assert.rejects(client.submitLine({id:'op_a',type:'load'},
+  {operationScope:SCOPE}),/firestore-offline/);
+ assert.equal(client.activeProvider,null);
+ assert.equal(f.nasWrites+f.sparkWrites,0);
+ client.stop();
+});
 test('owner change during read discards a stale provider snapshot',async()=>{
  const f=fixtures();f.nasReadOverride(async()=>{
   f.owner({epoch:2});return line('synology');
@@ -138,8 +162,11 @@ test('owner change after a Spark write has an uncertain receipt, not an invented
   return {outcome:'confirmed',operationId:op.id};
  });
  const client=f.create();
+ await client.readLine();
+ assert.equal(client.activeProvider,'firebase');
  await assert.rejects(client.submitLine({id:'op_a',type:'load'}, {operationScope:SCOPE}),
   e=>e.code==='spark-auto-write-result-uncertain'&&e.uncertain===true);
+ assert.equal(client.activeProvider,null,'unknown receipt must revoke stale writer UI');
  assert.equal(f.sparkWrites,1);assert.equal(f.nasWrites,0);
  client.stop();
 });
