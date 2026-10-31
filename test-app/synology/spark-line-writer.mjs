@@ -68,7 +68,13 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
    throw bad('spark-invalid-operation');
   if(typeof operationScope!=='string'||!operationScope.includes(uid))
    throw bad('spark-outbox-scope-mismatch');
-  const requestHash=await hash(canonical(input),cryptoImpl);
+  // Capture the immutable business intent for reverse NAS reconciliation.
+  const allowed=['id','type','truckId','shiftId','expectedRevision',
+   'expectedTtnRevision','arrivalTimestamp','lastLoadTimestamp',
+   'wantArrived','collect','cycleMinutes','createdAt','logId'];
+  const intent=Object.fromEntries(allowed.filter(k=>input[k]!==undefined)
+   .map(k=>[k,input[k]]));
+  const requestHash=await hash(canonical(intent),cryptoImpl);
   guard();
   let submitted=false;
   try{
@@ -133,6 +139,7 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
      generation:gen,truckId:input.truckId,shiftId:input.shiftId,
      expectedRevision:input.expectedRevision,revision,
      cycleMinutes:input.cycleMinutes,requestHash,
+     ordinal:Object.keys(before.reserveHistory).length+1,intent,
      at:eventAt,logId:input.type==='load'?'load_'+input.id:'',
      volume:input.type==='load'?(truck.isGAI===true?0:truck.volume):0,
      isGAI:input.type==='load'&&truck.isGAI===true,
