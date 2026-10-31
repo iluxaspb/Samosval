@@ -49,7 +49,8 @@ test('only the isolated samosval-offline project can receive mirrored data',()=>
 });
 test('forward replication is fenced by the shared writer epoch',()=>{
  const meta={generation:'g'};
- assert.doesNotThrow(()=>assertMirrorWriter(null,meta));
+ assert.doesNotThrow(()=>assertMirrorWriter(null,null));
+ assert.throws(()=>assertMirrorWriter(null,meta),/replica-writer-not-synology/);
  assert.doesNotThrow(()=>assertMirrorWriter({protocol:1,owner:'synology',
   projectId:'samosval-offline',generation:'g',leaseUntil:200},meta,100));
  assert.throws(()=>assertMirrorWriter({protocol:1,owner:'firebase',
@@ -84,6 +85,12 @@ test('Postgres -> Firebase: snapshot, exact receipts, outage, lost ACK, delete, 
    leaseUntil:Date.now()+60000,pending:{},observedSequence:meta.lastSequence});
   await assert.rejects(mirror(pool,firestore),/replica-writer-not-synology/);
   firestore.docs.delete(OWNER_DOC);
+  await assert.rejects(mirror(pool,firestore),/replica-writer-not-synology/,
+   'missing writer document must not silently grant NAS write permission');
+  const nasOwner={protocol:1,projectId:'samosval-offline',owner:'synology',
+   holder:'nas_writer_A',epoch:3,generation:meta.generation,
+   leaseUntil:Date.now()+3600000,pending:{},observedSequence:meta.lastSequence};
+  firestore.docs.set(OWNER_DOC,nasOwner);
   assert.ok(firestore.docs.has('legacy/application'),'never modify old Firebase paths');
   const status=await readReplicaStatus(pool,{enabled:true});
   assert.equal(status.lag,0);
@@ -107,7 +114,7 @@ test('Postgres -> Firebase: snapshot, exact receipts, outage, lost ACK, delete, 
    observedSequence:meta.lastSequence});
   await assert.rejects(mirror(pool,firestore),/replica-writer-not-synology/);
   assert.equal(firestore.docs.get(REPLICA_DOC).lastSequence,before);
-  firestore.docs.delete(OWNER_DOC);
+  firestore.docs.set(OWNER_DOC,nasOwner);
   firestore.loseNextReply=true;
   await assert.rejects(mirror(pool,firestore),/reply-lost-after-commit/);
   assert.equal((await readReplicaStatus(pool)).deliveredSequence,before,'lost ACK cannot falsely advance local receipt');
