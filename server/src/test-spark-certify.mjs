@@ -4,7 +4,7 @@
 // participates in the same Firestore permit / PostgreSQL transaction fence.
 import {Timestamp} from 'firebase-admin/firestore';
 import {assertTestProject,REPLICA_DOC,canonical,collectSnapshot,rowRef,
- sha256} from './test-replica.mjs';
+ sha256,verifyChain} from './test-replica.mjs';
 import {OWNER_DOC,OPERATION_HOLD_MS} from './test-writer-coordinator.mjs';
 import {buildSparkTypedLineSnapshot,sparkTypedPaths} from './test-spark-typed.mjs';
 import {accessRowsFromMirrorSnapshot,sparkAccessRef} from './test-spark-access.mjs';
@@ -122,6 +122,9 @@ export async function inspectSparkPromotionReadiness({
  if(sql.epoch!==first.o.epoch||sql.sequence!==first.m.lastSequence||
     sql.hash!==first.m.hash)
   throw bad('spark-certify-nas-replica-head-diverged');
+ const sourceChain=await verifyChain(pool,first.m);
+ if(sourceChain.sequence!==sql.sequence||sourceChain.hash!==sql.hash)
+  throw bad('spark-certify-outbox-chain-diverged');
  const snapshot=await collectSnapshot(pool);
  if(snapshot.sequence!==sql.sequence)
   throw bad('spark-certify-postgres-snapshot-diverged');
