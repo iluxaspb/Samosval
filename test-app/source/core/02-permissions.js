@@ -1,10 +1,15 @@
   function isForcedAdminEmail(email) { return String(email || '').toLowerCase() === FORCED_ADMIN_EMAIL; }
   function canViewReleaseHistory() { return permissionsLoaded && currentUserStatus === 'active' && ['admin','foreman'].includes(currentUserRole); }
-  function canAdmin() { return currentUserStatus === 'active' && currentUserRole === 'admin'; }
+  // The isolated TEST reserve can serve LINE only. Other NAS modules never
+  // fall through to stale data or a second writer while Firestore owns it.
+  function restrictedSparkProvider() { return isTestAutoNasRuntime() ? nasRuntimeClient?.activeProvider ?? 'unknown' : null; }
+  function canAdmin() { return currentUserStatus === 'active' && currentUserRole === 'admin' && restrictedSparkProvider() !== 'firebase' && restrictedSparkProvider() !== 'unknown'; }
 
   // === SECURITY: пока permissionsLoaded === false, разрешаем только 'line' (и админа) ===
   function hasTabAccess(tabName) {
     if(currentUserStatus!=='active')return false;
+    const reserve=restrictedSparkProvider();
+    if(reserve==='unknown'||reserve==='firebase'&&tabName!=='line')return false;
     if (currentUserRole === 'admin') return true;
     if (!permissionsLoaded) return tabName === 'line';
     if(tabName==='timesheet'&&currentUserRole==='foreman')return true;
@@ -12,7 +17,9 @@
     return Array.isArray(permissionsConfig[currentUserRole].tabs) && permissionsConfig[currentUserRole].tabs.includes(tabName);
   }
 
-  function hasPermission(action) { if(currentUserStatus!=='active')return false; if (currentUserRole === 'admin') return true; if (!permissionsLoaded) return false; const actions = permissionsConfig[currentUserRole]?.actions; return Array.isArray(actions) && actions.includes(action); }
+  function hasPermission(action) { if(currentUserStatus!=='active')return false;
+    const reserve=restrictedSparkProvider();
+    if(reserve==='unknown'||reserve==='firebase'&&!['action_arrive','action_load','action_ttn'].includes(action))return false; if (currentUserRole === 'admin') return true; if (!permissionsLoaded) return false; const actions = permissionsConfig[currentUserRole]?.actions; return Array.isArray(actions) && actions.includes(action); }
   function requireEdit(action, actionName) { if (hasPermission(action)) return true; showError('👁 Нет прав на ' + (actionName || 'это действие')); return false; }
 
   // === SECURITY: обновляем классы perm-blocked для кнопок ===
