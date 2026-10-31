@@ -138,8 +138,15 @@ export async function promoteTestReserve({firestore,projectId,expectedEpoch,now=
   const m=mirrorMetadata(snapData(metaSnap)),state=ownerState(snapData(ownerSnap));
   if(state.owner!=='synology'||state.epoch!==expectedEpoch)
    throw invalid('writer-promotion-epoch-changed');
-  if(m.readyForFailover!==true||state.generation!==m.generation||
-     m.lastSequence<state.observedSequence)
+  const proof=m.promotionProof;
+  if(m.readyForFailover!==true||m.typedProtocol!==1||
+     m.typedSequence!==m.lastSequence||m.accessProtocol!==1||
+     !proof||proof.protocol!==2||proof.writerGate!=='sql016'||
+     proof.generation!==m.generation||proof.epoch!==state.epoch||
+     proof.sequence!==m.lastSequence||proof.hash!==m.hash||
+     !HASH.test(proof.snapshotHash||'')||
+     !Number.isSafeInteger(proof.documents)||proof.documents<1||
+     state.generation!==m.generation||m.lastSequence!==state.observedSequence)
    throw invalid('writer-reserve-not-ready');
   if(state.leaseUntil+FENCE_GRACE_MS>=now||stillPending(state,now))
    throw invalid('writer-promotion-wait-for-nas');
