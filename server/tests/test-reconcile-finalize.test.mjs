@@ -59,6 +59,14 @@ function fixture(){
  fenceEnabled:true});
  return {db,snapshot,stage,finish,receipts};
 }
+test('old handback cannot publish a NAS generation when Spark typed history exists',async()=>{
+ const f=fixture();
+ f.db.docs.get(REPLICA_DOC).typedProtocol=1;
+ f.db.docs.get(REPLICA_DOC).typedSequence=20;
+ await assert.rejects(f.stage(),/handoff-not-reconciled/);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'reconciling');
+ assert.equal(f.receipts.length,0);
+});
 test('complete reserve-to-NAS handback publishes new verified generation',async()=>{
  const f=fixture();
  const stage=await f.stage();
