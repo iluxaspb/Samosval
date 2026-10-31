@@ -74,8 +74,10 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
   }
   function validOperation(opId, truckId, kind, oldRevision) {
     let op = getAfter(operationPath(opId)).data;
-    return !exists(operationPath(opId)) &&
-      op.protocol == 1 && op.projectId == 'samosval-offline' &&
+    // Receipt creation itself is enforced by the immutable typed_ops rule.
+    // getAfter sees the entire atomic batch, so an exists() precondition here
+    // can reject a valid newly-created receipt and is not an idempotency gate.
+    return op.protocol == 1 && op.projectId == 'samosval-offline' &&
       op.generation == mirror().generation &&
       op.epoch == writer().epoch &&
       op.uid == request.auth.uid &&
@@ -87,9 +89,7 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       op.cycleMinutes is int && op.cycleMinutes >= 15 &&
       op.cycleMinutes <= 10080 &&
       op.at == request.time &&
-      op.requestHash is string && op.requestHash.size() == 64 &&
-      ((kind == 'load' && op.logId == 'load_' + opId) ||
-       (kind == 'arrive' && op.logId == ''));
+      op.requestHash is string && op.requestHash.size() == 64;
   }
   function gapOK(opId) {
     let op = getAfter(operationPath(opId)).data;
