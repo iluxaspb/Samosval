@@ -2,7 +2,7 @@
 // This namespace is NOT the legacy application Firestore schema or a failover endpoint.
 // The server must never enable Firebase business writes based on these checkpoints alone.
 import {createHash, randomUUID} from 'node:crypto';
-import {assertSparkBootstrapBudget} from './test-spark-limits.mjs';
+import {assertSparkBootstrapBudget,SPARK_STANDARD_FREE_LIMITS} from './test-spark-limits.mjs';
 
 export const REPLICA_DOC='samosval_test_replica/v1';
 const OWNER_DOC='samosval_test_replica/write_owner';
@@ -313,7 +313,10 @@ export async function readReplicaStatus(pool,runner={}){
    lag:receipt?Math.max(0,head-receipt.sequence):null,
    lastConfirmedAt:receipt?.updatedAt??null,
    lastSuccessAt:runner.lastSuccessAt||null,
-   lastError:runner.lastError||null};
+   lastError:runner.lastError||null,
+   spark:{targetPlan:'Spark',limits:SPARK_STANDARD_FREE_LIMITS,
+    projectWideUsageKnown:false,skippedRemoteChecks:runner.skippedRemoteChecks||0,
+    lastRemoteAuditAt:runner.lastRemoteAuditAt||null}};
  }catch{
   return {enabled,mode:'passive-mirror',activeOwner:'synology',
    readyForFailover:false,reverseSyncEnabled:false,lastError:'replica-journal-unavailable'};
