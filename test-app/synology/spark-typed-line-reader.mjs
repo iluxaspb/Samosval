@@ -43,8 +43,8 @@ function validated(status,truck,owner,shiftId){
    throw bad('spark-typed-history-order-invalid');
   seen.add(e.operationId);lastAt=e.serverAt;
   if(e.type==='load'){
-   if(e.logId!=='load_'+e.operationId||!seq(e.volume)||
-      e.isGAI!==(truck.isGAI===true))
+   if(e.logId!=='load_'+e.operationId||!Number.isFinite(e.volume)||
+      e.volume<0||e.volume>1000||e.isGAI!==(truck.isGAI===true))
     throw bad('spark-typed-load-invalid');
    loads.push(e);
   }
@@ -140,7 +140,17 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
    }));
    for(const {row,truck,typed} of values){
     const rendered=validated(typed,truck,before,source.shift.id);
-    statuses.push({...row,...rendered.status});
+    const arrivals=rendered.events.filter(x=>x.type==='arrive');
+    const loads=rendered.events.filter(x=>x.type==='load');
+    const ttnEvents=rendered.events.filter(x=>x.type==='ttn');
+    const lastArrival=arrivals.at(-1),lastLoad=loads.at(-1),lastTtn=ttnEvents.at(-1);
+    statuses.push({...row,...rendered.status,
+     arriveBy:rendered.status.arriveTimestamp?
+      lastArrival?.uid||row.arriveBy||null:null,
+     lastLoadBy:lastLoad?.uid||row.lastLoadBy||null,
+     ttnBy:rendered.status.ttnStatus?
+      lastTtn?.uid||row.ttnBy||null:null
+    });
     for(const e of rendered.events)operations.push(e.operationId);
     for(const e of rendered.loads){
      const log={
