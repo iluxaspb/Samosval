@@ -726,6 +726,27 @@ export async function mount(s, host) {
       numericActions.querySelector('[data-numeric-range]').textContent=rangeInput.value+' · '+D.range(selected,end).length+' ячеек'+(raw(selected)===''?' · сначала введите исходное число':'');
     }
   }
+  function refreshVisibleCells() {
+    if (disposed || !sheetId) return;
+    const dim=dimensions(),memo=new Map(),cells=formulaCells();
+    for(const td of table.querySelectorAll('[data-cell]')){
+      const k=td.dataset.cell,{r,c:pcol}=D.coords(k),merge=sheetId!=='linked'?(sheet.merges||[]).find(x=>{
+        const [from,to]=x.split(':'),a=D.coords(from),b=D.coords(to||from);
+        return r>=a.r&&r<=b.r&&pcol>=a.c&&pcol<=b.c;
+      }):null;
+      if(merge&&merge.split(':')[0]!==k)continue;
+      let value=D.formula(cells,k,dim,new Set(),memo),nf=sheet.cells[styleKey(k)]?.numberFormat;
+      if(nf&&value!==''&&!isNaN(Number(String(value).replace(',','.')))){
+        const number=Number(String(value).replace(',','.'));
+        value=nf==='percent'?D.fmt(number*100)+'%':number.toLocaleString('ru-RU',{minimumFractionDigits:Number(nf),maximumFractionDigits:Number(nf)});
+      }
+      const contractor=sheetId==='linked'&&pcol===0&&r>1?linkedRows[r-2]:null;
+      td.replaceChildren(document.createTextNode(String(value??'')));
+      if(contractor?.contractor!==undefined&&contractor?.contractor!==null){const small=document.createElement('small');small.className='tn-grid-contractor';small.textContent=contractor.contractorName;td.append(small);}
+      td.style.cssText=css(cellStyle(k));
+    }
+    mark();
+  }
   async function persist(next, label) {
     s.require("table", "edit");
     const before = D.copy(sheet);
@@ -1902,7 +1923,7 @@ export async function mount(s, host) {
       if (current?.data) {
         base = current;
         sheet = current.data;
-        draw();
+        refreshVisibleCells();
       }
     },
     finish: () => (dirty ? queueCommit() : chain),
