@@ -66,7 +66,9 @@ const compat=(db)=>({
  app:{options:{projectId:'samosval-offline'}},
  doc:path=>doc(db,path),
  runTransaction:fn=>runTransaction(db,tx=>fn({
-  get:ref=>tx.get(ref),
+  get:async ref=>{const x=await tx.get(ref);return {
+   exists:x.exists(),data:()=>x.data()
+  };},
   set:(ref,data)=>tx.set(ref,data),
   update:(ref,data)=>tx.update(ref,data)
  }))
