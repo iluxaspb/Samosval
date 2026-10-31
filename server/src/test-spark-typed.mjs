@@ -87,3 +87,30 @@ export function buildSparkTypedLineSnapshot({snapshot,generation,fromMillis}={})
  }
  return Object.freeze({config:typedConfig,trucks:typedTrucks,statuses:typedStatuses});
 }
+
+export const SPARK_TYPED_TABLES=new Set([
+ 'workspaces','shifts','line_trucks','line_truck_statuses'
+]);
+export function needsSparkTypedRefresh(events){
+ return Array.isArray(events)&&events.some(event=>SPARK_TYPED_TABLES.has(event.table_name));
+}
+export function sparkTypedChangesFromEvents({events,snapshot,generation,fromMillis}={}){
+ if(!Array.isArray(events)||!snapshot)fail('changes-invalid');
+ if(!needsSparkTypedRefresh(events))return [];
+ const typed=buildSparkTypedLineSnapshot({snapshot,generation,fromMillis});
+ const paths=sparkTypedPaths(generation),updates=new Map();
+ for(const event of events){
+  if(!SPARK_TYPED_TABLES.has(event.table_name))continue;
+  if(event.table_name==='shifts'||event.table_name==='workspaces'){
+   updates.set(paths.config,typed.config);
+   continue;
+  }
+  const tid=event.row_key?.truck_id;
+  if(!id(tid)||event.row_key.workspace_id!==WS)fail('change-key-invalid');
+  if(event.table_name==='line_trucks')
+   updates.set(paths.truck(tid),typed.trucks.get(tid)||null);
+  else if(event.table_name==='line_truck_statuses')
+   updates.set(paths.status(tid),typed.statuses.get(tid)||null);
+ }
+ return [...updates.entries()].map(([path,value])=>({path,value}));
+}
