@@ -8,8 +8,11 @@ export const REPLICA_DOC='samosval_test_replica/v1';
 const OWNER_DOC='samosval_test_replica/write_owner';
 // Every forward commit must be fenced by the same Firestore writer epoch.
 export function assertMirrorWriter(state,metadata,now=Date.now()){
- if(!state)return;
- if(!metadata||state.protocol!==1||state.projectId!=='samosval-offline'||
+ // Bootstrap can run before the writer lease exists; as soon as a metadata
+ // generation is published, ALL future mirror writes require a live owner.
+ // An absent or deleted coordinator is not an authorization to write.
+ if(!state&&!metadata)return;
+ if(!state||!metadata||state.protocol!==1||state.projectId!=='samosval-offline'||
    state.owner!=='synology'||state.generation!==metadata.generation||
    !Number.isSafeInteger(state.leaseUntil)||state.leaseUntil<=now)
   throw Error('replica-writer-not-synology');
