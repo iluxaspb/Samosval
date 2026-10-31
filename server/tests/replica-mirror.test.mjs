@@ -186,6 +186,40 @@ test('Postgres -> Firebase: snapshot, exact receipts, outage, lost ACK, delete, 
   await pool.query('DELETE FROM app_users WHERE uid=$1',[testUid]);
   for(let i=0;i<10&&(await readReplicaStatus(pool)).lag>0;i++)await mirror(pool,firestore);
   assert.equal(firestore.docs.has(aclPath),false,'deleted user grant must be deleted, not left active');
+
+  // The typed LINE projection is committed in Firestore with its outbox
+  // checkpoint, not delivered by phones or an extra Google Cloud service.
+  const typedTruckId='spark_typed_ci_truck';
+  const typedShiftId='spark_typed_ci_shift';
+  await pool.query("INSERT INTO shifts(workspace_id,shift_id,is_active,payload) "+
+   "VALUES('main_workspace',$1,false,'{}'::jsonb)",[typedShiftId]);
+  await pool.query("INSERT INTO line_trucks(workspace_id,truck_id,payload) "+
+   "VALUES('main_workspace',$1,$2::jsonb)",
+   [typedTruckId,JSON.stringify({brand:'КамАЗ',number:'А001АА',defaultVol:25})]);
+  await pool.query("INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) "+
+   "VALUES('main_workspace',$1,$2,$3::jsonb)",
+   [typedTruckId,typedShiftId,JSON.stringify({onLine:true,cycleRevision:3,ttnRevision:0})]);
+  for(let i=0;i<20&&(await readReplicaStatus(pool)).lag>0;i++)await mirror(pool,firestore);
+  const typedStatusPath=REPLICA_DOC+'/typed_status_'+meta.generation+'/'+typedTruckId;
+  const typedTruckPath=REPLICA_DOC+'/typed_trucks_'+meta.generation+'/'+typedTruckId;
+  assert.equal(firestore.docs.get(typedStatusPath)?.cycleRevision,3);
+  assert.equal(firestore.docs.get(typedTruckPath)?.volume,25);
+  await pool.query("UPDATE line_truck_statuses SET payload=$1::jsonb "+
+   "WHERE workspace_id='main_workspace' AND truck_id=$2",
+   [JSON.stringify({onLine:true,cycleRevision:4,ttnRevision:0}),typedTruckId]);
+  for(let i=0;i<20&&(await readReplicaStatus(pool)).lag>0;i++)await mirror(pool,firestore);
+  assert.equal(firestore.docs.get(typedStatusPath)?.cycleRevision,4,
+   'typed status follows the SQL revision in the same mirrored transaction');
+  const latestMeta=firestore.docs.get(REPLICA_DOC);
+  assert.equal(latestMeta.typedProtocol,1);
+  assert.equal(latestMeta.typedSequence,latestMeta.lastSequence);
+  assert.equal(latestMeta.readyForFailover,false);
+  await pool.query("DELETE FROM line_truck_statuses WHERE workspace_id='main_workspace' AND truck_id=$1",[typedTruckId]);
+  await pool.query("DELETE FROM line_trucks WHERE workspace_id='main_workspace' AND truck_id=$1",[typedTruckId]);
+  for(let i=0;i<20&&(await readReplicaStatus(pool)).lag>0;i++)await mirror(pool,firestore);
+  assert.equal(firestore.docs.has(typedStatusPath),false);
+  assert.equal(firestore.docs.has(typedTruckPath),false);
+
  }finally{await pool.end();}
 });
 test('Postgres -> Firebase: reject missing remote checkpoint, never reinitialize silently',{skip:!hasDatabase},async()=>{
