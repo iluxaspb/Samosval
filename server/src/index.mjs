@@ -9,7 +9,7 @@ import {readArchiveSnapshot} from './archive-read.mjs';
 import {readLineHistory,historyOperation} from './history-store.mjs';
 import { Pool } from 'pg';
 import {startTestReplica,replicaRuntime} from './test-replica-runner.mjs';
-import {startNasWriterFence} from './test-writer-guard.mjs';
+import {startNasWriterFence,withNasWriterPermit} from './test-writer-guard.mjs';
 import { verifyFirebaseUser, verifyFirebaseIdentity } from './auth.mjs';
 import {readSession,registerPending,readAdministration,identityOperation,readMembers} from './identity-store.mjs';
 import { submitLineOperation } from './line-store.mjs';
@@ -281,8 +281,7 @@ const serve=(req,res)=>datasetRequest(pool,req,res,async()=>{
 });
 const server=http.createServer(async(req,res)=>{
   const path=new URL(req.url||'/', 'http://localhost').pathname;
-  const fenced=writerFence.enabled&&req.method==='POST'&&path.startsWith('/api/v1/')&&
-    path!=='/api/v1/admin/server';
+  const fenced=writerFence.enabled&&req.method==='POST'&&path.startsWith('/api/v1/');
   // Authentication and origin checks remain in each route. Unknown origins
   // and requests lacking Bearer tokens get their existing 401/403 response.
   if(!fenced||(req.headers.origin&&!permittedOrigins.has(req.headers.origin))||
@@ -293,7 +292,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.headers.origin){res.setHeader('Access-Control-Allow-Origin',req.headers.origin);res.setHeader('Vary','Origin');}
     return send(res,503,{error:'write-owner-unavailable'});
   }
-  try{return await serve(req,res);}
+  try{return await withNasWriterPermit(permit,()=>serve(req,res));}
   finally{
     // A lost release confirmation leaves a remote pending ticket. The
     // coordinator conservatively waits for its deadline plus grace.
@@ -302,7 +301,24 @@ const server=http.createServer(async(req,res)=>{
 });
 const port=Number(process.env.PORT||8080);
 server.listen(port,'0.0.0.0',()=>console.info(`Samosval TEST API listening on ${port}`));
-let notificationBusy=false;const notificationTimer=setInterval(async()=>{if(notificationBusy)return;notificationBusy=true;try{await deliverNotification(pool);}catch(e){console.error('[notification-worker] failed',e?.code||e?.name||'unknown');}finally{notificationBusy=false;}},2000);
+let notificationBusy=false;
+const notificationTimer=setInterval(async()=>{
+ if(notificationBusy)return;
+ notificationBusy=true;
+ try{
+  // No Firestore read/write for an idle notification worker. A pending job
+  // must obtain its own permit; otherwise SQL 016 blocks the background write.
+  if(!writerFence.enabled){await deliverNotification(pool);return;}
+  const waiting=await pool.query(
+   "SELECT 1 FROM notification_outbox WHERE state='pending' AND next_attempt<=now() LIMIT 1"
+  );
+  if(!waiting.rowCount)return;
+  const permit=await writerFence.acquire();
+  try{await withNasWriterPermit(permit,()=>deliverNotification(pool));}
+  finally{await permit.release().catch(()=>{});}
+ }catch(e){console.error('[notification-worker] failed',e?.code||e?.name||'unknown');}
+ finally{notificationBusy=false;}
+},2000);
 let stopping=false;
 async function shutdown(){
   if(stopping)return;
