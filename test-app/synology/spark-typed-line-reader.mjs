@@ -85,7 +85,7 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
  if(!ID.test(uid||''))throw bad('spark-auth-required');
  const authority=ownerReader||createSparkOwnerReader({firestore,getUser});
  const baseline=rawReader||createSparkLineReader({firestore,getUser,ownerReader:authority});
- let stopped=false;
+ let stopped=false,baselineCache=null,baselineKey='';
  function guard(){
   if(stopped||getUser()!==initial||initial.uid!==uid)
    throw bad('spark-session-changed');
@@ -109,7 +109,18 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
  }
  async function readLine(){
   const before=await owner();
-  const source=await baseline.readLine(); // server-side ACL and hash checks
+  const key=before.generation+':'+before.epoch+':'+before.confirmedSequence;
+  // While Firebase is the writer, NAS raw rows are an immutable baseline.
+  // Reuse only the same verified generation and re-check this UID's ACL on
+  // every subsequent read; never reuse across owner epochs or auth changes.
+  let source;
+  if(baselineCache&&baselineKey===key){
+   await baseline.readSession(); // fresh server grant / revoked access check
+   source=baselineCache;
+  }else{
+   baselineCache=null;baselineKey='';
+   source=await baseline.readLine(); // initial 5-table SQL mirror proof
+  }
   guard();
   if(source.workspaceId!==WS||source.source!=='firebase'||
      source.trucks.length>maxTrucks||!source.shift?.id||!source.shift.isActive)
@@ -175,6 +186,7 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
      before.confirmedSequence!==after.confirmedSequence||
      before.reserveSequence!==after.reserveSequence||before.owner!==after.owner)
    throw bad('spark-typed-owner-changed-during-read');
+  baselineCache=source;baselineKey=key;
   return Object.freeze({
    ...source,statuses,logs:[...logs.values()],reserveOperations:operations,
    typedGeneration:before.generation,typedOwnerEpoch:before.epoch
@@ -208,6 +220,7 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
  }
  return Object.freeze({
   uid,readLine,readSession:()=>baseline.readSession(),watchStatuses,
-  stop(){stopped=true;if(!rawReader)baseline.stop();if(!ownerReader)authority.stop();}
+  stop(){stopped=true;baselineCache=null;baselineKey='';
+   if(!rawReader)baseline.stop();if(!ownerReader)authority.stop();}
  });
 }
