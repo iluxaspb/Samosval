@@ -49,6 +49,16 @@ function renderServerControl(){
     scCard('Ошибки репликатора',r.lastError||'Не зарегистрированы')+
     scCard('Координатор записи',r.writerFence?.enabled?'TEST · включён':'Ещё не включён',r.writerFence?.epoch?'Эпоха '+r.writerFence.epoch:'Эпоха не выдана')+
     scCard('Срок полномочий NAS',scDate(r.writerFence?.leaseUntil),r.writerFence?.lastError||'Ошибок нет')+'</div>';
+   if(r.spark){
+    const limit=r.spark.limits||{};
+    html+='<div class="sc-grid">'+
+      scCard('Резервная база','Cloud Firestore · Spark','Бесплатный тариф — только для TEST')+
+      scCard('Бесплатных чтений/сутки',limit.readsPerDay??'Нет данных','Общая квота всего проекта')+
+      scCard('Бесплатных записей/сутки',limit.writesPerDay??'Нет данных','Общая квота всего проекта')+
+      scCard('Пропущено пустых проверок Firebase',r.spark.skippedRemoteChecks??0,'Экономия обращений к Firestore')+
+      scCard('Последняя контрольная сверка Firebase',scDate(r.spark.lastRemoteAuditAt))+
+      scCard('Фактический расход Spark','Не определён','Проверяйте usage в Firebase Console')+'</div>';
+   }
    html+='<p class="sc-note">Только серверная копия PostgreSQL в отдельном пространстве проекта samosval-offline. Она не совместима напрямую со старой схемой Firestore. Автопереключение и обратная синхронизация отключены: даже нулевое отставание не разрешает запись в две базы. При потере NAS сохраняйте локальные очереди телефонов.</p>';
   }
   if(serverControlSection==='objects')html+='<div class="sc-actions">'+scButton('users','Пользователи и права')+'</div><ul class="sc-list">'+s.objects.map(o=>'<li><b>'+scText(o.name||o.id)+'</b><span>Открытых смен: '+scText(o.active_shifts)+'</span></li>').join('')+'</ul>';
