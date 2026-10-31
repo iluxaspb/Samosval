@@ -24,8 +24,12 @@ test('isolated auto candidate requires explicit shell meta; normal TEST stays on
  const runtime=readFileSync(new URL('test-app/source/core/21-nas-runtime.js',root),'utf8');
  const shell=readFileSync(new URL('test-app/source/shell.html',root),'utf8');
  assert.match(runtime,/synology-auto-candidate/);
- assert.match(runtime,/test-reserve-api-url/);
- assert.match(runtime,/createTestAutoLineClient/);
+ // The isolated candidate talks directly to free Firestore Spark.
+ // No Cloud Run/HTTPS reserve proxy is permitted to silently reappear.
+ assert.match(runtime,/spark-typed-line-reader\.mjs/);
+ assert.match(runtime,/spark-line-writer\.mjs/);
+ assert.match(runtime,/createSparkAutoLineClient/);
+ assert.doesNotMatch(runtime,/test-reserve-api-url|createTestAutoLineClient/);
  assert.match(mode,/isTestAutoNasRuntime\(\)/);
  assert.match(mode,/остальные операции временно недоступны/);
  assert.doesNotMatch(shell,/test-data-provider[^>]*synology-auto-candidate/);
