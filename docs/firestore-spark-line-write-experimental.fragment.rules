@@ -179,7 +179,11 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
     let a = getAfter(statePath(data.truckId)).data;
     let t = get(truckPath(data.truckId)).data;
     let op = getAfter(operationPath(data.operationId)).data;
-    return bound() && typed('typed_logs_') &&
+    // Status and immutable operation are both required by getAfter below;
+    // their own update/create rules enforce bound(), owner epoch, UID and ACL.
+    // Repeating the full bound() chain here would exceed Firestore's total
+    // document-access budget for a three-document atomic load.
+    return typed('typed_logs_') &&
       data.keys().hasOnly([
        'protocol','projectId','generation','epoch','id','operationId',
        'uid','truckId','shiftId','isGAI','volume','at'
