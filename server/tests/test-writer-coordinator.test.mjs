@@ -167,8 +167,11 @@ test('opt-in NAS HTTP guard refuses absent ownership, then leases and releases a
  const {firestore,checkpoint}=setup();
  const {startNasWriterFence,nasWriterFenceRuntime}=await import('../src/test-writer-guard.mjs');
  let now=t0;
+ const sqlGate={database:'samosval_test',armed:true,coverage_certified:true,epoch:'1'};
  const guard=startNasWriterFence({
-  pool:{query:async sql=>sql.includes('last_sequence')?{rows:[{n:'27'}]}:{rows:[checkpoint]}},projectId:'samosval-offline',
+  pool:{query:async sql=>sql.includes('reserve_control.writer_gate')?
+   {rows:[{...sqlGate}]}:sql.includes('last_sequence')?
+   {rows:[{n:'27'}]}:{rows:[checkpoint]}},projectId:'samosval-offline',
   env:{TEST_WRITER_FENCE_ENABLED:'1'},firestoreFactory:()=>firestore,
   clock:()=>now,intervalMs:1000000
  });
@@ -181,9 +184,59 @@ test('opt-in NAS HTTP guard refuses absent ownership, then leases and releases a
   assert.equal(await ticket.release(),true);
   assert.equal(Object.keys(firestore.docs.get(OWNER_DOC).pending).length,0);
   assert.equal(nasWriterFenceRuntime.allowedWrites,1);
+  sqlGate.epoch='2';
+  await assert.rejects(guard.acquire(),/writer-sql016-epoch-mismatch/,
+   'a remote permit must not be acquired against a stale SQL gate');
+  sqlGate.epoch='1';
   firestore.offline=true;
   await assert.rejects(guard.acquire(),/firebase-offline/);
-  assert.equal(nasWriterFenceRuntime.refusedWrites,2);
+  assert.equal(nasWriterFenceRuntime.refusedWrites,3);
+ }finally{await guard.stop();}
+});
+test('an unarmed or missing SQL016 gate cannot claim ownership or issue NAS writes',async()=>{
+ const {firestore,checkpoint}=setup();
+ const {startNasWriterFence}=await import('../src/test-writer-guard.mjs');
+ let installed=true;
+ const gate={database:'samosval_test',armed:false,coverage_certified:false,epoch:'1'};
+ const pool={query:async sql=>{
+  if(sql.includes('reserve_control.writer_gate')){
+   if(!installed)throw Object.assign(Error('relation does not exist'),{code:'42P01'});
+   return {rows:[{...gate}]};
+  }
+  return sql.includes('last_sequence')?{rows:[{n:'27'}]}:{rows:[checkpoint]};
+ }};
+ const guard=startNasWriterFence({pool,projectId:'samosval-offline',
+  env:{TEST_WRITER_FENCE_ENABLED:'1'},firestoreFactory:()=>firestore,
+  clock:()=>t0,intervalMs:1000000});
+ try{
+  await assert.rejects(guard.runOnce(),/writer-sql016-not-certified/);
+  assert.equal(firestore.docs.has(OWNER_DOC),false,'unfenced NAS cannot become owner');
+  installed=false;
+  await assert.rejects(guard.runOnce(),/writer-sql016-required/);
+  assert.equal(firestore.docs.has(OWNER_DOC),false);
+  await assert.rejects(guard.acquire(),/writer-no-current-lease/);
+ }finally{await guard.stop();}
+});
+test('a reclaimed Firestore epoch cannot write until the PostgreSQL SQL016 epoch is rebound',async()=>{
+ const {firestore,checkpoint}=setup();
+ const {startNasWriterFence,nasWriterFenceRuntime}=await import('../src/test-writer-guard.mjs');
+ let now=t0;
+ const gate={database:'samosval_test',armed:true,coverage_certified:true,epoch:'1'};
+ const pool={query:async sql=>sql.includes('reserve_control.writer_gate')?
+  {rows:[{...gate}]}:sql.includes('last_sequence')?
+  {rows:[{n:'27'}]}:{rows:[checkpoint]}};
+ const guard=startNasWriterFence({pool,projectId:'samosval-offline',
+  env:{TEST_WRITER_FENCE_ENABLED:'1'},firestoreFactory:()=>firestore,
+  clock:()=>now,intervalMs:1000000});
+ try{
+  await guard.runOnce();
+  now+=OWNER_LEASE_MS+FENCE_GRACE_MS+1;
+  await assert.rejects(guard.runOnce(),/writer-sql016-epoch-mismatch/);
+  assert.equal(firestore.docs.get(OWNER_DOC).epoch,2);
+  assert.equal(nasWriterFenceRuntime.epoch,null,'reject stale local leases');
+  await assert.rejects(guard.acquire(),/writer-no-current-lease/);
+  // No automatic overwrite of the SQL epoch occurs during handback.
+  assert.equal(gate.epoch,'1');
  }finally{await guard.stop();}
 });
 test('the writer gate remains disabled unless explicitly opted into TEST',async()=>{
