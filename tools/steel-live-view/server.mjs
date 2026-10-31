@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
+import { createHandoff } from './handoff.mjs';
 
 export function authorized(value, password) {
   if (!password || !value?.startsWith('Basic ')) return false;
@@ -25,6 +26,8 @@ export function start() {
   if (new URL(upstream).protocol !== 'http:') throw Error('Internal OpenCode upstream must use HTTP');
   const auth = value => authorized(value, password);
   const headers = { Authorization: 'Basic ' + Buffer.from(`opencode:${password}`).toString('base64') };
+  const handoff = createHandoff();
+  const viewers = new Set();
   async function session() {
     const r = await fetch(steel + '/v1/sessions', { signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw Error('Steel unavailable');
@@ -45,6 +48,23 @@ export function start() {
       const u = new URL(req.url, origin);
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (u.pathname === '/__browser/handoff') {
+        res.setHeader('Content-Type', 'application/json');
+        if (req.method === 'GET') { res.end(JSON.stringify(handoff.get())); return; }
+        if (req.method !== 'POST' || req.headers.origin !== origin || !String(req.headers['content-type']).startsWith('application/json')) {
+          res.writeHead(403); res.end('{}'); return;
+        }
+        let body = '';
+        for await (const chunk of req) { body += chunk; if (body.length > 2048) { res.writeHead(413); res.end('{}'); return; } }
+        try {
+          const { action, chat } = JSON.parse(body);
+          const state = handoff.change(action, chat);
+          // Revoke every manual connection before acknowledging resume/finish.
+          for (const viewer of viewers) viewer.revoke();
+          res.end(JSON.stringify(state));
+        } catch { res.writeHead(409); res.end('{"error":"Invalid handoff transition"}'); }
+        return;
+      }
       if (u.pathname === '/__browser/panel.js') {
         res.setHeader('Content-Type', 'text/javascript'); res.end(await readFile(new URL('./panel.js', import.meta.url))); return;
       }
@@ -109,6 +129,11 @@ export function start() {
       const s = await session();
       wss.handleUpgrade(req, socket, head, client => {
         let mode = 'view';
+        const viewer = { revoke() {
+          mode = 'view';
+          if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'viewerState', mode, session: s }));
+        } };
+        viewers.add(viewer);
         const url = new URL('/', steel);
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         const remote = new WebSocket(url, { headers: { Host: 'localhost:3000' }, maxPayload: 8388608 });
@@ -151,6 +176,8 @@ export function start() {
           try {
             const m = JSON.parse(data);
             if (m.type === 'mode' && ['view', 'manual'].includes(m.value)) {
+              const state = handoff.get();
+              if (m.value === 'manual' && state.phase !== 'inactive' && (m.chat !== state.chat || state.phase !== 'login')) return;
               mode = m.value; client.send(JSON.stringify({ type: 'viewerState', mode, session: s })); return;
             }
             if (allowedInput(m, mode) && remote.readyState === WebSocket.OPEN) {
@@ -173,6 +200,7 @@ export function start() {
         remote.on('close', () => client.close(1000, 'Steel stream ended'));
         remote.on('error', () => client.close(1011, 'Steel stream unavailable'));
         client.on('close', () => {
+          viewers.delete(viewer);
           if (remote.readyState === WebSocket.OPEN && attached) cdp('Page.stopScreencast').finally(() => remote.close()).catch(() => {});
           else remote.close();
         });

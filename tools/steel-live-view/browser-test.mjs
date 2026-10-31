@@ -144,8 +144,34 @@ try {
   await viewer.locator('#steel-close').click();
   assert.equal(await viewer.locator('#steel-panel').isVisible(), false);
   pass('Return from full screen and collapse');
+  const chat = '/server/local/session/ses_viewerFixture';
+  const transition = async action => {
+    const r = await fetch(origin + '/__browser/handoff', { method: 'POST', headers: {
+      Authorization: authorization, Origin: origin, 'Content-Type': 'application/json',
+    }, body: JSON.stringify({ action, chat }) });
+    assert.equal(r.status, 200);
+  };
+  // Synthetic URL only: do not create a paid model turn or alter an existing chat.
+  await viewer.evaluate(path => history.replaceState(null, '', path), chat);
+  await transition('show');
+  await viewer.waitForFunction(() => !document.querySelector('#steel-panel').hidden && document.querySelector('#steel-mode').disabled);
+  pass('Agent show opens live preview automatically in the bound chat');
+  await transition('login');
+  await viewer.locator('#steel-resume').waitFor({ state: 'visible' });
+  await viewer.locator('#steel-mode').selectOption('manual');
+  await viewer.waitForFunction(() => !document.querySelector('#steel-input').disabled);
+  await viewer.locator('#steel-resume').click();
+  await viewer.waitForFunction(() => document.querySelector('#steel-input').disabled);
+  const state = await (await fetch(origin + '/__browser/handoff', { headers: { Authorization: authorization } })).json();
+  assert.equal(state.phase, 'working');
+  assert.equal(await viewer.locator('#steel-input').inputValue(), '');
+  pass('Login handoff and explicit Continue revoke manual mode and clear local input');
+  await viewer.evaluate(() => history.replaceState(null, '', '/server/local/session/ses_otherFixture'));
+  await viewer.waitForFunction(() => document.querySelector('#steel-panel').hidden && document.querySelector('#steel-launch').hidden);
+  pass('Preview is hidden when switching to another chat');
+  await transition('finish');
   report.status = 'passed';
-} catch (error) { report.status = 'failed'; report.error = error.message; console.error(error.message); process.exitCode = 1; }
+} catch (error) { report.status = 'failed'; report.error = error.message; console.error(error.stack); process.exitCode = 1; }
 finally {
   probe?.terminate();
   await viewerContext?.close();
