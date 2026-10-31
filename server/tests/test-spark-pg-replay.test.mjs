@@ -107,7 +107,9 @@ async function withIsolatedDatabase(fn){
   return await fn({pool,db,sequence});
  }finally{
   if(pool)await pool.end();
-  if(created)await admin.query('DROP DATABASE '+name+' WITH (FORCE)');
+  // Pool.end() must close every client first. Do not FORCE-disconnect a
+  // still-closing driver socket: that creates a spurious uncaught PG error.
+  if(created)await admin.query('DROP DATABASE '+name);
   await admin.end();
  }
 }
