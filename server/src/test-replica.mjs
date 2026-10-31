@@ -76,7 +76,15 @@ function metadataValid(m){
  return m&&m.protocol===1&&m.channel==='test'&&m.writer==='synology'&&m.projectId==='samosval-offline'&&
  /^[0-9a-f]{24}$/.test(m.generation||'')&&hex(m.snapshotHash)&&hex(m.baseHash)&&hex(m.hash)&&
  Number.isSafeInteger(m.baseSequence)&&Number.isSafeInteger(m.lastSequence)&&m.baseSequence>=0&&
- m.lastSequence>=m.baseSequence&&m.readyForFailover===false;
+ m.lastSequence>=m.baseSequence&&
+ (m.readyForFailover===false||m.readyForFailover===true&&
+  m.typedProtocol===1&&m.typedSequence===m.lastSequence&&
+  m.accessProtocol===1&&m.promotionProof?.protocol===2&&
+  m.promotionProof.writerGate==='sql016'&&
+  m.promotionProof.generation===m.generation&&
+  m.promotionProof.sequence===m.lastSequence&&
+  m.promotionProof.hash===m.hash&&hex(m.promotionProof.snapshotHash)&&
+  Number.isSafeInteger(m.promotionProof.epoch)&&m.promotionProof.epoch>0);
 }
 const readMeta=async db=>{
  const snap=await db.doc(REPLICA_DOC).get();
@@ -376,8 +384,10 @@ export async function replicateOnce({pool,firestore,projectId}){
   // until the mirror head catches up and the generation is certified.
   const typedSequence=typedSnapshot?typedSnapshot.sequence:
    Math.max(Number(m.typedSequence||0),latest);
+  // Any mirrored SQL delta invalidates the previously sealed snapshot.
+  // The full-generation auditor can re-certify only after catchup.
   tx.update(ref,{lastSequence:latest,hash,typedSequence,
-   updatedAt:Date.now(),readyForFailover:false});
+   updatedAt:Date.now(),readyForFailover:false,promotionProof:null});
  });
  // If the Firebase commit succeeded but the reply was lost, the next tick
  // verifies the exact remote journal chain before acknowledging locally.
