@@ -1,0 +1,22 @@
+# Separate opt-in test service. Never run compose against the production stack.
+services:
+  steel-view-test:
+    build: .
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      BIND_HOST: 0.0.0.0
+      PORT: 4180
+      OPENCODE_UPSTREAM: ${OPENCODE_UPSTREAM:?Set actual internal HTTP OpenCode URL}
+      OPENCODE_PASSWORD: ${OPENCODE_PASSWORD:?Use existing server password via protected environment}
+      STEEL_UPSTREAM: http://steel-opencode2:3000
+      STEEL_TARGET_ID: ${STEEL_TARGET_ID:?Verify target through MCP CDP first}
+      VIEW_ORIGIN: ${VIEW_ORIGIN:?Set exact authenticated test origin}
+    ports: ["127.0.0.1:4180:4180"]
+    networks: [existing]
+networks:
+  existing:
+    external: true
+    name: opencode2-lab_default

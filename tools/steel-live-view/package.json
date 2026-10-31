@@ -1,0 +1,16 @@
+{
+  "name": "opencode-steel-view-test",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test security.test.mjs proxy.test.mjs"
+  },
+  "dependencies": {
+    "ws": "8.22.1"
+  },
+  "devDependencies": {
+    "playwright-core": "1.58.2"
+  }
+}
