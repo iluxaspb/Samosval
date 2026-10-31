@@ -81,6 +81,9 @@ export function buildSparkTypedLineSnapshot({snapshot,generation,fromMillis}={})
    arrivedAt:timestamp(data.arriveTimestamp,fromMillis),
    lastLoadAt:timestamp(data.lastLoadTimestamp,fromMillis),
    lastLogId:cleanText(data.lastLoadLogId||'',160),
+   ttnStatus:data.ttnStatus===true?true:(data.ttnStatus==='pending'?'pending':null),
+   ttnLogId:cleanText(data.ttnLogId||'',160),
+   ttnByUid:'', // legacy PostgreSQL stores names; reserve records verified UIDs
    lastOperationId:'',lastActionType:'',
    lastActorUid:'',loadedAfterArrive:data.loadedAfterArrive===true,
    // A bounded append-only journal lives in the SAME Firestore status doc.
