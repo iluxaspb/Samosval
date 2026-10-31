@@ -16,6 +16,7 @@ import {claimNasOwnership,promoteTestReserve}
 import {submitLineOperation} from '../src/line-store.mjs';
 import {exactSparkReplayAlias} from '../src/test-spark-replay-receipt.mjs';
 import {rebindSparkSqlWriterEpoch} from '../src/test-spark-sql-epoch-rebind.mjs';
+import {replaySparkFencedNext} from '../src/test-spark-fenced-replay.mjs';
 import {collectSnapshot,rowId} from '../src/test-replica.mjs';
 import {buildSparkTypedLineSnapshot,sparkTypedPaths} from '../src/test-spark-typed.mjs';
 import {accessRowsFromMirrorSnapshot,sparkAccessRef} from '../src/test-spark-access.mjs';
@@ -696,4 +697,93 @@ sqltest('armed SQL016 blocks replay without a recovery-scoped permit and keeps o
  await assert.rejects(f.pool.query(
   "UPDATE workspaces SET cycle_minutes=61 WHERE id='main_workspace'"),
   /spark-fence-permit-required/);
+}));
+
+async function certifiedFencedFixture(f){
+ const sql=readFileSync(new URL('../sql/016_spark_global_fence.sql',import.meta.url),'utf8');
+ await f.pool.query(sql);
+ await f.pool.query("UPDATE reserve_control.writer_gate "+
+  "SET armed=true,coverage_certified=true,owner_epoch=8 WHERE singleton=true");
+ const m=f.db.docs.get(REPLICA_DOC);
+ m.snapshotHash='b'.repeat(64);
+ m.promotionProof={protocol:2,writerGate:'sql016',generation:m.generation,
+  epoch:8,sequence:m.lastSequence,hash:m.hash,
+  snapshotHash:m.snapshotHash,documents:30};
+ return m;
+}
+sqltest('SQL016 controlled recovery: certified freeze -> atomic ARRIVE/TTN/LOAD -> typed handback -> new epoch',
+ async()=>withIsolatedDatabase(async f=>{
+ await certifiedFencedFixture(f);
+ const api={...opts(f)};
+ // Ordinary SQL writers, even with an active stale lease, are SQL fenced.
+ await assert.rejects(f.pool.query(
+  "UPDATE workspaces SET cycle_minutes=61 WHERE id='main_workspace'"),
+  /spark-fence-permit-required/);
+ await assert.rejects(replaySparkFencedNext(api),
+  /spark-replay-owner-not-frozen/);
+ await beginSparkTypedRecovery(api);
+ await assert.rejects(replaySparkFencedNext(api),
+  /spark-recovery-sql015-checkpoint-required/);
+ const staged=await startSparkPostgresReplay(api);
+ assert.equal(staged.total,3);
+ const event1=await replaySparkFencedNext(api);
+ assert.equal(event1.operationId,'arrive01');
+ assert.equal(await count(f.pool,'line_operation_receipts'),1);
+ // Simulate a restarted recovery worker: the durable checkpoint resumes.
+ assert.equal((await startSparkPostgresReplay(api)).resumed,true);
+ assert.equal((await replaySparkFencedNext(api)).operationId,'ttn01');
+ const event3=await replaySparkFencedNext(api);
+ assert.equal(event3.operationId,'load01');
+ assert.equal(event3.complete,true);
+ assert.equal((await replaySparkFencedNext(api)).complete,true,
+  'repeat after lost response cannot apply a second load');
+ assert.equal(await count(f.pool,'line_logs'),1);
+ assert.equal(await count(f.pool,'line_operation_receipts'),3);
+ assert.equal(await count(f.pool,'line_history'),3);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'reconciling');
+ await assert.rejects(f.pool.query(
+  "UPDATE workspaces SET cycle_minutes=61 WHERE id='main_workspace'"),
+  /spark-fence-permit-required/);
+ const first=await stageSparkTypedHandback(api);
+ assert.equal(first.staged,true);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'handoff');
+ await completeSparkTypedHandback(api);
+ const after=f.db.docs.get(REPLICA_DOC);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'synology');
+ const nodeId='recovered_nas_test_worker';
+ const claim=await claimNasOwnership({
+  firestore:f.db,projectId:'samosval-offline',nodeId,
+  checkpoint:{sequence:after.lastSequence,hash:after.hash},now:Date.now()
+ });
+ assert.equal((await rebindSparkSqlWriterEpoch({
+  ...api,nodeId,expectedEpoch:claim.epoch
+ })).epoch,claim.epoch);
+ assert.equal(await gateEpoch(f.pool),claim.epoch);
+ const certified=await certifySparkPromotion({...api,now:Date.now()});
+ assert.equal(certified.certified,true,
+  'NAS owner may re-enable reserve only after complete independent audit');
+ assert.equal(f.db.docs.get(REPLICA_DOC).readyForFailover,true);
+ assert.equal(f.db.docs.get(REPLICA_DOC).promotionProof.epoch,claim.epoch);
+ assert.equal(await count(f.pool,'line_logs'),1);
+}));
+sqltest('SQL016 scoped recovery refuses forged certificate, wrong epoch and uncertain owner',
+ async()=>withIsolatedDatabase(async f=>{
+ const m=await certifiedFencedFixture(f);
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ const args=opts(f),owner=f.db.docs.get(OWNER_DOC);
+ const original=m.promotionProof;
+ delete m.promotionProof;
+ await assert.rejects(replaySparkFencedNext(args),
+  /spark-recovery-sql016-proof-mismatch/);
+ m.promotionProof={...original,epoch:7};
+ await assert.rejects(replaySparkFencedNext(args),
+  /spark-recovery-sql016-proof-mismatch/);
+ m.promotionProof=original;
+ owner.pending={unconfirmed_12345:{epoch:9,until:Date.now()+10000}};
+ await assert.rejects(replaySparkFencedNext(args),
+  /spark-replay-owner-not-frozen/);
+ owner.pending={};
+ assert.equal(await count(f.pool,'line_operation_receipts'),0);
+ assert.equal(await count(f.pool,'line_logs'),0);
 }));
