@@ -15,12 +15,14 @@ const GEN='0123456789abcdef01234567',H='a'.repeat(64),
 const sha=x=>createHash('sha256').update(canonical(x)).digest('hex');
 const ts=millis=>({toMillis:()=>millis});
 class MemoryFirestore{
- constructor(){this.docs=new Map();}
+ constructor(){this.docs=new Map();this.collectionReads=0;}
  doc(path){return{path,get:async()=>({exists:this.docs.has(path),
   data:()=>this.docs.get(path)})};}
- collection(path){return{get:async()=>({docs:[...this.docs.entries()]
-  .filter(([key])=>key.startsWith(path+'/'))
-  .map(([key,value])=>({id:key.slice(path.length+1),data:()=>value}))})};}
+ collection(path){return{get:async()=>{this.collectionReads++;
+  return {docs:[...this.docs.entries()]
+   .filter(([key])=>key.startsWith(path+'/'))
+   .map(([key,value])=>({id:key.slice(path.length+1),data:()=>value}))};
+ }};}
  async runTransaction(fn){
   const writes=[];
   const tx={get:async ref=>this.doc(ref.path).get(),
@@ -121,10 +123,15 @@ sqltest('typed Spark is frozen and ARRIVE, TTN, LOAD commit atomically with PG a
  assert.equal(arriving.operationId,'arrive01');
  const recoveredOwner=await beginSparkTypedRecovery(opts(f));
  assert.equal(recoveredOwner.resumed,true,'restarting after a committed SQL step is safe');
+ const beforeTtnScans=f.db.collectionReads;
  const ttn=await replaySparkPostgresNext(opts(f));
  assert.equal(ttn.operationId,'ttn01');
+ assert.equal(f.db.collectionReads,beforeTtnScans,
+  'each SQL event reads only frozen metadata+owner, not all Firestore trucks');
  const load=await replaySparkPostgresNext(opts(f));
  assert.equal(load.complete,true);
+ assert.equal(f.db.collectionReads,beforeTtnScans+2,
+  'full history is re-verified once at completion');
  assert.equal(load.postgresLogId,'load_truckA_shiftA_cycle_4_'+TIME);
  assert.equal((await replaySparkPostgresNext(opts(f))).complete,true);
  const replayed=await startSparkPostgresReplay(opts(f));
