@@ -134,9 +134,7 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
          next.arrivedAt == null &&
          next.lastLoadAt == request.time &&
          next.lastLogId == 'load_' + opId &&
-         next.loadedAfterArrive == true &&
-         getAfter(logPath('load_' + opId)).data.uid == request.auth.uid &&
-         getAfter(logPath('load_' + opId)).data.at == request.time)
+         next.loadedAfterArrive == true)
       );
   }
   function opCreate() {
@@ -147,12 +145,12 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       data.keys().hasOnly([
        'protocol','projectId','generation','epoch','uid','operationId',
        'truckId','shiftId','type','expectedRevision','cycleMinutes',
-       'requestHash','at','logId'
+       'requestHash','at','logId','volume','isGAI'
       ]) &&
       data.keys().hasAll([
        'protocol','projectId','generation','epoch','uid','operationId',
        'truckId','shiftId','type','expectedRevision','cycleMinutes',
-       'requestHash','at','logId'
+       'requestHash','at','logId','volume','isGAI'
       ]) &&
       documentId == data.operationId &&
       data.operationId is string && data.operationId.size() <= 128 &&
@@ -170,44 +168,15 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       a.lastActorUid == request.auth.uid &&
       data.at == request.time && data.requestHash is string &&
       data.requestHash.size() == 64 &&
-      ((data.type == 'load' && data.logId == 'load_' + documentId) ||
-       (data.type == 'arrive' && data.logId == ''));
+      ((data.type == 'arrive' && data.logId == '' &&
+        data.volume == 0 && data.isGAI == false) ||
+       (data.type == 'load' && data.logId == 'load_' + documentId &&
+        get(truckPath(data.truckId)).data.id == data.truckId &&
+        get(truckPath(data.truckId)).data.sourceSequence <= mirror().lastSequence &&
+        get(truckPath(data.truckId)).data.volume == data.volume &&
+        get(truckPath(data.truckId)).data.isGAI == data.isGAI));
   }
-  function logCreate() {
-    let data = request.resource.data;
-    let b = get(statePath(data.truckId)).data;
-    let a = getAfter(statePath(data.truckId)).data;
-    let t = get(truckPath(data.truckId)).data;
-    let op = getAfter(operationPath(data.operationId)).data;
-    // Status and immutable operation are both required by getAfter below;
-    // their own update/create rules enforce bound(), owner epoch, UID and ACL.
-    // Repeating the full bound() chain here would exceed Firestore's total
-    // document-access budget for a three-document atomic load.
-    return typed('typed_logs_') &&
-      data.keys().hasOnly([
-       'protocol','projectId','generation','epoch','id','operationId',
-       'uid','truckId','shiftId','isGAI','volume','at'
-      ]) &&
-      data.keys().hasAll([
-       'protocol','projectId','generation','epoch','id','operationId',
-       'uid','truckId','shiftId','isGAI','volume','at'
-      ]) &&
-      documentId == 'load_' + data.operationId &&
-      data.id == documentId && data.uid == request.auth.uid &&
-      data.protocol == 1 && data.projectId == 'samosval-offline' &&
-      data.generation == mirror().generation && data.epoch == writer().epoch &&
-      data.shiftId == config().shiftId && a.shiftId == data.shiftId &&
-      t.id == data.truckId && t.generation == mirror().generation &&
-      t.sourceSequence <= mirror().lastSequence &&
-      data.isGAI == t.isGAI && data.volume == t.volume &&
-      op.operationId == data.operationId && op.uid == request.auth.uid &&
-      op.truckId == data.truckId && op.type == 'load' &&
-      b.arrivedAt is timestamp && a.arrivedAt == null &&
-      a.lastLogId == documentId &&
-      a.lastOperationId == data.operationId &&
-      a.cycleRevision == b.cycleRevision + 1 &&
-      data.at == request.time;
-  }
+  // No writable typed_logs collection: typed_ops is the immutable log.
 
   allow get: if request.auth != null && activeGrant() &&
     (typed('typed_config_') ||
@@ -217,13 +186,12 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
      // creating it. Existing receipts remain private to their actor.
      (typed('typed_ops_') && (resource == null ||
        resource.data.uid == request.auth.uid)) ||
-     typed('typed_logs_'));
+     false);
   allow list: if false;
   // Dispatch by the exact typed collection before evaluating branch-specific
   // getAfter() references. A LOG lacks receipt-only fields and vice versa.
-  allow create: if request.auth != null && (
-    (typed('typed_ops_') && opCreate()) ||
-    (typed('typed_logs_') && logCreate()));
+  allow create: if request.auth != null &&
+    typed('typed_ops_') && opCreate();
   allow update: if request.auth != null &&
     typed('typed_status_') && statusUpdate();
   allow delete: if false;
