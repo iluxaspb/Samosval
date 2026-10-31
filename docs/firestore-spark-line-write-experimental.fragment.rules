@@ -139,8 +139,10 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
   }
   function opCreate() {
     let data = request.resource.data;
+    // Intents are independently validated; only a status update that links
+    // this receipt may confirm an actual trip. Avoid a getAfter(status)
+    // reference: it creates a cycle with statusUpdate()->getAfter(operation).
     let b = get(statePath(data.truckId)).data;
-    let a = getAfter(statePath(data.truckId)).data;
     return bound() && typed('typed_ops_') &&
       data.keys().hasOnly([
        'protocol','projectId','generation','epoch','uid','operationId',
@@ -161,11 +163,8 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       data.shiftId == config().shiftId &&
       (data.type == 'arrive' || data.type == 'load') &&
       actionPermission(data.type) &&
+      b.onLine == true && b.shiftId == config().shiftId &&
       data.expectedRevision == b.cycleRevision &&
-      a.cycleRevision == b.cycleRevision + 1 &&
-      a.lastOperationId == documentId &&
-      a.lastActionType == data.type &&
-      a.lastActorUid == request.auth.uid &&
       data.at == request.time && data.requestHash is string &&
       data.requestHash.size() == 64 &&
       ((data.type == 'arrive' && data.logId == '' &&
