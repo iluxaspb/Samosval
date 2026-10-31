@@ -281,6 +281,52 @@ test('revoked permission and changed writer epoch block subsequent operations',a
   {operationScope:scope('operatorA')}));
  assert.equal((await getDoc(doc(alice,STATE))).data().cycleRevision,0);
 });
+test('lost acknowledgment after commit replays the same immutable operation ID',async()=>{
+ const backend=compat(alice);
+ const user={uid:'operatorA'};
+ let loseReply=true;
+ const writer=createSparkLineWriter({
+  firestore:{...backend,runTransaction:async callback=>{
+   const result=await backend.runTransaction(callback);
+   if(loseReply){loseReply=false;throw Error('simulated-reply-lost-after-commit');}
+   return result;
+  }},
+  getUser:()=>user,serverTimestamp,cryptoImpl:webcrypto,clock:Date.now
+ });
+ const op=arrive('arrival_lost_ack');
+ await assert.rejects(writer.submitLine(op,{operationScope:scope('operatorA')}),
+  e=>e.uncertain===true&&e.retryable===true);
+ const committed=(await getDoc(doc(alice,STATE))).data();
+ assert.equal(committed.cycleRevision,1);
+ assert.equal(Object.keys(committed.reserveHistory).length,1);
+ const replay=await writer.submitLine(op,{operationScope:scope('operatorA')});
+ assert.equal(replay.replayed,true);
+ assert.equal(replay.operationId,op.id);
+ const after=(await getDoc(doc(alice,STATE))).data();
+ assert.equal(after.cycleRevision,1,'replay cannot count a second trip');
+ assert.equal(Object.keys(after.reserveHistory).length,1);
+});
+test('a user cannot rewrite earlier immutable reserve history or forge a new event',async()=>{
+ const writer=make(alice,'operatorA');
+ await writer.submitLine(arrive('arrival_immutable'),{operationScope:scope('operatorA')});
+ const committed=(await getDoc(doc(alice,STATE))).data();
+ await assertFails(updateDoc(doc(alice,STATE),{
+  reserveHistory:{
+   ...committed.reserveHistory,
+   arrival_immutable:{...committed.reserveHistory.arrival_immutable,volume:999999}
+  }
+ }));
+ await assertFails(updateDoc(doc(alice,STATE),{
+  reserveHistory:{
+   ...committed.reserveHistory,
+   forged:{operationId:'forged',uid:'operatorA',type:'load',volume:999999}
+  }
+ }));
+ const after=(await getDoc(doc(alice,STATE))).data();
+ assert.equal(after.cycleRevision,1);
+ assert.equal(after.reserveHistory.arrival_immutable.volume,0);
+ assert.equal(Object.keys(after.reserveHistory).length,1);
+});
 test('recent load blocks a new arrival until the 60-minute cycle',async()=>{
  await env.withSecurityRulesDisabled(async ctx=>{
   await updateDoc(doc(ctx.firestore(),STATE),{
