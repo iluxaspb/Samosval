@@ -193,6 +193,47 @@ test('opt-in NAS HTTP guard refuses absent ownership, then leases and releases a
   assert.equal(nasWriterFenceRuntime.refusedWrites,3);
  }finally{await guard.stop();}
 });
+test('slow lease renewal keeps a verified NAS writer usable; any failed renewal revokes it',async()=>{
+ const {firestore,checkpoint}=setup();
+ const {startNasWriterFence,nasWriterFenceRuntime}=await import('../src/test-writer-guard.mjs');
+ const gate={database:'samosval_test',armed:true,coverage_certified:true,epoch:'1'};
+ let pauseOnce=false,entered=null,releasePause=null;
+ const pool={query:async sql=>{
+  if(sql.includes('reserve_control.writer_gate')){
+   if(pauseOnce){
+    pauseOnce=false;
+    const hold=new Promise(resolve=>{releasePause=resolve;});
+    entered?.();
+    await hold;
+   }
+   return {rows:[{...gate}]};
+  }
+  return sql.includes('last_sequence')?{rows:[{n:'27'}]}:{rows:[checkpoint]};
+ }};
+ const guard=startNasWriterFence({pool,projectId:'samosval-offline',
+  env:{TEST_WRITER_FENCE_ENABLED:'1'},firestoreFactory:()=>firestore,
+  clock:()=>t0,intervalMs:1000000});
+ try{
+  await guard.runOnce();
+  const started=new Promise(resolve=>{entered=resolve;});
+  pauseOnce=true;
+  const renewal=guard.runOnce();
+  await started;
+  const permit=await guard.acquire();
+  assert.equal(permit.epoch,1,'in-flight heartbeat alone must not interrupt NAS');
+  assert.equal(await permit.release(),true);
+  releasePause();
+  await renewal;
+  assert.equal(nasWriterFenceRuntime.epoch,1);
+  gate.armed=false;
+  await assert.rejects(guard.runOnce(),/writer-sql016-not-certified/);
+  assert.equal(nasWriterFenceRuntime.epoch,null);
+  await assert.rejects(guard.acquire(),/writer-no-current-lease/);
+ }finally{
+  releasePause?.();
+  await guard.stop();
+ }
+});
 test('an unarmed or missing SQL016 gate cannot claim ownership or issue NAS writes',async()=>{
  const {firestore,checkpoint}=setup();
  const {startNasWriterFence}=await import('../src/test-writer-guard.mjs');
