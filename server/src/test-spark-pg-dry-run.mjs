@@ -2,7 +2,7 @@
 // No SQL writes. The production replay worker must recheck the same base
 // checkpoint under a write fence before executing any of these operations.
 import {createHash} from 'node:crypto';
-import {applyLineOperation} from './line-rules.mjs';
+import {applyLineOperation,validateLineOperation} from './line-rules.mjs';
 import {canonical} from './test-replica.mjs';
 
 const obj=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -14,6 +14,7 @@ const own=(data,key)=>Object.prototype.hasOwnProperty.call(data,key);
 export function planSparkPostgresReplay({manifest,baseline,apply=applyLineOperation}={}){
  if(!manifest||manifest.format!=='spark-typed-replay-manifest'||manifest.version!==1||
     !Array.isArray(manifest.events)||manifest.eventCount!==manifest.events.length||
+    manifest.eventCount>10000||manifest.ownerEpoch!==manifest.fromEpoch+1||
     !/^[0-9a-f]{64}$/.test(manifest.sha256||'')||!baseline||
     baseline.sequence!==manifest.baseSequence||baseline.hash!==manifest.baseHash||
     !obj(baseline.statuses)||!obj(baseline.trucks)||!obj(baseline.actors)||
@@ -46,8 +47,17 @@ export function planSparkPostgresReplay({manifest,baseline,apply=applyLineOperat
    throw fail('spark-replay-pg-truck-invalid');
   // Firestore Security Rules stamp event.at from request.time. Replay based
   // on that verified instant rather than a phone clock which may have drifted.
-  const op={...event.intent,createdAt:event.serverAt};
+  const op={...event.intent,
+   // Spark's minimal intent may omit fields required by the NAS API.
+   // Keep originalRequestHash intact, but normalize the PG receipt payload.
+   expectedTtnRevision:event.intent.expectedTtnRevision??0,
+   wantArrived:event.intent.wantArrived??false,
+   collect:event.intent.collect??false,
+   createdAt:event.serverAt};
   delete op.logId; // PostgreSQL derives deterministic log IDs from the cycle.
+  if(validateLineOperation(op,event.serverAt))
+   throw fail('spark-replay-pg-intent-invalid');
+  const oldStatus=structuredClone(before);
   const result=apply({op,before,truck,
    actor:{name:actor.name,email:actor.email,isAdmin:actor.role==='admin'},
    cycleMinutes:baseline.cycleMinutes,now:event.serverAt});
@@ -61,7 +71,9 @@ export function planSparkPostgresReplay({manifest,baseline,apply=applyLineOperat
   working.set(event.truckId,result.status);
   planned.push({operationId:event.operationId,uid:event.uid,
    serverAt:event.serverAt,originalRequestHash:event.requestHash,
-   pgIntent:op,pgReceipt:result,
+   pgIntent:op,pgReceipt:result,beforeStatus:oldStatus,
+   actor:{name:actor.name,email:actor.email,role:actor.role},
+   truck:structuredClone(truck),cycleMinutes:baseline.cycleMinutes,
    ...(event.type==='load'?{
     reserveLogId:event.logId,postgresLogId:result.log.id
    }:{})});
@@ -71,8 +83,7 @@ export function planSparkPostgresReplay({manifest,baseline,apply=applyLineOperat
   generation:manifest.generation,fromEpoch:manifest.fromEpoch,
   baseSequence:manifest.baseSequence,baseHash:manifest.baseHash,
   eventCount:planned.length,
-  plannedHash:sha(planned.map(x=>({operationId:x.operationId,uid:x.uid,
-   pgIntent:x.pgIntent,serverAt:x.serverAt}))),
+  plannedHash:sha(planned),
   operations:planned,
   expectedStatuses:Object.fromEntries(working)
  });
