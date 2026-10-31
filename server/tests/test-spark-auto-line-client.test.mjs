@@ -24,6 +24,7 @@ async function until(predicate,timeout=1300){
 function fixtures(){
  let auth={uid:UID},authority=owner(),authorityReads=0;
  let nasWrites=0,sparkWrites=0,nasReads=0,sparkReads=0,nasSessions=0,sparkSessions=0,
+  readOptions=[],
   nasSubscriptions=0,nasStops=0,typedWatches=0,typedStop=null;
  let overrideNasRead=null,overrideSparkRead=null,overrideSparkWrite=null;
  const triggers=new Map(),subscriptions=new Map(),providerEvents=[];
@@ -47,7 +48,7 @@ function fixtures(){
   stop(){nasStops++;}
  };
  const reader={
-  uid:UID,async readLine(){sparkReads++;
+  uid:UID,async readLine(options){sparkReads++;readOptions.push(options);
    if(overrideSparkRead)return overrideSparkRead();
    return line('firebase');
   },
@@ -72,6 +73,7 @@ function fixtures(){
   get typedStop(){return typedStop;},
   get nasReads(){return nasReads;},get sparkReads(){return sparkReads;},
   get nasWrites(){return nasWrites;},get sparkWrites(){return sparkWrites;},
+  get readOptions(){return readOptions;},
   get nasSessions(){return nasSessions;},get sparkSessions(){return sparkSessions;},
   get authorityReads(){return authorityReads;},
   get nasSubscriptions(){return nasSubscriptions;},get nasStops(){return nasStops;},
@@ -155,8 +157,9 @@ test('firebase subscriptions are event-driven, not a four-second collection scan
   const readCount=f.sparkReads;
   await delay(90);
   assert.equal(f.sparkReads,readCount,'no timer-based Firestore polling');
-  f.typedStop?.();
+  f.typedStop?.('truck_a');
   await until(()=>f.sparkReads>readCount);
+  assert.deepEqual(f.readOptions.at(-1),{changedTruckIds:['truck_a']});
   assert.equal(events.at(-1),'line:firebase');
   assert.equal(f.nasWrites,0);
  }finally{close();client.stop();}
