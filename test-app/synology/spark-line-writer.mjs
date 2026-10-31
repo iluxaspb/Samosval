@@ -41,10 +41,11 @@ function certified(meta,owner){
  return {generation:meta.generation,epoch:owner.epoch,sequence:meta.lastSequence};
 }
 export function createSparkLineWriter({firestore,getUser,serverTimestamp,
- cryptoImpl=globalThis.crypto,clock=Date.now}={}){
+ cryptoImpl=globalThis.crypto,clock=Date.now,onDiagnostic=()=>{}}={}){
  if(!firestore||firestore.app?.options?.projectId!==PROJECT||
     typeof firestore.doc!=='function'||typeof firestore.runTransaction!=='function'||
-    typeof getUser!=='function'||typeof serverTimestamp!=='function'||typeof clock!=='function')
+    typeof getUser!=='function'||typeof serverTimestamp!=='function'||
+    typeof clock!=='function'||typeof onDiagnostic!=='function')
   throw new TypeError('spark-line-writer-invalid-options');
  const current=getUser(),uid=current?.uid;
  if(!id(uid))throw bad('spark-auth-required');
@@ -165,6 +166,9 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
    return result;
   }catch(e){
    if(e instanceof SparkLineWriteError)throw e;
+   // The optional diagnostic hook is for isolated acceptance tests only.
+   // Never surface raw Firestore errors to end-users or durable local logs.
+   try{onDiagnostic(e);}catch{}
    // Firestore may commit but lose the acknowledgement. Never create a new
    // operation ID or automatically retry a different server here.
    throw bad('spark-transaction-unavailable',{retryable:true,uncertain:submitted});
