@@ -7,7 +7,7 @@ import {recordLineHistory} from './history-store.mjs';
 import {canonical,assertTestProject,REPLICA_DOC} from './test-replica.mjs';
 import {OWNER_DOC} from './test-writer-coordinator.mjs';
 import {readNasReplayBaseline} from './test-reconcile-line.mjs';
-import {inspectFrozenSparkHistory} from './test-spark-replay-inspect.mjs';
+import {inspectFrozenSparkHistory,readFrozenSparkContext} from './test-spark-replay-inspect.mjs';
 import {planSparkPostgresReplay} from './test-spark-pg-dry-run.mjs';
 
 const WS='main_workspace',HEX=/^[0-9a-f]{64}$/,GEN=/^[0-9a-f]{24}$/;
@@ -189,18 +189,22 @@ export async function startSparkPostgresReplay({firestore,projectId,pool,
 export async function replaySparkPostgresNext({firestore,projectId,pool,
  fenceEnabled=process.env.TEST_WRITER_FENCE_ENABLED==='1'}={}){
  guarded(projectId,fenceEnabled);
- const manifest=await inspected(firestore,projectId);
+ const context=await readFrozenSparkContext({firestore,projectId});
  const c=await pool.connect();
  try{
   await c.query('BEGIN');
   checkDatabase((await c.query('SELECT current_database() AS name')).rows[0]);
   const checkpoint=(await c.query('SELECT * FROM reserve_spark_replay_checkpoint WHERE singleton=true FOR UPDATE')).rows[0];
-  const plan=assertCheckpoint(checkpoint,manifest);
+  const plan=assertCheckpoint(checkpoint,{...context,
+   eventCount:checkpoint.event_count,sha256:checkpoint.manifest_hash});
   const head=Number((await c.query('SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true FOR UPDATE')).rows[0]?.n);
   if(head!==Number(checkpoint.outbox_sequence))
    throw fail('spark-replay-unexpected-postgres-writes');
   if(checkpoint.applied_count===checkpoint.event_count){
    await c.query('COMMIT');
+   const fresh=await inspected(firestore,projectId);
+   if(fresh.sha256!==checkpoint.manifest_hash)
+    throw fail('spark-replay-history-changed-after-commit');
    return {complete:true,applied:checkpoint.applied_count,total:checkpoint.event_count};
   }
   const step=plan.operations[checkpoint.applied_count];
@@ -243,7 +247,7 @@ export async function replaySparkPostgresNext({firestore,projectId,pool,
    await c.query('INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES ($1,$2,$3,$4,$5::jsonb)',
     [WS,result.log.id,step.pgIntent.shiftId,step.pgIntent.truckId,JSON.stringify(result.log)]);
    await c.query('INSERT INTO reserve_spark_log_aliases(workspace_id,generation,operation_id,reserve_log_id,postgres_log_id) VALUES ($1,$2,$3,$4,$5)',
-    [WS,manifest.generation,step.operationId,step.reserveLogId,result.log.id]);
+    [WS,context.generation,step.operationId,step.reserveLogId,result.log.id]);
   }
   await recordLineHistory(c,{workspaceId:WS,uid:step.uid,op:step.pgIntent,
    before:row.payload,result,profile,shift:shift.payload,
@@ -259,6 +263,11 @@ export async function replaySparkPostgresNext({firestore,projectId,pool,
   await c.query('UPDATE reserve_spark_replay_checkpoint SET applied_count=$1,outbox_sequence=$2,last_operation_id=$3,state=$4,updated_at=now() WHERE singleton=true',
    [next,updatedHead,step.operationId,next===checkpoint.event_count?'applied':'replaying']);
   await c.query('COMMIT');
+  if(next===checkpoint.event_count){
+   const fresh=await inspected(firestore,projectId);
+   if(fresh.sha256!==checkpoint.manifest_hash)
+    throw fail('spark-replay-history-changed-after-commit');
+  }
   return {applied:next,total:checkpoint.event_count,
    remaining:checkpoint.event_count-next,complete:next===checkpoint.event_count,
    operationId:step.operationId,postgresLogId:result.log?.id||null};
