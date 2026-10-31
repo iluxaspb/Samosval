@@ -55,6 +55,15 @@ const begin=({db,base})=>beginReserveReplay({firestore:db,projectId:'samosval-of
  pool:{},baselineReader:async()=>base,now,fenceEnabled:true});
 const next=(db,apply)=>replayReserveNext({
  firestore:db,projectId:'samosval-offline',pool:{},apply,fenceEnabled:true});
+test('legacy reserve_ops recovery must not skip typed Spark history',async()=>{
+ const f=fixture();
+ f.db.docs.get(REPLICA_DOC).typedProtocol=1;
+ f.db.docs.get(REPLICA_DOC).typedSequence=20;
+ f.db.docs.get(OWNER_DOC).reserveSequence=0;
+ await assert.rejects(begin(f),/reconcile-typed-history-replay-not-supported/);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'firebase',
+  'failed old recovery must not freeze or promote the real writer');
+});
 test('reverse replay rejects a NAS head beyond last confirmed snapshot',async()=>{
  const fix=fixture();
  await assert.rejects(begin({...fix,base:{sequence:21,hash}}),/reconcile-nas-base-diverged/);
