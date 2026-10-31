@@ -6,10 +6,13 @@ on:
     paths:
       - "docs/firestore-spark-line-readonly.fragment.rules"
       - "docs/firestore-spark-line-write-experimental.fragment.rules"
+      - "docs/firestore-spark-client-promotion.experimental.fragment.rules"
       - "firestore-v3.rules"
       - "server/scripts/build-spark-rules.mjs"
       - "server/tests/test-spark-rules-emulator.cjs"
       - "server/tests/test-spark-write-emulator.cjs"
+      - "server/tests/test-spark-promotion-emulator.cjs"
+      - "test-app/synology/spark-client-promoter.mjs"
       - "test-app/synology/spark-line-writer.mjs"
       - ".github/workflows/spark-firestore-security.yml"
   workflow_dispatch:
@@ -40,6 +43,7 @@ jobs:
       - name: Compose isolated experimental TEST rules without changing live rules
         env:
           SPARK_EXPERIMENTAL_WRITES: "1"
+          SPARK_EXPERIMENTAL_PROMOTION: "1"
         run: |
           node server/scripts/build-spark-rules.mjs /tmp/samosval-spark-emulator.rules
           cat > /tmp/samosval-spark-emulator.json <<'JSON'
@@ -57,7 +61,7 @@ jobs:
             --project demo-samosval-spark-ci \
             --config /tmp/samosval-spark-emulator.json \
             --only firestore \
-            "node --test --test-concurrency=1 server/tests/test-spark-rules-emulator.cjs server/tests/test-spark-write-emulator.cjs"
+            "node --test --test-concurrency=1 server/tests/test-spark-rules-emulator.cjs server/tests/test-spark-write-emulator.cjs server/tests/test-spark-promotion-emulator.cjs"
       - name: Reminder — no Firebase Console deployment occurred
         run: |
           echo 'Only a temporary local Firestore emulator was used.' >> "$GITHUB_STEP_SUMMARY"
