@@ -112,7 +112,7 @@ async function withIsolatedDatabase(fn){
    arriveStatus:null,arriveTimestamp:null,loadedAfterArrive:false};
   await pool.query("INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES('main_workspace','truckA','shiftA',$1::jsonb)",[JSON.stringify(status)]);
   await pool.query("INSERT INTO app_users(uid,email,display_name,role,status) VALUES($1,'a@example.org','Оператор А','lopater','active')",[UID]);
-  for(const action of ['action_arrive','action_load','action_ttn'])
+  for(const action of ['tab_line','action_arrive','action_load','action_ttn'])
    await pool.query('INSERT INTO role_permissions(role,action,allowed) VALUES($1,$2,true)',['lopater',action]);
   const sequence=Number((await pool.query('SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true')).rows[0].n);
   await pool.query('INSERT INTO reserve_replica_receipt(singleton,sequence,hash) VALUES(true,$1,$2)',[sequence,H]);
