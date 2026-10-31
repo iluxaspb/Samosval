@@ -1,0 +1,51 @@
+# TEST-only SYNTHETIC rehearsal on a fresh, disposable Docker project.
+# Explicit project name: docker compose -p samosval-spark-lab -f
+# server/compose.spark-lab.test.yaml up --build --abort-on-container-exit
+# --exit-code-from runner ; then ... down --volumes --remove-orphans
+# NO host mounts, NO NAS credentials, NO published ports, NO live Firebase.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_USER: samosval_lab
+      POSTGRES_PASSWORD: lab_only_not_a_secret
+      POSTGRES_DB: samosval_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=1073741824
+      - /var/run/postgresql:rw,size=16777216
+      - /tmp:rw,size=16777216
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U samosval_lab -d samosval_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 3s
+    networks: [lab]
+    labels:
+      samosval.test.scope: "disposable-synthetic"
+
+  runner:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile.spark-lab
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=134217728
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPARK_LAB_ONLY: "1"
+      TEST_DATABASE_URL: postgres://samosval_lab:lab_only_not_a_secret@postgres:5432/samosval_test
+      FIREBASE_PROJECT_ID: samosval-offline
+      TEST_WRITER_FENCE_ENABLED: "0"
+    networks: [lab]
+    labels:
+      samosval.test.scope: "disposable-synthetic"
+
+networks:
+  lab:
+    internal: true
