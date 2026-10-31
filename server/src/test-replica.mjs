@@ -119,7 +119,7 @@ async function eventsAfter(pool,sequence,limit=CHUNK){
 function contiguous(events,start){
  events.forEach((e,i)=>{if(e.sequence!==start+i+1)throw Error('replica-outbox-sequence-gap');});
 }
-async function verifyChain(pool,meta){
+export async function verifyChain(pool,meta){
  let seq=meta.baseSequence,hash=meta.baseHash;
  if(hash!==sha256('snapshot:'+meta.snapshotHash+':'+seq))throw Error('replica-base-hash-mismatch');
  while(seq<meta.lastSequence){
