@@ -126,23 +126,13 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
         !op.keys().hasAny(['collect','expectedTtnRevision','ttnRevision'])) &&
       op.ordinal == count + 1 &&
       op.intent is map &&
-      op.intent.keys().hasAll(['id','type','truckId','shiftId',
-        'expectedRevision','arrivalTimestamp','lastLoadTimestamp',
-        'createdAt','cycleMinutes']) &&
-      op.intent.keys().hasOnly(['id','type','truckId','shiftId',
-        'expectedRevision','expectedTtnRevision','arrivalTimestamp',
-        'lastLoadTimestamp','wantArrived','collect','cycleMinutes',
-        'createdAt','logId']) &&
-      op.intent.id == op.operationId && op.intent.type == op.type &&
-      op.intent.truckId == documentId && op.intent.shiftId == b.shiftId &&
-      op.intent.expectedRevision == op.expectedRevision &&
-      op.intent.cycleMinutes == op.cycleMinutes &&
-      op.intent.createdAt is int && op.intent.createdAt >= 0 &&
-      op.intent.arrivalTimestamp is int && op.intent.arrivalTimestamp >= 0 &&
-      op.intent.lastLoadTimestamp is int && op.intent.lastLoadTimestamp >= 0 &&
-      (op.type != 'ttn' ||
-        (op.intent.collect == op.collect &&
-         op.intent.expectedTtnRevision == op.expectedTtnRevision)) &&
+      // Rules have a 1000-expression limit. The frozen NAS handback
+      // independently verifies SHA-256 and every source intent field.
+      op.intent.id == op.operationId &&
+      op.intent.type == op.type &&
+      op.intent.truckId == documentId &&
+      op.intent.shiftId == b.shiftId &&
+      (op.type != 'ttn' || op.intent.collect == op.collect) &&
       op.operationId is string && op.operationId.size() > 0 &&
       op.operationId.size() <= 128 &&
       op.uid == request.auth.uid &&
