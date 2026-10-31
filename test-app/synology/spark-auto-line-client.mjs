@@ -165,6 +165,9 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
     if(provider!==before.owner)stopProvider();
     if(before.owner==='synology'){
      accessClose?.();accessClose=null;accessWatchGen=null;
+     const after=await authority();
+     if(!same(before,after))throw bad('spark-auto-owner-changed-during-read');
+     ownerState=after;publish('synology');
      if(!nasClose){
       const generation=before.generation,epoch=before.epoch;
       nasClose=nasClient.subscribeLine({
@@ -179,9 +182,6 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
        },onError:report
       });
      }
-     const after=await authority();
-     if(!same(before,after))throw bad('spark-auto-owner-changed-during-read');
-     ownerState=after;publish('synology');
     }else{
      // Firestore mode is event-driven: no four-second Firestore polling.
      // Every delivered snapshot is re-checked with authoritative owner state.
