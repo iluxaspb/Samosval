@@ -24,8 +24,9 @@ export async function mount(s, host) {
     suppressClick = false,
     referencePick = null,
     pickingReference = false;
-  const c = s.config(),
-    allDays = s.days();
+  const c = s.config();
+  // Live day records change under the same mounted grid; keep them replaceable.
+  let allDays = s.days();
   s.gridUndo ||= {};
   const stacks = (id) =>
     (s.gridUndo[s.object.id + "/" + id] ||= { undo: [], redo: [] });
@@ -1923,6 +1924,8 @@ export async function mount(s, host) {
       if (current?.data) {
         base = current;
         sheet = current.data;
+        // Incoming day records are the source of linkedRows and visibleDays.
+        allDays = s.days();
         refreshVisibleCells();
       }
     },
