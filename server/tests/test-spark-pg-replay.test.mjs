@@ -433,7 +433,6 @@ async function promotionFixture(f,{coverage=true}={}){
   'UPDATE reserve_control.writer_gate SET armed=true,coverage_certified=$1,owner_epoch=7 WHERE singleton=true',
   [coverage]);
  const snapshot=await collectSnapshot(f.pool),generation=GEN,now=Date.now();
- const baseHash=sha('snapshot:'+snapshot.snapshotHash+':'+snapshot.sequence);
  // This isolated fixture is a fully certified empty incremental chain:
  // its checked snapshot starts at the CURRENT outbox cursor.
  const exactHash=createHash('sha256').update('snapshot:'+snapshot.snapshotHash+
