@@ -85,7 +85,7 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
  if(!ID.test(uid||''))throw bad('spark-auth-required');
  const authority=ownerReader||createSparkOwnerReader({firestore,getUser});
  const baseline=rawReader||createSparkLineReader({firestore,getUser,ownerReader:authority});
- let stopped=false,baselineCache=null,baselineKey='';
+ let stopped=false,baselineCache=null,baselineKey='',typedStatusCache=null,typedCacheKey='';
  function guard(){
   if(stopped||getUser()!==initial||initial.uid!==uid)
    throw bad('spark-session-changed');
@@ -107,7 +107,10 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
   if(!result?.exists)throw bad('spark-typed-document-missing');
   return result.data();
  }
- async function readLine(){
+ async function readLine({changedTruckIds=null}={}){
+  if(changedTruckIds!==null&&(!Array.isArray(changedTruckIds)||
+     changedTruckIds.some(id=>!ID.test(id))))
+   throw TypeError('spark-typed-changed-ids-invalid');
   const before=await owner();
   const key=before.generation+':'+before.epoch+':'+before.confirmedSequence;
   // While Firebase is the writer, NAS raw rows are an immutable baseline.
@@ -137,6 +140,13 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
   if(byTruck.size!==source.trucks.length||source.statuses.length>maxTrucks)
    throw bad('spark-typed-duplicate-truck');
   const rawIds=new Set(source.statuses.map(s=>s.id));
+  const incremental=Array.isArray(changedTruckIds)&&typedCacheKey===key&&
+   typedStatusCache instanceof Map&&
+   source.statuses.every(row=>typedStatusCache.has(row.id));
+  const changed=new Set(changedTruckIds||[]);
+  if(changedTruckIds&&changedTruckIds.some(id=>!rawIds.has(id)))
+   throw bad('spark-typed-changed-id-unknown');
+  const nextStatusCache=new Map();
   const statuses=[],reserveLogs=[],operations=[];
   // Firestore Rules disallow list() of typed status docs; fetch only verified IDs
   // in small concurrent groups to avoid large read spikes.
@@ -146,10 +156,13 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
     const truck=byTruck.get(row.id);
     if(!truck||!ID.test(row.id)||!rawIds.has(row.id))
      throw bad('spark-typed-truck-missing');
-    const typed=await doc(path+'status_'+before.generation+'/'+row.id);
+    const typed=incremental&&!changed.has(row.id)?
+     typedStatusCache.get(row.id):
+     await doc(path+'status_'+before.generation+'/'+row.id);
     return {row,truck,typed};
    }));
    for(const {row,truck,typed} of values){
+    nextStatusCache.set(row.id,typed);
     const rendered=validated(typed,truck,before,source.shift.id);
     const arrivals=rendered.events.filter(x=>x.type==='arrive');
     const loads=rendered.events.filter(x=>x.type==='load');
@@ -186,7 +199,7 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
      before.confirmedSequence!==after.confirmedSequence||
      before.reserveSequence!==after.reserveSequence||before.owner!==after.owner)
    throw bad('spark-typed-owner-changed-during-read');
-  baselineCache=source;baselineKey=key;
+  baselineCache=source;baselineKey=key;typedStatusCache=nextStatusCache;typedCacheKey=key;
   return Object.freeze({
    ...source,statuses,logs:[...logs.values()],reserveOperations:operations,
    typedGeneration:before.generation,typedOwnerEpoch:before.epoch
@@ -213,14 +226,14 @@ export function createSparkTypedLineReader({firestore,getUser,ownerReader,rawRea
     // Initial cache/server deliveries often duplicate the first verified read.
     if(!initialized){initialized=true;return;}
     if(s.metadata?.fromCache===true)return;
-    onChange();
+    onChange(id);
    },onError));
   }
   return ()=>{for(const stop of stops)stop();};
  }
  return Object.freeze({
   uid,readLine,readSession:()=>baseline.readSession(),watchStatuses,
-  stop(){stopped=true;baselineCache=null;baselineKey='';
+  stop(){stopped=true;baselineCache=null;baselineKey='';typedStatusCache=null;typedCacheKey='';
    if(!rawReader)baseline.stop();if(!ownerReader)authority.stop();}
  });
 }
