@@ -51,6 +51,13 @@ export function createSparkOwnerReader({firestore,getUser,clock=Date.now}={}){
    !Number.isSafeInteger(o.leaseUntil)||o.leaseUntil<0)
    throw bad('spark-writer-invalid');
   const consistent=o.observedSequence===m.lastSequence;
+  const proof=m.promotionProof;
+  const promotionCertified=o.owner==='synology'&&m.readyForFailover===true&&
+   m.typedProtocol===1&&m.typedSequence===m.lastSequence&&
+   m.accessProtocol===1&&proof?.protocol===2&&
+   proof.writerGate==='sql016'&&proof.epoch===o.epoch&&
+   proof.sequence===m.lastSequence&&proof.hash===m.hash&&
+   proof.generation===m.generation&&consistent;
   const reserveActive=o.owner==='firebase'&&o.holder==='firebase_reserve'&&
    m.readyForFailover===true&&consistent;
   if(o.owner==='firebase'&&!reserveActive)throw bad('spark-reserve-not-certified');
@@ -60,7 +67,8 @@ export function createSparkOwnerReader({firestore,getUser,clock=Date.now}={}){
    format:'samosval-owner-status',version:1,projectId:'samosval-offline',
    owner:o.owner,epoch:o.epoch,generation:m.generation,
    confirmedSequence:m.lastSequence,reserveSequence:o.reserveSequence||0,
-   readyForFailover:reserveActive,lag:Math.max(0,o.observedSequence-m.lastSequence),
+   readyForFailover:reserveActive,promotionCertified,
+   leaseUntil:o.leaseUntil,lag:Math.max(0,o.observedSequence-m.lastSequence),
    checkedAt:clock(),source:'spark-firestore'
   });
  }
