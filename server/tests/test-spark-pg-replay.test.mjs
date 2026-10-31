@@ -7,6 +7,10 @@ import {REPLICA_DOC,canonical} from '../src/test-replica.mjs';
 import {OWNER_DOC} from '../src/test-writer-coordinator.mjs';
 import {beginSparkTypedRecovery,startSparkPostgresReplay,
  replaySparkPostgresNext} from '../src/test-spark-pg-replay.mjs';
+import {stageSparkTypedHandback,completeSparkTypedHandback}
+ from '../src/test-spark-handback.mjs';
+import {claimNasOwnership,promoteTestReserve}
+ from '../src/test-writer-coordinator.mjs';
 
 const enabled=Boolean(process.env.TEST_DATABASE_URL);
 const sqltest=(name,fn)=>test(name,{skip:!enabled},fn);
@@ -15,7 +19,7 @@ const GEN='0123456789abcdef01234567',H='a'.repeat(64),
 const sha=x=>createHash('sha256').update(canonical(x)).digest('hex');
 const ts=millis=>({toMillis:()=>millis});
 class MemoryFirestore{
- constructor(){this.docs=new Map();this.collectionReads=0;}
+ constructor(){this.docs=new Map();this.collectionReads=0;this.loseAck=false;}
  doc(path){return{path,get:async()=>({exists:this.docs.has(path),
   data:()=>this.docs.get(path)})};}
  collection(path){return{get:async()=>{this.collectionReads++;
@@ -23,12 +27,21 @@ class MemoryFirestore{
    .filter(([key])=>key.startsWith(path+'/'))
    .map(([key,value])=>({id:key.slice(path.length+1),data:()=>value}))};
  }};}
+ batch(){
+  const writes=[];
+  return {set:(ref,value)=>writes.push([ref.path,value]),
+   commit:async()=>{for(const [path,value] of writes)this.docs.set(path,value);}};
+ }
  async runTransaction(fn){
   const writes=[];
   const tx={get:async ref=>this.doc(ref.path).get(),
-   update:(ref,value)=>writes.push([ref.path,value])};
+   set:(ref,value)=>writes.push(['set',ref.path,value]),
+   update:(ref,value)=>writes.push(['update',ref.path,value])};
   const result=await fn(tx);
-  for(const [key,value] of writes)this.docs.set(key,{...this.docs.get(key),...value});
+  for(const [mode,key,value] of writes){
+   this.docs.set(key,mode==='set'?value:{...this.docs.get(key),...value});
+  }
+  if(this.loseAck){this.loseAck=false;throw Error('simulated-firestore-lost-ack');}
   return result;
  }
 }
@@ -199,4 +212,98 @@ sqltest('recovery refuses unconfirmed baseline or missing NAS fence without any 
  await assert.rejects(beginSparkTypedRecovery(opts(f)),/spark-replay-nas-base-diverged/);
  assert.equal((await f.pool.query('SELECT count(*)::int AS n FROM reserve_spark_replay_checkpoint')).rows[0].n,0);
  assert.equal(f.db.docs.get(OWNER_DOC).owner,'firebase');
+}));
+
+sqltest('typed handback publishes fully verified raw, typed and ACL generation before claiming NAS',async()=>withIsolatedDatabase(async f=>{
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ for(let i=0;i<3;i++)await replaySparkPostgresNext(opts(f));
+ const sourceGen=f.db.docs.get(REPLICA_DOC).generation;
+ const stage=await stageSparkTypedHandback(opts(f));
+ assert.equal(stage.staged,true);
+ assert.equal(stage.events,3);
+ assert.notEqual(stage.generation,sourceGen);
+ const meta=f.db.docs.get(REPLICA_DOC),owner=f.db.docs.get(OWNER_DOC);
+ assert.equal(meta.typedProtocol,1);
+ assert.equal(meta.accessProtocol,1);
+ assert.equal(meta.readyForFailover,false);
+ assert.equal(meta.typedSequence,meta.lastSequence);
+ assert.equal(owner.owner,'handoff');
+ assert.equal(owner.recovery.status,'staged');
+ assert.equal(owner.recovery.manifestHash.length,64);
+ assert.deepEqual(owner.pending,{});
+ const prefix=REPLICA_DOC+'/';
+ const typed=f.db.docs.get(prefix+'typed_status_'+meta.generation+'/truckA');
+ assert.equal(typed.cycleRevision,5);
+ assert.equal(typed.ttnStatus,true);
+ assert.deepEqual(typed.reserveHistory,{});
+ const access=f.db.docs.get(prefix+'access_'+meta.generation+'/'+UID);
+ assert.equal(access.uid,UID);
+ assert.equal(access.active,true);
+ assert.equal(access.lineRead,true);
+ assert.ok(access.permissions.actions.includes('action_load'));
+ const receiptBefore=(await f.pool.query('SELECT sequence::text AS n FROM reserve_replica_receipt WHERE singleton=true')).rows[0].n;
+ assert.notEqual(Number(receiptBefore),meta.lastSequence,'remote generation not yet acknowledged locally');
+ await assert.rejects(promoteTestReserve({firestore:f.db,projectId:'samosval-offline',
+  expectedEpoch:owner.epoch,now:Date.now()+180000}),
+  /writer-promotion-epoch-changed|writer-reserve-not-ready/);
+ const done=await completeSparkTypedHandback(opts(f));
+ assert.equal(done.completed,true);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'synology');
+ assert.equal(f.db.docs.get(OWNER_DOC).holder,'nas_handoff_pending');
+ assert.equal(f.db.docs.get(OWNER_DOC).recovery.status,'completed');
+ const receipt=(await f.pool.query('SELECT sequence::text AS n,hash FROM reserve_replica_receipt WHERE singleton=true')).rows[0];
+ assert.equal(Number(receipt.n),meta.lastSequence);
+ assert.equal(receipt.hash,meta.hash);
+ const claim=await claimNasOwnership({firestore:f.db,projectId:'samosval-offline',
+  nodeId:'fresh_nas_handoff_worker',checkpoint:{
+   sequence:meta.lastSequence,hash:meta.hash},now:Date.now()});
+ assert.equal(claim.epoch,f.db.docs.get(OWNER_DOC).epoch);
+ assert.equal((await completeSparkTypedHandback(opts(f))).resumed,true);
+ assert.equal(await count(f.pool,'line_operation_receipts'),3,'no replayed operations duplicated');
+}));
+sqltest('typed handback rejects incomplete SQL replay, then resumes after all events',async()=>withIsolatedDatabase(async f=>{
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ await replaySparkPostgresNext(opts(f));
+ await assert.rejects(stageSparkTypedHandback(opts(f)),/spark-handback-replay-not-complete/);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'reconciling');
+ for(let i=1;i<3;i++)await replaySparkPostgresNext(opts(f));
+ assert.equal((await stageSparkTypedHandback(opts(f))).staged,true);
+}));
+sqltest('typed handback survives lost Firestore ACK without creating another generation',async()=>withIsolatedDatabase(async f=>{
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ for(let i=0;i<3;i++)await replaySparkPostgresNext(opts(f));
+ f.db.loseAck=true;
+ await assert.rejects(stageSparkTypedHandback(opts(f)),/simulated-firestore-lost-ack/);
+ const generation=f.db.docs.get(REPLICA_DOC).generation;
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'handoff');
+ const resumed=await stageSparkTypedHandback(opts(f));
+ assert.equal(resumed.resumed,true);
+ assert.equal(resumed.generation,generation);
+ assert.equal((await completeSparkTypedHandback(opts(f))).completed,true);
+}));
+sqltest('typed handback blocks tampered Firebase projection without advancing NAS receipt',async()=>withIsolatedDatabase(async f=>{
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ for(let i=0;i<3;i++)await replaySparkPostgresNext(opts(f));
+ await stageSparkTypedHandback(opts(f));
+ const meta=f.db.docs.get(REPLICA_DOC);
+ const path=REPLICA_DOC+'/typed_status_'+meta.generation+'/truckA';
+ f.db.docs.set(path,{...f.db.docs.get(path),cycleRevision:1234});
+ await assert.rejects(completeSparkTypedHandback(opts(f)),/spark-handback-document-diverged/);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'handoff');
+ const receipt=(await f.pool.query('SELECT sequence::text AS n FROM reserve_replica_receipt WHERE singleton=true')).rows[0].n;
+ assert.notEqual(Number(receipt),meta.lastSequence);
+}));
+sqltest('typed handback blocks unexpected SQL changes after staging',async()=>withIsolatedDatabase(async f=>{
+ await beginSparkTypedRecovery(opts(f));
+ await startSparkPostgresReplay(opts(f));
+ for(let i=0;i<3;i++)await replaySparkPostgresNext(opts(f));
+ await stageSparkTypedHandback(opts(f));
+ await f.pool.query("UPDATE workspaces SET cycle_minutes=61 WHERE id='main_workspace'");
+ await assert.rejects(completeSparkTypedHandback(opts(f)),
+  /spark-handback-replay-not-complete/);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'handoff');
 }));
