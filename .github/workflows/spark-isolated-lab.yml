@@ -1,0 +1,45 @@
+name: TEST Spark isolated NAS-like lab (synthetic data only)
+on:
+  push:
+    branches: [feature/test-replication-20261030]
+    paths:
+      - "server/Dockerfile.spark-lab"
+      - "server/compose.spark-lab.test.yaml"
+      - "server/scripts/run-spark-isolated-lab.mjs"
+      - "server/scripts/verify-spark-lab-compose.mjs"
+      - "server/src/**"
+      - "server/sql/**"
+      - "server/tests/test-spark-*"
+      - "server/tests/test-writer-coordinator.test.mjs"
+      - "server/package*.json"
+      - "test-app/synology/**"
+      - ".github/workflows/spark-isolated-lab.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  disposable-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate isolated Compose — no volumes, host ports or live credentials
+        run: |
+          docker compose -p samosval-spark-lab -f server/compose.spark-lab.test.yaml config --format json >/tmp/spark-lab.json
+          node server/scripts/verify-spark-lab-compose.mjs /tmp/spark-lab.json
+      - name: Start disposable PostgreSQL16 and exercise SQL/owner/phone-client flow
+        run: |
+          docker compose -p samosval-spark-lab -f server/compose.spark-lab.test.yaml up --build --abort-on-container-exit --exit-code-from runner
+      - name: Always destroy temporary DB and containers
+        if: always()
+        run: |
+          docker compose -p samosval-spark-lab -f server/compose.spark-lab.test.yaml down --volumes --remove-orphans || true
+      - name: Record safety boundary
+        if: always()
+        run: |
+          echo "Synthetic test-only database; no NAS credentials, no host volumes, no ports, no live Firebase, no production update." >> "$GITHUB_STEP_SUMMARY"
