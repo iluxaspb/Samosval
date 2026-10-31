@@ -11,7 +11,7 @@ const snap=s=>s?.exists?s.data():null;
 const hex=s=>typeof s==='string'&&/^[0-9a-f]{64}$/.test(s);
 function validateReconcile(o,m){
  const r=o?.recovery;
- if(o?.owner!=='reconciling'||r?.status!=='applied'||
+ if(m?.typedProtocol===1||o?.owner!=='reconciling'||r?.status!=='applied'||
    r.appliedSequence!==r.targetSequence||r.appliedHash!==r.targetHash||
    r.generation!==m?.generation||r.baseHash!==m?.hash||
    r.baseSequence!==m?.lastSequence||m.readyForFailover!==true)
