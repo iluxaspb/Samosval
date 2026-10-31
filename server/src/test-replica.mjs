@@ -2,6 +2,8 @@
 // This namespace is NOT the legacy application Firestore schema or a failover endpoint.
 // The server must never enable Firebase business writes based on these checkpoints alone.
 import {createHash, randomUUID} from 'node:crypto';
+import {Timestamp} from 'firebase-admin/firestore';
+import {buildSparkTypedLineSnapshot,sparkTypedPaths} from './test-spark-typed.mjs';
 import {assertSparkBootstrapBudget,SPARK_STANDARD_FREE_LIMITS} from './test-spark-limits.mjs';
 import {accessRowsFromMirrorSnapshot,sparkAccessRef,needsSparkAccessRefresh,
  collectSparkAccessFromPostgres,affectedSparkAccessUids} from './test-spark-access.mjs';
@@ -183,7 +185,10 @@ async function bootstrap(pool,db){
  // project-wide Spark headroom for existing TEST operators and their queues.
  const generation=sha256(randomUUID()).slice(0,24),metaRef=db.doc(REPLICA_DOC);
  const access=accessRowsFromMirrorSnapshot(snapshot,generation);
- assertSparkBootstrapBudget(snapshot.rows.length+access.length);
+ const typed=buildSparkTypedLineSnapshot({snapshot,generation,
+  fromMillis:ms=>Timestamp.fromMillis(ms)});
+ assertSparkBootstrapBudget(snapshot.rows.length+access.length+
+  typed.trucks.size+typed.statuses.size+1);
  for(let start=0;start<snapshot.rows.length;){
   const batch=db.batch();let total=0,count=0;
   for(const row of snapshot.rows.slice(start,start+CHUNK)){
@@ -194,6 +199,24 @@ async function bootstrap(pool,db){
    total+=bytes;count++;
   }
   await batch.commit();start+=count;
+ }
+ // Stage a typed LINE generation; it remains non-writable while NAS owns
+ // the data. The metadata pointer is not published until typed rows are
+ // fully committed and verified just like the raw PostgreSQL mirror.
+ const typedPaths=sparkTypedPaths(generation);
+ const typedEntries=[[typedPaths.config,typed.config],
+  ...[...typed.trucks].map(([id,row])=>[typedPaths.truck(id),row]),
+  ...[...typed.statuses].map(([id,row])=>[typedPaths.status(id),row])];
+ for(let start=0;start<typedEntries.length;start+=CHUNK){
+  const batch=db.batch();
+  for(const [path,row] of typedEntries.slice(start,start+CHUNK))
+   batch.set(db.doc(path),row);
+  await batch.commit();
+ }
+ for(const [path,row] of typedEntries){
+  const saved=await db.doc(path).get();
+  if(!saved.exists||canonical(saved.data())!==canonical(row))
+   throw Error('replica-typed-snapshot-integrity-failed');
  }
  // Access projection is private per Firebase UID. Keep it unreferenced until
  // all pages and ACLs have been independently verified. A role is never
@@ -231,6 +254,7 @@ async function bootstrap(pool,db){
   generation,snapshotHash:snapshot.snapshotHash,baseSequence:snapshot.sequence,
   baseHash,lastSequence:snapshot.sequence,hash:baseHash,
   rowCount:snapshot.rows.length,accessProtocol:1,accessCount:access.length,
+  typedProtocol:1,typedSequence:snapshot.sequence,
   readyForFailover:false,updatedAt:Date.now()};
  await db.runTransaction(async tx=>{
   const old=await tx.get(metaRef);
