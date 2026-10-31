@@ -138,7 +138,7 @@ export async function collectSnapshot(pool){
   sequence=int((await c.query('SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true')).rows[0]?.n);
   const names=(await c.query(
    "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN "+
-   "('reserve_outbox_cursor','reserve_replica_outbox','reserve_replica_receipt','migration_probe_evidence') ORDER BY tablename"
+   "('reserve_outbox_cursor','reserve_replica_outbox','reserve_replica_receipt','migration_probe_evidence','reserve_spark_replay_checkpoint','reserve_spark_log_aliases') ORDER BY tablename"
   )).rows.map(x=>x.tablename).sort();
   if(canonical(names)!==canonical([...MIRROR_TABLES].sort()))throw Error('replica-inventory-mismatch');
   for(const table of MIRROR_TABLES){
