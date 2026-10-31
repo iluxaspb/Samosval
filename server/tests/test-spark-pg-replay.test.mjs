@@ -384,6 +384,11 @@ sqltest('SQL 016 arms a global fence on all business tables: only scoped, correc
   "SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='spark_writer_gate' AND NOT tgisinternal"
  );
  assert.equal(triggers.rows[0].n,39,'every tracked business table is fenced');
+ const truncateTriggers=await f.pool.query(
+  "SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='spark_writer_gate_truncate' AND NOT tgisinternal"
+ );
+ assert.equal(truncateTriggers.rows[0].n,39,
+  'TRUNCATE must be fenced separately because PostgreSQL skips row triggers');
  const tables=await f.pool.query(
   "SELECT c.relname AS table_name FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE t.tgname='spark_writer_gate'"
  );
@@ -397,6 +402,9 @@ sqltest('SQL 016 arms a global fence on all business tables: only scoped, correc
  const update=()=>f.pool.query("UPDATE workspaces SET cycle_minutes=61 WHERE id='main_workspace'");
  await assert.rejects(update(),/spark-fence-permit-required/,
   'a background writer without a live permit must never change SQL');
+ await assert.rejects(f.pool.query('TRUNCATE TABLE public.workspaces CASCADE'),
+  /spark-fence-truncate-forbidden/,
+  'a mass deletion must not bypass the row triggers');
  const badPermit={epoch:6,permitId:'expired_permit_12345'};
  await assert.rejects(withNasWriterPermit(badPermit,async()=>{
   const c=await f.pool.connect();
@@ -418,6 +426,18 @@ sqltest('SQL 016 arms a global fence on all business tables: only scoped, correc
  });
  assert.equal((await f.pool.query(
   "SELECT cycle_minutes FROM workspaces WHERE id='main_workspace'")).rows[0].cycle_minutes,61);
+ // Even a legitimate one-operation row permit never authorizes bulk erase.
+ const truncateClient=await f.pool.connect();
+ try{
+  await truncateClient.query('BEGIN');
+  await truncateClient.query("SELECT set_config('samosval.writer_permit_id', 'leased_operation_123456', true)");
+  await truncateClient.query("SELECT set_config('samosval.writer_epoch', '7', true)");
+  await assert.rejects(truncateClient.query('TRUNCATE TABLE public.workspaces CASCADE'),
+   /spark-fence-truncate-forbidden/);
+ }finally{
+  await truncateClient.query('ROLLBACK').catch(()=>{});
+  truncateClient.release();
+ }
  await assert.rejects(f.pool.query(
   "UPDATE workspaces SET cycle_minutes=62 WHERE id='main_workspace'"),
   /spark-fence-permit-required/,'SET LOCAL cannot leak through a reused pg connection');
@@ -488,6 +508,15 @@ sqltest('SQL 016 + full remote raw, ACL and typed proof can seal readiness and l
  await assert.rejects(promoteTestReserve({firestore:f.db,projectId:'samosval-offline',
   expectedEpoch:7,now:fixture.now+90002}),/writer-promotion-epoch-changed/);
 }));
+sqltest('certificate refuses a missing TRUNCATE trigger even if row write guards remain', 
+ async()=>withIsolatedDatabase(async f=>{
+  const fixture=await promotionFixture(f);
+  await f.pool.query('DROP TRIGGER spark_writer_gate_truncate ON public.workspaces');
+  await assert.rejects(inspectSparkPromotionReadiness({...opts(f),now:fixture.now}),
+   /spark-certify-global-fence-inventory-diverged/);
+  assert.equal(f.db.docs.get(REPLICA_DOC).readyForFailover,false);
+  assert.equal(f.db.docs.get(OWNER_DOC).owner,'synology');
+ }));
 sqltest('certificate rejects incomplete fence, forged reserve projection, pending permits and SQL drift',
  async()=>withIsolatedDatabase(async f=>{
  const fixture=await promotionFixture(f,{coverage:false});
