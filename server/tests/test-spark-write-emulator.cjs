@@ -205,7 +205,7 @@ test('load is tied to arrival and written with an immutable log and receipt',asy
  assert.equal(status.cycleRevision,2);
  assert.equal(status.arrivedAt,null);
  assert.equal(status.lastLogId,'load_loading02');
- const log=(await getDoc(doc(alice,ROOT+'/typed_logs_'+G+'/load_loading02'))).data();
+ const log=(await getDoc(doc(alice,ROOT+'/typed_ops_'+G+'/loading02'))).data();
  assert.equal(log.uid,'operatorA');
  assert.equal(log.volume,24);
  assert.equal(log.shiftId,'shift1');
@@ -223,9 +223,15 @@ test('two operators racing to load the same arrival yield exactly one log',async
  const status=(await getDoc(doc(alice,STATE))).data();
  assert.equal(status.cycleRevision,2);
  assert.ok(['load_by_A','load_by_B'].includes(status.lastOperationId));
- const firstLog=await getDoc(doc(alice,ROOT+'/typed_logs_'+G+'/load_load_by_A'));
- const secondLog=await getDoc(doc(alice,ROOT+'/typed_logs_'+G+'/load_load_by_B'));
- assert.equal(Number(firstLog.exists())+Number(secondLog.exists()),1);
+ // Only the actor can read an operation receipt. Use the privileged test
+ // context to verify that exactly one immutable load ledger entry exists.
+ const count=await env.withSecurityRulesDisabled(async ctx=>{
+  const f=ctx.firestore();
+  const a=await getDoc(doc(f,ROOT+'/typed_ops_'+G+'/load_by_A'));
+  const b=await getDoc(doc(f,ROOT+'/typed_ops_'+G+'/load_by_B'));
+  return Number(a.exists())+Number(b.exists());
+ });
+ assert.equal(count,1);
 });
 test('same operator ID is idempotent, but it cannot be reused with changed intent',async()=>{
  const writer=make(alice,'operatorA'),op=arrive('arrival04');
