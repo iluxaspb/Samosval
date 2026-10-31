@@ -97,6 +97,31 @@ async function readAppliedProof(pool,recovery,newReceipt=null){
  }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
  finally{c.release();}
 }
+// Hold the SQL outbox cursor row lock during the brief Firestore owner
+// transition. Business SQL commits use this same lock through the outbox
+// trigger, so a NAS write cannot slip between the last check and handback.
+async function withPgOutboxFence(pool,expectedSequence,commitRemote){
+ const c=await pool.connect();
+ try{
+  await c.query('BEGIN');
+  const name=(await c.query('SELECT current_database() AS name')).rows[0]?.name;
+  if(name!=='samosval_test'&&!/^sc_verify_[0-9]+$/.test(name||''))
+   throw bad('spark-handback-test-database-required');
+  const checkpoint=(await c.query(
+   'SELECT state,outbox_sequence::text AS sequence FROM reserve_spark_replay_checkpoint WHERE singleton=true FOR SHARE'
+  )).rows[0];
+  const head=Number((await c.query(
+   'SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true FOR UPDATE'
+  )).rows[0]?.n);
+  if(checkpoint?.state!=='applied'||head!==expectedSequence||
+     Number(checkpoint.sequence)!==expectedSequence)
+   throw bad('spark-handback-outbox-changed-at-cutover');
+  const value=await commitRemote();
+  await c.query('COMMIT');
+  return value;
+ }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
+ finally{c.release();}
+}
 function buildDocuments(snapshot,generation,firestore){
  const typed=buildSparkTypedLineSnapshot({snapshot,generation,
   fromMillis:ms=>Timestamp.fromMillis(ms)});
@@ -224,7 +249,7 @@ export async function stageSparkTypedHandback({firestore,projectId,pool,now=Date
   rowCount:snapshot.rows.length,accessProtocol:1,
   accessCount:entries.accessCount,typedProtocol:1,
   typedSequence:snapshot.sequence,readyForFailover:false,updatedAt:now};
- await firestore.runTransaction(async tx=>{
+ await withPgOutboxFence(pool,snapshot.sequence,()=>firestore.runTransaction(async tx=>{
   const [ms,os]=await Promise.all([
    tx.get(firestore.doc(REPLICA_DOC)),tx.get(firestore.doc(OWNER_DOC))]);
   const old=snap(ms),owner=snap(os);
@@ -247,7 +272,7 @@ export async function stageSparkTypedHandback({firestore,projectId,pool,now=Date
     newGeneration:generation,newSequence:snapshot.sequence,
     newHash:baseHash,newSnapshotHash:snapshot.snapshotHash,stagedAt:now}
   });
- });
+ }));
  return {staged:true,resumed:false,generation,sequence:snapshot.sequence,
   documents:entries.documents.length,events:proof.count};
 }
@@ -262,10 +287,7 @@ export async function completeSparkTypedHandback({firestore,projectId,pool,
  // If the previous attempt wrote the SQL receipt but its ACK vanished,
  // this monotonic receipt update remains idempotent on retry.
  await storeReceipt(pool,m.lastSequence,m.hash);
- const head=Number((await pool.query(
-  'SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true')).rows[0]?.n);
- if(head!==snapshot.sequence)throw bad('spark-handback-postgres-changed');
- await firestore.runTransaction(async tx=>{
+ await withPgOutboxFence(pool,snapshot.sequence,()=>firestore.runTransaction(async tx=>{
   const [ms,os]=await Promise.all([
    tx.get(firestore.doc(REPLICA_DOC)),tx.get(firestore.doc(OWNER_DOC))]);
   const currentMeta=snap(ms),owner=snap(os);
@@ -282,7 +304,7 @@ export async function completeSparkTypedHandback({firestore,projectId,pool,
    updatedAt:now,pending:{},observedSequence:m.lastSequence,
    recovery:{...r,status:'completed',completedAt:now}
   });
- });
+ }));
  return {completed:true,resumed:false,generation:m.generation,
   sequence:m.lastSequence};
 }
