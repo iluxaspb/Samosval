@@ -87,11 +87,12 @@
       if(isTestAutoNasRuntime()){
         // Dedicated opt-in HTML candidate ONLY. Uses Firebase Web SDK
         // directly; no reserve HTTPS URL, Cloud Run, or auto-promotion.
-        const [ownerModule,readerModule,writerModule,routerModule]=await Promise.all([
+        const [ownerModule,readerModule,writerModule,routerModule,promoterModule]=await Promise.all([
           import(new URL('./test-app/synology/spark-owner.mjs',document.baseURI).href),
           import(new URL('./test-app/synology/spark-typed-line-reader.mjs',document.baseURI).href),
           import(new URL('./test-app/synology/spark-line-writer.mjs',document.baseURI).href),
-          import(new URL('./test-app/synology/spark-auto-line-client.mjs',document.baseURI).href)
+          import(new URL('./test-app/synology/spark-auto-line-client.mjs',document.baseURI).href),
+          import(new URL('./test-app/synology/spark-client-promoter.mjs',document.baseURI).href)
         ]);
         if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid){client.stop();return;}
         const getUser=()=>auth.currentUser;
@@ -99,8 +100,11 @@
         const reader=readerModule.createSparkTypedLineReader({firestore:db,getUser,ownerReader:authority});
         const writer=writerModule.createSparkLineWriter({firestore:db,getUser,
           serverTimestamp:()=>firebase.firestore.FieldValue.serverTimestamp()});
+        const promoter=promoterModule.createSparkClientPromoter({
+          firestore:db,getUser,ownerReader:authority
+        });
         client=routerModule.createSparkAutoLineClient({
-          nasClient:client,reader,writer,ownerReader:authority,firestore:db,getUser,
+          nasClient:client,reader,writer,promoter,ownerReader:authority,firestore:db,getUser,
           onProviderChange:()=>{
             if(epoch===nasRuntimeEpoch&&nasRuntimeClient===client){updateSyncUI();renderTestBackendControls();}
           }
