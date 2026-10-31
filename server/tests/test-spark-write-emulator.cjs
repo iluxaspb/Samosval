@@ -113,10 +113,23 @@ test('legitimate arrive creates exactly one immutable operation and status',asyn
   try{
    const resp=await fetch('http://127.0.0.1:8089/emulator/v1/projects/demo-samosval-spark-ci:ruleCoverage');
    const json=await resp.json();
-   const keys=Object.keys(json);
-   console.error('SPARK_RULE_COVERAGE_KEYS',keys.join(','));
-   const tail=JSON.stringify(json).slice(-6500);
-   console.error('SPARK_RULE_COVERAGE_TAIL',tail);
+   const entries=[];
+   const walk=x=>{
+    if(Array.isArray(x)){for(const item of x)walk(item);return;}
+    if(!x||typeof x!=='object')return;
+    if(x.sourcePosition?.line>=365&&x.sourcePosition?.line<=579&&Array.isArray(x.values)){
+     const falseCount=x.values.filter(v=>v.value?.boolValue===false).reduce((a,b)=>a+(b.count||0),0);
+     const trueCount=x.values.filter(v=>v.value?.boolValue===true).reduce((a,b)=>a+(b.count||0),0);
+     if(falseCount||trueCount)entries.push([x.sourcePosition.line,x.sourcePosition.column,falseCount,trueCount]);
+    }
+    for(const [name,value] of Object.entries(x))
+     if(name!=='values'&&name!=='sourcePosition')walk(value);
+   };
+   walk(json.rules);
+   console.error('SPARK_RULE_COVERAGE_FALSE',
+    JSON.stringify(entries.filter(x=>x[2]>0).sort((a,b)=>a[0]-b[0]).slice(-120)));
+   console.error('SPARK_RULE_COVERAGE_TRUE',
+    JSON.stringify(entries.filter(x=>x[3]>0).sort((a,b)=>a[0]-b[0]).slice(-55)));
   }catch(e){console.error('SPARK_RULE_COVERAGE_UNAVAILABLE',e.message);}
   throw error;
  }
