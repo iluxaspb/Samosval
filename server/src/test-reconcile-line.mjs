@@ -25,11 +25,11 @@ export async function readNasReplayBaseline(pool){
  const c=await pool.connect();
  try{
   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-  const [db,head,receipt]=await Promise.all([
-   c.query('SELECT current_database() AS name'),
-   c.query('SELECT last_sequence::text AS seq FROM reserve_outbox_cursor WHERE singleton=true'),
-   c.query('SELECT sequence::text AS seq, hash FROM reserve_replica_receipt WHERE singleton=true')
-  ]);
+  // pg.Client does not support overlapping queries inside one transaction.
+  // Keep all baseline reads in the same repeatable-read snapshot, serially.
+  const db=await c.query('SELECT current_database() AS name');
+  const head=await c.query('SELECT last_sequence::text AS seq FROM reserve_outbox_cursor WHERE singleton=true');
+  const receipt=await c.query('SELECT sequence::text AS seq, hash FROM reserve_replica_receipt WHERE singleton=true');
   if(db.rows[0]?.name!=='samosval_test'&&
    !/^sc_verify_[0-9]+$/.test(db.rows[0]?.name||''))
    throw fail('reconcile-test-db-required');
