@@ -3,7 +3,8 @@
 // The server must never enable Firebase business writes based on these checkpoints alone.
 import {createHash, randomUUID} from 'node:crypto';
 import {Timestamp} from 'firebase-admin/firestore';
-import {buildSparkTypedLineSnapshot,sparkTypedPaths} from './test-spark-typed.mjs';
+import {buildSparkTypedLineSnapshot,sparkTypedPaths,needsSparkTypedRefresh,
+ sparkTypedChangesFromEvents} from './test-spark-typed.mjs';
 import {assertSparkBootstrapBudget,SPARK_STANDARD_FREE_LIMITS} from './test-spark-limits.mjs';
 import {accessRowsFromMirrorSnapshot,sparkAccessRef,needsSparkAccessRefresh,
  collectSparkAccessFromPostgres,affectedSparkAccessUids} from './test-spark-access.mjs';
@@ -330,6 +331,12 @@ export async function replicateOnce({pool,firestore,projectId}){
   throw Error('replica-spark-access-source-behind');
  const changedUids=accessUpdate?affectedSparkAccessUids(rows,accessUpdate.projection):[];
  const accessByUid=accessUpdate?new Map(accessUpdate.projection.map(x=>[x.uid,x])):null;
+ const typedSnapshot=needsSparkTypedRefresh(rows)?await collectSnapshot(pool):null;
+ if(typedSnapshot&&typedSnapshot.sequence<latest)
+  throw Error('replica-spark-typed-source-behind');
+ const typedUpdates=typedSnapshot?sparkTypedChangesFromEvents({events:rows,
+  snapshot:typedSnapshot,generation:remote.generation,
+  fromMillis:ms=>Timestamp.fromMillis(ms)}):[];
  const ref=firestore.doc(REPLICA_DOC);
  await firestore.runTransaction(async tx=>{
   const [snap,ownership]=await Promise.all([tx.get(ref),tx.get(firestore.doc(OWNER_DOC))]);
@@ -359,7 +366,18 @@ export async function replicateOnce({pool,firestore,projectId}){
    if(update)tx.set(aclRef,update);
    else tx.delete(aclRef);
   }
-  tx.update(ref,{lastSequence:latest,hash,updatedAt:Date.now(),readyForFailover:false});
+  for(const entry of typedUpdates){
+   const target=firestore.doc(entry.path);
+   if(entry.value===null)tx.delete(target);
+   else tx.set(target,validateRowSize(entry.value));
+  }
+  // typedSequence may intentionally be ahead if the PostgreSQL snapshot
+  // included later in-flight outbox events. No browser write is authorized
+  // until the mirror head catches up and the generation is certified.
+  const typedSequence=typedSnapshot?typedSnapshot.sequence:
+   Math.max(Number(m.typedSequence||0),latest);
+  tx.update(ref,{lastSequence:latest,hash,typedSequence,
+   updatedAt:Date.now(),readyForFailover:false});
  });
  // If the Firebase commit succeeded but the reply was lost, the next tick
  // verifies the exact remote journal chain before acknowledging locally.
