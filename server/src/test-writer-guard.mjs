@@ -63,31 +63,36 @@ export function startNasWriterFence({pool,projectId,env=process.env,
  let closed=false,timer=null,inFlight=null;
  async function renew(){
   if(closed)throw Error('writer-fence-stopped');
-  nasWriterFenceRuntime.epoch=null;
-  nasWriterFenceRuntime.leaseUntil=null;
-  // Reject startup even before claiming Firestore ownership if SQL 016
-  // was never installed/armed on this isolated TEST database.
-  await assertSqlWriterGate(pool);
-  const result=await pool.query('SELECT sequence,hash FROM reserve_replica_receipt WHERE singleton=true');
-  const raw=result.rows?.[0],sequence=Number(raw?.sequence);
-  if(!raw||!Number.isSafeInteger(sequence)||sequence<0||
-   !/^[0-9a-f]{64}$/.test(raw.hash||''))throw Error('writer-confirmed-receipt-required');
-  const latest=await pool.query('SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true');
-  const headSequence=Number(latest.rows?.[0]?.n);
-  if(!Number.isSafeInteger(headSequence)||headSequence<sequence)
-   throw Error('writer-invalid-nas-head');
-  const stamp=clock();
-  const lease=await claimNasOwnership({firestore:await getDb(),projectId,
-   nodeId,checkpoint:{sequence,hash:raw.hash},headSequence,now:stamp});
-  // In particular, a handback that increments the Firestore epoch cannot
-  // silently resume NAS writes against an older local SQL gate. An explicit
-  // separately verified SQL epoch rebind is required before serving traffic.
-  await assertSqlWriterGate(pool,lease.epoch);
-  nasWriterFenceRuntime.epoch=lease.epoch;
-  nasWriterFenceRuntime.leaseUntil=lease.leaseUntil;
-  nasWriterFenceRuntime.lastConfirmedAt=stamp;
-  nasWriterFenceRuntime.lastError=null;
-  return lease;
+  try{
+   // A healthy lease stays usable during its ordinary renewal. Each new
+   // write independently checks Firestore and SQL 016; never interrupt
+   // traffic just because the scheduled heartbeat is still in flight.
+   await assertSqlWriterGate(pool);
+   const result=await pool.query('SELECT sequence,hash FROM reserve_replica_receipt WHERE singleton=true');
+   const raw=result.rows?.[0],sequence=Number(raw?.sequence);
+   if(!raw||!Number.isSafeInteger(sequence)||sequence<0||
+    !/^[0-9a-f]{64}$/.test(raw.hash||''))throw Error('writer-confirmed-receipt-required');
+   const latest=await pool.query('SELECT last_sequence::text AS n FROM reserve_outbox_cursor WHERE singleton=true');
+   const headSequence=Number(latest.rows?.[0]?.n);
+   if(!Number.isSafeInteger(headSequence)||headSequence<sequence)
+    throw Error('writer-invalid-nas-head');
+   const stamp=clock();
+   const lease=await claimNasOwnership({firestore:await getDb(),projectId,
+    nodeId,checkpoint:{sequence,hash:raw.hash},headSequence,now:stamp});
+   // A handback must not resume SQL writes until the local gate is rebound
+   // to the independently verified, new Firestore NAS epoch.
+   await assertSqlWriterGate(pool,lease.epoch);
+   nasWriterFenceRuntime.epoch=lease.epoch;
+   nasWriterFenceRuntime.leaseUntil=lease.leaseUntil;
+   nasWriterFenceRuntime.lastConfirmedAt=stamp;
+   nasWriterFenceRuntime.lastError=null;
+   return lease;
+  }catch(error){
+   nasWriterFenceRuntime.epoch=null;
+   nasWriterFenceRuntime.leaseUntil=null;
+   nasWriterFenceRuntime.lastError=boundedError(error);
+   throw error;
+  }
  }
  async function loop(){
   if(closed)return;
