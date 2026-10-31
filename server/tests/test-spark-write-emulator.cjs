@@ -47,7 +47,7 @@ beforeEach(async()=>{
    sourceSequence:23,id:'truck1',shiftId:'shift1',onLine:true,
    cycleRevision:0,ttnRevision:0,arrivedAt:null,lastLoadAt:null,
    lastLogId:'',lastOperationId:'',lastActionType:'',lastActorUid:'',
-   loadedAfterArrive:false
+   loadedAfterArrive:false,reserveHistory:{}
   });
   for(const uid of ['operatorA','operatorB']){
    await setDoc(doc(db,ACCESS+'/'+uid),{
@@ -95,8 +95,7 @@ test('transaction preflight can read existing typed documents and probe missing 
  for(const path of [
   ROOT, 'samosval_test_replica/write_owner',
   CONFIG,TRUCK,STATE,
-  ACCESS+'/operatorA',
-  ROOT+'/typed_ops_'+G+'/arrival01'
+  ACCESS+'/operatorA'
  ]){
   await assertSucceeds(getDoc(doc(alice,path)));
  }
@@ -149,7 +148,7 @@ test('legitimate arrive creates exactly one immutable operation and status',asyn
  assert.equal(status.cycleRevision,1);
  assert.equal(status.lastOperationId,'arrival01');
  assert.ok(status.arrivedAt.toMillis()>0);
- const receipt=(await getDoc(doc(alice,ROOT+'/typed_ops_'+G+'/arrival01'))).data();
+ const receipt=status.reserveHistory.arrival01;
  assert.equal(receipt.uid,'operatorA');
  assert.equal(receipt.type,'arrive');
  writer.stop();
@@ -204,7 +203,7 @@ test('load is tied to arrival and written with an immutable log and receipt',asy
  assert.equal(status.cycleRevision,2);
  assert.equal(status.arrivedAt,null);
  assert.equal(status.lastLogId,'load_loading02');
- const log=(await getDoc(doc(alice,ROOT+'/typed_ops_'+G+'/loading02'))).data();
+ const log=status.reserveHistory.loading02;
  assert.equal(log.uid,'operatorA');
  assert.equal(log.volume,24);
  assert.equal(log.shiftId,'shift1');
@@ -222,15 +221,12 @@ test('two operators racing to load the same arrival yield exactly one log',async
  const status=(await getDoc(doc(alice,STATE))).data();
  assert.equal(status.cycleRevision,2);
  assert.ok(['load_by_A','load_by_B'].includes(status.lastOperationId));
- // Only the actor can read an operation receipt. Use the privileged test
- // context to verify that exactly one immutable load ledger entry exists.
- const count=await env.withSecurityRulesDisabled(async ctx=>{
-  const f=ctx.firestore();
-  const a=await getDoc(doc(f,ROOT+'/typed_ops_'+G+'/load_by_A'));
-  const b=await getDoc(doc(f,ROOT+'/typed_ops_'+G+'/load_by_B'));
-  return Number(a.exists())+Number(b.exists());
- });
- assert.equal(count,1);
+ // The same status transaction is also the append-only receipt/log.
+ const matching=Object.values(status.reserveHistory).filter(
+  x=>x.type==='load'&&['load_by_A','load_by_B'].includes(x.operationId));
+ assert.equal(matching.length,1);
+ assert.equal(matching[0].volume,24);
+ assert.equal(Object.keys(status.reserveHistory).length,2);
 });
 test('same operator ID is idempotent, but it cannot be reused with changed intent',async()=>{
  const writer=make(alice,'operatorA'),op=arrive('arrival04');
