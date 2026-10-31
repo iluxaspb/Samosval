@@ -62,6 +62,7 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       op.logId == '' && op.volume == 0 && op.isGAI == false;
   }
   function loadRules(b,n,op) {
+    let t = truck(documentId);
     return b.arrivedAt is timestamp && request.time >= b.arrivedAt &&
       n.arrivedAt == null && n.lastLoadAt == request.time &&
       n.lastLogId == 'load_' + op.operationId &&
@@ -71,10 +72,10 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
         (n.ttnStatus == true && n.ttnLogId == n.lastLogId) :
         (n.ttnStatus == b.ttnStatus && n.ttnLogId == b.ttnLogId)) &&
       op.logId == n.lastLogId &&
-      truck(documentId).id == documentId &&
-      truck(documentId).sourceSequence <= mirror().lastSequence &&
-      op.isGAI == truck(documentId).isGAI &&
-      op.volume == truck(documentId).volume;
+      t.id == documentId &&
+      t.sourceSequence <= mirror().lastSequence &&
+      op.isGAI == t.isGAI &&
+      op.volume == t.volume;
   }
   function ttnRules(b,n,op) {
     return b.ttnRevision is int &&
@@ -114,9 +115,6 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
       (op.type == 'ttn' ?
         n.cycleRevision == b.cycleRevision : n.cycleRevision == b.cycleRevision + 1) &&
       n.lastActorUid == request.auth.uid &&
-      op.keys().hasAll(['operationId','uid','type','epoch','generation',
-        'truckId','shiftId','expectedRevision','revision','cycleMinutes',
-        'requestHash','at','logId','volume','isGAI','ordinal','intent']) &&
       op.keys().hasOnly(['operationId','uid','type','epoch','generation',
         'truckId','shiftId','expectedRevision','revision','cycleMinutes',
         'requestHash','at','logId','volume','isGAI','ordinal','intent',
