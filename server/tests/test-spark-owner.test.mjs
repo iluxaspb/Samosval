@@ -85,3 +85,20 @@ test('offline read and tampered owner metadata both fail closed',async()=>{
  await assert.rejects(u.create().readOwner(),{code:'spark-writer-invalid'});
  assert.equal(t.counts.remoteWrites+u.counts.remoteWrites,0);
 });
+
+test('a sealed SQL016 promotion proof is exposed only for the matching NAS epoch',async()=>{
+ const s=setup({owner:'synology',ready:true});
+ const m=s.docs.get('samosval_test_replica/v1');
+ Object.assign(m,{
+  writer:'synology',typedProtocol:1,typedSequence:15,accessProtocol:1,
+  promotionProof:{protocol:2,writerGate:'sql016',generation,epoch:2,
+   sequence:15,hash,snapshotHash:hash,documents:33}
+ });
+ const good=await s.create().readOwner();
+ assert.equal(good.owner,'synology');
+ assert.equal(good.promotionCertified,true);
+ assert.equal(good.readyForFailover,false,'NAS ownership is not a live reserve');
+ assert.equal(good.leaseUntil,NOW+60000);
+ m.promotionProof.epoch=1;
+ assert.equal((await s.create().readOwner()).promotionCertified,false);
+});
