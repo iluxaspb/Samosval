@@ -1,0 +1,56 @@
+// EMULATOR ONLY. A signed-in, active LINE operator may advance the owner
+// one epoch AFTER the NAS lease + 30-second grace has expired, but ONLY
+// when NAS sealed an exact SQL016-fenced snapshot and no permits remain.
+// The caller cannot edit metadata, ACL, pending tickets, or any other field.
+// This gives Spark a no-Cloud-Run failover path without a privileged client.
+match /samosval_test_replica/write_owner {
+ function meta() {
+  return get(/databases/$(database)/documents/samosval_test_replica/v1).data;
+ }
+ function grant(m) {
+  let group = 'access_' + m.generation;
+  return get(
+   /databases/$(database)/documents/samosval_test_replica/v1/$(group)/$(request.auth.uid)
+  ).data;
+ }
+ function sealed(m,o) {
+  let proof = m.promotionProof;
+  return m.protocol == 1 && m.channel == 'test' &&
+   m.projectId == 'samosval-offline' &&
+   m.writer == 'synology' && m.readyForFailover == true &&
+   m.accessProtocol == 1 && m.typedProtocol == 1 &&
+   m.typedSequence == m.lastSequence &&
+   proof.protocol == 2 && proof.writerGate == 'sql016' &&
+   proof.generation == m.generation && proof.epoch == o.epoch &&
+   proof.sequence == m.lastSequence && proof.hash == m.hash &&
+   proof.snapshotHash is string && proof.snapshotHash.size() == 64 &&
+   proof.documents is int && proof.documents > 0;
+ }
+ function allowedPromotion() {
+  let o = resource.data;
+  let n = request.resource.data;
+  let m = meta();
+  let a = grant(m);
+  return request.auth != null &&
+   sealed(m,o) &&
+   o.protocol == 1 && o.projectId == 'samosval-offline' &&
+   o.owner == 'synology' && o.generation == m.generation &&
+   o.epoch is int && o.epoch > 0 &&
+   o.observedSequence == m.lastSequence &&
+   o.leaseUntil is int && o.leaseUntil > 0 &&
+   o.leaseUntil + 30000 < request.time.toMillis() &&
+   o.pending is map && o.pending.size() == 0 &&
+   o.reserveSequence == 0 &&
+   a.protocol == 1 && a.projectId == 'samosval-offline' &&
+   a.generation == m.generation && a.uid == request.auth.uid &&
+   a.active == true && a.lineRead == true &&
+   a.sourceSequence <= m.lastSequence &&
+   a.profile.status == 'active' && a.profile.deleted == false &&
+   'line' in a.permissions.tabs &&
+   n.diff(o).affectedKeys().hasOnly(['owner','holder','epoch']) &&
+   n.owner == 'firebase' && n.holder == 'firebase_reserve' &&
+   n.epoch == o.epoch + 1;
+ }
+ allow update: if allowedPromotion();
+ allow create, delete: if false;
+}
