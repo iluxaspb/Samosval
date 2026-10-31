@@ -14,9 +14,13 @@ CREATE SCHEMA IF NOT EXISTS reserve_control;
 CREATE TABLE IF NOT EXISTS reserve_control.writer_gate (
  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
  armed boolean NOT NULL DEFAULT false,
+ -- Set true only after every mutating TEST route and non-HTTP worker has
+ -- passed a fence-coverage acceptance test on the restored test NAS.
+ coverage_certified boolean NOT NULL DEFAULT false,
  owner_epoch bigint NOT NULL DEFAULT 0 CHECK(owner_epoch >= 0),
  updated_at timestamptz NOT NULL DEFAULT now(),
- CHECK(NOT armed OR owner_epoch > 0)
+ CHECK(NOT armed OR owner_epoch > 0),
+ CHECK(NOT coverage_certified OR armed)
 );
 INSERT INTO reserve_control.writer_gate(singleton,armed,owner_epoch)
  VALUES(true,false,0) ON CONFLICT(singleton) DO NOTHING;
