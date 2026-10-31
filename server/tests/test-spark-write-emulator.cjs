@@ -91,6 +91,17 @@ const load=(id,revision,arrivedAt,lastLoadAt=0)=>({
  arrivalTimestamp:arrivedAt,lastLoadTimestamp:lastLoadAt,
  wantArrived:false,collect:false,cycleMinutes:60,createdAt:Date.now()
 });
+test('transaction preflight can read existing typed documents and probe missing receipts',async()=>{
+ for(const path of [
+  ROOT, 'samosval_test_replica/write_owner',
+  CONFIG,TRUCK,STATE,
+  ACCESS+'/operatorA',
+  ROOT+'/typed_ops_'+G+'/arrival01',
+  ROOT+'/typed_logs_'+G+'/load_arrival01'
+ ]){
+  await assertSucceeds(getDoc(doc(alice,path)));
+ }
+});
 test('legitimate arrive creates exactly one immutable operation and status',async()=>{
  const writer=make(alice,'operatorA');
  const result=await writer.submitLine(arrive('arrival01'),
