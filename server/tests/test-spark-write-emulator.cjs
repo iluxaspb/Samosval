@@ -125,7 +125,7 @@ test('legitimate arrive creates exactly one immutable operation and status',asyn
     for(const [name,value] of Object.entries(x))
      if(name!=='values'&&name!=='sourcePosition')walk(value);
    };
-   walk(json.rules);
+   walk(json);
    console.error('SPARK_RULE_COVERAGE_FALSE',
     JSON.stringify(entries.filter(x=>x[2]>0).sort((a,b)=>a[0]-b[0]).slice(-120)));
    console.error('SPARK_RULE_COVERAGE_TRUE',
