@@ -11,11 +11,13 @@ import {stageSparkTypedHandback,completeSparkTypedHandback}
  from '../src/test-spark-handback.mjs';
 import {claimNasOwnership,promoteTestReserve}
  from '../src/test-writer-coordinator.mjs';
+import {submitLineOperation} from '../src/line-store.mjs';
+import {exactSparkReplayAlias} from '../src/test-spark-replay-receipt.mjs';
 
 const enabled=Boolean(process.env.TEST_DATABASE_URL);
 const sqltest=(name,fn)=>test(name,{skip:!enabled},fn);
 const GEN='0123456789abcdef01234567',H='a'.repeat(64),
- TIME=1800000000000,UID='operatorA';
+ TIME=Date.now()-20*60*1000,UID='operatorA';
 const sha=x=>createHash('sha256').update(canonical(x)).digest('hex');
 const ts=millis=>({toMillis:()=>millis});
 class MemoryFirestore{
@@ -47,7 +49,7 @@ class MemoryFirestore{
 }
 function event(type,id,at,expectedRevision,revision,ordinal){
  const intent={id,type,truckId:'truckA',shiftId:'shiftA',
-  createdAt:at-100,expectedRevision,cycleMinutes:60,
+  createdAt:at-100,expectedRevision,expectedTtnRevision:0,cycleMinutes:60,
   arrivalTimestamp:type==='load'?TIME:0,lastLoadTimestamp:0,
   wantArrived:type==='arrive',collect:type==='ttn',
   ...(type==='ttn'?{expectedTtnRevision:0}:{})};
@@ -260,6 +262,23 @@ sqltest('typed handback publishes fully verified raw, typed and ACL generation b
    sequence:meta.lastSequence,hash:meta.hash},now:Date.now()});
  assert.equal(claim.epoch,f.db.docs.get(OWNER_DOC).epoch);
  assert.equal((await completeSparkTypedHandback(opts(f))).resumed,true);
+ // The phone may have missed the original Firebase ACK. After handback its
+ // original client timestamp differs from PostgreSQL's normalized server time.
+ // Exact same UID+ID+immutable original intent must ACK, never double count.
+ const original=f.db.docs.get(REPLICA_DOC+'/typed_status_'+sourceGen+'/truckA')
+  .reserveHistory.load01.intent;
+ const aliasResult=await submitLineOperation(f.pool,UID,original);
+ assert.equal(aliasResult.outcome,'confirmed');
+ assert.equal(aliasResult.replayed,true);
+ assert.equal(aliasResult.reserveReplayed,true);
+ const sqlClient=await f.pool.connect();
+ try{
+  assert.equal(await exactSparkReplayAlias(sqlClient,{
+   uid:UID,op:{...original,createdAt:original.createdAt-1},
+   stored:aliasResult}),false,'changed replay intent is not an alias');
+ }finally{sqlClient.release();}
+ await assert.rejects(submitLineOperation(f.pool,UID,
+  {...original,createdAt:original.createdAt-1}),error=>error.status===409);
  assert.equal(await count(f.pool,'line_operation_receipts'),3,'no replayed operations duplicated');
 }));
 sqltest('typed handback rejects incomplete SQL replay, then resumes after all events',async()=>withIsolatedDatabase(async f=>{
