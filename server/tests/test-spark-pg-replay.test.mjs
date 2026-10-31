@@ -15,6 +15,11 @@ import {claimNasOwnership,promoteTestReserve}
  from '../src/test-writer-coordinator.mjs';
 import {submitLineOperation} from '../src/line-store.mjs';
 import {exactSparkReplayAlias} from '../src/test-spark-replay-receipt.mjs';
+import {collectSnapshot,rowId} from '../src/test-replica.mjs';
+import {buildSparkTypedLineSnapshot,sparkTypedPaths} from '../src/test-spark-typed.mjs';
+import {accessRowsFromMirrorSnapshot,sparkAccessRef} from '../src/test-spark-access.mjs';
+import {inspectSparkPromotionReadiness,certifySparkPromotion} from '../src/test-spark-certify.mjs';
+import {Timestamp} from 'firebase-admin/firestore';
 
 const enabled=Boolean(process.env.TEST_DATABASE_URL);
 const sqltest=(name,fn)=>test(name,{skip:!enabled},fn);
@@ -420,4 +425,91 @@ sqltest('SQL 016 arms a global fence on all business tables: only scoped, correc
   'UPDATE reserve_control.writer_gate SET armed=false WHERE singleton=true'
  );
  assert.ok((await update()).rowCount===1);
+}));
+
+async function promotionFixture(f,{coverage=true}={}){
+ await f.pool.query(readFileSync(new URL('../sql/016_spark_global_fence.sql',import.meta.url),'utf8'));
+ await f.pool.query(
+  'UPDATE reserve_control.writer_gate SET armed=true,coverage_certified=$1,owner_epoch=7 WHERE singleton=true',
+  [coverage]);
+ const snapshot=await collectSnapshot(f.pool),generation=GEN,now=Date.now();
+ const typed=buildSparkTypedLineSnapshot({snapshot,generation,
+  fromMillis:ms=>Timestamp.fromMillis(ms)});
+ const access=accessRowsFromMirrorSnapshot(snapshot,generation),paths=sparkTypedPaths(generation);
+ const meta={protocol:1,projectId:'samosval-offline',channel:'test',writer:'synology',
+  generation,hash:H,snapshotHash:H,baseHash:H,baseSequence:snapshot.sequence,
+  lastSequence:snapshot.sequence,readyForFailover:false,
+  typedProtocol:1,typedSequence:snapshot.sequence,accessProtocol:1,
+  rowCount:snapshot.rows.length,accessCount:access.length};
+ f.db.docs.clear();
+ f.db.docs.set(REPLICA_DOC,meta);
+ f.db.docs.set(OWNER_DOC,{protocol:1,projectId:'samosval-offline',
+  owner:'synology',holder:'nas_certify_worker',epoch:7,generation,
+  observedSequence:snapshot.sequence,leaseUntil:now+60000,pending:{},
+  reserveSequence:0});
+ for(const row of snapshot.rows)
+  f.db.docs.set(REPLICA_DOC+'/rows_'+generation+'/'+row.id,row.envelope);
+ f.db.docs.set(paths.config,typed.config);
+ for(const [id,row] of typed.trucks)f.db.docs.set(paths.truck(id),row);
+ for(const [id,row] of typed.statuses)f.db.docs.set(paths.status(id),row);
+ for(const row of access)f.db.docs.set(sparkAccessRef(f.db,generation,row.uid).path,row);
+ return {now,snapshot,meta,typed,access};
+}
+sqltest('SQL 016 + full remote raw, ACL and typed proof can seal readiness and later promote exactly once',
+ async()=>withIsolatedDatabase(async f=>{
+ const fixture=await promotionFixture(f);
+ const check=await inspectSparkPromotionReadiness({...opts(f),now:fixture.now});
+ assert.equal(check.generation,GEN);
+ assert.equal(check.typedStatuses,1);
+ const certified=await certifySparkPromotion({...opts(f),now:fixture.now});
+ assert.equal(certified.certified,true);
+ assert.equal(certified.resumed,false);
+ const metadata=f.db.docs.get(REPLICA_DOC);
+ assert.equal(metadata.readyForFailover,true);
+ assert.equal(metadata.promotionProof.protocol,2);
+ assert.equal(metadata.promotionProof.writerGate,'sql016');
+ assert.equal(metadata.promotionProof.epoch,7);
+ assert.equal(metadata.promotionProof.sequence,fixture.snapshot.sequence);
+ const replay=await certifySparkPromotion({...opts(f),now:fixture.now});
+ assert.equal(replay.resumed,true,'lost certification ACK may safely retry');
+ await assert.rejects(promoteTestReserve({firestore:f.db,
+  projectId:'samosval-offline',expectedEpoch:7,now:fixture.now+30000}),
+  /writer-promotion-wait-for-nas/);
+ const transfer=await promoteTestReserve({firestore:f.db,projectId:'samosval-offline',
+  expectedEpoch:7,now:fixture.now+90001});
+ assert.equal(transfer.owner,'firebase');
+ assert.equal(f.db.docs.get(OWNER_DOC).epoch,8);
+ await assert.rejects(promoteTestReserve({firestore:f.db,projectId:'samosval-offline',
+  expectedEpoch:7,now:fixture.now+90002}),/writer-promotion-epoch-changed/);
+}));
+sqltest('certificate rejects incomplete fence, forged reserve projection, pending permits and SQL drift',
+ async()=>withIsolatedDatabase(async f=>{
+ const fixture=await promotionFixture(f,{coverage:false});
+ await assert.rejects(inspectSparkPromotionReadiness({...opts(f),now:fixture.now}),
+  /spark-certify-global-writer-coverage-required/);
+ await f.pool.query('UPDATE reserve_control.writer_gate SET coverage_certified=true WHERE singleton=true');
+ const path=sparkTypedPaths(GEN).status('truckA');
+ f.db.docs.set(path,{...f.db.docs.get(path),cycleRevision:888});
+ await assert.rejects(inspectSparkPromotionReadiness({...opts(f),now:fixture.now}),
+  /spark-certify-projection-diverged/);
+ f.db.docs.set(path,fixture.typed.statuses.get('truckA'));
+ const own=f.db.docs.get(OWNER_DOC);
+ own.pending={a_permit:{epoch:7,until:fixture.now+3000}};
+ await assert.rejects(inspectSparkPromotionReadiness({...opts(f),now:fixture.now}),
+  /spark-certify-owner-not-ready/);
+ own.pending={};
+ // Unreplicated SQL operations cannot be certified even with the old
+ // matching Firestore metadata and an apparently healthy owner lease.
+ await withNasWriterPermit({epoch:7,permitId:'sql_drift_test_123456'},async()=>{
+  const c=await f.pool.connect();
+  try{
+   await c.query('BEGIN');
+   await c.query("UPDATE workspaces SET cycle_minutes=61 WHERE id='main_workspace'");
+   await c.query('COMMIT');
+  }finally{c.release();}
+ });
+ await assert.rejects(inspectSparkPromotionReadiness({...opts(f),now:fixture.now}),
+  /spark-certify-nas-not-fully-mirrored/);
+ assert.equal(f.db.docs.get(REPLICA_DOC).readyForFailover,false);
+ assert.equal(f.db.docs.get(OWNER_DOC).owner,'synology');
 }));
