@@ -1,0 +1,25 @@
+// DRAFT ONLY: insert these match blocks INSIDE the currently deployed
+// match /databases/{database}/documents block. Do not publish this fragment
+// as the whole Firestore ruleset: existing app permissions must be preserved.
+//
+// This phase permits authenticated active TEST users to inspect the
+// server-controlled owner and mirror metadata without any client mutation.
+// Future direct-Firestore business writes require a separately reviewed,
+// emulator-tested ruleset with transaction invariants.
+match /samosval_test_replica/{controlDoc} {
+  function sparkActiveTestUser() {
+    return request.auth != null
+      && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      && get(/databases/$(database)/documents/users/$(request.auth.uid))
+          .data.get('status', '') == 'active';
+  }
+
+  allow get: if controlDoc in ['write_owner','v1']
+    && sparkActiveTestUser();
+  allow list, create, update, delete: if false;
+
+  // 39-table mirror remains private, not a substitute for business rules.
+  match /{subcollection}/{documentId} {
+    allow read, write: if false;
+  }
+}
