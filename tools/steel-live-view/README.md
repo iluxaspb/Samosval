@@ -1,6 +1,6 @@
 # Steel live-view для OpenCode — тестовая надстройка 0.1
 
-**Не опубликовано на Synology и не готово к рабочему включению без оставшихся проверок.**
+**Отдельный тестовый сервис установлен на Synology; рабочий :4097 не переключён.**
 Оригинальные контейнеры, файлы OpenCode и настройки Synology не изменены.
 
 ## Исследование
@@ -97,17 +97,36 @@ TEST_VIEW_ORIGIN=http://internal-test-host:4180 node browser-test.mjs
 и через MCP нажать `#control-test` только на подготовленной fixture-странице.
 Артефакты: `test-results/report.json`, `test-results/mobile.png` (gitignored).
 
-## Synology — подготовлено, но НЕ выполнено
+## Synology — отдельный тестовый запуск выполнен
+
+Код 4403f6e установлен в отдельном каталоге
+`/volume2/docker/opencode2-lab/steel-live-view-test-4403f6e`.
+Compose-проект `opencode-steel-view-test`, loopback `127.0.0.1:4180`.
+Проверены build, restart/recreate, API, живой поток и 16 мобильных проверок.
+Рабочий reverse proxy не переключён. Фактические детали: TEST_REPORT.md.
+Сохранённые параметры позволяют управлять только новым сервисом:
+
+```sh
+/usr/local/bin/docker compose \
+  --env-file /volume2/docker/opencode2-lab/.env \
+  --env-file /volume2/docker/opencode2-lab/steel-live-view-test-4403f6e/test.env \
+  -p opencode-steel-view-test \
+  -f /volume2/docker/opencode2-lab/steel-live-view-test-4403f6e/compose.test.yml ps
+```
+
+Не запускать команды этого проекта против исходного docker-compose.yml.
+Для просмотра с компьютера через существующий SSH доступ можно использовать
+туннель `ssh -N -L 4180:127.0.0.1:4180 iluxa@192.168.1.171`, затем открыть
+`http://127.0.0.1:4180` и пройти серверную авторизацию. Это не внешний WSS-тест.
 
 `Dockerfile` и `compose.test.yml` описывают отдельный opt-in сервис; existing
 network `opencode2-lab_default`, bind порта **только 127.0.0.1:4180**, restart policy,
 read-only filesystem, без Docker socket и прав root. Они не меняют существующий
-compose. Сборка Docker здесь не проверена: нет CLI/socket и /volume2.
+compose. Сборка Docker проверена по SSH на NAS.
 
-После согласования разместить файлы отдельно в `/volume2/docker/opencode2-lab`,
-проверить реальные mounts/версию/внутренний порт контейнера, передать секреты
-вне Git и поднять только новый compose-проект. Для локальной проверки возможен
-SSH tunnel; существующий 4097 не перенастраивать.
+Файлы размещены отдельно, mounts/версия/внутренний порт проверены.
+Для локальной проверки возможен SSH tunnel; существующий 4097 без отдельного
+согласования не перенастраивать.
 
 **До внешнего теста нужны отдельное разрешение и тестовый reverse proxy маршрут.**
 Проверить на нём HTTPS, `Upgrade: websocket`, `Connection: upgrade`, Authorization,
@@ -115,8 +134,8 @@ Origin, длительность соединения и отсутствие б
 Origin ради устранения 403. Не открывать 3000/8931/CDP наружу. Внешний HTTPS GET
 на 4097 вернул 200, но это **не проверка WebSocket через Synology**.
 
-Сохранение файлов и restart policy подготовлены. Реальный recreate/restart
-контейнеров и сохранность параметров после него не проверялись.
+Restart/recreate только нового тестового контейнера и сохранность параметров
+проверены. Перезапуск Chromium потребует заново сверить target MCP.
 
 ## Фактический результат 2026-10-31
 
@@ -125,7 +144,8 @@ Origin ради устранения 403. Не открывать 3000/8931/CDP 
   увеличение счётчика кадров, manual touch и Unicode-ввод в тот же target,
   401/403 и поддельные WS-команды в режиме просмотра, разворачивание/сворачивание.
 - Проверен Chromium с mobile/touch viewport **360×780**, не физический S25.
-- `fixtureWrites` пуст; PostgreSQL/Firebase/NAS не использовались.
+- `fixtureWrites` пуст; данные PostgreSQL/Firebase не использовались.
+  Впоследствии тестовый sidecar установлен на NAS, см. раздел выше.
 - Один промежуточный дополнительный прогон завершился timeout на ожидании кадра;
   исправлен test barrier и cleanup, последующий полный MCP-прогон прошёл.
 - После добавления zoom/touch-pan отдельный браузерный прогон: 13 проверок прошли.
