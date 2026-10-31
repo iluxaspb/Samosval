@@ -3,17 +3,14 @@ import { countEquipment } from "./domain.mjs";
 export const VERSION = "2.1.0-test.1";
 export const copy = (x) => structuredClone(x);
 export const today = () => {
-  // formatToParts does not depend on the engine's locale data. Some Node builds
-  // return 10/31/2026 for the "sv-SE" locale instead of ISO, which used to break
-  // config() and every schedule calculation built on it.
-  const parts = new Intl.DateTimeFormat("en-GB", {
+  const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Moscow",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).formatToParts(new Date());
-  const part = (type) => parts.find((item) => item.type === type)?.value;
-  return `${part("year")}-${part("month")}-${part("day")}`;
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
 };
 export function date(s) {
   if (

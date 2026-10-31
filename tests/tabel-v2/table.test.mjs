@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import * as D from "../../test-app/tabel-v2/table-domain.mjs";
+assert.match(D.today(), /^\d{4}-\d{2}-\d{2}$/);
 const c = D.config({ id: "a", name: "A", startDate: "2026-10-10" });
 c.equipment = [
   { id: "mill", name: "Фреза", ownership: "own" },
