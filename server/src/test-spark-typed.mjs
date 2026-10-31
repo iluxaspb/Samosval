@@ -82,7 +82,10 @@ export function buildSparkTypedLineSnapshot({snapshot,generation,fromMillis}={})
    lastLoadAt:timestamp(data.lastLoadTimestamp,fromMillis),
    lastLogId:cleanText(data.lastLoadLogId||'',160),
    lastOperationId:'',lastActionType:'',
-   lastActorUid:'',loadedAfterArrive:data.loadedAfterArrive===true
+   lastActorUid:'',loadedAfterArrive:data.loadedAfterArrive===true,
+   // A bounded append-only journal lives in the SAME Firestore status doc.
+   // A single transactional write cannot suffer a partial receipt/log commit.
+   reserveHistory:[]
   });
  }
  return Object.freeze({config:typedConfig,trucks:typedTrucks,statuses:typedStatuses});
