@@ -1,22 +1,20 @@
-// Experimental direct Web SDK LINE writer for Firestore Spark (no Cloud Run).
-// NOT enabled in the published PWA. A Firestore Security Rules transaction
-// MUST independently revalidate every field and cross-document invariant.
-// This JS is never a source of authority; it only prepares immutable intents.
-export class SparkLineWriteError extends Error {
+// Experimental direct Firestore Spark LINE writer. One atomic STATUS document
+// update contains both the new state and a bounded immutable operation journal.
+// No Cloud Run, no separate client-written receipt or log. NOT enabled in PWA.
+export class SparkLineWriteError extends Error{
  constructor(code,{retryable=false,uncertain=false}={}){
   super(code);this.name='SparkLineWriteError';
   Object.assign(this,{code,retryable,uncertain});
  }
 }
-const bad=(code,options)=>new SparkLineWriteError(code,options);
-const id=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(x);
-const obj=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
-const seq=x=>Number.isSafeInteger(x)&&x>=0;
+const bad=(code,opts)=>new SparkLineWriteError(code,opts);
+const validId=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(x);
+const record=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+const integer=x=>Number.isSafeInteger(x)&&x>=0;
 const GEN=/^[0-9a-f]{24}$/;
-const ROOT='samosval_test_replica/v1';
-const OWNER='samosval_test_replica/write_owner';
+const ROOT='samosval_test_replica/v1',OWNER='samosval_test_replica/write_owner';
 const PROJECT='samosval-offline';
-const WORKSPACE='main_workspace';
+export const MAX_SPARK_RESERVE_HISTORY=256;
 const canonical=x=>x===null||typeof x!=='object'?JSON.stringify(x):
  Array.isArray(x)?'['+x.map(canonical).join(',')+']':
  '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+canonical(x[k])).join(',')+'}';
@@ -26,17 +24,18 @@ async function hash(input,cryptoImpl){
   new TextEncoder().encode(input)));
  return [...bytes].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
-const time=x=>x?.toMillis?.()??(x instanceof Date?x.getTime():null);
-function certified(meta,owner){
+const millis=x=>x?.toMillis?.()??(x instanceof Date?x.getTime():null);
+const dataOf=s=>s?.exists?s.data():null;
+function certify(meta,owner){
  if(meta?.protocol!==1||meta.channel!=='test'||meta.projectId!==PROJECT||
     !GEN.test(meta.generation||'')||meta.readyForFailover!==true||
-    !seq(meta.lastSequence)||owner?.protocol!==1||
+    !integer(meta.lastSequence)||owner?.protocol!==1||
     owner.projectId!==PROJECT||owner.owner!=='firebase'||
     owner.holder!=='firebase_reserve'||owner.generation!==meta.generation||
-    !seq(owner.observedSequence)||owner.observedSequence!==meta.lastSequence||
-    !Number.isSafeInteger(owner.epoch)||owner.epoch<1||
-    !Number.isSafeInteger(owner.reserveSequence)||owner.reserveSequence<0||
-    !obj(owner.pending)||Object.keys(owner.pending).length!==0)
+    !integer(owner.observedSequence)||owner.observedSequence!==meta.lastSequence||
+    !integer(owner.epoch)||owner.epoch<1||
+    !integer(owner.reserveSequence)||!record(owner.pending)||
+    Object.keys(owner.pending).length!==0)
   throw bad('spark-writer-not-certified',{retryable:true});
  return {generation:meta.generation,epoch:owner.epoch,sequence:meta.lastSequence};
 }
@@ -47,24 +46,24 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
     typeof getUser!=='function'||typeof serverTimestamp!=='function'||
     typeof clock!=='function'||typeof onDiagnostic!=='function')
   throw new TypeError('spark-line-writer-invalid-options');
- const current=getUser(),uid=current?.uid;
- if(!id(uid))throw bad('spark-auth-required');
+ const sessionUser=getUser(),uid=sessionUser?.uid;
+ if(!validId(uid))throw bad('spark-auth-required');
  let stopped=false;
  function guard(){
-  if(stopped||getUser()!==current||current.uid!==uid)
+  if(stopped||getUser()!==sessionUser||sessionUser.uid!==uid)
    throw bad('spark-session-changed');
  }
  async function submitLine(input,{operationScope}={}){
   guard();
-  if(!obj(input)||!id(input.id)||!id(input.truckId)||!id(input.shiftId)||
-    !['arrive','load'].includes(input.type)||!seq(input.expectedRevision)||
-    !seq(input.arrivalTimestamp)||!seq(input.lastLoadTimestamp)||
-    !Number.isFinite(input.cycleMinutes)||input.cycleMinutes<15||
-    input.cycleMinutes>10080||!seq(input.createdAt)||
-    input.createdAt>clock()+300000||(input.type==='arrive'&&input.wantArrived!==true))
+  if(!record(input)||!validId(input.id)||!validId(input.truckId)||
+    !validId(input.shiftId)||!['arrive','load'].includes(input.type)||
+    !integer(input.expectedRevision)||!integer(input.arrivalTimestamp)||
+    !integer(input.lastLoadTimestamp)||!integer(input.createdAt)||
+    input.createdAt>clock()+300000||
+    !Number.isSafeInteger(input.cycleMinutes)||
+    input.cycleMinutes<15||input.cycleMinutes>10080||
+    (input.type==='arrive'&&input.wantArrived!==true))
    throw bad('spark-invalid-operation');
-  // Scope preservation is mandatory: a previously persisted NAS outbox ID
-  // must be retried without changing its payload or another user's session.
   if(typeof operationScope!=='string'||!operationScope.includes(uid))
    throw bad('spark-outbox-scope-mismatch');
   const requestHash=await hash(canonical(input),cryptoImpl);
@@ -73,105 +72,84 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
   try{
    const result=await firestore.runTransaction(async tx=>{
     guard();
-    const [metaSnap,ownerSnap]=await Promise.all([
-     tx.get(firestore.doc(ROOT)),
-     tx.get(firestore.doc(OWNER))
+    const [metaSnapshot,ownerSnapshot]=await Promise.all([
+     tx.get(firestore.doc(ROOT)),tx.get(firestore.doc(OWNER))
     ]);
-    const state=certified(metaSnap.exists?metaSnap.data():null,
-     ownerSnap.exists?ownerSnap.data():null);
-    const prefix=ROOT+'/',g=state.generation;
-    const docs={
-     acl:firestore.doc(prefix+'access_'+g+'/'+uid),
-     config:firestore.doc(prefix+'typed_config_'+g+'/active'),
-     truck:firestore.doc(prefix+'typed_trucks_'+g+'/'+input.truckId),
-     status:firestore.doc(prefix+'typed_status_'+g+'/'+input.truckId),
-     receipt:firestore.doc(prefix+'typed_ops_'+g+'/'+input.id)
-    };
-    const [aclSnap,configSnap,truckSnap,statusSnap,receiptSnap]=await Promise.all([
-     tx.get(docs.acl),tx.get(docs.config),tx.get(docs.truck),
-     tx.get(docs.status),tx.get(docs.receipt)
+    const state=certify(dataOf(metaSnapshot),dataOf(ownerSnapshot));
+    const prefix=ROOT+'/',gen=state.generation;
+    const [aclSnap,configSnap,truckSnap,statusSnap]=await Promise.all([
+     tx.get(firestore.doc(prefix+'access_'+gen+'/'+uid)),
+     tx.get(firestore.doc(prefix+'typed_config_'+gen+'/active')),
+     tx.get(firestore.doc(prefix+'typed_trucks_'+gen+'/'+input.truckId)),
+     tx.get(firestore.doc(prefix+'typed_status_'+gen+'/'+input.truckId))
     ]);
-    const acl=aclSnap.exists?aclSnap.data():null;
-    const config=configSnap.exists?configSnap.data():null;
-    const truck=truckSnap.exists?truckSnap.data():null;
-    const before=statusSnap.exists?statusSnap.data():null;
-    if(!acl||acl.uid!==uid||acl.generation!==g||acl.active!==true||
-       !seq(acl.sourceSequence)||acl.sourceSequence>state.sequence||
+    const acl=dataOf(aclSnap),config=dataOf(configSnap);
+    const truck=dataOf(truckSnap),before=dataOf(statusSnap);
+    if(!acl||acl.uid!==uid||acl.active!==true||
+       acl.generation!==gen||!integer(acl.sourceSequence)||
+       acl.sourceSequence>state.sequence||
        !acl.permissions?.actions?.includes?.('action_'+input.type))
      throw bad('spark-permission-denied');
-    // Idempotency wins over the later status revision. The previous write
-    // may have succeeded even when its HTTP/WebSocket response was lost.
-    if(receiptSnap.exists){
-     const r=receiptSnap.data();
-     if(r.uid!==uid||r.requestHash!==requestHash||r.epoch!==state.epoch)
-      throw bad('spark-operation-id-reused');
-     // A signed-in client can submit a well-formed intent independently.
-     // A receipt alone is NOT evidence of an applied trip. Only an atomic
-     // status revision with that operation ID proves confirmation.
-     if(before?.lastOperationId!==input.id||
-        before.cycleRevision!==input.expectedRevision+1)
-      throw bad('spark-intent-not-confirmed',{retryable:true,uncertain:true});
-     return {outcome:'confirmed',replayed:true,operationId:input.id,
-      typedStatus:before};
-    }
-    if(!config||config.active!==true||config.generation!==g||
-       config.shiftId!==input.shiftId||!seq(config.sourceSequence)||
+    if(!config||config.active!==true||config.generation!==gen||
+       config.shiftId!==input.shiftId||!integer(config.sourceSequence)||
        config.sourceSequence>state.sequence||!truck||truck.id!==input.truckId||
        !before||before.shiftId!==input.shiftId||before.onLine!==true||
-       before.generation!==g||before.cycleRevision!==input.expectedRevision||
-       !seq(before.sourceSequence)||before.sourceSequence>state.sequence)
+       before.generation!==gen||!integer(before.sourceSequence)||
+       before.sourceSequence>state.sequence)
      throw bad('spark-line-stale',{retryable:true});
-    const previousLoad=time(before.lastLoadAt)||0;
-    const arrival=time(before.arrivedAt)||0;
+    if(!Array.isArray(before.reserveHistory)||before.reserveHistory.length>MAX_SPARK_RESERVE_HISTORY)
+     throw bad('spark-reserve-history-invalid');
+    const previous=before.reserveHistory.find(e=>e.operationId===input.id);
+    if(previous){
+     if(previous.uid!==uid||previous.requestHash!==requestHash||
+        previous.epoch!==state.epoch||
+        !integer(previous.revision)||before.cycleRevision<previous.revision)
+      throw bad('spark-operation-id-reused');
+     return {outcome:'confirmed',replayed:true,operationId:input.id,
+      revision:previous.revision,logId:previous.logId||''};
+    }
+    if(before.reserveHistory.length>=MAX_SPARK_RESERVE_HISTORY)
+     throw bad('spark-reserve-history-full',{retryable:true});
+    if(before.cycleRevision!==input.expectedRevision)
+     throw bad('spark-line-stale',{retryable:true});
+    const lastLoad=millis(before.lastLoadAt)||0;
+    const arrival=millis(before.arrivedAt)||0;
+    if(input.lastLoadTimestamp!==lastLoad)throw bad('spark-last-load-changed',{retryable:true});
     if(input.type==='arrive'){
-     if(before.arrivedAt!==null||input.arrivalTimestamp!==0||
-        input.lastLoadTimestamp!==previousLoad)
+     if(before.arrivedAt!==null||input.arrivalTimestamp!==0)
       throw bad('spark-arrival-changed',{retryable:true});
-    }else if(!arrival||input.arrivalTimestamp!==arrival||
-      input.lastLoadTimestamp!==previousLoad||
-      input.createdAt<arrival)
-      throw bad('spark-duplicate-or-arrival-changed',{retryable:true});
-    const minimum=Math.max(15,config.cycleMinutes,input.cycleMinutes)*60000;
-    if(previousLoad&&clock()-previousLoad<minimum)
-     throw bad('spark-cycle-time',{retryable:true});
-    const stamp=serverTimestamp();
+    }else if(!arrival||arrival!==input.arrivalTimestamp)
+     throw bad('spark-duplicate-or-arrival-changed',{retryable:true});
+    const eventAt=serverTimestamp();
+    const revision=before.cycleRevision+1;
     const event={
-     protocol:1,projectId:PROJECT,generation:g,epoch:state.epoch,
-     uid,operationId:input.id,truckId:input.truckId,shiftId:input.shiftId,
-     type:input.type,expectedRevision:input.expectedRevision,
+     operationId:input.id,uid,type:input.type,epoch:state.epoch,
+     generation:gen,truckId:input.truckId,shiftId:input.shiftId,
+     expectedRevision:input.expectedRevision,revision,
      cycleMinutes:input.cycleMinutes,requestHash,
-     at:stamp,logId:input.type==='load'?'load_'+input.id:'',
-     // The immutable receipt itself is the audit/load ledger record. Do not
-     // create a third document: that exceeds the Spark rules evaluation
-     // budget and spends an extra Firestore write on every trip.
+     at:eventAt,logId:input.type==='load'?'load_'+input.id:'',
      volume:input.type==='load'?(truck.isGAI===true?0:truck.volume):0,
      isGAI:input.type==='load'&&truck.isGAI===true
     };
     const changes={
-     cycleRevision:before.cycleRevision+1,
-     arrivedAt:input.type==='arrive'?stamp:null,
-     lastLoadAt:input.type==='load'?stamp:before.lastLoadAt,
+     cycleRevision:revision,
+     arrivedAt:input.type==='arrive'?eventAt:null,
+     lastLoadAt:input.type==='load'?eventAt:before.lastLoadAt,
      lastLogId:input.type==='load'?event.logId:before.lastLogId,
      loadedAfterArrive:input.type==='load',
-     lastOperationId:input.id,lastActionType:input.type,lastActorUid:uid
+     lastOperationId:input.id,lastActionType:input.type,lastActorUid:uid,
+     reserveHistory:[...before.reserveHistory,event]
     };
-    // Two writes, one atomic transaction: status and immutable operation.
-    // A LOAD operation is also the permanent log record.
-    tx.update(docs.status,changes);
-    tx.set(docs.receipt,event);
     submitted=true;
+    tx.update(firestore.doc(prefix+'typed_status_'+gen+'/'+input.truckId),changes);
     return {outcome:'confirmed',operationId:input.id,
-     expectedRevision:input.expectedRevision+1};
+     revision,logId:event.logId};
    });
    guard();
    return result;
   }catch(e){
    if(e instanceof SparkLineWriteError)throw e;
-   // The optional diagnostic hook is for isolated acceptance tests only.
-   // Never surface raw Firestore errors to end-users or durable local logs.
    try{onDiagnostic(e);}catch{}
-   // Firestore may commit but lose the acknowledgement. Never create a new
-   // operation ID or automatically retry a different server here.
    throw bad('spark-transaction-unavailable',{retryable:true,uncertain:submitted});
   }
  }
