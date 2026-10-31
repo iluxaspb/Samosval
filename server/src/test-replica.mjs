@@ -2,6 +2,7 @@
 // This namespace is NOT the legacy application Firestore schema or a failover endpoint.
 // The server must never enable Firebase business writes based on these checkpoints alone.
 import {createHash, randomUUID} from 'node:crypto';
+import {assertSparkBootstrapBudget} from './test-spark-limits.mjs';
 
 export const REPLICA_DOC='samosval_test_replica/v1';
 const OWNER_DOC='samosval_test_replica/write_owner';
@@ -173,6 +174,9 @@ async function bootstrap(pool,db){
  await assertFreshVerifiedBackup(pool);
  // Keep all unverified rows invisible in a new immutable generation.
  const snapshot=await collectSnapshot(pool);
+ // Before the first remote write, bound the readback/write burst to preserve
+ // project-wide Spark headroom for existing TEST operators and their queues.
+ assertSparkBootstrapBudget(snapshot.rows.length);
  const generation=sha256(randomUUID()).slice(0,24),metaRef=db.doc(REPLICA_DOC);
  for(let start=0;start<snapshot.rows.length;){
   const batch=db.batch();let total=0,count=0;
