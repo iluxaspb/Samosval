@@ -19,8 +19,16 @@ export async function exactSparkReplayAlias(client,{uid,op,stored}={}){
  const db=(await client.query('SELECT current_database() AS name')).rows[0]?.name;
  // Never enable this compatibility behavior in a production PostgreSQL DB.
  if(!testDatabase(db))return false;
- const result=await client.query(
-  "SELECT plan FROM reserve_spark_replay_checkpoint WHERE singleton=true AND workspace_id='main_workspace' AND state='applied'");
+ let result;
+ try{
+  result=await client.query(
+   "SELECT plan FROM reserve_spark_replay_checkpoint WHERE singleton=true AND workspace_id='main_workspace' AND state='applied'");
+ }catch(error){
+  // SQL 015 is still not installed on existing TEST 4.1.1 NAS. Preserve
+  // normal 409 ID-reuse semantics until the verified schema is installed.
+  if(error?.code==='42P01')return false;
+  throw error;
+ }
  const plan=result.rows[0]?.plan;
  if(plan?.format!=='spark-typed-pg-dry-run'||plan?.version!==1||
     !Array.isArray(plan.operations)||plan.operations.length!==plan.eventCount)
