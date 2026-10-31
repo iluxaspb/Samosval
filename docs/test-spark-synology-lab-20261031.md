@@ -10,6 +10,30 @@
 - The script hard-requires the internal `postgres` hostname, the disposable database `samosval_test`, the lab-only DB user and `SPARK_LAB_ONLY=1`. This is a guardrail, not a security substitute for restricting access to Docker.
 - The LAB must never be attached to `samosval-test_default`, the live NAS database, or Synology production volumes. Never reuse it as a production Compose stack.
 
+## Portable package: launch from DSM without Git or Node.js on the NAS
+
+The [isolated lab GitHub Actions run](https://github.com/iluxaspb/Samosval/actions/workflows/spark-isolated-lab.yml) publishes a `samosval-spark-synology-lab` artifact **only after** the exact ZIP package is unpacked, checksum-verified, started and cleaned successfully. Artifacts normally expire after seven days. This is a laboratory archive, **not** an application update and **not** a live NAS installer.
+
+On a Samsung/phone browser, open the latest **successful** workflow run and its **Artifacts** section. Download `samosval-spark-synology-lab`; if GitHub delivers an outer ZIP, extract it to obtain the inner `samosval-spark-lab.zip`.
+
+In DSM File Station, place the inner ZIP in `/volume2/docker` and extract it there. Confirm **before running** that these are new files:
+
+- `/volume2/docker/samosval-spark-lab/run-spark-lab.sh`
+- `/volume2/docker/samosval-spark-lab/SHA256SUMS`
+- `/volume2/docker/samosval-spark-lab/server/compose.spark-lab.test.yaml`
+
+For a one-time/manual Task Scheduler action (authorized DSM administrator, with Docker permission), use this exact user-defined script and run it manually, not on a recurring schedule:
+
+```sh
+sh /volume2/docker/samosval-spark-lab/run-spark-lab.sh > /volume2/docker/samosval-spark-lab/lab-result.log 2>&1
+```
+
+The launcher checks all hashes and the pinned source commit, rejects collisions with existing Docker Compose project resources, launches an isolated project named `samosval-spark-lab`, runs the tests, then calls `down --volumes --remove-orphans` on its own new project. It does **not** invoke the NAS Admin updater or any existing `samosval-test` Compose project.
+
+The log `lab-result.log` must contain `SPARK_LAB_SYNOLOGY_REHEARSAL_SUCCESS_CLEANED`; if it ends in `SPARK_LAB_...FAILED`, stop and inspect the log. In particular, `SPARK_LAB_CLEANUP_FAILED_MANUAL_CHECK_REQUIRED` requires a manual inspection **of the laboratory project only** before another run. Never delete an unfamiliar Docker container/volume to make a test pass.
+
+**These steps have not yet been executed on the user's DS923+.** Successful GitHub CI only establishes that the portable package works on an isolated Docker runner. This lab never connects to the live Firebase project, so it does not replace two-physical-phone failover testing.
+
 ## Non-destructive rehearsal on Synology *after* CI passes
 
 Clone the PR branch into an isolated temporary directory; inspect the two files before use. The user or an authorized operator must run these steps intentionally; GitHub Actions does not access DSM.
