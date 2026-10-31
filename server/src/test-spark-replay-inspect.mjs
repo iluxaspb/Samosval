@@ -136,6 +136,18 @@ export function validateSparkFrozenHistory({metadata,owner,truckDocuments,status
  return Object.freeze({format:'spark-typed-replay-manifest',version:1,
   ...context,eventCount:events.length,sha256:digest,events});
 }
+// Cheap per-operation owner check (two document reads, zero collection scans).
+// The full immutable manifest is frozen and fingerprinted during SQL staging,
+// then independently re-inspected before any subsequent handback.
+export async function readFrozenSparkContext({firestore,projectId}={}){
+ assertTestProject(projectId);
+ if(!firestore||typeof firestore.doc!=='function')
+  throw fail('spark-replay-invalid-firestore');
+ const [m,o]=await Promise.all([
+  firestore.doc(REPLICA_DOC).get(),firestore.doc(OWNER_DOC).get()]);
+ return freezeContext(snap(m),snap(o));
+}
+
 export async function inspectFrozenSparkHistory({firestore,projectId,maxTrucks=200}={}){
  assertTestProject(projectId);
  if(!firestore||typeof firestore.doc!=='function'||typeof firestore.collection!=='function')
