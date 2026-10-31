@@ -1,0 +1,13 @@
+# TEST-only, disposable PostgreSQL/Firebase-logic rehearsal runner.
+# No credentials, no NAS data, and no host volumes.
+FROM node:22-bookworm-slim
+WORKDIR /lab/server
+COPY server/package.json server/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY --chown=node:node server/sql ./sql
+COPY --chown=node:node server/src ./src
+COPY --chown=node:node server/tests ./tests
+COPY --chown=node:node server/scripts/run-spark-isolated-lab.mjs ./scripts/run-spark-isolated-lab.mjs
+COPY --chown=node:node test-app/synology /lab/test-app/synology
+USER node
+CMD ["node","scripts/run-spark-isolated-lab.mjs"]
