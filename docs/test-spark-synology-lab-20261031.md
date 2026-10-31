@@ -1,6 +1,6 @@
 # TEST 4.1.2 — Synology-like isolated rehearsal (31.10.2026)
 
-**Status:** first run on GitHub Actions is required before trying this on a NAS. This is a SYNTHETIC, ephemeral lab, not the installed DSM TEST server and not physical two-device acceptance.
+**Status:** [first GitHub Actions disposable-lab run SUCCESS — 70/70 tests](https://github.com/iluxaspb/Samosval/actions/runs/41180633091), with confirmed Compose isolation and cleanup. This is a SYNTHETIC, ephemeral lab, not the installed DSM TEST server and not physical two-device acceptance.
 
 ## Strict boundary
 
