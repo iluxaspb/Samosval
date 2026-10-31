@@ -45,19 +45,31 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
   guard();
   if(provider!==next){provider=next;onProviderChange(next);}
  }
+ function invalidate(){
+  ownerState=null;
+  // A previously displayed NAS/Firebase state is not permission to keep
+  // showing editable controls after an unverified ownership transition.
+  if(!stopped&&getUser()===user)publish(null);
+ }
  async function authority(){
   guard();
-  const state=await ownerReader.readOwner();
+  let state;
+  try{state=await ownerReader.readOwner();}
+  catch(error){invalidate();throw error;}
   guard();
   if(!state||state.projectId!=='samosval-offline'||
-     !['firebase','synology','handoff','reconciling'].includes(state.owner))
-   throw bad('spark-auto-owner-invalid');
-  if(['handoff','reconciling'].includes(state.owner))
-   throw bad('spark-auto-handoff-active');
-  if(state.owner==='firebase'&&!state.readyForFailover)
-   throw bad('spark-auto-firebase-not-certified');
-  if(state.owner==='synology'&&state.readyForFailover)
-   throw bad('spark-auto-owner-inconsistent');
+     !['firebase','synology','handoff','reconciling'].includes(state.owner)){
+   invalidate();throw bad('spark-auto-owner-invalid');
+  }
+  if(['handoff','reconciling'].includes(state.owner)){
+   invalidate();throw bad('spark-auto-handoff-active');
+  }
+  if(state.owner==='firebase'&&!state.readyForFailover){
+   invalidate();throw bad('spark-auto-firebase-not-certified');
+  }
+  if(state.owner==='synology'&&state.readyForFailover){
+   invalidate();throw bad('spark-auto-owner-inconsistent');
+  }
   return state;
  }
  async function verifiedRead(kind){
@@ -66,7 +78,9 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
   const value=await api[kind]();
   const b=await authority();
   guard();
-  if(!same(a,b))throw bad('spark-auto-owner-changed-during-read');
+  if(!same(a,b)){
+   invalidate();throw bad('spark-auto-owner-changed-during-read');
+  }
   ownerState=b;publish(a.owner);
   return value;
  }
@@ -94,8 +108,9 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
   const b=await authority().catch(()=>{
    throw bad('spark-auto-write-result-uncertain',{uncertain:true});
   });
-  if(!same(a,b))
-   throw bad('spark-auto-owner-changed-after-write',{uncertain:true});
+  if(!same(a,b)){
+   invalidate();throw bad('spark-auto-owner-changed-after-write',{uncertain:true});
+  }
   if(!record(result)||result.outcome!=='confirmed'&&result.outcome!=='rejected')
    throw bad('spark-auto-write-result-invalid',{uncertain:true});
   ownerState=b;publish(a.owner);
