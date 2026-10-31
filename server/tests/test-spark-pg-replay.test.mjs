@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import {installDatasetGuard} from '../src/dataset-guard.mjs';
+import {withNasWriterPermit} from '../src/test-writer-guard.mjs';
 import {readFileSync,readdirSync} from 'node:fs';
 import pg from 'pg';
 import {REPLICA_DOC,canonical} from '../src/test-replica.mjs';
@@ -96,6 +98,7 @@ async function withIsolatedDatabase(fn){
   created=true;
   root.pathname='/'+name;
   pool=new pg.Pool({connectionString:root.toString(),max:5});
+  installDatasetGuard(pool); // Hook connections before any transaction starts.
   for(let n=1;n<=15;n++){
    const file=readdirSync(new URL('../sql/',import.meta.url))
     .find(f=>f.startsWith(String(n).padStart(3,'0')+'_')&&f.endsWith('.sql'));
@@ -363,4 +366,58 @@ sqltest('typed handback refuses a missing published SQL mirror row',async()=>wit
  f.db.docs.delete(key);
  await assert.rejects(completeSparkTypedHandback(opts(f)),/spark-handback-document-count-diverged/);
  assert.equal(f.db.docs.get(OWNER_DOC).owner,'handoff');
+}));
+
+sqltest('SQL 016 arms a global fence on all business tables: only scoped, correct-epoch permits commit',async()=>withIsolatedDatabase(async f=>{
+ const sql=readFileSync(new URL('../sql/016_spark_global_fence.sql',import.meta.url),'utf8');
+ await f.pool.query(sql); // new isolated database only; never the installed NAS
+ const fence=await f.pool.query(
+  'SELECT armed,owner_epoch::int AS epoch FROM reserve_control.writer_gate WHERE singleton=true'
+ );
+ assert.equal(fence.rows[0].armed,false,'migration never silently arms live writing');
+ const triggers=await f.pool.query(
+  "SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='spark_writer_gate' AND NOT tgisinternal"
+ );
+ assert.equal(triggers.rows[0].n,39,'every tracked business table is fenced');
+ const tables=await f.pool.query(
+  "SELECT c.relname AS table_name FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE t.tgname='spark_writer_gate'"
+ );
+ for(const name of ['workspaces','line_logs','line_truck_statuses','app_users',
+  'server_control_state','notification_outbox']){
+  assert.ok(tables.rows.some(row=>row.table_name===name),'missing fence: '+name);
+ }
+ await f.pool.query(
+  'UPDATE reserve_control.writer_gate SET armed=true,owner_epoch=7 WHERE singleton=true'
+ );
+ const update=()=>f.pool.query("UPDATE workspaces SET cycle_minutes=61 WHERE id='main_workspace'");
+ await assert.rejects(update(),/spark-fence-permit-required/,
+  'a background writer without a live permit must never change SQL');
+ const badPermit={epoch:6,permitId:'expired_permit_12345'};
+ await assert.rejects(withNasWriterPermit(badPermit,async()=>{
+  const c=await f.pool.connect();
+  try{
+   await c.query('BEGIN');
+   try{await c.query("UPDATE workspaces SET cycle_minutes=62 WHERE id='main_workspace'");}
+   finally{await c.query('ROLLBACK');}
+  }finally{c.release();}
+ }),/spark-fence-permit-required/,'stale owner epoch must fail');
+ const valid={epoch:7,permitId:'leased_operation_123456'};
+ await withNasWriterPermit(valid,async()=>{
+  const c=await f.pool.connect();
+  try{
+   await c.query('BEGIN');
+   await c.query("UPDATE workspaces SET cycle_minutes=61 WHERE id='main_workspace'");
+   await c.query('COMMIT');
+  }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
+  finally{c.release();}
+ });
+ assert.equal((await f.pool.query(
+  "SELECT cycle_minutes FROM workspaces WHERE id='main_workspace'")).rows[0].cycle_minutes,61);
+ await assert.rejects(f.pool.query(
+  "UPDATE workspaces SET cycle_minutes=62 WHERE id='main_workspace'"),
+  /spark-fence-permit-required/,'SET LOCAL cannot leak through a reused pg connection');
+ await f.pool.query(
+  'UPDATE reserve_control.writer_gate SET armed=false WHERE singleton=true'
+ );
+ assert.ok((await update()).rowCount===1);
 }));
