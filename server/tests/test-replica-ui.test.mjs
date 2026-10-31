@@ -34,3 +34,18 @@ test('isolated auto candidate requires explicit shell meta; normal TEST stays on
  assert.match(mode,/остальные операции временно недоступны/);
  assert.doesNotMatch(shell,/test-data-provider[^>]*synology-auto-candidate/);
 });
+
+test('NAS writer permit covers every HTTP POST and actual notification SQL background writes',()=>{
+ const api=readFileSync(new URL('server/src/index.mjs',root),'utf8');
+ const sqlGuard=readFileSync(new URL('server/src/dataset-guard.mjs',root),'utf8');
+ const barrier=readFileSync(new URL('server/sql/016_spark_global_fence.sql',root),'utf8');
+ assert.match(api,/const fenced=writerFence.enabled&&req.method==='POST'&&path.startsWith\('\/api\/v1\/'\)/);
+ assert.doesNotMatch(api,/path!==['"]\/api\/v1\/admin\/server['"]/,
+  'an administrator command must never bypass the global owner');
+ assert.match(api,/withNasWriterPermit\(permit,\(\)=>serve\(req,res\)\)/);
+ assert.match(api,/withNasWriterPermit\(permit,\(\)=>deliverNotification\(pool\)\)/);
+ assert.match(sqlGuard,/currentNasWriterPermit\(\)/);
+ assert.match(sqlGuard,/set_config\('samosval.writer_permit_id'/);
+ assert.match(barrier,/coverage_certified boolean NOT NULL DEFAULT false/);
+ assert.match(barrier,/CREATE TRIGGER spark_writer_gate BEFORE INSERT OR UPDATE OR DELETE/);
+});
