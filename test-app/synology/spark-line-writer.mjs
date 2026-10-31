@@ -97,9 +97,9 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
        before.generation!==gen||!integer(before.sourceSequence)||
        before.sourceSequence>state.sequence)
      throw bad('spark-line-stale',{retryable:true});
-    if(!Array.isArray(before.reserveHistory)||before.reserveHistory.length>MAX_SPARK_RESERVE_HISTORY)
+    if(!record(before.reserveHistory)||Object.keys(before.reserveHistory).length>MAX_SPARK_RESERVE_HISTORY)
      throw bad('spark-reserve-history-invalid');
-    const previous=before.reserveHistory.find(e=>e.operationId===input.id);
+    const previous=before.reserveHistory[input.id]||null;
     if(previous){
      if(previous.uid!==uid||previous.requestHash!==requestHash||
         previous.epoch!==state.epoch||
@@ -108,7 +108,7 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
      return {outcome:'confirmed',replayed:true,operationId:input.id,
       revision:previous.revision,logId:previous.logId||''};
     }
-    if(before.reserveHistory.length>=MAX_SPARK_RESERVE_HISTORY)
+    if(Object.keys(before.reserveHistory).length>=MAX_SPARK_RESERVE_HISTORY)
      throw bad('spark-reserve-history-full',{retryable:true});
     if(before.cycleRevision!==input.expectedRevision)
      throw bad('spark-line-stale',{retryable:true});
@@ -138,7 +138,7 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
      lastLogId:input.type==='load'?event.logId:before.lastLogId,
      loadedAfterArrive:input.type==='load',
      lastOperationId:input.id,lastActionType:input.type,lastActorUid:uid,
-     reserveHistory:[...before.reserveHistory,event]
+     reserveHistory:{...before.reserveHistory,[input.id]:event}
     };
     submitted=true;
     tx.update(firestore.doc(prefix+'typed_status_'+gen+'/'+input.truckId),changes);
