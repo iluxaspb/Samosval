@@ -61,8 +61,18 @@ beforeEach(async()=>{
  });
 });
 const scope=uid=>'["synology","https://nas.invalid","main_workspace","'+uid+'"]';
+// Emulator tests use the modular SDK; the actual PWA uses Firebase compat.
+const compat=(db)=>({
+ app:{options:{projectId:'samosval-offline'}},
+ doc:path=>doc(db,path),
+ runTransaction:fn=>runTransaction(db,tx=>fn({
+  get:ref=>tx.get(ref),
+  set:(ref,data)=>tx.set(ref,data),
+  update:(ref,data)=>tx.update(ref,data)
+ }))
+});
 const make=(db,uid)=>createSparkLineWriter({
- firestore:db,getUser:()=>({uid}),
+ firestore:compat(db),getUser:()=>({uid}),
  serverTimestamp,cryptoImpl:webcrypto,clock:Date.now
 });
 const arrive=id=>({
