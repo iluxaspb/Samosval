@@ -113,7 +113,7 @@ test('A coordinator change mid-read discards the whole snapshot',async()=>{
 test('Mirror row IDs and canonical payloads cannot be silently tampered',async()=>{
  const t=mock({alterRow:tables=>tables.get('line_logs')[0].id='wrong-id'});
  await assert.rejects(t.create().readLine(),{code:'spark-line-row-id-invalid'});
- const u=mock({alterRow:tables=>tables.get('line_logs')[0].value.rowJson='{"a":3,"b":2}'});
+ const u=mock({alterRow:tables=>tables.get('line_logs')[0].value.rowJson='{"b":2,"a":3}'});
  await assert.rejects(u.create().readLine(),{code:'spark-line-row-invalid'});
 });
 test('An oversized mirror table is rejected, never rendered as incomplete data',async()=>{
