@@ -16,13 +16,16 @@ export function sameLineState(a,b){
   const strip=value=>Object.fromEntries(Object.entries(value).filter(([key])=>!['id','cycleRevision','ttnRevision'].includes(key)));
   return isDeepStrictEqual(strip(a),strip(b));
 }
-export async function recordLineHistory(client,{workspaceId,uid,op,before,result,profile,shift}){
+export async function recordLineHistory(client,{workspaceId,uid,op,before,result,profile,shift,
+  replayAt=null,suppressNotifications=false}){
+  if(replayAt!==null&&(!Number.isSafeInteger(replayAt)||replayAt<1))
+    throw Error('invalid-history-replay-time');
   const policy=(await client.query('SELECT payload FROM workspace_settings WHERE workspace_id=$1 FOR SHARE',[workspaceId])).rows[0]?.payload||{};
   const rewards=rewardSnapshot(policy,{id:op.id,type:op.type,at:op.createdAt},Date.now());
   const actor={email:profile?.email||'',name:profile?.display_name||'',objectId:shift?.objectId||'',objectName:shift?.objectName||''};
-  if(op.type==='load'||op.type==='arrive'&&op.wantArrived||op.type==='ttn'&&op.collect){const truck=(await client.query('SELECT payload FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2',[workspaceId,op.truckId])).rows[0]?.payload;await enqueueNotification(client,workspaceId,op.id,op.type,{truck:truck?.number||op.truckId,actor:profile?.display_name||'',object:shift?.objectName||''});}
-  await client.query(`INSERT INTO line_history(workspace_id,action_id,uid,shift_id,truck_id,type,before_status,after_status,log_data,game_rewards,game_actor)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[workspaceId,op.id,uid,op.shiftId,op.truckId,op.type,before,result.status,result.log||null,rewards,actor]);
+  if(!suppressNotifications&&(op.type==='load'||op.type==='arrive'&&op.wantArrived||op.type==='ttn'&&op.collect)){const truck=(await client.query('SELECT payload FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2',[workspaceId,op.truckId])).rows[0]?.payload;await enqueueNotification(client,workspaceId,op.id,op.type,{truck:truck?.number||op.truckId,actor:profile?.display_name||'',object:shift?.objectName||''});}
+  await client.query(`INSERT INTO line_history(workspace_id,action_id,uid,shift_id,truck_id,type,before_status,after_status,log_data,game_rewards,game_actor,created_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE(to_timestamp($12::double precision/1000),now()))`,[workspaceId,op.id,uid,op.shiftId,op.truckId,op.type,before,result.status,result.log||null,rewards,actor,replayAt]);
 }
 async function actor(client,uid,lock=''){
   const row=(await client.query('SELECT role,status,profile FROM app_users WHERE uid=$1 '+lock,[uid])).rows[0];
