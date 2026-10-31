@@ -629,10 +629,11 @@ sqltest('epoch rebind fails closed on wrong holder, outstanding writes, mirror o
  await assert.rejects(rebindSparkSqlWriterEpoch(args),
   /spark-rebind-firestore-owner-not-certified/);
  owner.pending={};
+ const verifiedHash=meta.hash;
  meta.hash='b'.repeat(64);
  await assert.rejects(rebindSparkSqlWriterEpoch(args),
   /spark-rebind-firestore-owner-not-certified/);
- meta.hash=claim.m.hash;
+ meta.hash=verifiedHash;
  await f.pool.query("UPDATE reserve_spark_replay_checkpoint SET manifest_hash=$1",
   ['c'.repeat(64)]);
  await assert.rejects(rebindSparkSqlWriterEpoch(args),
