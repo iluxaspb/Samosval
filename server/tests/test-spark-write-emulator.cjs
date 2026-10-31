@@ -71,10 +71,13 @@ const compat=(db)=>({
   update:(ref,data)=>tx.update(ref,data)
  }))
 });
-const make=(db,uid)=>createSparkLineWriter({
- firestore:compat(db),getUser:()=>({uid}),
- serverTimestamp,cryptoImpl:webcrypto,clock:Date.now
-});
+const make=(db,uid)=>{
+ const user={uid};
+ return createSparkLineWriter({
+  firestore:compat(db),getUser:()=>user,
+  serverTimestamp,cryptoImpl:webcrypto,clock:Date.now
+ });
+};
 const arrive=id=>({
  id,type:'arrive',truckId:'truck1',shiftId:'shift1',
  expectedRevision:0,arrivalTimestamp:0,lastLoadTimestamp:0,
