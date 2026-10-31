@@ -34,12 +34,18 @@ BEGIN
  IF NOT FOUND THEN
    RAISE EXCEPTION 'spark-fence-gate-missing' USING ERRCODE='55000';
  END IF;
+ -- TRUNCATE skips row-level triggers. Never allow a whole-table wipe
+ -- while the writer fence is armed, not even with a valid row permit.
+ IF gate.armed AND TG_OP='TRUNCATE' THEN
+   RAISE EXCEPTION 'spark-fence-truncate-forbidden' USING ERRCODE='55000';
+ END IF;
  IF gate.armed AND
     (coalesce(current_setting('samosval.writer_permit_id',true),'') !~ '^[A-Za-z0-9_-]{8,160}$'
      OR coalesce(current_setting('samosval.writer_epoch',true),'') <> gate.owner_epoch::text)
  THEN
    RAISE EXCEPTION 'spark-fence-permit-required' USING ERRCODE='55000';
  END IF;
+ IF TG_OP='TRUNCATE' THEN RETURN NULL; END IF;
  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
  RETURN NEW;
 END $fn$;
@@ -61,6 +67,12 @@ BEGIN
     t.schema_name,t.table_name);
    EXECUTE format(
     'CREATE TRIGGER spark_writer_gate BEFORE INSERT OR UPDATE OR DELETE ON %I.%I FOR EACH ROW EXECUTE FUNCTION reserve_control.check_write_permit()',
+    t.schema_name,t.table_name);
+   -- A TRUNCATE does NOT fire INSERT/UPDATE/DELETE row triggers.
+   EXECUTE format('DROP TRIGGER IF EXISTS spark_writer_gate_truncate ON %I.%I',
+    t.schema_name,t.table_name);
+   EXECUTE format(
+    'CREATE TRIGGER spark_writer_gate_truncate BEFORE TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION reserve_control.check_write_permit()',
     t.schema_name,t.table_name);
    installed:=installed+1;
  END LOOP;
