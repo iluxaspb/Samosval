@@ -85,21 +85,35 @@
       if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid)return;
       let client=createNasClient({getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});
       if(isTestAutoNasRuntime()){
-        // The HTTPS reserve address is configured only in a dedicated candidate
-        // shell after server deployment. Do not guess an endpoint or enable
-        // failover from an administrator's preference.
-        const endpoint=document.querySelector('meta[name="test-reserve-api-url"]')?.content;
-        const {createTestAutoLineClient}=await import(new URL('./test-app/synology/auto-line-client.mjs',document.baseURI).href);
+        // Dedicated opt-in HTML candidate ONLY. Uses Firebase Web SDK
+        // directly; no reserve HTTPS URL, Cloud Run, or auto-promotion.
+        const [ownerModule,readerModule,writerModule,routerModule]=await Promise.all([
+          import(new URL('./test-app/synology/spark-owner.mjs',document.baseURI).href),
+          import(new URL('./test-app/synology/spark-typed-line-reader.mjs',document.baseURI).href),
+          import(new URL('./test-app/synology/spark-line-writer.mjs',document.baseURI).href),
+          import(new URL('./test-app/synology/spark-auto-line-client.mjs',document.baseURI).href)
+        ]);
         if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid){client.stop();return;}
-        client=createTestAutoLineClient({nasClient:client,reserveBaseUrl:endpoint,
-          getUser:()=>auth.currentUser,
-          onProviderChange:()=>{if(epoch===nasRuntimeEpoch&&nasRuntimeClient===client){updateSyncUI();renderTestBackendControls();}}});
+        const getUser=()=>auth.currentUser;
+        const authority=ownerModule.createSparkOwnerReader({firestore:db,getUser});
+        const reader=readerModule.createSparkTypedLineReader({firestore:db,getUser,ownerReader:authority});
+        const writer=writerModule.createSparkLineWriter({firestore:db,getUser,
+          serverTimestamp:()=>firebase.firestore.FieldValue.serverTimestamp()});
+        client=routerModule.createSparkAutoLineClient({
+          nasClient:client,reader,writer,ownerReader:authority,firestore:db,getUser,
+          onProviderChange:()=>{
+            if(epoch===nasRuntimeEpoch&&nasRuntimeClient===client){updateSyncUI();renderTestBackendControls();}
+          }
+        });
       }
       nasRuntimeClient=client;
       for(const name of ['plugins','patches','audit','notifications'])refs[name]=nasAuxCollection(name,client,epoch);
       let registering=false;
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
         onSession:session=>{if(epoch!==nasRuntimeEpoch)return;applyNasSession(session);
+          // The reserve only supports LINE. Never refresh/admin-register or
+          // issue legacy NAS writes while Firebase holds the writer epoch.
+          if(isTestAutoNasRuntime()&&client.activeProvider==='firebase')return;
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasSettings().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-settings',error);});
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch)nasGameReadError(error);});
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasAuxiliary().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-auxiliary',error);});
@@ -344,12 +358,27 @@
         try{
           const result=await client.submitLine(op,{operationScope:op.operationScope});
           if(!live())return;
+          let verifiedReserveSnapshot=null;
+          if(isTestAutoNasRuntime()&&client.activeProvider==='firebase'&&result.outcome==='confirmed'){
+            // Firestore's transaction ACK alone does not give the full NAS-
+            // shaped state/log. Keep the local outbox until the typed server
+            // snapshot proves the immutable operation ID is visible.
+            verifiedReserveSnapshot=await client.readLine();
+            if(!live())return;
+            if(!verifiedReserveSnapshot.reserveOperations?.includes(op.id)){
+              const e=new Error('Резервная операция ещё не видна в проверенном снимке');
+              e.retryable=true;e.uncertain=true;throw e;
+            }
+          }
           if(result.status)nasReceiptFloors.set(op.truckId,{truckId:op.truckId,shiftId:op.shiftId,cycle:Number(result.status.cycleRevision||0),ttn:Number(result.status.ttnRevision||0)});
-          // The NAS transaction owns audit/history. Never deliver Firebase effects.
+          // Each provider owns its own audit/history. No legacy Firebase effects.
           const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id&&x.status==='pending');
           if(!saved)continue;
           Object.assign(saved,{status:result.outcome,result:result.reason||result.outcome,resolvedAt:Date.now(),effectsDelivered:true,savedResult:{status:result.status||null,log:result.log||null}});
-          offlineJournalWrite(all);offlineAdoptResult(op,result);offlineTransportRecovered();
+          offlineJournalWrite(all);
+          if(verifiedReserveSnapshot)acceptNasLineSnapshot(verifiedReserveSnapshot);
+          else offlineAdoptResult(op,result);
+          offlineTransportRecovered();
           if(result.outcome==='rejected')showToastEl('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)),true);
         }catch(error){
           if(!live())return;
