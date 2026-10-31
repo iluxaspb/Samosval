@@ -49,7 +49,6 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
  const current=getUser(),uid=current?.uid;
  if(!id(uid))throw bad('spark-auth-required');
  let stopped=false;
- const ref=x=>firestore.doc(ROOT+'/'+x);
  function guard(){
   if(stopped||getUser()!==current||current.uid!==uid)
    throw bad('spark-session-changed');
@@ -74,7 +73,7 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
    const result=await firestore.runTransaction(async tx=>{
     guard();
     const [metaSnap,ownerSnap]=await Promise.all([
-     tx.get(ref('v1').path===ROOT?firestore.doc(ROOT):ref('v1')),
+     tx.get(firestore.doc(ROOT)),
      tx.get(firestore.doc(OWNER))
     ]);
     const state=certified(metaSnap.exists?metaSnap.data():null,
@@ -100,13 +99,8 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
        !seq(acl.sourceSequence)||acl.sourceSequence>state.sequence||
        !acl.permissions?.actions?.includes?.('action_'+input.type))
      throw bad('spark-permission-denied');
-    if(!config||config.active!==true||config.generation!==g||
-       config.shiftId!==input.shiftId||!seq(config.sourceSequence)||
-       config.sourceSequence>state.sequence||!truck||truck.id!==input.truckId||
-       !before||before.shiftId!==input.shiftId||before.onLine!==true||
-       before.generation!==g||before.cycleRevision!==input.expectedRevision||
-       !seq(before.sourceSequence)||before.sourceSequence>state.sequence)
-     throw bad('spark-line-stale',{retryable:true});
+    // Idempotency wins over the later status revision. The previous write
+    // may have succeeded even when its HTTP/WebSocket response was lost.
     if(receiptSnap.exists){
      const r=receiptSnap.data();
      if(r.uid!==uid||r.requestHash!==requestHash||r.epoch!==state.epoch)
@@ -114,6 +108,13 @@ export function createSparkLineWriter({firestore,getUser,serverTimestamp,
      return {outcome:'confirmed',replayed:true,operationId:input.id,
       typedStatus:before};
     }
+    if(!config||config.active!==true||config.generation!==g||
+       config.shiftId!==input.shiftId||!seq(config.sourceSequence)||
+       config.sourceSequence>state.sequence||!truck||truck.id!==input.truckId||
+       !before||before.shiftId!==input.shiftId||before.onLine!==true||
+       before.generation!==g||before.cycleRevision!==input.expectedRevision||
+       !seq(before.sourceSequence)||before.sourceSequence>state.sequence)
+     throw bad('spark-line-stale',{retryable:true});
     if(logSnap.exists)throw bad('spark-line-log-conflict');
     const previousLoad=time(before.lastLoadAt)||0;
     const arrival=time(before.arrivedAt)||0;
