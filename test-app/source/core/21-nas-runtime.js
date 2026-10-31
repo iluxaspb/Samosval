@@ -122,7 +122,13 @@
           if(session.profile?.status==='active'&&(session.permissions.tabs.includes('line')||session.permissions.tabs.includes('trucks')||session.permissions.tabs.includes('timesheet')))void refreshNasObjects().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-objects',error);});
           if(canAdmin())void refreshNasAdministration().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-admin',error);});},
         onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal();},
-        onError:error=>{if(epoch!==nasRuntimeEpoch)return;reportSyncError('nas',error);}
+        onError:error=>{if(epoch!==nasRuntimeEpoch)return;
+          if(isTestAutoNasRuntime()&&client.activeProvider==null){
+            // No verified writer: don't expose buttons from a stale session.
+            permissionsLoaded=false;document.body.removeAttribute('data-perms-ready');
+            cancelHold();applyRoleUI();updateNavUI();
+          }
+          reportSyncError('nas',error);}
       });};nasResumePolling();
     }catch(error){if(epoch===nasRuntimeEpoch)reportSyncError('nas',error);}
   }
