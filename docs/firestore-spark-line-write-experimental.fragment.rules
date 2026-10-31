@@ -207,7 +207,10 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
     (typed('typed_config_') ||
      typed('typed_trucks_') ||
      typed('typed_status_') ||
-     (typed('typed_ops_') && resource.data.uid == request.auth.uid) ||
+     // A transaction must be allowed to check a missing receipt before
+     // creating it. Existing receipts remain private to their actor.
+     (typed('typed_ops_') && (resource == null ||
+       resource.data.uid == request.auth.uid)) ||
      typed('typed_logs_'));
   allow list: if false;
   allow create: if request.auth != null &&
