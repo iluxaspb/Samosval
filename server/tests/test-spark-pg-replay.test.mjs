@@ -433,11 +433,18 @@ async function promotionFixture(f,{coverage=true}={}){
   'UPDATE reserve_control.writer_gate SET armed=true,coverage_certified=$1,owner_epoch=7 WHERE singleton=true',
   [coverage]);
  const snapshot=await collectSnapshot(f.pool),generation=GEN,now=Date.now();
+ const baseHash=sha('snapshot:'+snapshot.snapshotHash+':'+snapshot.sequence);
+ // This isolated fixture is a fully certified empty incremental chain:
+ // its checked snapshot starts at the CURRENT outbox cursor.
+ const exactHash=createHash('sha256').update('snapshot:'+snapshot.snapshotHash+
+  ':'+snapshot.sequence).digest('hex');
+ await f.pool.query('UPDATE reserve_replica_receipt SET hash=$1 WHERE singleton=true',[exactHash]);
  const typed=buildSparkTypedLineSnapshot({snapshot,generation,
   fromMillis:ms=>Timestamp.fromMillis(ms)});
  const access=accessRowsFromMirrorSnapshot(snapshot,generation),paths=sparkTypedPaths(generation);
  const meta={protocol:1,projectId:'samosval-offline',channel:'test',writer:'synology',
-  generation,hash:H,snapshotHash:H,baseHash:H,baseSequence:snapshot.sequence,
+  generation,hash:exactHash,snapshotHash:snapshot.snapshotHash,baseHash:exactHash,
+  baseSequence:snapshot.sequence,
   lastSequence:snapshot.sequence,readyForFailover:false,
   typedProtocol:1,typedSequence:snapshot.sequence,accessProtocol:1,
   rowCount:snapshot.rows.length,accessCount:access.length};
