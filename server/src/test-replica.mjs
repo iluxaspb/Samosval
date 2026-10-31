@@ -3,6 +3,8 @@
 // The server must never enable Firebase business writes based on these checkpoints alone.
 import {createHash, randomUUID} from 'node:crypto';
 import {assertSparkBootstrapBudget,SPARK_STANDARD_FREE_LIMITS} from './test-spark-limits.mjs';
+import {accessRowsFromMirrorSnapshot,sparkAccessRef,needsSparkAccessRefresh,
+ collectSparkAccessFromPostgres,affectedSparkAccessUids} from './test-spark-access.mjs';
 
 export const REPLICA_DOC='samosval_test_replica/v1';
 const OWNER_DOC='samosval_test_replica/write_owner';
@@ -179,8 +181,9 @@ async function bootstrap(pool,db){
  const snapshot=await collectSnapshot(pool);
  // Before the first remote write, bound the readback/write burst to preserve
  // project-wide Spark headroom for existing TEST operators and their queues.
- assertSparkBootstrapBudget(snapshot.rows.length);
  const generation=sha256(randomUUID()).slice(0,24),metaRef=db.doc(REPLICA_DOC);
+ const access=accessRowsFromMirrorSnapshot(snapshot,generation);
+ assertSparkBootstrapBudget(snapshot.rows.length+access.length);
  for(let start=0;start<snapshot.rows.length;){
   const batch=db.batch();let total=0,count=0;
   for(const row of snapshot.rows.slice(start,start+CHUNK)){
@@ -191,6 +194,23 @@ async function bootstrap(pool,db){
    total+=bytes;count++;
   }
   await batch.commit();start+=count;
+ }
+ // Access projection is private per Firebase UID. Keep it unreferenced until
+ // all pages and ACLs have been independently verified. A role is never
+ // inferred from browser input or legacy Firebase users/{uid} documents.
+ for(let start=0;start<access.length;start+=CHUNK){
+  const batch=db.batch();
+  for(const row of access.slice(start,start+CHUNK))
+   batch.set(sparkAccessRef(db,generation,row.uid),row);
+  await batch.commit();
+ }
+ const remoteAccess=(await db.collection(REPLICA_DOC+'/access_'+generation).get()).docs;
+ if(remoteAccess.length!==access.length)throw Error('replica-spark-access-count-mismatch');
+ const byUid=new Map(access.map(x=>[x.uid,x]));
+ for(const doc of remoteAccess){
+  const item=doc.data(),expected=byUid.get(doc.id);
+  if(!expected||canonical(item)!==canonical(expected))
+   throw Error('replica-spark-access-integrity-failed');
  }
  // Verify the actual remote generation, not just local checksum calculations.
  // An incomplete upload is never published by the singleton metadata pointer.
@@ -210,7 +230,8 @@ async function bootstrap(pool,db){
  const m={protocol:1,channel:'test',writer:'synology',projectId:'samosval-offline',
   generation,snapshotHash:snapshot.snapshotHash,baseSequence:snapshot.sequence,
   baseHash,lastSequence:snapshot.sequence,hash:baseHash,
-  rowCount:snapshot.rows.length,readyForFailover:false,updatedAt:Date.now()};
+  rowCount:snapshot.rows.length,accessProtocol:1,accessCount:access.length,
+  readyForFailover:false,updatedAt:Date.now()};
  await db.runTransaction(async tx=>{
   const old=await tx.get(metaRef);
   if(old.exists)throw Error('replica-remote-already-initialized');
@@ -276,6 +297,15 @@ export async function replicateOnce({pool,firestore,projectId}){
  let hash=receipt.hash;
  for(const event of rows)hash=nextHash(hash,event);
  const latest=rows.at(-1).sequence;
+ // Apply permission changes atomically with the mirrored SQL batch. The
+ // projection may be ahead of the last delivered outbox entry. In that case
+ // the browser refuses it until mirror metadata catches up to sourceSequence.
+ const accessUpdate=needsSparkAccessRefresh(rows)?
+  await collectSparkAccessFromPostgres(pool,remote.generation):null;
+ if(accessUpdate&&accessUpdate.sourceSequence<latest)
+  throw Error('replica-spark-access-source-behind');
+ const changedUids=accessUpdate?affectedSparkAccessUids(rows,accessUpdate.projection):[];
+ const accessByUid=accessUpdate?new Map(accessUpdate.projection.map(x=>[x.uid,x])):null;
  const ref=firestore.doc(REPLICA_DOC);
  await firestore.runTransaction(async tx=>{
   const [snap,ownership]=await Promise.all([tx.get(ref),tx.get(firestore.doc(OWNER_DOC))]);
@@ -298,6 +328,12 @@ export async function replicateOnce({pool,firestore,projectId}){
   for(const {item,event} of finalRows.values()){
    if(event.action==='delete')tx.delete(item);
    else tx.set(item,validateRowSize(rowEnvelope(event.table_name,event.row_key,event.row_data,event.sequence)));
+  }
+  for(const uid of changedUids){
+   const aclRef=sparkAccessRef(firestore,m.generation,uid);
+   const update=accessByUid.get(uid);
+   if(update)tx.set(aclRef,update);
+   else tx.delete(aclRef);
   }
   tx.update(ref,{lastSequence:latest,hash,updatedAt:Date.now(),readyForFailover:false});
  });
