@@ -41,8 +41,19 @@ export async function beginSparkTypedRecovery({firestore,projectId,pool,
  now=Date.now(),fenceEnabled=process.env.TEST_WRITER_FENCE_ENABLED==='1'}={}){
  guarded(projectId,fenceEnabled);
  if(!firestore?.runTransaction||!pool)throw fail('spark-replay-invalid-dependencies');
- const base=await readNasReplayBaseline(pool);
  const metaRef=firestore.doc(REPLICA_DOC),ownerRef=firestore.doc(OWNER_DOC);
+ // A restarted worker may arrive after earlier SQL commits advanced the
+ // NAS outbox beyond its original receipt. Do NOT rerun the initial baseline
+ // check in that case: inspect the frozen Firestore owner and resume from PG.
+ const current=snap(await ownerRef.get());
+ if(current?.owner==='reconciling'){
+  const manifest=await inspected(firestore,projectId);
+  if(current.holder!=='reconcile_worker'||current.recovery?.typedProtocol!==1||
+     current.recovery.generation!==manifest.generation)
+   throw fail('spark-replay-resume-owner-invalid');
+  return {resumed:true,epoch:manifest.ownerEpoch,generation:manifest.generation};
+ }
+ const base=await readNasReplayBaseline(pool);
  return firestore.runTransaction(async tx=>{
   const [ms,os]=await Promise.all([tx.get(metaRef),tx.get(ownerRef)]);
   const m=snap(ms),o=snap(os);
