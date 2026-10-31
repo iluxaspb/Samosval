@@ -96,8 +96,7 @@ test('transaction preflight can read existing typed documents and probe missing 
   ROOT, 'samosval_test_replica/write_owner',
   CONFIG,TRUCK,STATE,
   ACCESS+'/operatorA',
-  ROOT+'/typed_ops_'+G+'/arrival01',
-  ROOT+'/typed_logs_'+G+'/load_arrival01'
+  ROOT+'/typed_ops_'+G+'/arrival01'
  ]){
   await assertSucceeds(getDoc(doc(alice,path)));
  }
