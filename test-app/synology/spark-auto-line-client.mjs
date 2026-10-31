@@ -15,7 +15,7 @@ const record=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const OWNER='samosval_test_replica/write_owner',META='samosval_test_replica/v1';
 
 export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
- firestore,getUser,onProviderChange=()=>{},clock=Date.now,
+ firestore,getUser,promoter=null,onProviderChange=()=>{},clock=Date.now,
  heartbeatMs=120000}={}){
  if(!nasClient||nasClient.workspaceId!=='main_workspace'||!nasClient.scope||
     !nasClient.uid||typeof nasClient.submitLine!=='function'||
@@ -28,6 +28,8 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
     typeof onProviderChange!=='function'||typeof clock!=='function'||
     !Number.isSafeInteger(heartbeatMs)||heartbeatMs<30000||heartbeatMs>300000)
   throw new TypeError('spark-auto-invalid-options');
+ if(promoter!==null&&typeof promoter.tryPromote!=='function')
+  throw new TypeError('spark-auto-promoter-invalid');
  if(firestore.app?.options?.projectId!=='samosval-offline')
   throw new TypeError('spark-test-project-required');
  const user=getUser(),uid=user?.uid;
@@ -104,7 +106,7 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
   if(![onSession,onSnapshot,onError].every(f=>typeof f==='function')||
      !Number.isSafeInteger(intervalMs)||intervalMs<1000||intervalMs>60000)
    throw new TypeError('spark-auto-subscription-invalid');
-  let closed=false,timer=null,nasClose=null,typedClose=null,unsubscribe=[];
+  let closed=false,timer=null,nasClose=null,typedClose=null,promotionTimer=null,unsubscribe=[];
   let inFlight=false,scheduled=false,again=false,kind='all',lastSnapshot=null;
   const changedTrucks=new Set();
   const ownerRefs=[firestore.doc(META),firestore.doc(OWNER)];
@@ -113,6 +115,7 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
   function stopProvider(){
    nasClose?.();nasClose=null;
    typedClose?.();typedClose=null;
+   clearTimeout(promotionTimer);promotionTimer=null;
    lastSnapshot=null;
   }
   function close(){
@@ -138,6 +141,22 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
    if(scheduled)return;
    scheduled=true;
    timer=setTimeout(()=>{scheduled=false;void refresh();},delay);
+  }
+  function schedulePromotion(state){
+   clearTimeout(promotionTimer);promotionTimer=null;
+   if(!promoter||!state||state.owner!=='synology'||
+      state.promotionCertified!==true||
+      !Number.isSafeInteger(state.leaseUntil))return;
+   const millis=Math.max(0,state.leaseUntil+30000-clock()+250);
+   promotionTimer=setTimeout(async()=>{
+    if(closed||stopped)return;
+    try{
+     // No NAS timeout grants write permission. Firestore transaction AND
+     // Security Rules independently verify the expired lease and SQL seal.
+     const result=await promoter.tryPromote();
+     if(result?.promoted)wake('all',0);
+    }catch(e){report(e);}
+   },Math.min(millis,2147483647));
   }
   function watchAccess(gen){
    if(accessWatchGen===gen)return;
@@ -172,6 +191,7 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
      const after=await authority();
      if(!same(before,after))throw bad('spark-auto-owner-changed-during-read');
      ownerState=after;publish('synology');
+     schedulePromotion(after);
      if(!nasClose){
       const generation=before.generation,epoch=before.epoch;
       nasClose=nasClient.subscribeLine({
@@ -242,7 +262,7 @@ export function createSparkAutoLineClient({nasClient,reader,writer,ownerReader,
  const client={...nasClient,readSession:()=>verifiedRead('readSession'),
   readLine:()=>verifiedRead('readLine'),submitLine,subscribeLine,
   stop(){if(stopped)return;stopped=true;for(const close of [...closes])close();
-   reader.stop();writer.stop();ownerReader.stop?.();nasClient.stop();}};
+   reader.stop();writer.stop();promoter?.stop?.();ownerReader.stop?.();nasClient.stop();}};
  // Every other NAS operation must be explicitly denied while Firebase owns
  // the line. Never accidentally fall back to an unavailable/stale NAS.
  for(const [name,method] of Object.entries(nasClient)){
