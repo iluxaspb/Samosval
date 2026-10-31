@@ -75,7 +75,8 @@ const make=(db,uid)=>{
  const user={uid};
  return createSparkLineWriter({
   firestore:compat(db),getUser:()=>user,
-  serverTimestamp,cryptoImpl:webcrypto,clock:Date.now
+  serverTimestamp,cryptoImpl:webcrypto,clock:Date.now,
+  onDiagnostic:e=>console.error('SPARK_EMULATOR_RAW',e?.code||'',e?.message||'')
  });
 };
 const arrive=id=>({
