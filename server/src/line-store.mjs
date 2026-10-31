@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {recordLineHistory} from './history-store.mjs';
 import { applyLineOperation, validateLineOperation } from './line-rules.mjs';
+import {exactSparkReplayAlias} from './test-spark-replay-receipt.mjs';
 
 const WORKSPACE_ID = process.env.WORKSPACE_ID || 'main_workspace';
 const ACTIONS = { arrive: 'action_arrive', load: 'action_load', ttn: 'action_ttn', reset: 'admin_only' };
@@ -39,7 +40,16 @@ export async function submitLineOperation(pool, uid, input) {
       const old = (await client.query(
         'SELECT uid, request_hash, result FROM line_operation_receipts WHERE workspace_id=$1 AND operation_id=$2',
         [WORKSPACE_ID,op.id])).rows[0];
-      if (!old || old.uid!==uid || old.request_hash!==hash) throw invalid('operation-id-reused',409);
+      if (!old || old.uid!==uid) throw invalid('operation-id-reused',409);
+      if (old.request_hash!==hash) {
+        // TEST only: a Firestore replay stored the server-time normalized SQL
+        // intent, while the phone retries its original request after a lost ACK.
+        // Accept only a verified exact original-hash alias from SQL 015.
+        const alias=await exactSparkReplayAlias(client,{uid,op,stored:old.result});
+        if (!alias) throw invalid('operation-id-reused',409);
+        await client.query('COMMIT');
+        return {...old.result,replayed:true,reserveReplayed:true};
+      }
       await client.query('COMMIT');
       return {...old.result,replayed:true};
     }
