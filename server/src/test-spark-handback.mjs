@@ -54,7 +54,10 @@ async function readAppliedProof(pool,recovery,newReceipt=null){
      !seq(head)||head!==Number(cp.outbox_sequence)||
      !cp.plan||cp.plan.format!=='spark-typed-pg-dry-run'||
      cp.plan.generation!==cp.generation||
+     cp.plan.version!==1||
      cp.plan.fromEpoch!==recovery.fromEpoch||
+     cp.plan.baseSequence!==recovery.baseSequence||
+     cp.plan.baseHash!==recovery.baseHash||
      cp.plan.eventCount!==recovery.eventCount||
      cp.plan.plannedHash!==cp.planned_hash||
      !Array.isArray(cp.plan.operations)||
@@ -67,13 +70,14 @@ async function readAppliedProof(pool,recovery,newReceipt=null){
   if(!atBase&&!atNew)throw bad('spark-handback-receipt-diverged');
   const operations=cp.plan.operations;
   const ids=operations.map(o=>o.operationId);
-  if(new Set(ids).size!==ids.length)throw bad('spark-handback-duplicate-operation');
+  const byId=new Map(operations.map(o=>[o.operationId,o]));
+  if(byId.size!==ids.length)throw bad('spark-handback-duplicate-operation');
   if(ids.length){
    const rows=(await c.query(
     'SELECT operation_id,uid FROM line_operation_receipts WHERE workspace_id=$1 AND operation_id=ANY($2::text[])',
     [WS,ids])).rows;
    if(rows.length!==ids.length||rows.some(r=>{
-    const op=operations.find(o=>o.operationId===r.operation_id);
+    const op=byId.get(r.operation_id);
     return !op||r.uid!==op.uid;
    }))throw bad('spark-handback-sql-receipts-missing');
   }
@@ -81,9 +85,10 @@ async function readAppliedProof(pool,recovery,newReceipt=null){
   const aliases=(await c.query(
    'SELECT operation_id,reserve_log_id,postgres_log_id FROM reserve_spark_log_aliases WHERE workspace_id=$1 AND generation=$2',
    [WS,recovery.generation])).rows;
+  const aliasById=new Map(expectedAliases.map(o=>[o.operationId,o]));
   if(aliases.length!==expectedAliases.length||
      aliases.some(r=>{
-      const op=expectedAliases.find(o=>o.operationId===r.operation_id);
+      const op=aliasById.get(r.operation_id);
       return !op||r.reserve_log_id!==op.reserveLogId||
        r.postgres_log_id!==op.postgresLogId;
      }))throw bad('spark-handback-log-aliases-diverged');
@@ -92,17 +97,17 @@ async function readAppliedProof(pool,recovery,newReceipt=null){
  }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
  finally{c.release();}
 }
-function buildDocuments(snapshot,generation){
+function buildDocuments(snapshot,generation,firestore){
  const typed=buildSparkTypedLineSnapshot({snapshot,generation,
   fromMillis:ms=>Timestamp.fromMillis(ms)});
  const paths=sparkTypedPaths(generation);
  const access=accessRowsFromMirrorSnapshot(snapshot,generation);
  const documents=[
-  ...snapshot.rows.map(r=>[rowRef({doc:path=>({path})},generation,r.table,r.key).path,r.envelope]),
+  ...snapshot.rows.map(r=>[rowRef(firestore,generation,r.table,r.key).path,r.envelope]),
   [paths.config,typed.config],
   ...[...typed.trucks].map(([id,row])=>[paths.truck(id),row]),
   ...[...typed.statuses].map(([id,row])=>[paths.status(id),row]),
-  ...access.map(row=>[sparkAccessRef({doc:path=>({path})},generation,row.uid).path,row])
+  ...access.map(row=>[sparkAccessRef(firestore,generation,row.uid).path,row])
  ];
  assertSparkBootstrapBudget(documents.length);
  if(new Set(documents.map(([path])=>path)).size!==documents.length)
@@ -177,7 +182,7 @@ async function verifyStaged({firestore,pool,m,o}){
  const snapshot=await collectSnapshot(pool);
  if(snapshot.sequence!==m.lastSequence||snapshot.snapshotHash!==m.snapshotHash||
     snapshot.rows.length!==m.rowCount)throw bad('spark-handback-snapshot-diverged');
- const expected=buildDocuments(snapshot,m.generation);
+ const expected=buildDocuments(snapshot,m.generation,firestore);
  if(expected.accessCount!==m.accessCount)
   throw bad('spark-handback-access-count-diverged');
  await verifyDocuments(firestore,expected.collections);
@@ -205,7 +210,7 @@ export async function stageSparkTypedHandback({firestore,projectId,pool,now=Date
   'spark-typed-handback\n'+manifest.generation+'\n'+manifest.sha256+'\n'+
    snapshot.sequence+'\n'+snapshot.snapshotHash).slice(0,24);
  if(generation===manifest.generation)throw bad('spark-handback-generation-reused');
- const entries=buildDocuments(snapshot,generation);
+ const entries=buildDocuments(snapshot,generation,firestore);
  await publishDocuments(firestore,entries.documents);
  await verifyDocuments(firestore,entries.collections);
  // A PostgreSQL writer that bypassed the Firestore permit fence is fatal.
