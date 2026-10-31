@@ -62,6 +62,7 @@ export async function beginReserveReplay({firestore,projectId,pool,
  const current=snap(await firestore.doc(OWNER_DOC).get());
  if(current?.owner==='reconciling'){
   const m=snap(await firestore.doc(REPLICA_DOC).get());
+  if(m?.typedProtocol===1)throw fail('reconcile-typed-history-replay-not-supported');
   return {resumed:true,...recoveryState(current,m)};
  }
  const base=await baselineReader(pool);
@@ -74,6 +75,8 @@ export async function beginReserveReplay({firestore,projectId,pool,
    Object.keys(o.pending).length>0||!Number.isSafeInteger(o.epoch)||
    !Number.isSafeInteger(o.reserveSequence)||o.reserveSequence<0)
    throw fail('reconcile-reserve-owner-invalid');
+  // Legacy reserve_ops does not contain direct Spark typed-status history.
+  if(m?.typedProtocol===1)throw fail('reconcile-typed-history-replay-not-supported');
   if(!m||m.channel!=='test'||m.projectId!=='samosval-offline'||
    m.readyForFailover!==true||m.generation!==o.generation||
    o.observedSequence!==m.lastSequence||!HASH.test(m.hash||''))
@@ -117,6 +120,7 @@ export async function replayReserveNext({firestore,projectId,pool,
  const ref=firestore.doc(OWNER_DOC),metaRef=firestore.doc(REPLICA_DOC);
  const [stateDoc,metaDoc]=await Promise.all([ref.get(),metaRef.get()]);
  const owner=snap(stateDoc),m=snap(metaDoc);
+ if(m?.typedProtocol===1)throw fail('reconcile-typed-history-replay-not-supported');
  const r=recoveryState(owner,m);
  if(r.appliedSequence===r.targetSequence){
   if(r.appliedHash!==r.targetHash)
