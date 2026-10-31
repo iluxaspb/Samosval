@@ -219,8 +219,12 @@ match /samosval_test_replica/v1/{typedCollection}/{documentId} {
        resource.data.uid == request.auth.uid)) ||
      typed('typed_logs_'));
   allow list: if false;
-  allow create: if request.auth != null &&
-    (opCreate() || logCreate());
-  allow update: if request.auth != null && statusUpdate();
+  // Dispatch by the exact typed collection before evaluating branch-specific
+  // getAfter() references. A LOG lacks receipt-only fields and vice versa.
+  allow create: if request.auth != null && (
+    (typed('typed_ops_') && opCreate()) ||
+    (typed('typed_logs_') && logCreate()));
+  allow update: if request.auth != null &&
+    typed('typed_status_') && statusUpdate();
   allow delete: if false;
 }
