@@ -57,7 +57,7 @@ jobs:
             --project demo-samosval-spark-ci \
             --config /tmp/samosval-spark-emulator.json \
             --only firestore \
-            "node --test --test-concurrency=1 --test-name-pattern=\"load is tied to arrival\" server/tests/test-spark-write-emulator.cjs"
+            "node --test --test-concurrency=1 server/tests/test-spark-rules-emulator.cjs server/tests/test-spark-write-emulator.cjs"
       - name: Reminder — no Firebase Console deployment occurred
         run: |
           echo 'Only a temporary local Firestore emulator was used.' >> "$GITHUB_STEP_SUMMARY"
