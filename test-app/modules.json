@@ -424,6 +424,22 @@
         "features/settings-hub.js",
         "features/line-motion-test.js"
       ]
+    },
+    {
+      "name": "ai-copilot-style",
+      "kind": "style",
+      "attributes": " id=\"ai-copilot-style\"",
+      "sources": [
+        "styles/ai-copilot-style.css"
+      ]
+    },
+    {
+      "name": "ai-copilot",
+      "kind": "script",
+      "attributes": " id=\"ai-copilot\"",
+      "sources": [
+        "features/ai-copilot.js"
+      ]
     }
   ]
 }

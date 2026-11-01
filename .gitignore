@@ -7,6 +7,8 @@ firestore-debug.log
 tests/full-audit/results/
 __pycache__/
 *.pyc
+.worktrees/
+
 
 tests/full-audit/summary-visual.html
 test-results/
