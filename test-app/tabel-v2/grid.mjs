@@ -24,8 +24,9 @@ export async function mount(s, host) {
     suppressClick = false,
     referencePick = null,
     pickingReference = false;
-  const c = s.config(),
-    allDays = s.days();
+  const c = s.config();
+  // Live day records change under the same mounted grid; keep them replaceable.
+  let allDays = s.days();
   s.gridUndo ||= {};
   const stacks = (id) =>
     (s.gridUndo[s.object.id + "/" + id] ||= { undo: [], redo: [] });
@@ -726,6 +727,27 @@ export async function mount(s, host) {
       numericActions.querySelector('[data-numeric-range]').textContent=rangeInput.value+' · '+D.range(selected,end).length+' ячеек'+(raw(selected)===''?' · сначала введите исходное число':'');
     }
   }
+  function refreshVisibleCells() {
+    if (disposed || !sheetId) return;
+    const dim=dimensions(),memo=new Map(),cells=formulaCells();
+    for(const td of table.querySelectorAll('[data-cell]')){
+      const k=td.dataset.cell,{r,c:pcol}=D.coords(k),merge=sheetId!=='linked'?(sheet.merges||[]).find(x=>{
+        const [from,to]=x.split(':'),a=D.coords(from),b=D.coords(to||from);
+        return r>=a.r&&r<=b.r&&pcol>=a.c&&pcol<=b.c;
+      }):null;
+      if(merge&&merge.split(':')[0]!==k)continue;
+      let value=D.formula(cells,k,dim,new Set(),memo),nf=sheet.cells[styleKey(k)]?.numberFormat;
+      if(nf&&value!==''&&!isNaN(Number(String(value).replace(',','.')))){
+        const number=Number(String(value).replace(',','.'));
+        value=nf==='percent'?D.fmt(number*100)+'%':number.toLocaleString('ru-RU',{minimumFractionDigits:Number(nf),maximumFractionDigits:Number(nf)});
+      }
+      const contractor=sheetId==='linked'&&pcol===0&&r>1?linkedRows[r-2]:null;
+      td.replaceChildren(document.createTextNode(String(value??'')));
+      if(contractor?.contractor!==undefined&&contractor?.contractor!==null){const small=document.createElement('small');small.className='tn-grid-contractor';small.textContent=contractor.contractorName;td.append(small);}
+      td.style.cssText=css(cellStyle(k));
+    }
+    mark();
+  }
   async function persist(next, label) {
     s.require("table", "edit");
     const before = D.copy(sheet);
@@ -939,7 +961,7 @@ export async function mount(s, host) {
     if (
       hasSelection &&
       !dirty &&
-      (!simple() || selected !== end) &&
+      ((!simple() && sheetId === "linked") || selected !== end) &&
       D.range(selected, end).includes(k)
     ) {
       menu();
@@ -951,9 +973,19 @@ export async function mount(s, host) {
       if(repeated)return openHours(k);
       return;
     }
-    if (!simple()) {
+    if (sheetId !== "linked") {
       try { s.require("table", "edit"); } catch { selectCell(k); return; }
-      // Focus during the user gesture: Android will not open the keyboard after an awaited save.
+      // The first tap only selects a free-sheet cell and reveals its formula field.
+      // A second tap on that same cell enters the existing keyboard-edit path.
+      const repeated = hasSelection && !dirty && selected === end && selected === k;
+      if (repeated) {
+        // Focus during the user gesture: Android will not open the keyboard after an awaited save.
+        edit.readOnly = false;
+        edit.focus({ preventScroll: true });
+      }
+    } else if (!simple()) {
+      // Preserve the existing full linked-table editing behavior.
+      try { s.require("table", "edit"); } catch { selectCell(k); return; }
       edit.readOnly = false;
       edit.focus({ preventScroll: true });
     }
@@ -1896,6 +1928,17 @@ export async function mount(s, host) {
     scroll.scrollLeft = position.left;
   }
   return {
+    async refresh() {
+      if (disposed || !sheetId) return;
+      const current = s.store.get(key());
+      if (current?.data) {
+        base = current;
+        sheet = current.data;
+        // Incoming day records are the source of linkedRows and visibleDays.
+        allDays = s.days();
+        refreshVisibleCells();
+      }
+    },
     finish: () => (dirty ? queueCommit() : chain),
     snapshot() {
       return {

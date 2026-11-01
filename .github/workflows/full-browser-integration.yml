@@ -1,10 +1,17 @@
 name: Full browser integration audit
 # Independent browser acceptance; coin security is not failed by unrelated UI.
 on:
+  push:
+    branches: [root]
+    paths:
+      - 'tests/tabel-v2/**'
+      - 'test-app/tabel-v2/**'
+      - '.github/workflows/full-browser-integration.yml'
   pull_request:
     branches: [root]
     paths:
       - 'tests/full-audit/**'
+      - 'tests/tabel-v2/**'
       - 'test-app/source/**'
       - 'test-app/tabel-v2/**'
       - 'test-app/modules.json'
@@ -42,8 +49,17 @@ jobs:
           /tmp/samosval-browser-qa/node_modules/.bin/playwright install --with-deps chromium
           # Download the pinned Firestore emulator JAR before the standalone
           # browser harness boots it on its own isolated random port.
-          printf '%s\n' '{"emulators":{"firestore":{"port":8080},"ui":{"enabled":false}}}' > /tmp/samosval-browser-firebase.json
+          printf '%s\n' '{"emulators":{"firestore":{"host":"127.0.0.1","port":8080},"ui":{"enabled":false},"singleProjectMode":false}}' > /tmp/samosval-browser-firebase.json
           /tmp/samosval-browser-qa/node_modules/.bin/firebase emulators:exec --config /tmp/samosval-browser-firebase.json --project demo-samosval-browser-audit --only firestore 'echo firestore-emulator-ready'
+      - name: Live linked-grid values across two clients (loopback Firestore only)
+        env:
+          NODE_PATH: /tmp/samosval-browser-qa/node_modules
+          TABEL_SYNC_QA: /tmp/samosval-browser-qa
+          CODEX_PRIMARY_RUNTIME_NODE_MODULES: /tmp/samosval-browser-qa/node_modules
+        run: |
+          node --check tests/tabel-v2/live-values-browser.cjs
+          export TABEL_CHROMIUM=$(node -p "require('playwright').chromium.executablePath()")
+          /tmp/samosval-browser-qa/node_modules/.bin/firebase emulators:exec --config /tmp/samosval-browser-firebase.json --project demo-live-values --only firestore 'node tests/tabel-v2/live-values-browser.cjs'
       - name: Test address rename, pump toggle and per-shift materials
         env:
           NODE_PATH: /tmp/samosval-browser-qa/node_modules

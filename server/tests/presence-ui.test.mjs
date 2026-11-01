@@ -31,7 +31,7 @@ test('NAS pending selection cannot reappear after dispose or local access revoca
   let finish;const h=fixture({write:()=>new Promise(resolve=>{finish=resolve;})});h.ui.update('one','A1','B2',true);h.setActive(false);h.ui.dispose();finish();await tick();
   assert(h.removes.length>=1);assert(h.removes.every(x=>x.sequence>1));assert.equal(h.frames.at(-1).peers.length,0);
 });
-test('NAS peer read failures remove old highlights and show a connection error',async()=>{
+test('NAS peer read failures retain the last valid highlights and show a connection error',async()=>{
   const h=fixture({list:async()=>({peers:[{uid:'two',objectId:'site',sheetId:'one',seen:1000}]})});h.ui.update('one','A1','A1',true);await tick();
-  h.remote.list=async()=>{throw Error('denied');};[...h.intervals.values()][0]();await tick();assert.equal(h.frames.at(-1).peers.length,0);assert.match(h.frames.at(-1).error,/недоступно/);h.ui.dispose();
+  h.remote.list=async()=>{throw Error('denied');};[...h.intervals.values()][0]();await tick();assert.equal(h.frames.at(-1).peers.length,1);assert.match(h.frames.at(-1).error,/недоступно/);h.ui.dispose();
 });

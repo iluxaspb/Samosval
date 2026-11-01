@@ -5,7 +5,9 @@ export function nasPresence(s,onChange,{doc=globalThis.document,nav=globalThis.n
   const actor=s.host.session(),remote=s.host.presenceRemote,id=sessionId(),objectId=s.object.id;
   let sheetId=null,selection=null,sequence=0,generation=0,stopped=false,writing=false,polling=false,again=false,pending=null,peers=[],failure='';
   const visible=()=>!doc.hidden&&!s.root.hidden&&s.root.isConnected;
-  const emit=()=>onChange(peers.filter(p=>now()-p.seen<125000),failure);
+  // A selection remains visible while its session is active; the API removes
+  // it on leave and expires abandoned sessions server-side.
+  const emit=()=>onChange(peers,failure);
   const current=()=>{const a=s.host.session();return a.uid===actor.uid&&a.providerScope===actor.providerScope&&a.active!==false&&a.status!=='disabled'&&a.tabAccess!==false&&a.view!==false;};
   async function leave(){
     peers=[];emit();if(!remote||nav.onLine===false)return;
@@ -17,7 +19,7 @@ export function nasPresence(s,onChange,{doc=globalThis.document,nav=globalThis.n
     if(!s.sheetVisible(sheetId))return;
     const token=generation,payload={sessionId:id,sequence:++sequence,objectId,sheetId,selection:selection===null?null:JSON.parse(JSON.stringify(selection))};writing=true;
     try{await remote.write(payload);if(!stopped&&token===generation&&visible()&&current())failure='';}
-    catch{if(!stopped&&token===generation){peers=[];failure='Не удалось обновить выделение Synology';}}
+    catch{if(!stopped&&token===generation){failure='Не удалось обновить выделение Synology';emit();}}
     finally{writing=false;if(!stopped&&token===generation)emit();if(stopped||!visible()||!current())void leave();else if(again||token!==generation){again=false;void write();}}
   }
   async function poll(){
@@ -25,7 +27,7 @@ export function nasPresence(s,onChange,{doc=globalThis.document,nav=globalThis.n
     const token=generation,target=sheetId;polling=true;
     try{const data=await remote.list({objectId,sheetId:target});if(stopped||token!==generation||!visible()||!current())return;
       peers=data.peers.filter(p=>p.uid!==actor.uid&&p.objectId===objectId&&p.sheetId===target);failure='';emit();}
-    catch{if(!stopped&&token===generation){peers=[];failure='Совместное выделение Synology недоступно';emit();}}
+    catch{if(!stopped&&token===generation){failure='Совместное выделение Synology недоступно';emit();}}
     finally{polling=false;}
   }
   const visibility=()=>{if(visible()&&current()){void write();void poll();}else void leave();};

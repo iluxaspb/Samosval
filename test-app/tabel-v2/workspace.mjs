@@ -560,6 +560,12 @@ async function render(s) {
       ? { top: previousContent.scrollTop, left: previousContent.scrollLeft }
       : null;
   const rendering = (s.rendering = (s.rendering || 0) + 1);
+  // Incoming server data must not tear down the table while it is open:
+  // rebuilding the grid causes a visible flash and drops the live cell focus.
+  if (s.view === "table" && s.grid) {
+    await s.grid.refresh?.();
+    if (rendering === s.rendering) return;
+  }
   if (s.grid) await s.grid.finish?.();
   if (rendering !== s.rendering) return;
   s.remember?.();

@@ -26,7 +26,9 @@ export function presence(s, onChange) {
   const collection=s.remote && s.host.workspace?.collection('tabelNextPresence');
   const ref=collection?.doc(actor.uid+'_'+id);
   const visible=()=>!document.hidden && !s.root.hidden && s.root.isConnected;
-  const emit=()=>onChange(peers.filter(p=>Date.now()-p.seen<125000),failure);
+  // Keep a focused cell visible until the peer changes selection/leaves;
+  // server-side presence expiry still clears abandoned sessions.
+  const emit=()=>onChange(peers,failure);
   async function write() {
     if (writing) { again=true; return; }
     if (stopped || !sheetId || !visible() || navigator.onLine===false || !ref) return;
@@ -47,7 +49,7 @@ export function presence(s, onChange) {
         if(stopped||token!==generation)return;
         peers=snapshot.docs.map(d=>({...d.data(),id:d.id})).filter(p=>p.uid!==actor.uid && p.objectId===objectId && p.sheetId===sheetId);
         failure='';emit();
-      },()=>{if(!stopped&&token===generation){peers=[];failure='Присутствие недоступно: проверьте правила Firebase';emit();}});
+      },()=>{if(!stopped&&token===generation){failure='Присутствие недоступно: проверьте правила Firebase';emit();}});
     } catch { failure='Присутствие недоступно'; }
     emit(); void write();
   }
