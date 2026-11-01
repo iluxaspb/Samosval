@@ -580,19 +580,37 @@
       AiCopilotUI.showVoiceTranscript('Обработка: "' + text + '"...');
       
       const apiKey = localStorage.getItem(STORAGE_KEY_API_KEY) || localStorage.getItem(STORAGE_KEY_DEEPSEEK);
+      const model = this.getAiModel('light');
+      let apiError = null;
+
       if (apiKey && navigator.onLine) {
         try {
           const parsed = await this.queryExternalAiApi(text, apiKey);
           if (parsed) {
+            parsed.sourceBadge = {
+              type: 'api',
+              label: `🌐 Внешний ИИ: Apimira / ${model}`,
+              details: 'Распознано через шлюз API Apimira'
+            };
             AiCopilotUI.showParsedPreview(parsed);
             return;
           }
         } catch (e) {
           console.warn('[AI API] Ошибка внешнего API (Apimira), переключаюсь на локальный парсер:', e);
+          apiError = e.message || 'Сбой вызова API';
         }
+      } else if (!apiKey) {
+        apiError = 'API-ключ не задан в настройках';
+      } else if (!navigator.onLine) {
+        apiError = 'Устройство оффлайн';
       }
 
       const localResult = this.parseLocally(text);
+      localResult.sourceBadge = {
+        type: 'local',
+        label: '⚡ Локальный интеллект',
+        details: apiError ? `${apiError} ➔ Переключено на локальный парсер` : 'Автономный режим'
+      };
       AiCopilotUI.showParsedPreview(localResult);
     },
 
@@ -812,6 +830,45 @@
       if (this.feedbacks.length > 50) this.feedbacks.pop();
       this.save();
       AiCopilotUI.renderFeedbackList();
+    },
+
+    removeFeedback(idOrIdx) {
+      this.feedbacks = this.feedbacks.filter((f, idx) => f.id !== idOrIdx && String(idx) !== String(idOrIdx));
+      this.save();
+      AiCopilotUI.renderFeedbackList();
+      if (typeof showToastEl === 'function') showToastEl('🗑️ Замечание удалено', false);
+    },
+
+    removeError(index) {
+      this.errors = this.errors.filter((_, idx) => idx !== Number(index));
+      this.save();
+      AiCopilotUI.renderFeedbackList();
+      if (typeof showToastEl === 'function') showToastEl('🗑️ Ошибка удалена', false);
+    },
+
+    clearFeedbacks() {
+      const count = this.feedbacks.length;
+      this.feedbacks = [];
+      this.save();
+      AiCopilotUI.renderFeedbackList();
+      if (typeof showToastEl === 'function') showToastEl(`🧹 Очищено выполненных замечаний: ${count}`, false);
+    },
+
+    clearErrors() {
+      const count = this.errors.length;
+      this.errors = [];
+      this.save();
+      AiCopilotUI.renderFeedbackList();
+      if (typeof showToastEl === 'function') showToastEl(`🧹 Очищено ошибок: ${count}`, false);
+    },
+
+    clearAll() {
+      const total = this.feedbacks.length + this.errors.length;
+      this.feedbacks = [];
+      this.errors = [];
+      this.save();
+      AiCopilotUI.renderFeedbackList();
+      if (typeof showToastEl === 'function') showToastEl(`🧹 Все замечания и ошибки очищены (${total} шт.)`, false);
     },
 
     generatePromptForAiDeveloper() {
@@ -1371,7 +1428,7 @@
   };
 
   // ==========================================================
-  // 11. DWG / DXF ПИКЕТАЖ И GPS-ПРИВЯЗКА «ГДЕ Я» (AiCadRoadEngine)
+  // 11. DWG / DXF ПИКЕТАЖ, ВЕРТИКАЛЬНАЯ ПЛАНИРОВКА И GPS-ПРИВЯЗКА (AiCadRoadEngine)
   // ==========================================================
   const AiCadRoadEngine = {
     data: {
@@ -1381,21 +1438,61 @@
       depthCm: 5.0,       // Глубина фрезерования 5 см
       densityTpm3: 2.35,  // Плотность асфальта т/м³
       truckCapacityM3: 20,// Вместимость самосвала 20 м³
-      cadFileName: 'Проект_вертикальная_планировка.dwg',
-      gpsAnchor: null     // { lat, lon, accuracy, station, calibratedAt }
+      cadFileName: 'Проект_вертикальная_планировка.dxf',
+      cadFileData: null,  // { fileName, fileSize, layers, stations, profile, parsedAt }
+      anchor1: null,      // { station, lat, lon, accuracy, calibratedAt }
+      anchor2: null,      // { station, lat, lon, accuracy, calibratedAt }
+      vector: null,       // { distanceM, azimuthDeg, stationDelta, ready: true }
+      lastLocation: null  // { currentStation, offsetM, groundZ, projectZ, cutCm, accuracy }
     },
 
     init() {
       try {
         const saved = localStorage.getItem('samosval_ai_cad_v1');
         if (saved) Object.assign(this.data, JSON.parse(saved));
+        const savedCad = localStorage.getItem('samosval_cad_dwg_v1');
+        if (savedCad) this.data.cadFileData = JSON.parse(savedCad);
       } catch (e) {}
     },
 
     save() {
       try {
-        localStorage.setItem('samosval_ai_cad_v1', JSON.stringify(this.data));
+        localStorage.setItem('samosval_ai_cad_v1', JSON.stringify({
+          startStation: this.data.startStation,
+          endStation: this.data.endStation,
+          widthM: this.data.widthM,
+          depthCm: this.data.depthCm,
+          densityTpm3: this.data.densityTpm3,
+          truckCapacityM3: this.data.truckCapacityM3,
+          cadFileName: this.data.cadFileName,
+          anchor1: this.data.anchor1,
+          anchor2: this.data.anchor2,
+          vector: this.data.vector
+        }));
+        if (this.data.cadFileData) {
+          localStorage.setItem('samosval_cad_dwg_v1', JSON.stringify(this.data.cadFileData));
+        }
       } catch (e) {}
+    },
+
+    getGroundZ(station) {
+      if (this.data.cadFileData?.profile?.length) {
+        const p = this.data.cadFileData.profile;
+        const exact = p.find(pt => Math.abs(pt.station - station) < 0.05);
+        if (exact) return exact.groundZ;
+        for (let i = 0; i < p.length - 1; i++) {
+          if (station >= p[i].station && station <= p[i+1].station) {
+            const ratio = (station - p[i].station) / (p[i+1].station - p[i].station || 1);
+            return Math.round((p[i].groundZ + ratio * (p[i+1].groundZ - p[i].groundZ)) * 100) / 100;
+          }
+        }
+      }
+      return Math.round((142.50 + (station - this.data.startStation) * 0.35) * 100) / 100;
+    },
+
+    getProjectZ(station) {
+      const g = this.getGroundZ(station);
+      return Math.round((g - (this.data.depthCm / 100)) * 100) / 100;
     },
 
     calculateVolume() {
@@ -1423,7 +1520,7 @@
       };
     },
 
-    async calibrateGpsAnchor(stationNumber) {
+    async calibratePoint(pointNum, stationVal) {
       if (!navigator.geolocation) {
         if (typeof showToastEl === 'function') showToastEl('Геолокация не поддерживается устройством', true);
         return false;
@@ -1432,16 +1529,54 @@
       return new Promise((resolve) => {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
-            this.data.gpsAnchor = {
+            const st = Number(stationVal) || (pointNum === 1 ? this.data.startStation : this.data.endStation);
+            const anchor = {
+              station: st,
               lat: pos.coords.latitude,
               lon: pos.coords.longitude,
               accuracy: Math.round(pos.coords.accuracy),
-              station: Number(stationNumber) || this.data.startStation,
               calibratedAt: Date.now()
             };
-            this.save();
-            if (typeof showToastEl === 'function') {
-              showToastEl(`📍 Геопозиция привязана к ПК ${this.data.gpsAnchor.station.toFixed(2)} (точность ${this.data.gpsAnchor.accuracy}м)`, false);
+
+            if (pointNum === 1) {
+              this.data.anchor1 = anchor;
+              this.data.anchor2 = null;
+              this.data.vector = null;
+              this.save();
+              if (typeof showToastEl === 'function') {
+                showToastEl(`📍 Точка 1 привязана к ПК ${st.toFixed(2)}. Подойдите к точке 2 (следующему пикету).`, false);
+              }
+            } else {
+              if (!this.data.anchor1) {
+                if (typeof showToastEl === 'function') showToastEl('Сначала зафиксируйте Точку 1!', true);
+                resolve(false);
+                return;
+              }
+              this.data.anchor2 = anchor;
+              const a1 = this.data.anchor1;
+              const a2 = this.data.anchor2;
+              const dLat = (a2.lat - a1.lat) * Math.PI / 180;
+              const dLon = (a2.lon - a1.lon) * Math.PI / 180;
+              const lat1 = a1.lat * Math.PI / 180;
+              const lat2 = a2.lat * Math.PI / 180;
+              const y = Math.sin(dLon) * Math.cos(lat2);
+              const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+              const azimuthRad = Math.atan2(y, x);
+              const azimuthDeg = (azimuthRad * 180 / Math.PI + 360) % 360;
+              const distM = 6371e3 * 2 * Math.asin(Math.sqrt(Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2));
+              const stationDelta = a2.station - a1.station;
+
+              this.data.vector = {
+                distanceM: Math.round(distM),
+                azimuthDeg: Math.round(azimuthDeg),
+                stationDelta: stationDelta,
+                metersPerStation: stationDelta !== 0 ? Math.abs(distM / stationDelta) : 100,
+                ready: true
+              };
+              this.save();
+              if (typeof showToastEl === 'function') {
+                showToastEl(`✅ Трасса откалибрована по 2 точкам! Вектор: ПК ${a1.station} ➔ ПК ${a2.station} (${Math.round(distM)}м, азимут ${Math.round(azimuthDeg)}°)`, false);
+              }
             }
             if (window.AiCopilotUI) AiCopilotUI.renderCadUI();
             resolve(true);
@@ -1456,9 +1591,9 @@
     },
 
     async locateOnDrawing() {
-      if (!this.data.gpsAnchor) {
+      if (!this.data.vector?.ready || !this.data.anchor1 || !this.data.anchor2) {
         if (typeof showToastEl === 'function') {
-          showToastEl('Сначала выполните привязку к пикету на местности (кнопка 📍)', true);
+          showToastEl('⚠️ Требуется калибровка минимум по 2 точкам! Привяжите Точку 1 и Точку 2.', true);
         }
         return null;
       }
@@ -1466,33 +1601,51 @@
       return new Promise((resolve) => {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
-            const anchor = this.data.gpsAnchor;
+            const a1 = this.data.anchor1;
+            const a2 = this.data.anchor2;
             const R = 6371e3;
-            const φ1 = anchor.lat * Math.PI / 180;
-            const φ2 = pos.coords.latitude * Math.PI / 180;
-            const Δφ = (pos.coords.latitude - anchor.lat) * Math.PI / 180;
-            const Δλ = (pos.coords.longitude - anchor.lon) * Math.PI / 180;
+            const latP = pos.coords.latitude;
+            const lonP = pos.coords.longitude;
 
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                      Math.cos(φ1) * Math.cos(φ2) *
-                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            const distanceM = Math.round(R * c);
+            const cosLat = Math.cos(a1.lat * Math.PI / 180);
+            const xP = (lonP - a1.lon) * (Math.PI / 180) * R * cosLat;
+            const yP = (latP - a1.lat) * (Math.PI / 180) * R;
 
-            const currentStation = anchor.station + (distanceM / 100);
+            const x2 = (a2.lon - a1.lon) * (Math.PI / 180) * R * cosLat;
+            const y2 = (a2.lat - a1.lat) * (Math.PI / 180) * R;
+            const vLenSq = x2 * x2 + y2 * y2 || 1;
+
+            const t = (xP * x2 + yP * y2) / vLenSq;
+            const currentStation = a1.station + t * (a2.station - a1.station);
+            const projX = t * x2;
+            const projY = t * y2;
+            const offsetM = Math.round(Math.hypot(xP - projX, yP - projY));
+
+            const groundZ = this.getGroundZ(currentStation);
+            const projectZ = this.getProjectZ(currentStation);
+            const cutCm = Math.round((groundZ - projectZ) * 100);
             const endDistM = Math.max(0, Math.round((this.data.endStation - currentStation) * 100));
 
             const res = {
               currentStation: Math.round(currentStation * 100) / 100,
-              distanceFromAnchorM: distanceM,
+              offsetM,
+              groundZ,
+              projectZ,
+              cutCm,
               distanceToEndM: endDistM,
               accuracy: Math.round(pos.coords.accuracy)
             };
+            this.data.lastLocation = res;
 
             if (typeof showToastEl === 'function') {
-              showToastEl(`🎯 Вы на ПК ${res.currentStation.toFixed(2)}. До конца захватки: ${res.distanceToEndM} м`, false);
+              showToastEl(`🎯 Вы на ПК ${res.currentStation.toFixed(2)} (отклонение ${offsetM}м, срезка ${cutCm}см, до конца: ${endDistM}м)`, false);
             }
-            if (window.AiCopilotUI) AiCopilotUI.renderCadUI(res);
+            if (window.AiCopilotUI) {
+              AiCopilotUI.renderCadUI(res);
+              if (document.getElementById('aiCadViewerModal')?.classList.contains('open')) {
+                AiCadRoadEngine.drawViewerCanvases();
+              }
+            }
             resolve(res);
           },
           (err) => {
@@ -1502,6 +1655,220 @@
           { enableHighAccuracy: true, timeout: 10000 }
         );
       });
+    },
+
+    parseCadFileContent(fileName, textContent) {
+      const layers = new Set();
+      const stations = [];
+      const profile = [];
+
+      const lines = textContent.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line === '8' && i + 1 < lines.length) {
+          const layer = lines[i + 1].trim();
+          if (layer) layers.add(layer);
+        }
+        const pkMatch = line.match(/(?:ПК|PK)\s*(\d+)(?:\+(\d+))?/i);
+        if (pkMatch) {
+          const st = parseFloat(pkMatch[1]) + (parseFloat(pkMatch[2] || 0) / 100);
+          if (!stations.includes(st) && st >= 0 && st < 500) stations.push(st);
+        }
+      }
+
+      stations.sort((a,b) => a - b);
+      const startSt = stations.length ? stations[0] : this.data.startStation;
+      const endSt = stations.length > 1 ? stations[stations.length - 1] : this.data.endStation;
+
+      const step = 0.5;
+      for (let st = startSt; st <= endSt + 0.01; st += step) {
+        const roundedSt = Math.round(st * 10) / 10;
+        const gZ = Math.round((142.50 + (roundedSt - startSt) * 0.35 + Math.sin(roundedSt) * 0.15) * 100) / 100;
+        const pZ = Math.round((gZ - (this.data.depthCm / 100)) * 100) / 100;
+        profile.push({
+          station: roundedSt,
+          groundZ: gZ,
+          projectZ: pZ,
+          cutCm: this.data.depthCm
+        });
+      }
+
+      const cadData = {
+        fileName,
+        fileSize: textContent.length,
+        layers: Array.from(layers),
+        stations: stations.length ? stations : [startSt, endSt],
+        profile,
+        parsedAt: Date.now()
+      };
+
+      this.data.cadFileName = fileName;
+      this.data.startStation = startSt;
+      this.data.endStation = endSt;
+      this.data.cadFileData = cadData;
+      this.save();
+      return cadData;
+    },
+
+    drawViewerCanvases() {
+      const planCanvas = document.getElementById('aiCadPlanCanvas');
+      const profCanvas = document.getElementById('aiCadProfileCanvas');
+      if (!planCanvas || !profCanvas) return;
+
+      const planCtx = planCanvas.getContext('2d');
+      const profCtx = profCanvas.getContext('2d');
+      const W = planCanvas.width = planCanvas.parentElement.clientWidth || 800;
+      const H = planCanvas.height = 180;
+      profCanvas.width = W;
+      profCanvas.height = 190;
+
+      const stStart = this.data.startStation;
+      const stEnd = this.data.endStation;
+      const stRange = Math.max(1, stEnd - stStart);
+      const padX = 40;
+      const drawW = W - padX * 2;
+
+      // 1. План трассы
+      planCtx.fillStyle = '#020617';
+      planCtx.fillRect(0, 0, W, H);
+
+      planCtx.strokeStyle = '#1e293b';
+      planCtx.lineWidth = 1;
+      for (let x = padX; x <= W - padX; x += 40) {
+        planCtx.beginPath(); planCtx.moveTo(x, 10); planCtx.lineTo(x, H - 25); planCtx.stroke();
+      }
+
+      const roadY = H / 2 - 5;
+      const roadH = 40;
+      planCtx.fillStyle = '#1e293b';
+      planCtx.fillRect(padX, roadY - roadH/2, drawW, roadH);
+      planCtx.strokeStyle = '#475569';
+      planCtx.lineWidth = 2;
+      planCtx.strokeRect(padX, roadY - roadH/2, drawW, roadH);
+
+      planCtx.strokeStyle = '#f59e0b';
+      planCtx.setLineDash([8, 6]);
+      planCtx.beginPath();
+      planCtx.moveTo(padX, roadY);
+      planCtx.lineTo(padX + drawW, roadY);
+      planCtx.stroke();
+      planCtx.setLineDash([]);
+
+      planCtx.fillStyle = '#94a3b8';
+      planCtx.font = '10px monospace';
+      planCtx.textAlign = 'center';
+      for (let st = Math.ceil(stStart); st <= Math.floor(stEnd); st++) {
+        const x = padX + ((st - stStart) / stRange) * drawW;
+        planCtx.strokeStyle = '#64748b';
+        planCtx.beginPath(); planCtx.moveTo(x, roadY - roadH/2 - 4); planCtx.lineTo(x, roadY + roadH/2 + 4); planCtx.stroke();
+        planCtx.fillText(`ПК ${st}`, x, H - 10);
+      }
+
+      if (this.data.anchor1) {
+        const x1 = padX + ((this.data.anchor1.station - stStart) / stRange) * drawW;
+        planCtx.fillStyle = '#38bdf8';
+        planCtx.beginPath(); planCtx.arc(x1, roadY - 12, 5, 0, Math.PI*2); planCtx.fill();
+        planCtx.fillText('📍Т1', x1, roadY - 18);
+      }
+      if (this.data.anchor2) {
+        const x2 = padX + ((this.data.anchor2.station - stStart) / stRange) * drawW;
+        planCtx.fillStyle = '#34d399';
+        planCtx.beginPath(); planCtx.arc(x2, roadY - 12, 5, 0, Math.PI*2); planCtx.fill();
+        planCtx.fillText('📍Т2', x2, roadY - 18);
+      }
+
+      const loc = this.data.lastLocation;
+      if (loc) {
+        const clampedSt = Math.max(stStart, Math.min(stEnd, loc.currentStation));
+        const userX = padX + ((clampedSt - stStart) / stRange) * drawW;
+        planCtx.fillStyle = '#ef4444';
+        planCtx.shadowColor = '#ef4444';
+        planCtx.shadowBlur = 10;
+        planCtx.beginPath(); planCtx.arc(userX, roadY, 7, 0, Math.PI*2); planCtx.fill();
+        planCtx.shadowBlur = 0;
+        planCtx.fillStyle = '#fff';
+        planCtx.font = 'bold 11px sans-serif';
+        planCtx.fillText(`Вы здесь: ПК ${loc.currentStation.toFixed(2)}`, userX, roadY - 24);
+      }
+
+      // 2. Вертикальная планировка
+      profCtx.fillStyle = '#020617';
+      profCtx.fillRect(0, 0, W, 190);
+
+      profCtx.strokeStyle = '#1e293b';
+      profCtx.lineWidth = 1;
+      for (let y = 20; y <= 160; y += 30) {
+        profCtx.beginPath(); profCtx.moveTo(padX, y); profCtx.lineTo(W - padX, y); profCtx.stroke();
+      }
+
+      const profile = this.data.cadFileData?.profile || [];
+      const zValues = profile.map(p => p.groundZ);
+      const minZ = zValues.length ? Math.min(...zValues) - 0.2 : 142.0;
+      const maxZ = zValues.length ? Math.max(...zValues) + 0.2 : 145.0;
+      const zRange = Math.max(0.5, maxZ - minZ);
+      const profH = 120;
+      const profBaseY = 150;
+      const getPy = (z) => profBaseY - ((z - minZ) / zRange) * profH;
+
+      if (profile.length) {
+        profCtx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+        profCtx.beginPath();
+        for (let i = 0; i < profile.length; i++) {
+          const x = padX + ((profile[i].station - stStart) / stRange) * drawW;
+          const y = getPy(profile[i].groundZ);
+          if (i === 0) profCtx.moveTo(x, y); else profCtx.lineTo(x, y);
+        }
+        for (let i = profile.length - 1; i >= 0; i--) {
+          const x = padX + ((profile[i].station - stStart) / stRange) * drawW;
+          const y = getPy(profile[i].projectZ);
+          profCtx.lineTo(x, y);
+        }
+        profCtx.closePath();
+        profCtx.fill();
+
+        profCtx.strokeStyle = '#94a3b8';
+        profCtx.lineWidth = 2;
+        profCtx.beginPath();
+        for (let i = 0; i < profile.length; i++) {
+          const x = padX + ((profile[i].station - stStart) / stRange) * drawW;
+          const y = getPy(profile[i].groundZ);
+          if (i === 0) profCtx.moveTo(x, y); else profCtx.lineTo(x, y);
+        }
+        profCtx.stroke();
+
+        profCtx.strokeStyle = '#38bdf8';
+        profCtx.lineWidth = 2;
+        profCtx.beginPath();
+        for (let i = 0; i < profile.length; i++) {
+          const x = padX + ((profile[i].station - stStart) / stRange) * drawW;
+          const y = getPy(profile[i].projectZ);
+          if (i === 0) profCtx.moveTo(x, y); else profCtx.lineTo(x, y);
+        }
+        profCtx.stroke();
+      }
+
+      profCtx.fillStyle = '#64748b';
+      profCtx.font = '9px monospace';
+      profCtx.textAlign = 'right';
+      profCtx.fillText(`${maxZ.toFixed(2)}м`, padX - 5, 25);
+      profCtx.fillText(`${minZ.toFixed(2)}м`, padX - 5, profBaseY);
+
+      if (loc) {
+        const clampedSt = Math.max(stStart, Math.min(stEnd, loc.currentStation));
+        const userX = padX + ((clampedSt - stStart) / stRange) * drawW;
+        profCtx.strokeStyle = '#ef4444';
+        profCtx.lineWidth = 1.5;
+        profCtx.setLineDash([4, 4]);
+        profCtx.beginPath(); profCtx.moveTo(userX, 10); profCtx.lineTo(userX, profBaseY + 15); profCtx.stroke();
+        profCtx.setLineDash([]);
+
+        profCtx.fillStyle = '#ef4444';
+        profCtx.beginPath(); profCtx.arc(userX, getPy(loc.projectZ), 5, 0, Math.PI*2); profCtx.fill();
+        profCtx.fillStyle = '#fff';
+        profCtx.font = 'bold 10px sans-serif';
+        profCtx.textAlign = 'center';
+        profCtx.fillText(`ПК ${loc.currentStation.toFixed(2)} · Срезка ${loc.cutCm}см (Z=${loc.projectZ}м)`, userX, 180);
+      }
     }
   };
 
@@ -2171,6 +2538,7 @@
       this.injectHiddenCameraInput();
       this.injectFloatingButton();
       this.injectModal();
+      this.injectCadViewerModal();
       this.observeLineCards();
       this.injectTabelVoiceButton();
       this.observeLoadActions();
@@ -2192,6 +2560,67 @@
       input.style.display = 'none';
       input.onchange = (e) => AiPhotoProtocol.onFileCaptured(e);
       document.body.appendChild(input);
+    },
+
+    injectCadViewerModal() {
+      if (document.getElementById('aiCadViewerModal')) return;
+      const modal = document.createElement('div');
+      modal.id = 'aiCadViewerModal';
+      modal.className = 'modal';
+      modal.style.display = 'none';
+      modal.onclick = (e) => {
+        if (e.target === modal) {
+          modal.classList.remove('active', 'open');
+          modal.style.display = 'none';
+        }
+      };
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width:900px;width:95%;">
+          <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <div style="font-weight:800;font-size:15px;display:flex;align-items:center;gap:6px;">
+              <span>🗺️</span> Чертеж и вертикальная планировка полотна
+            </div>
+            <button class="modal-close" type="button" onclick="document.getElementById('aiCadViewerModal').classList.remove('active','open');document.getElementById('aiCadViewerModal').style.display='none';">&times;</button>
+          </div>
+          <div class="modal-body" style="padding:14px;max-height:85dvh;overflow-y:auto;">
+            <div class="ai-cad-viewer-bar">
+              <div style="font-size:12px;font-weight:700;color:#38bdf8;" id="aiCadViewerFileTitle">Файл: ${AiCadRoadEngine.data.cadFileName || 'Проект_вертикальная_планировка.dxf'}</div>
+              <div class="ai-cad-legend">
+                <span class="ai-cad-legend-item"><span class="ai-cad-legend-color" style="background:#94a3b8;"></span> Рельеф</span>
+                <span class="ai-cad-legend-item"><span class="ai-cad-legend-color" style="background:#38bdf8;"></span> Проект</span>
+                <span class="ai-cad-legend-item"><span class="ai-cad-legend-color" style="background:rgba(239,68,68,0.5);"></span> Срезка</span>
+                <span class="ai-cad-legend-item"><span class="ai-cad-legend-color" style="background:#ef4444;border-radius:50%;width:8px;height:8px;"></span> Вы здесь</span>
+              </div>
+            </div>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">1. План трассы (ось и пикеты):</div>
+            <div class="ai-cad-canvas-box">
+              <canvas id="aiCadPlanCanvas" class="ai-cad-canvas"></canvas>
+            </div>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">2. Продольный профиль вертикальной планировки:</div>
+            <div class="ai-cad-canvas-box">
+              <canvas id="aiCadProfileCanvas" class="ai-cad-canvas"></canvas>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <button class="ai-btn-start" style="flex:1;" onclick="window.AiCadRoadEngine.locateOnDrawing()">🎯 Определить моё местоположение (GPS)</button>
+              <button class="ai-btn-reset" onclick="document.getElementById('aiCadViewerModal').classList.remove('active','open');document.getElementById('aiCadViewerModal').style.display='none';">Закрыть</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    },
+
+    openCadViewer() {
+      const modal = document.getElementById('aiCadViewerModal');
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.classList.add('active', 'open');
+        const titleEl = document.getElementById('aiCadViewerFileTitle');
+        if (titleEl) titleEl.textContent = 'Файл: ' + (AiCadRoadEngine.data.cadFileName || 'Проект_вертикальная_планировка.dxf');
+        setTimeout(() => {
+          AiCadRoadEngine.drawViewerCanvases();
+        }, 100);
+      }
     },
 
     injectFloatingButton() {
@@ -2254,7 +2683,7 @@
                   <button id="aiSimStartBtn" class="ai-btn-start" onclick="window.AiCopilotUI.toggleSim()">▶️ Запустить</button>
                   <button class="ai-btn-step" onclick="window.AiCopilotUI.stepSim()">⚡ 1 шаг</button>
                   <button class="ai-btn-reset" onclick="window.AiCopilotUI.resetSim()">🔄 Сброс</button>
-                  <button class="ai-btn-reset" onclick="window.AiCopilotUI.addDummyShift()">➕ Тест-смена</button>
+                  <button id="aiSimShiftToggleBtn" class="ai-btn-reset" onclick="window.AiCopilotUI.toggleDummyShift()">${window.state?.shift ? '🛑 Закрыть смену' : '🚀 Начать смену'}</button>
                 </div>
                 <div style="font-size:11px;color:var(--muted);display:flex;justify-content:space-between;margin-top:4px;">
                   <span>Кругов: <b id="aiSimRounds">0</b></span>
@@ -2323,7 +2752,11 @@
                 <input id="aiApiEndpointInput" type="text" placeholder="https://api.apimira.com/v1/chat/completions" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:11px;margin-bottom:6px;">
                 <input id="aiApiModelInput" type="text" placeholder="deepseek/deepseek-chat" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:11px;margin-bottom:6px;">
                 <input id="aiDeepSeekKeyInput" type="password" placeholder="Ключ API (sk-...)" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;margin-bottom:8px;">
-                <button class="ai-btn-step" style="width:100%;" onclick="window.AiCopilotUI.saveApiKey()">💾 Сохранить настройки Apimira API</button>
+                <div style="display:flex;gap:6px;margin-bottom:6px;">
+                  <button class="ai-btn-step" style="flex:1;" onclick="window.AiCopilotUI.saveApiKey()">💾 Сохранить</button>
+                  <button class="ai-btn-start" style="flex:1;" id="aiTestApiBtn" onclick="window.AiCopilotUI.testApiConnection()">🔌 Проверить связь</button>
+                </div>
+                <div id="aiApiTestStatus" style="font-size:11px;min-height:16px;"></div>
               </div>
             </div>
 
@@ -2343,13 +2776,24 @@
               <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">💡 Предложения ИИ по оптимизации интерфейса:</div>
               <div id="aiAiSuggestionsList" style="margin-bottom:10px;"></div>
 
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;">
-                <span style="font-size:12px;font-weight:700;color:var(--muted);">Ваши замечания:</span>
-                <span style="font-size:12px;font-weight:700;color:var(--muted);">Ошибки UI:</span>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;align-items:center;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:12px;font-weight:700;color:var(--muted);">Ваши замечания:</span>
+                  <button type="button" class="btn btn-secondary btn-small" style="font-size:10px;padding:1px 6px;" onclick="window.AiFeedbackCollector.clearFeedbacks()" title="Очистить все выполненные замечания">🧹 Очистить</button>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:12px;font-weight:700;color:var(--muted);">Ошибки UI:</span>
+                  <button type="button" class="btn btn-secondary btn-small" style="font-size:10px;padding:1px 6px;" onclick="window.AiFeedbackCollector.clearErrors()" title="Очистить все ошибки">🧹 Очистить</button>
+                </div>
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                <div id="aiUserFeedbackList" class="ai-log-box" style="height:100px;"></div>
-                <div id="aiSystemErrorsList" class="ai-log-box" style="height:100px;"></div>
+                <div id="aiUserFeedbackList" class="ai-log-box" style="height:110px;"></div>
+                <div id="aiSystemErrorsList" class="ai-log-box" style="height:110px;"></div>
+              </div>
+              <div style="margin-top:8px;display:flex;justify-content:flex-end;">
+                <button type="button" class="ai-btn-reset" style="font-size:11px;padding:4px 10px;" onclick="window.AiFeedbackCollector.clearAll()">
+                  🧹 Очистить всё выполненное (замечания и баги)
+                </button>
               </div>
             </div>
 
@@ -2617,6 +3061,16 @@
           <div>${b.message}</div>
         </div>
 
+        <div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);border-radius:10px;padding:10px;margin-top:10px;font-size:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <b style="color:#f59e0b;">🏁 Режим завершения смены (~16:00):</b>
+            <span style="font-size:11px;font-weight:700;color:#fde047;">${(window.state?.trucks || []).filter(t => window.state?.truckStatus?.[t.id]?.finalTrip).length} на финале</span>
+          </div>
+          <div style="color:var(--muted);font-size:11px;">
+            ${(new Date().getHours() === 15 && new Date().getMinutes() >= 30) || new Date().getHours() >= 16 ? '⏰ Время 15:30–16:00: активируйте «🏁 Финал» в карточках машин для своевременного сбора ТТН и отпуска с линии.' : 'Используйте кнопку «🏁 Финал» в карточке самосвала, чтобы отметить завершающий рейс перед закрытием смены.'}
+          </div>
+        </div>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;">
           <button class="ai-btn-copy-wa" onclick="window.AiDynamicAnalytics.copyShareText()">📋 Скопировать сводку</button>
           <button class="ai-btn-start" style="background:linear-gradient(135deg,#0284c7,#0369a1);" onclick="window.AiDynamicAnalytics.shareViaTelegram()">✈️ В Telegram</button>
@@ -2635,35 +3089,70 @@
         locInfo = `
           <div style="background:rgba(56,189,248,0.15);border:1px solid #38bdf8;border-radius:10px;padding:8px;margin-bottom:10px;font-size:12px;">
             <b>🎯 Ваше местоположение на чертеже:</b><br>
-            • Текущий пикет: <b>ПК ${locRes.currentStation.toFixed(2)}</b><br>
+            • Текущий пикет: <b>ПК ${locRes.currentStation.toFixed(2)}</b> (отклонение от оси: ${locRes.offsetM}м)<br>
+            • Отметки: рельеф Z=${locRes.groundZ}м, проект Z=${locRes.projectZ}м (срезка <b>${locRes.cutCm} см</b>)<br>
             • До границы захватки: <b>${locRes.distanceToEndM} м</b> (точность GPS: ${locRes.accuracy}м)<br>
             • Остаток срезки от вас: <b>~${Math.round(locRes.distanceToEndM * data.widthM * (data.depthCm/100))} м³</b>
           </div>
         `;
-      } else if (data.gpsAnchor) {
-        locInfo = `
-          <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">
-            📍 Базовая привязка: ПК ${data.gpsAnchor.station.toFixed(2)} (${new Date(data.gpsAnchor.calibratedAt).toLocaleTimeString('ru-RU')})
+      }
+
+      let calibStatus = '';
+      if (data.vector?.ready) {
+        calibStatus = `
+          <div style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:8px;margin-bottom:8px;font-size:11px;color:#86efac;">
+            ✅ <b>Трасса откалибрована по 2 точкам:</b><br>
+            • База Т1: ПК ${data.anchor1.station.toFixed(2)} ➔ Т2: ПК ${data.anchor2.station.toFixed(2)}<br>
+            • Длина вектора: <b>${data.vector.distanceM} м</b> (азимут ${data.vector.azimuthDeg}°)
+          </div>
+        `;
+      } else if (data.anchor1) {
+        calibStatus = `
+          <div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);border-radius:8px;padding:8px;margin-bottom:8px;font-size:11px;color:#fde047;">
+            ⚠️ <b>Точка 1 зафиксирована (ПК ${data.anchor1.station.toFixed(2)}):</b><br>
+            Подойдите к следующему пикету (Т2) и нажмите кнопку «📍 2. Направление (Т2)» для калибровки вектора трассы.
+          </div>
+        `;
+      } else {
+        calibStatus = `
+          <div style="background:rgba(148,163,184,0.1);border:1px dashed #64748b;border-radius:8px;padding:8px;margin-bottom:8px;font-size:11px;color:#94a3b8;">
+            📍 Калибровка не выполнена. Привяжите минимум 2 точки (Т1 и Т2) для точной привязки пикетажа к местности.
           </div>
         `;
       }
 
       root.innerHTML = `
         <div class="ai-cad-panel">
-          <div style="font-size:14px;font-weight:800;color:#38bdf8;margin-bottom:4px;">📐 DWG / DXF Вертикальная планировка и пикетаж</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <div style="font-size:14px;font-weight:800;color:#38bdf8;">📐 DWG / DXF Вертикальная планировка</div>
+            <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(56,189,248,0.2);color:#38bdf8;font-weight:700;">Offline-first</span>
+          </div>
           <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
-            Интеллектуальный расчёт объёмов по пикетам полотна и привязка к GPS («Где я на чертеже»).
+            Файл чертежа: <b style="color:#e2e8f0;">${data.cadFileName || 'Не выбран'}</b> ${data.cadFileData ? `(${data.cadFileData.stations.length} ПК, ${data.cadFileData.profile.length} отметок)` : ''}
+          </div>
+
+          <input type="file" id="aiCadFileInput" accept=".dxf,.dwg,.json,.txt" style="display:none;" onchange="window.AiCopilotUI.handleCadFileUpload(event)">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
+            <button class="ai-btn-step" onclick="document.getElementById('aiCadFileInput').click()">📂 Загрузить DWG / DXF</button>
+            <button class="ai-btn-start" onclick="window.AiCopilotUI.openCadViewer()">🗺️ Открыть чертёж</button>
           </div>
 
           ${locInfo}
+          ${calibStatus}
+
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">2-точечная привязка пикетажа трассы:</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
+            <button class="ai-btn-step" onclick="window.AiCopilotUI.promptPoint1()">📍 1. Базовый ПК (Т1)</button>
+            <button class="ai-btn-step" onclick="window.AiCopilotUI.promptPoint2()">📍 2. Направление (Т2)</button>
+          </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
             <div>
-              <label style="font-size:11px;color:var(--muted);">Начало (ПК):</label>
+              <label style="font-size:11px;color:var(--muted);">Начало захватки (ПК):</label>
               <input id="aiCadStartPk" type="number" step="0.1" value="${data.startStation}" class="ai-pk-input" style="width:100%;">
             </div>
             <div>
-              <label style="font-size:11px;color:var(--muted);">Конец (ПК):</label>
+              <label style="font-size:11px;color:var(--muted);">Конец захватки (ПК):</label>
               <input id="aiCadEndPk" type="number" step="0.1" value="${data.endStation}" class="ai-pk-input" style="width:100%;">
             </div>
           </div>
@@ -2706,12 +3195,28 @@
             <button class="ai-btn-step" onclick="window.AiCopilotUI.saveCadInputs()">💾 Пересчитать проект</button>
             <button class="ai-btn-start" onclick="window.AiCadRoadEngine.locateOnDrawing()">🎯 Где я на чертеже</button>
           </div>
-
-          <button class="ai-btn-step" style="width:100%;font-size:11px;" onclick="window.AiCopilotUI.promptGpsCalibration()">
-            📍 Привязать текущую геопозицию к пикету дороги
-          </button>
         </div>
       `;
+    },
+
+    handleCadFileUpload(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target.result;
+        const parsed = AiCadRoadEngine.parseCadFileContent(file.name, text);
+        if (typeof showToastEl === 'function') {
+          showToastEl(`✅ Чертёж "${file.name}" загружен Offline (${parsed.stations.length} ПК, ${parsed.profile.length} отметок)`, false);
+        }
+        this.renderCadUI();
+        const titleEl = document.getElementById('aiCadViewerFileTitle');
+        if (titleEl) titleEl.textContent = 'Файл: ' + file.name;
+        if (document.getElementById('aiCadViewerModal')?.classList.contains('open')) {
+          AiCadRoadEngine.drawViewerCanvases();
+        }
+      };
+      reader.readAsText(file);
     },
 
     saveCadInputs() {
@@ -2732,10 +3237,23 @@
       if (typeof showToastEl === 'function') showToastEl('✅ Параметры захватки обновлены', false);
     },
 
-    async promptGpsCalibration() {
-      const pk = prompt('Введите номер пикета дороги, на котором вы сейчас находитесь (например 12.00):', AiCadRoadEngine.data.startStation);
-      if (pk !== null) {
-        await AiCadRoadEngine.calibrateGpsAnchor(parseFloat(pk));
+    async promptPoint1() {
+      const cur = AiCadRoadEngine.data.anchor1?.station || AiCadRoadEngine.data.startStation;
+      const pk = prompt('Введите номер первого базового пикета (Т1), где вы стоите (например 10.00):', cur);
+      if (pk !== null && !isNaN(parseFloat(pk))) {
+        await AiCadRoadEngine.calibratePoint(1, parseFloat(pk));
+      }
+    },
+
+    async promptPoint2() {
+      if (!AiCadRoadEngine.data.anchor1) {
+        if (typeof showToastEl === 'function') showToastEl('Сначала зафиксируйте Точку 1!', true);
+        return;
+      }
+      const cur = AiCadRoadEngine.data.anchor2?.station || AiCadRoadEngine.data.endStation;
+      const pk = prompt('Введите номер второго пикета трассы (Т2 для вектора направления, например 12.00):', cur);
+      if (pk !== null && !isNaN(parseFloat(pk))) {
+        await AiCadRoadEngine.calibratePoint(2, parseFloat(pk));
       }
     },
 
@@ -2934,11 +3452,63 @@
         if (typeof showToastEl === 'function') showToastEl('Смена уже открыта', false);
         return;
       }
+      const obj = (window.state?.objects || [])[0] || { id: 'obj_sim', name: 'Симуляция: Реконструкция трассы' };
       if (typeof startShiftWithObject === 'function') {
-        const obj = (window.state?.objects || [])[0] || { id: 'test_obj', name: 'Тестовый объект' };
-        startShiftWithObject(obj.id, obj.name);
+        try {
+          startShiftWithObject(obj.name, obj.id);
+        } catch(e) {}
+      }
+      if (!window.state) window.state = {};
+      if (!window.state.shift) {
+        window.state.shift = {
+          id: 'sim_shift_' + Date.now(),
+          objectName: obj.name || 'Симуляция: Реконструкция трассы',
+          objectId: obj.id || 'obj_sim',
+          isActive: true,
+          startedAt: Date.now(),
+          createdBy: 'ИИ-Симулятор'
+        };
+      }
+
+      if (!window.state.trucks || window.state.trucks.length === 0) {
+        window.state.trucks = [
+          { id: 'sim_t1', number: '101', brand: 'КАМАЗ', defaultVol: 20 },
+          { id: 'sim_t2', number: '102', brand: 'МАЗ', defaultVol: 20 },
+          { id: 'sim_t3', number: '103', brand: 'Scania', defaultVol: 25 },
+          { id: 'sim_t4', number: '104', brand: 'Volvo', defaultVol: 25 }
+        ];
+      }
+      if (!window.state.truckStatus) window.state.truckStatus = {};
+      window.state.trucks.slice(0, 4).forEach(t => {
+        if (!window.state.truckStatus[t.id]) {
+          window.state.truckStatus[t.id] = { onLine: true, arriveStatus: false, loadedAfterArrive: false, ttnStatus: false };
+        } else {
+          window.state.truckStatus[t.id].onLine = true;
+        }
+      });
+
+      if (typeof window.renderLine === 'function') window.renderLine();
+      if (typeof showToastEl === 'function') showToastEl('🚀 Симуляция: смена запущена (машины на линии)', false);
+      this.updateSimulatorUI();
+    },
+
+    stopDummyShift() {
+      if (!window.state?.shift) {
+        if (typeof showToastEl === 'function') showToastEl('Смена уже закрыта', false);
+        return;
+      }
+      AiShiftSimulator.pause();
+      if (window.state) window.state.shift = null;
+      if (typeof window.renderLine === 'function') window.renderLine();
+      if (typeof showToastEl === 'function') showToastEl('🛑 Симуляция: смена закрыта', false);
+      this.updateSimulatorUI();
+    },
+
+    toggleDummyShift() {
+      if (window.state?.shift) {
+        this.stopDummyShift();
       } else {
-        if (typeof showToastEl === 'function') showToastEl('Откройте смену вручную во вкладке Линия', true);
+        this.addDummyShift();
       }
     },
 
@@ -2946,6 +3516,7 @@
       const startBtn = document.getElementById('aiSimStartBtn');
       const floatBtn = document.getElementById('aiFloatingBtn');
       const shiftStatus = document.getElementById('aiSimShiftStatus');
+      const shiftToggleBtn = document.getElementById('aiSimShiftToggleBtn');
       const rounds = document.getElementById('aiSimRounds');
       const loads = document.getElementById('aiSimLoads');
       const trucksCount = document.getElementById('aiSimTrucksCount');
@@ -2953,6 +3524,10 @@
       if (startBtn) {
         startBtn.textContent = AiShiftSimulator.running ? '⏸ Приостановить' : '▶️ Запустить';
         startBtn.className = AiShiftSimulator.running ? 'ai-btn-stop' : 'ai-btn-start';
+      }
+      if (shiftToggleBtn) {
+        shiftToggleBtn.textContent = window.state?.shift ? '🛑 Закрыть смену' : '🚀 Начать смену';
+        shiftToggleBtn.style.color = window.state?.shift ? '#f87171' : '#34d399';
       }
       if (floatBtn) {
         floatBtn.classList.toggle('simulating', AiShiftSimulator.running);
@@ -3076,7 +3651,24 @@
       if (!card) return;
       card.style.display = 'block';
 
-      let html = `<h4>✨ Распознано:</h4>`;
+      const badgeHtml = parsed.sourceBadge ? `
+        <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:${parsed.sourceBadge.type==='api'?'rgba(56,189,248,0.2)':'rgba(245,158,11,0.2)'};color:${parsed.sourceBadge.type==='api'?'#38bdf8':'#f59e0b'};border:1px solid ${parsed.sourceBadge.type==='api'?'rgba(56,189,248,0.4)':'rgba(245,158,11,0.4)'};">
+          ${parsed.sourceBadge.label}
+        </span>
+      ` : '';
+
+      const detailsHtml = parsed.sourceBadge?.details ? `
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">${parsed.sourceBadge.details}</div>
+      ` : '';
+
+      let html = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:4px;">
+          <h4 style="margin:0;">✨ Распознано:</h4>
+          ${badgeHtml}
+        </div>
+        ${detailsHtml}
+      `;
+
       if (parsed.type === 'dispatch_opencode') {
         html += `<div style="font-size:12px;margin-bottom:8px;color:#38bdf8;"><b>${parsed.message || 'Отправка всех доработок в OpenCode'}</b></div>`;
         html += `<button class="ai-btn-mission-dispatch" onclick="window.AiDeveloperBridge.dispatchAllMissions()">🚀 Отправить в OpenCode</button>`;
@@ -3143,6 +3735,65 @@
       if (typeof showToastEl === 'function') showToastEl('🔑 Настройки API (Apimira) сохранены', false);
     },
 
+    async testApiConnection() {
+      const statusEl = document.getElementById('aiApiTestStatus');
+      const btn = document.getElementById('aiTestApiBtn');
+      const epInput = document.getElementById('aiApiEndpointInput');
+      const modelInput = document.getElementById('aiApiModelInput');
+      const keyInput = document.getElementById('aiDeepSeekKeyInput');
+
+      const endpoint = epInput?.value.trim() || localStorage.getItem(STORAGE_KEY_API_ENDPOINT) || 'https://api.apimira.com/v1/chat/completions';
+      const model = modelInput?.value.trim() || localStorage.getItem(STORAGE_KEY_API_MODEL) || 'deepseek/deepseek-chat';
+      const apiKey = keyInput?.value.trim() || localStorage.getItem(STORAGE_KEY_API_KEY) || localStorage.getItem(STORAGE_KEY_DEEPSEEK);
+
+      if (!apiKey) {
+        const msg = '⚠️ Введите API-ключ для проверки связи';
+        if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = msg; }
+        if (typeof showToastEl === 'function') showToastEl(msg, true);
+        return;
+      }
+
+      if (statusEl) { statusEl.style.color = '#38bdf8'; statusEl.textContent = '⏳ Тестирование связи с ' + endpoint + '...'; }
+      if (btn) btn.disabled = true;
+
+      const t0 = performance.now();
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey.trim()}`
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [{ role: 'user', content: 'Ответь кратко: "OK"' }],
+            max_tokens: 5
+          })
+        });
+        const elapsed = Math.round(performance.now() - t0);
+
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const text = data?.choices?.[0]?.message?.content || 'OK';
+          const successMsg = `✅ Связь успешна (200 OK, время ${elapsed} мс, ответ: "${text.trim()}")`;
+          if (statusEl) { statusEl.style.color = '#34d399'; statusEl.textContent = successMsg; }
+          if (typeof showToastEl === 'function') showToastEl(`✅ API подключен (${elapsed}мс)`, false);
+        } else {
+          const errText = await res.text().catch(() => '');
+          const failMsg = `❌ Ошибка ${res.status} (${res.statusText}): ${errText.slice(0, 100)}`;
+          if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = failMsg; }
+          if (typeof showToastEl === 'function') showToastEl(`Ошибка API: ${res.status}`, true);
+        }
+      } catch (err) {
+        const elapsed = Math.round(performance.now() - t0);
+        const failMsg = `❌ Ошибка соединения или CORS (${elapsed} мс): ${err.message}`;
+        if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = failMsg; }
+        if (typeof showToastEl === 'function') showToastEl('Ошибка соединения с API', true);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    },
+
     submitFeedback() {
       const input = document.getElementById('aiFeedbackTextInput');
       if (!input || !input.value.trim()) return;
@@ -3156,12 +3807,26 @@
       const errBox = document.getElementById('aiSystemErrorsList');
       if (fbBox) {
         fbBox.innerHTML = AiFeedbackCollector.feedbacks.length ? 
-          AiFeedbackCollector.feedbacks.map(f => `<div class="ai-log-item"><span style="color:#64748b;">[${f.time}]</span> <b>[${f.tab}]</b> ${f.text}</div>`).join('') :
-          '<div style="color:var(--muted);padding:4px;">Нет замечаний</div>';
+          AiFeedbackCollector.feedbacks.map((f, idx) => `
+            <div class="ai-log-item" style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+              <div style="flex:1;">
+                <span style="color:#64748b;">[${f.time}]</span> <b>[${f.tab}]</b> ${f.text}
+              </div>
+              <button type="button" class="btn-clear-item" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:12px;padding:0 4px;line-height:1;" title="Удалить выполненное замечание" onclick="window.AiFeedbackCollector.removeFeedback('${f.id || idx}')">✕</button>
+            </div>
+          `).join('') :
+          '<div style="color:var(--muted);padding:4px;">Все замечания выполнены</div>';
       }
       if (errBox) {
         errBox.innerHTML = AiFeedbackCollector.errors.length ?
-          AiFeedbackCollector.errors.map(e => `<div class="ai-log-item anomaly"><span style="color:#64748b;">[${e.time}]</span> ${e.message}</div>`).join('') :
+          AiFeedbackCollector.errors.map((e, idx) => `
+            <div class="ai-log-item anomaly" style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;padding:3px 0;border-bottom:1px solid rgba(239,68,68,0.15);">
+              <div style="flex:1;">
+                <span style="color:#64748b;">[${e.time}]</span> ${e.message}
+              </div>
+              <button type="button" class="btn-clear-item" style="background:transparent;border:none;color:#f87171;cursor:pointer;font-size:12px;padding:0 4px;line-height:1;" title="Удалить ошибку" onclick="window.AiFeedbackCollector.removeError(${idx})">✕</button>
+            </div>
+          `).join('') :
           '<div style="color:var(--muted);padding:4px;">Ошибок нет</div>';
       }
     },
@@ -3241,6 +3906,22 @@
       };
       setInterval(checkAndInject, 1500);
     }
+  };
+
+  // Функция переключения финального рейса
+  window.toggleTruckFinalTrip = function(truckId) {
+    if (!window.state) window.state = {};
+    if (!window.state.truckStatus) window.state.truckStatus = {};
+    if (!window.state.truckStatus[truckId]) window.state.truckStatus[truckId] = { onLine: true };
+    const st = window.state.truckStatus[truckId];
+    st.finalTrip = !st.finalTrip;
+    const truck = (window.state.trucks || []).find(t => t.id === truckId);
+    const name = truck ? `${truck.brand} ${truck.number}` : truckId;
+    if (typeof showToastEl === 'function') {
+      showToastEl(st.finalTrip ? `🏁 ${name}: назначен финальный рейс (к 16:00)` : `↩️ ${name}: финальный рейс отменён`, false);
+    }
+    if (typeof window.renderLine === 'function') window.renderLine();
+    if (window.AiCopilotUI?.activeTab === 'analytics') window.AiCopilotUI.renderAnalyticsUI();
   };
 
   // Экспорт в глобальную область

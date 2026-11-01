@@ -388,10 +388,14 @@
         infoHtml += `<div class="info-row info-arrive"><span class="card-arrival-time">Прибыл <b>${escapeHtml(time)}</b></span>${by?`<span class="card-arrival-author" title="${escapeHtml(by)}">${escapeHtml(by)}</span>`:''}</div>`;
       }
 
-      return `<div class="truck-card ${isA ? 'arrived' : ''} ${faded ? 'faded' : ''}" data-truck-id="${t.id}">
+      const isFinal = !!st.finalTrip;
+      return `<div class="truck-card ${isA ? 'arrived' : ''} ${faded ? 'faded' : ''} ${isFinal ? 'card-final-trip' : ''}" data-truck-id="${t.id}">
         <div class="truck-top">
           <div class="truck-identity">
-            <div class="truck-brand">${escapeHtml(t.brand)}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+              <div class="truck-brand">${escapeHtml(t.brand)}</div>
+              <button type="button" class="btn btn-secondary ${isFinal ? 'btn-final-trip' : ''}" style="padding:1px 6px;font-size:10px;height:18px;min-height:18px;line-height:1;" onclick="window.toggleTruckFinalTrip('${t.id}')">${isFinal ? '🏁 Финал ✓' : '🏁 Финал'}</button>
+            </div>
             <div class="truck-plate-wrap">${renderRussianPlate(t.number)}</div>
           </div>
           <div class="truck-info">${infoHtml}</div>
