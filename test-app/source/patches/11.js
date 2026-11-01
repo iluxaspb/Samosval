@@ -69,6 +69,8 @@
   }
 
   window.sendMaxOnce = async function(item) {
+    // До чтения Firebase, warm-up и POST. При сбое локального буфера сеть запрещена.
+    if (window.captureMaxTestLoad(item)) return 'ok';
     if (!item || item.type !== 'text') return 'drop';
     const cfg = await getConfig();
     if (!cfg.maxEnabled || !cfg.maxUrl) return 'drop';

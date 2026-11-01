@@ -3,6 +3,25 @@
     const intent=capturedIntent||captureLineIntent(id);
     if(!intent)return {outcome:'ignored'};
     if(extraOptions)Object.assign(intent,extraOptions);
+    if(!intent.location && window.AiCadRoadEngine?.data?.lastLocation){
+      const cadLoc=window.AiCadRoadEngine.data.lastLocation;
+      const coords = cadLoc.rawCoords || cadLoc.coordinates || null;
+      intent.location = {
+        rawCoords: coords,
+        coordinates: coords,
+        calibrated: cadLoc.calibrated !== false,
+        currentStation: cadLoc.currentStation,
+        stationFormatted: cadLoc.stationFormatted || null,
+        offsetM: cadLoc.offsetM,
+        cutCm: cadLoc.cutCm,
+        groundZ: cadLoc.groundZ,
+        projectZ: cadLoc.projectZ,
+        accuracy: cadLoc.accuracy
+      };
+      if (intent.station === undefined) {
+        intent.station = cadLoc.stationFormatted || (Number.isFinite(cadLoc.currentStation) ? cadLoc.currentStation : null);
+      }
+    }
     return {outcome:offlineQueueAction('load',id,intent)?'queued':'failed'};
   }
   async function toggleArrive(id,capturedIntent){

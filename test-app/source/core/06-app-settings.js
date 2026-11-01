@@ -123,6 +123,32 @@
     if (document.activeElement !== heavyInput) heavyInput.value = savedHeavy;
 
     updateAiPresetButtons(savedPreset);
+
+    const resBox = document.getElementById('adminAiTestResult');
+    if (resBox && !resBox.textContent) {
+      const lastRaw = localStorage.getItem('dt_ai_api_last_status') || localStorage.getItem('samosval_ai_api_last_status');
+      const bridgeRaw = localStorage.getItem('samosval_opencode_bridge_last_status');
+      let bridgeInfo = '';
+      if (bridgeRaw) {
+        try {
+          const b = JSON.parse(bridgeRaw);
+          bridgeInfo = ` | Мост OpenCode: ${b.connected ? '🟢 на связи (' + (b.latency || 0) + ' мс)' : '🔴 офлайн'}`;
+        } catch(e) {}
+      }
+      if (lastRaw) {
+        try {
+          const last = JSON.parse(lastRaw);
+          const rating = last.latencyRating || (last.elapsed < 400 ? '🟢 Отлично' : (last.elapsed < 1200 ? '🟡 Норма' : '🟠 Задержка'));
+          resBox.style.color = last.ok ? '#34d399' : '#f87171';
+          resBox.textContent = `Предыдущая проверка (${last.timeStr || ''}): ${last.message || last.status} · ${last.elapsed || 0} мс${bridgeInfo}`;
+        } catch (e) {}
+      } else if (bridgeInfo) {
+        resBox.style.color = 'var(--muted)';
+        resBox.textContent = 'Внешний API не проверен/офлайн. ' + bridgeInfo.slice(3);
+      } else {
+        resBox.textContent = 'Внешний API не проверен/офлайн';
+      }
+    }
   }
 
   function saveAdminAiSettings() {
@@ -146,6 +172,45 @@
     }
   }
 
+  // Общая диагностика только по явному нажатию. Ответы провайдера не пишем в историю.
+  window.aiApiDiagnosticError = function(error) {
+    if (error?.name === 'AbortError') return { status: 'timeout', message: 'Таймаут API (15 секунд)' };
+    if (navigator.onLine === false) return { status: 'offline', message: 'Внешний API не проверен/офлайн' };
+    if (error instanceof TypeError) return { status: 'network_or_cors', message: 'Сеть или CORS: браузер не раскрывает причину. Проверьте endpoint и DevTools Network.' };
+    return { status: 'network_error', message: 'Ошибка запроса API. Проверьте endpoint и параметры подключения.' };
+  };
+  window.aiApiUnchecked = function(element, status = 'not_checked') {
+    const record = { ok: false, status, timestamp: Date.now(), message: 'Внешний API не проверен/офлайн' };
+    try {
+      localStorage.setItem('dt_ai_api_last_status', JSON.stringify(record));
+      localStorage.setItem('samosval_ai_api_last_status', JSON.stringify(record));
+    } catch(e) {}
+    if (element) element.textContent = record.message;
+  };
+  window.aiApiReadJsonWithDeadline = async function(resp, remainingMs, controller) {
+    if (remainingMs <= 0 || controller?.signal?.aborted) {
+      controller?.abort();
+      const err = new Error('Таймаут API (15 секунд)');
+      err.name = 'AbortError';
+      throw err;
+    }
+    let timerId = null;
+    const jsonPromise = resp.json();
+    jsonPromise.catch(() => {});
+    const timeoutPromise = new Promise((_, reject) => {
+      timerId = setTimeout(() => {
+        controller?.abort();
+        const err = new Error('Таймаут API (15 секунд)');
+        err.name = 'AbortError';
+        reject(err);
+      }, remainingMs);
+    });
+    try {
+      return await Promise.race([jsonPromise, timeoutPromise]);
+    } finally {
+      if (timerId) clearTimeout(timerId);
+    }
+  };
   async function testAdminAiConnection() {
     const key = (document.getElementById('adminAiApiKey')?.value || '').trim();
     const ep = (document.getElementById('adminAiEndpoint')?.value || '').trim() || 'https://api.apimira.com/v1/chat/completions';
@@ -153,10 +218,11 @@
     const resBox = document.getElementById('adminAiTestResult');
     const testBtn = document.getElementById('testAiConnectionBtn');
 
-    if (!key) {
+    if (navigator.onLine === false || !key) {
+      window.aiApiUnchecked(resBox, navigator.onLine === false ? 'offline' : 'not_checked');
       if (resBox) {
         resBox.style.color = '#f59e0b';
-        resBox.textContent = '⚠️ Ключ API не введён. ИИ работает на встроенной математической модели (Offline-First).';
+        resBox.textContent = 'Внешний API не проверен/офлайн. Для явной проверки нужны сеть и API-ключ.';
       }
       return;
     }
@@ -168,8 +234,11 @@
     }
 
     const startTs = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const resp = await fetch(ep, {
+        signal: controller.signal,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -184,26 +253,79 @@
       });
 
       const elapsed = Date.now() - startTs;
+      const latencyRating = elapsed < 400 ? '🟢 Отлично' : (elapsed < 1200 ? '🟡 Норма' : '🟠 Задержка выше нормы');
+
+      const bridgeRaw = localStorage.getItem('samosval_opencode_bridge_last_status');
+      let bridgeInfo = '';
+      if (bridgeRaw) {
+        try {
+          const b = JSON.parse(bridgeRaw);
+          bridgeInfo = ` | Мост: ${b.connected ? '🟢 OK (' + (b.latency || 0) + ' мс)' : '🔴 Офлайн'}`;
+        } catch (e) {}
+      }
+
       if (resp.ok) {
-        const data = await resp.json();
-        const reply = data.choices?.[0]?.message?.content || 'OK';
+        const remaining = 15000 - (Date.now() - startTs);
+        const data = await window.aiApiReadJsonWithDeadline(resp, remaining, controller);
+        const fullElapsed = Date.now() - startTs;
+        const finalRating = fullElapsed < 400 ? '🟢 Отлично' : (fullElapsed < 1200 ? '🟡 Норма' : '🟠 Задержка выше нормы');
+        const reply = data?.choices?.[0]?.message?.content ? 'Ответ модели получен' : 'HTTP OK';
         if (resBox) {
           resBox.style.color = '#34d399';
-          resBox.textContent = `🟢 Связь успешна! (${elapsed} мс) Модель "${light}" ответила: "${reply.trim()}"`;
+          resBox.textContent = `🟢 Связь успешна! (${fullElapsed} мс [${finalRating}])${bridgeInfo} Модель "${light}" ответила: "${reply.trim()}"`;
         }
+        const statusRecord = {
+          ok: true,
+          status: 200,
+          elapsed: fullElapsed,
+          latencyRating: finalRating,
+          timeStr: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          timestamp: Date.now(),
+          model: light,
+          message: reply.trim()
+        };
+        localStorage.setItem('dt_ai_api_last_status', JSON.stringify(statusRecord));
+        localStorage.setItem('samosval_ai_api_last_status', JSON.stringify(statusRecord));
       } else {
-        const errText = await resp.text().catch(() => '');
+        const errText = 'Проверьте endpoint, модель и права ключа (подробности в Network).';
         if (resBox) {
           resBox.style.color = '#f87171';
-          resBox.textContent = `🔴 Ошибка HTTP ${resp.status}: ${errText.slice(0, 100)}`;
+          resBox.textContent = `🔴 Ошибка HTTP ${resp.status} (${elapsed} мс [${latencyRating}])${bridgeInfo}: ${errText.slice(0, 100)}`;
         }
+        const statusRecord = {
+          ok: false,
+          status: resp.status,
+          elapsed,
+          latencyRating,
+          timeStr: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          timestamp: Date.now(),
+          model: light,
+          message: `HTTP ${resp.status}: ${errText.slice(0, 80)}`
+        };
+        localStorage.setItem('dt_ai_api_last_status', JSON.stringify(statusRecord));
+        localStorage.setItem('samosval_ai_api_last_status', JSON.stringify(statusRecord));
       }
     } catch (e) {
+      const elapsed = Date.now() - startTs;
+      const diagnostic = window.aiApiDiagnosticError(e);
       if (resBox) {
         resBox.style.color = '#f87171';
-        resBox.textContent = '🔴 Ошибка соединения: ' + (e.message || 'сеть недоступна или CORS');
+        resBox.textContent = `🔴 ${diagnostic.message} (${elapsed} мс)`;
       }
+      const statusRecord = {
+        ok: false,
+        status: diagnostic.status,
+        elapsed,
+        latencyRating: '🔴 Нет связи',
+        timeStr: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        timestamp: Date.now(),
+        model: light,
+        message: diagnostic.message
+      };
+      localStorage.setItem('dt_ai_api_last_status', JSON.stringify(statusRecord));
+      localStorage.setItem('samosval_ai_api_last_status', JSON.stringify(statusRecord));
     } finally {
+      clearTimeout(timer);
       if (testBtn) testBtn.disabled = false;
     }
   }

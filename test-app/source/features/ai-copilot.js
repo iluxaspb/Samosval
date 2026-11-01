@@ -23,6 +23,8 @@
   const STORAGE_KEY_ROUTE = 'samosval_ai_route_v1';
   const STORAGE_KEY_PHOTO = 'samosval_ai_photo_v1';
   const STORAGE_KEY_CAD = 'samosval_ai_cad_v1';
+  const STORAGE_KEY_API_STATUS = 'dt_ai_api_last_status';
+  const STORAGE_KEY_BRIDGE_STATUS = 'samosval_opencode_bridge_last_status';
 
   // ==========================================================
   // 1. ЛОКАЛЬНАЯ МАТЕМАТИЧЕСКАЯ МОДЕЛЬ (On-Device Statistical ML)
@@ -1016,7 +1018,7 @@
       suggestions.push({
         type: 'shift_timing',
         title: `Паттерн завершения смены (~${ttnTimeStr}) и дорожный трафик`,
-        text: `Изучено поведение: сбор ТТН обычно начинается около ${ttnTimeStr}. Сегодня: ${traffic.dayName} (${traffic.reason}). Рекомендуется показывать кнопку «Финальный рейс / Отпустить с линии» для машин, не успевающих до закрытия смены.`
+        text: `Изучено поведение: сбор ТТН обычно начинается около ${ttnTimeStr}. Сегодня: ${traffic.dayName} (${traffic.reason}). Учитывайте время сбора ТТН и дорожный трафик при планировании работы до закрытия смены.`
       });
 
       // 3. Авто-сортировка активных машин
@@ -1439,24 +1441,80 @@
       densityTpm3: 2.35,  // Плотность асфальта т/м³
       truckCapacityM3: 20,// Вместимость самосвала 20 м³
       cadFileName: 'Проект_вертикальная_планировка.dxf',
-      cadFileData: null,  // { fileName, fileSize, layers, stations, profile, parsedAt }
-      anchor1: null,      // { station, lat, lon, accuracy, calibratedAt }
-      anchor2: null,      // { station, lat, lon, accuracy, calibratedAt }
-      vector: null,       // { distanceM, azimuthDeg, stationDelta, ready: true }
-      lastLocation: null  // { currentStation, offsetM, groundZ, projectZ, cutCm, accuracy }
+      cadFileData: null,  // { fileName, fileSize, layers, stations, profile, parsedAt, isBinaryDwg, dwgVersion, warning }
+      anchors: [],        // [{ id, station, lat, lon, accuracy, calibratedAt }] (многоточечный пикетаж)
+      anchor1: null,      // { station, lat, lon, accuracy, calibratedAt } (обратная совместимость)
+      anchor2: null,      // { station, lat, lon, accuracy, calibratedAt } (обратная совместимость)
+      vector: null,       // { distanceM, azimuthDeg, stationDelta, ready: true, pointCount }
+      lastLocation: null  // { currentStation, offsetM, groundZ, projectZ, cutCm, accuracy, segmentIndex, anchorsCount }
     },
 
     init() {
       try {
         const saved = localStorage.getItem('samosval_ai_cad_v1');
-        if (saved) Object.assign(this.data, JSON.parse(saved));
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          Object.assign(this.data, parsed);
+        }
+        if (!Array.isArray(this.data.anchors)) {
+          this.data.anchors = [];
+          if (this.data.anchor1) this.data.anchors.push(this.data.anchor1);
+          if (this.data.anchor2) this.data.anchors.push(this.data.anchor2);
+        }
+        this.updateAnchorsState();
         const savedCad = localStorage.getItem('samosval_cad_dwg_v1');
         if (savedCad) this.data.cadFileData = JSON.parse(savedCad);
       } catch (e) {}
     },
 
+    updateAnchorsState() {
+      if (!Array.isArray(this.data.anchors)) this.data.anchors = [];
+      this.data.anchors.sort((a, b) => a.station - b.station);
+      this.data.anchor1 = this.data.anchors[0] || null;
+      this.data.anchor2 = this.data.anchors[1] || null;
+
+      if (this.data.anchors.length >= 2) {
+        let totalDist = 0;
+        const R = 6371e3;
+        for (let i = 0; i < this.data.anchors.length - 1; i++) {
+          const a = this.data.anchors[i];
+          const b = this.data.anchors[i + 1];
+          const dLat = (b.lat - a.lat) * Math.PI / 180;
+          const dLon = (b.lon - a.lon) * Math.PI / 180;
+          const lat1 = a.lat * Math.PI / 180;
+          const lat2 = b.lat * Math.PI / 180;
+          const dM = R * 2 * Math.asin(Math.sqrt(Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2));
+          totalDist += dM;
+        }
+
+        const a1 = this.data.anchors[0];
+        const aLast = this.data.anchors[this.data.anchors.length - 1];
+        const dLat = (aLast.lat - a1.lat) * Math.PI / 180;
+        const dLon = (aLast.lon - a1.lon) * Math.PI / 180;
+        const lat1 = a1.lat * Math.PI / 180;
+        const latLast = aLast.lat * Math.PI / 180;
+        const y = Math.sin(dLon) * Math.cos(latLast);
+        const x = Math.cos(lat1) * Math.sin(latLast) - Math.sin(lat1) * Math.cos(latLast) * Math.cos(dLon);
+        const azimuthRad = Math.atan2(y, x);
+        const azimuthDeg = (azimuthRad * 180 / Math.PI + 360) % 360;
+        const stationDelta = aLast.station - a1.station;
+
+        this.data.vector = {
+          distanceM: Math.round(totalDist),
+          azimuthDeg: Math.round(azimuthDeg),
+          stationDelta,
+          metersPerStation: stationDelta !== 0 ? Math.abs(totalDist / stationDelta) : 100,
+          ready: true,
+          pointCount: this.data.anchors.length
+        };
+      } else {
+        this.data.vector = null;
+      }
+    },
+
     save() {
       try {
+        this.updateAnchorsState();
         localStorage.setItem('samosval_ai_cad_v1', JSON.stringify({
           startStation: this.data.startStation,
           endStation: this.data.endStation,
@@ -1465,6 +1523,7 @@
           densityTpm3: this.data.densityTpm3,
           truckCapacityM3: this.data.truckCapacityM3,
           cadFileName: this.data.cadFileName,
+          anchors: this.data.anchors,
           anchor1: this.data.anchor1,
           anchor2: this.data.anchor2,
           vector: this.data.vector
@@ -1531,6 +1590,7 @@
           (pos) => {
             const st = Number(stationVal) || (pointNum === 1 ? this.data.startStation : this.data.endStation);
             const anchor = {
+              id: 'anc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
               station: st,
               lat: pos.coords.latitude,
               lon: pos.coords.longitude,
@@ -1539,45 +1599,37 @@
             };
 
             if (pointNum === 1) {
-              this.data.anchor1 = anchor;
-              this.data.anchor2 = null;
-              this.data.vector = null;
+              this.data.anchors = [anchor];
+              this.updateAnchorsState();
               this.save();
               if (typeof showToastEl === 'function') {
-                showToastEl(`📍 Точка 1 привязана к ПК ${st.toFixed(2)}. Подойдите к точке 2 (следующему пикету).`, false);
+                showToastEl(`📍 Точка 1 привязана к ПК ${st.toFixed(2)}. Добавьте Точку 2 или другие пикеты.`, false);
               }
-            } else {
-              if (!this.data.anchor1) {
+            } else if (pointNum === 2) {
+              if (!this.data.anchors.length) {
                 if (typeof showToastEl === 'function') showToastEl('Сначала зафиксируйте Точку 1!', true);
                 resolve(false);
                 return;
               }
-              this.data.anchor2 = anchor;
-              const a1 = this.data.anchor1;
-              const a2 = this.data.anchor2;
-              const dLat = (a2.lat - a1.lat) * Math.PI / 180;
-              const dLon = (a2.lon - a1.lon) * Math.PI / 180;
-              const lat1 = a1.lat * Math.PI / 180;
-              const lat2 = a2.lat * Math.PI / 180;
-              const y = Math.sin(dLon) * Math.cos(lat2);
-              const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-              const azimuthRad = Math.atan2(y, x);
-              const azimuthDeg = (azimuthRad * 180 / Math.PI + 360) % 360;
-              const distM = 6371e3 * 2 * Math.asin(Math.sqrt(Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2));
-              const stationDelta = a2.station - a1.station;
-
-              this.data.vector = {
-                distanceM: Math.round(distM),
-                azimuthDeg: Math.round(azimuthDeg),
-                stationDelta: stationDelta,
-                metersPerStation: stationDelta !== 0 ? Math.abs(distM / stationDelta) : 100,
-                ready: true
-              };
+              if (this.data.anchors.length === 1) {
+                this.data.anchors.push(anchor);
+              } else {
+                this.data.anchors[1] = anchor;
+              }
+              this.updateAnchorsState();
               this.save();
               if (typeof showToastEl === 'function') {
-                showToastEl(`✅ Трасса откалибрована по 2 точкам! Вектор: ПК ${a1.station} ➔ ПК ${a2.station} (${Math.round(distM)}м, азимут ${Math.round(azimuthDeg)}°)`, false);
+                showToastEl(`✅ Трасса откалибрована по ${this.data.anchors.length} точкам! Вектор: ПК ${this.data.anchors[0].station.toFixed(2)} ➔ ПК ${this.data.anchors[this.data.anchors.length - 1].station.toFixed(2)} (${this.data.vector?.distanceM || 0}м, азимут ${this.data.vector?.azimuthDeg || 0}°)`, false);
+              }
+            } else {
+              this.data.anchors.push(anchor);
+              this.updateAnchorsState();
+              this.save();
+              if (typeof showToastEl === 'function') {
+                showToastEl(`✅ Точка привязана к ПК ${st.toFixed(2)} (всего ${this.data.anchors.length} точек)`, false);
               }
             }
+
             if (window.AiCopilotUI) AiCopilotUI.renderCadUI();
             resolve(true);
           },
@@ -1590,55 +1642,169 @@
       });
     },
 
-    async locateOnDrawing() {
-      if (!this.data.vector?.ready || !this.data.anchor1 || !this.data.anchor2) {
-        if (typeof showToastEl === 'function') {
-          showToastEl('⚠️ Требуется калибровка минимум по 2 точкам! Привяжите Точку 1 и Точку 2.', true);
-        }
-        return null;
+    async addAnchorPoint(stationVal) {
+      return this.calibratePoint(this.data.anchors.length >= 2 ? 3 : (this.data.anchors.length === 1 ? 2 : 1), stationVal);
+    },
+
+    removeAnchorPoint(index) {
+      if (!Array.isArray(this.data.anchors) || index < 0 || index >= this.data.anchors.length) return;
+      this.data.anchors.splice(index, 1);
+      this.updateAnchorsState();
+      this.save();
+      if (typeof showToastEl === 'function') showToastEl('Точка привязки удалена', false);
+      if (window.AiCopilotUI) AiCopilotUI.renderCadUI();
+      if (document.getElementById('aiCadViewerModal')?.classList.contains('open')) {
+        this.drawViewerCanvases();
       }
+    },
+
+    clearAnchors() {
+      this.data.anchors = [];
+      this.data.anchor1 = null;
+      this.data.anchor2 = null;
+      this.data.vector = null;
+      this.data.lastLocation = null;
+      this.save();
+      if (typeof showToastEl === 'function') showToastEl('Калибровка пикетажа сброшена', false);
+      if (window.AiCopilotUI) AiCopilotUI.renderCadUI();
+      if (document.getElementById('aiCadViewerModal')?.classList.contains('open')) {
+        this.drawViewerCanvases();
+      }
+    },
+
+    async locateOnDrawing() {
+      const anchors = this.data.anchors || [];
+      const isCalibrated = this.data.vector?.ready && anchors.length >= 2;
 
       return new Promise((resolve) => {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
-            const a1 = this.data.anchor1;
-            const a2 = this.data.anchor2;
-            const R = 6371e3;
             const latP = pos.coords.latitude;
             const lonP = pos.coords.longitude;
+            const accuracy = Math.round(pos.coords.accuracy);
 
-            const cosLat = Math.cos(a1.lat * Math.PI / 180);
-            const xP = (lonP - a1.lon) * (Math.PI / 180) * R * cosLat;
-            const yP = (latP - a1.lat) * (Math.PI / 180) * R;
+            // ДО ПРИВЯЗКИ: вернуть сырые GPS-координаты без ошибки
+            if (!isCalibrated) {
+              const rawRes = {
+                rawCoords: { lat: latP, lon: lonP },
+                coordinates: { lat: latP, lon: lonP },
+                calibrated: false,
+                accuracy,
+                message: 'GPS получен. Привяжите минимум 2 контрольные точки для расчёта пикетажа.'
+              };
+              this.data.lastLocation = rawRes;
 
-            const x2 = (a2.lon - a1.lon) * (Math.PI / 180) * R * cosLat;
-            const y2 = (a2.lat - a1.lat) * (Math.PI / 180) * R;
-            const vLenSq = x2 * x2 + y2 * y2 || 1;
+              if (typeof showToastEl === 'function') {
+                showToastEl(`📍 GPS: широта ${latP.toFixed(6)}, долгота ${lonP.toFixed(6)} (точность ${accuracy}м). Привяжите 2 ПК для пикетажа.`, false);
+              }
+              if (window.AiCopilotUI) {
+                AiCopilotUI.renderCadUI(rawRes);
+              }
+              resolve(rawRes);
+              return;
+            }
 
-            const t = (xP * x2 + yP * y2) / vLenSq;
-            const currentStation = a1.station + t * (a2.station - a1.station);
-            const projX = t * x2;
-            const projY = t * y2;
-            const offsetM = Math.round(Math.hypot(xP - projX, yP - projY));
+            // ПОСЛЕ ПРИВЯЗКИ: расчёт пикетажа
+            const R = 6371e3;
+            const a0 = anchors[0];
+            const cosLat0 = Math.cos(a0.lat * Math.PI / 180);
+            const toX = (lon) => (lon - a0.lon) * (Math.PI / 180) * R * cosLat0;
+            const toY = (lat) => (lat - a0.lat) * (Math.PI / 180) * R;
 
+            const px = toX(lonP);
+            const py = toY(latP);
+
+            // Полилинейная проекция на сегменты трассы
+            let bestSeg = null;
+            let minPerpDist = Infinity;
+            let fallbackSeg = null;
+            let minExtrapDist = Infinity;
+
+            for (let i = 0; i < anchors.length - 1; i++) {
+              const a1 = anchors[i];
+              const a2 = anchors[i + 1];
+              const x1 = toX(a1.lon), y1 = toY(a1.lat);
+              const x2 = toX(a2.lon), y2 = toY(a2.lat);
+
+              const dx = x2 - x1;
+              const dy = y2 - y1;
+              const lenSq = dx * dx + dy * dy;
+              if (lenSq < 0.01) continue;
+
+              const t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+              const projX = x1 + t * dx;
+              const projY = y1 + t * dy;
+              const dist = Math.hypot(px - projX, py - projY);
+              const station = a1.station + t * (a2.station - a1.station);
+
+              if (t >= 0 && t <= 1) {
+                if (dist < minPerpDist) {
+                  minPerpDist = dist;
+                  bestSeg = {
+                    segmentIndex: i,
+                    t,
+                    station,
+                    offsetM: Math.round(dist),
+                    projX,
+                    projY
+                  };
+                }
+              } else {
+                const clampT = Math.max(0, Math.min(1, t));
+                const cX = x1 + clampT * dx;
+                const cY = y1 + clampT * dy;
+                const endDist = Math.hypot(px - cX, py - cY);
+                if (endDist < minExtrapDist) {
+                  minExtrapDist = endDist;
+                  fallbackSeg = {
+                    segmentIndex: i,
+                    t,
+                    station,
+                    offsetM: Math.round(endDist),
+                    projX,
+                    projY
+                  };
+                }
+              }
+            }
+
+            const chosen = bestSeg || fallbackSeg;
+            if (!chosen) {
+              resolve(null);
+              return;
+            }
+
+            const currentStation = Math.round(chosen.station * 100) / 100;
+            const offsetM = chosen.offsetM;
             const groundZ = this.getGroundZ(currentStation);
             const projectZ = this.getProjectZ(currentStation);
             const cutCm = Math.round((groundZ - projectZ) * 100);
             const endDistM = Math.max(0, Math.round((this.data.endStation - currentStation) * 100));
 
+            // Формат ПК XX+YY
+            const pkWhole = Math.floor(currentStation);
+            const pkFrac = Math.round((currentStation - pkWhole) * 100);
+            const stationFormatted = `ПК ${pkWhole}+${pkFrac.toString().padStart(2, '0')}`;
+
             const res = {
-              currentStation: Math.round(currentStation * 100) / 100,
+              rawCoords: { lat: latP, lon: lonP },
+              coordinates: { lat: latP, lon: lonP },
+              calibrated: true,
+              currentStation,
+              stationFormatted,
               offsetM,
               groundZ,
               projectZ,
               cutCm,
               distanceToEndM: endDistM,
-              accuracy: Math.round(pos.coords.accuracy)
+              accuracy,
+              segmentIndex: chosen.segmentIndex,
+              anchorsCount: anchors.length
             };
             this.data.lastLocation = res;
 
             if (typeof showToastEl === 'function') {
-              showToastEl(`🎯 Вы на ПК ${res.currentStation.toFixed(2)} (отклонение ${offsetM}м, срезка ${cutCm}см, до конца: ${endDistM}м)`, false);
+              showToastEl(`🎯 Вы на ${stationFormatted} (отклонение ${offsetM}м, срезка ${cutCm}см, до конца: ${endDistM}м) [привязка по ${anchors.length} ПК]`, false);
             }
             if (window.AiCopilotUI) {
               AiCopilotUI.renderCadUI(res);
@@ -1662,18 +1828,134 @@
       const stations = [];
       const profile = [];
 
-      const lines = textContent.split(/\r?\n/);
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line === '8' && i + 1 < lines.length) {
-          const layer = lines[i + 1].trim();
-          if (layer) layers.add(layer);
-        }
-        const pkMatch = line.match(/(?:ПК|PK)\s*(\d+)(?:\+(\d+))?/i);
-        if (pkMatch) {
-          const st = parseFloat(pkMatch[1]) + (parseFloat(pkMatch[2] || 0) / 100);
+      // 1. Детекция бинарного DWG по сигнатуре magic bytes AC10xx
+      const magicMatch = (textContent || '').slice(0, 32).match(/AC10(\d{2})/);
+      const isDwgExt = /\.dwg$/i.test(fileName);
+      const isBinaryDwg = !!magicMatch || (isDwgExt && /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test((textContent || '').slice(0, 500)));
+
+      let dwgVersion = null;
+      if (isBinaryDwg) {
+        const dwgVersions = {
+          '09': 'AutoCAD R11/R12',
+          '12': 'AutoCAD R13',
+          '14': 'AutoCAD R14',
+          '15': 'AutoCAD 2000',
+          '18': 'AutoCAD 2004',
+          '21': 'AutoCAD 2007',
+          '24': 'AutoCAD 2010',
+          '27': 'AutoCAD 2013',
+          '32': 'AutoCAD 2018+'
+        };
+        dwgVersion = magicMatch ? (dwgVersions[magicMatch[1]] || ('AutoCAD AC10' + magicMatch[1])) : 'AutoCAD Binary';
+      }
+
+      if (isBinaryDwg) {
+        // Честный fallback для бинарного DWG:
+        // Извлечение текстовых маркеров ПК из байтового потока
+        const pkRegex = /(?:ПК|PK)\s*(\d+)(?:\+(\d+))?/gi;
+        let match;
+        while ((match = pkRegex.exec(textContent)) !== null) {
+          const st = parseFloat(match[1]) + (parseFloat(match[2] || 0) / 100);
           if (!stations.includes(st) && st >= 0 && st < 500) stations.push(st);
         }
+
+        // Если не найдено в ASCII, проверяем байты UTF-16LE
+        if (stations.length === 0 && (textContent || '').includes('\x00')) {
+          try {
+            const stripped = textContent.replace(/\x00/g, '');
+            while ((match = pkRegex.exec(stripped)) !== null) {
+              const st = parseFloat(match[1]) + (parseFloat(match[2] || 0) / 100);
+              if (!stations.includes(st) && st >= 0 && st < 500) stations.push(st);
+            }
+          } catch (e) {}
+        }
+
+        layers.add('0');
+        layers.add('ТРАССА_DWG_FALLBACK');
+      } else {
+        // DXF текстовый парсер
+        const lines = (textContent || '').split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (line === '8' && i + 1 < lines.length) {
+            const layer = lines[i + 1].trim();
+            if (layer) layers.add(layer);
+          }
+          const pkMatch = line.match(/(?:ПК|PK)\s*(\d+)(?:\+(\d+))?/i);
+          if (pkMatch) {
+            const st = parseFloat(pkMatch[1]) + (parseFloat(pkMatch[2] || 0) / 100);
+            if (!stations.includes(st) && st >= 0 && st < 500) stations.push(st);
+          }
+        }
+      }
+
+      // Лёгкий offline парсинг геометрии LINE/LWPOLYLINE/POINT/TEXT (только для ASCII DXF)
+      const geometry = [];
+      if (!isBinaryDwg && textContent) {
+        const lines = textContent.split(/\r?\n/);
+        let entityType = null;
+        let entityData = null;
+        let layer = '0';
+
+        const finishEntity = () => {
+          if (geometry.length >= 1000) return;
+          if (entityType === 'LINE' && entityData?.x1 != null && entityData?.y1 != null && entityData?.x2 != null && entityData?.y2 != null) {
+            geometry.push({ type: 'LINE', layer, ...entityData });
+          } else if (entityType === 'LWPOLYLINE' && entityData?.vertices?.length >= 2) {
+            geometry.push({ type: 'LWPOLYLINE', layer, vertices: entityData.vertices, closed: !!entityData.closed });
+          } else if (entityType === 'POINT' && entityData?.x != null && entityData?.y != null) {
+            geometry.push({ type: 'POINT', layer, ...entityData });
+          } else if (entityType === 'TEXT' && entityData?.x != null && entityData?.y != null && entityData?.text) {
+            geometry.push({ type: 'TEXT', layer, ...entityData });
+          }
+          entityType = null;
+          entityData = null;
+        };
+
+        for (let i = 0; i + 1 < lines.length && geometry.length < 1000; i += 2) {
+          const code = lines[i].trim();
+          const value = (i + 1 < lines.length) ? lines[i + 1].trim() : '';
+
+          if (code === '0') {
+            finishEntity();
+            layer = '0';
+            if (value === 'LINE' || value === 'LWPOLYLINE' || value === 'POINT' || value === 'TEXT') {
+              entityType = value;
+              entityData = {};
+              if (entityType === 'LWPOLYLINE') entityData.vertices = [];
+            }
+          } else if (entityType && code === '8') {
+            layer = value || '0';
+          } else if (entityType === 'LINE') {
+            if (code === '10') entityData.x1 = parseFloat(value);
+            else if (code === '20') entityData.y1 = parseFloat(value);
+            else if (code === '11') entityData.x2 = parseFloat(value);
+            else if (code === '21') entityData.y2 = parseFloat(value);
+          } else if (entityType === 'LWPOLYLINE') {
+            if (code === '10') {
+              if (!entityData.currentVertex) entityData.currentVertex = {};
+              entityData.currentVertex.x = parseFloat(value);
+            } else if (code === '20') {
+              if (!entityData.currentVertex) entityData.currentVertex = {};
+              entityData.currentVertex.y = parseFloat(value);
+              if (entityData.currentVertex.x != null && entityData.currentVertex.y != null) {
+                if (entityData.vertices.length < 1000) entityData.vertices.push({ x: entityData.currentVertex.x, y: entityData.currentVertex.y });
+                entityData.currentVertex = null;
+              }
+            } else if (code === '70' && parseInt(value) & 1) {
+              entityData.closed = true;
+            }
+          } else if (entityType === 'POINT') {
+            if (code === '10') entityData.x = parseFloat(value);
+            else if (code === '20') entityData.y = parseFloat(value);
+          } else if (entityType === 'TEXT') {
+            if (code === '10') entityData.x = parseFloat(value);
+            else if (code === '20') entityData.y = parseFloat(value);
+            else if (code === '1') entityData.text = value;
+            else if (code === '40') entityData.height = parseFloat(value);
+          }
+        }
+        finishEntity();
       }
 
       stations.sort((a,b) => a - b);
@@ -1693,10 +1975,19 @@
         });
       }
 
+      const warning = isBinaryDwg
+        ? `Внимание: файл "${fileName}" является закрытым бинарным DWG (${dwgVersion}). Активирован честный fallback: извлечено ${stations.length} текстовых маркеров ПК, профиль и объём рассчитаны по параметрам захватки. Для точной векторной геометрии и слоёв экспортируйте файл в DXF.`
+        : null;
+
       const cadData = {
         fileName,
-        fileSize: textContent.length,
+        fileSize: (textContent || '').length,
+        format: isBinaryDwg ? 'DWG (Binary)' : 'DXF (ASCII)',
+        isBinaryDwg,
+        dwgVersion,
+        warning,
         layers: Array.from(layers),
+        geometry: geometry.slice(0, 1000),
         stations: stations.length ? stations : [startSt, endSt],
         profile,
         parsedAt: Date.now()
@@ -1740,6 +2031,43 @@
 
       const roadY = H / 2 - 5;
       const roadH = 40;
+      // CAD XY и GPS не имеют общей привязки: ПК/контрольные точки ниже — отдельная схема.
+      const geometry = (this.data.cadFileData?.geometry || []).slice(0, 1000);
+      const validPoint = p => p && Number.isFinite(p.x) && Number.isFinite(p.y);
+      const primitives = geometry.map(g => {
+        const points = g.type === 'LINE' ? [{x:g.x1,y:g.y1},{x:g.x2,y:g.y2}]
+          : g.type === 'LWPOLYLINE' ? (g.vertices || []).slice(0, 1000)
+          : ['POINT', 'TEXT'].includes(g.type) ? [{x:g.x,y:g.y}] : [];
+        return { g, points };
+      }).filter(p => p.points.length && p.points.every(validPoint));
+      if (primitives.length) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        primitives.forEach(({points}) => points.forEach(p => {
+          minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+          minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+        }));
+        const scale = Math.min(Math.max(1, drawW) / Math.max(1, maxX-minX), 90 / Math.max(1, maxY-minY));
+        const xy = p => [W/2 + (p.x-(minX+maxX)/2)*scale, 65 - (p.y-(minY+maxY)/2)*scale];
+        planCtx.save();
+        planCtx.beginPath(); planCtx.rect(0, 10, W, 110); planCtx.clip();
+        planCtx.strokeStyle = '#38bdf8'; planCtx.fillStyle = '#e2e8f0'; planCtx.lineWidth = 1.5;
+        planCtx.font = '11px sans-serif'; planCtx.textAlign = 'left';
+        primitives.forEach(({g, points}) => {
+          const [x,y] = xy(points[0]);
+          if (g.type === 'TEXT') planCtx.fillText(String(g.text || '').slice(0, 200), x, y);
+          else if (g.type === 'POINT') {
+            planCtx.beginPath(); planCtx.arc(x,y,3,0,Math.PI*2); planCtx.fill();
+          } else {
+            planCtx.beginPath(); planCtx.moveTo(x,y);
+            points.slice(1).forEach(p => planCtx.lineTo(...xy(p)));
+            if (g.closed) planCtx.closePath();
+            planCtx.stroke();
+          }
+        });
+        planCtx.restore();
+        planCtx.fillStyle = '#94a3b8'; planCtx.font = '9px sans-serif'; planCtx.textAlign = 'left';
+        planCtx.fillText('DXF XY · ниже: схема ПК (не геопривязка CAD)', 8, 124);
+      } else {
       planCtx.fillStyle = '#1e293b';
       planCtx.fillRect(padX, roadY - roadH/2, drawW, roadH);
       planCtx.strokeStyle = '#475569';
@@ -1753,6 +2081,9 @@
       planCtx.lineTo(padX + drawW, roadY);
       planCtx.stroke();
       planCtx.setLineDash([]);
+      }
+
+      const stationY = primitives.length ? H - 30 : roadY;
 
       planCtx.fillStyle = '#94a3b8';
       planCtx.font = '10px monospace';
@@ -1760,35 +2091,35 @@
       for (let st = Math.ceil(stStart); st <= Math.floor(stEnd); st++) {
         const x = padX + ((st - stStart) / stRange) * drawW;
         planCtx.strokeStyle = '#64748b';
-        planCtx.beginPath(); planCtx.moveTo(x, roadY - roadH/2 - 4); planCtx.lineTo(x, roadY + roadH/2 + 4); planCtx.stroke();
+        planCtx.beginPath(); planCtx.moveTo(x, stationY - 4); planCtx.lineTo(x, stationY + 4); planCtx.stroke();
         planCtx.fillText(`ПК ${st}`, x, H - 10);
       }
 
-      if (this.data.anchor1) {
-        const x1 = padX + ((this.data.anchor1.station - stStart) / stRange) * drawW;
-        planCtx.fillStyle = '#38bdf8';
-        planCtx.beginPath(); planCtx.arc(x1, roadY - 12, 5, 0, Math.PI*2); planCtx.fill();
-        planCtx.fillText('📍Т1', x1, roadY - 18);
-      }
-      if (this.data.anchor2) {
-        const x2 = padX + ((this.data.anchor2.station - stStart) / stRange) * drawW;
-        planCtx.fillStyle = '#34d399';
-        planCtx.beginPath(); planCtx.arc(x2, roadY - 12, 5, 0, Math.PI*2); planCtx.fill();
-        planCtx.fillText('📍Т2', x2, roadY - 18);
-      }
+      // Отрисовка всех точек привязки многоточечного пикетажа
+      const anchors = this.data.anchors || [];
+      const anchorColors = ['#38bdf8', '#34d399', '#a78bfa', '#f472b6', '#fb923c', '#38bdf8'];
+      anchors.forEach((anc, idx) => {
+        const x = padX + ((anc.station - stStart) / stRange) * drawW;
+        const color = anchorColors[idx % anchorColors.length];
+        planCtx.fillStyle = color;
+        planCtx.beginPath(); planCtx.arc(x, stationY - 12, 5, 0, Math.PI*2); planCtx.fill();
+        planCtx.fillStyle = color;
+        planCtx.font = 'bold 9px sans-serif';
+        planCtx.fillText(`📍Т${idx + 1}`, x, stationY - 18);
+      });
 
       const loc = this.data.lastLocation;
-      if (loc) {
+      if (loc && loc.calibrated !== false && Number.isFinite(loc.currentStation)) {
         const clampedSt = Math.max(stStart, Math.min(stEnd, loc.currentStation));
         const userX = padX + ((clampedSt - stStart) / stRange) * drawW;
         planCtx.fillStyle = '#ef4444';
         planCtx.shadowColor = '#ef4444';
         planCtx.shadowBlur = 10;
-        planCtx.beginPath(); planCtx.arc(userX, roadY, 7, 0, Math.PI*2); planCtx.fill();
+        planCtx.beginPath(); planCtx.arc(userX, stationY, 7, 0, Math.PI*2); planCtx.fill();
         planCtx.shadowBlur = 0;
         planCtx.fillStyle = '#fff';
         planCtx.font = 'bold 11px sans-serif';
-        planCtx.fillText(`Вы здесь: ПК ${loc.currentStation.toFixed(2)}`, userX, roadY - 24);
+        planCtx.fillText(`Вы здесь: ${loc.stationFormatted || 'ПК ' + loc.currentStation.toFixed(2)}`, userX, stationY - 24);
       }
 
       // 2. Вертикальная планировка
@@ -1853,7 +2184,23 @@
       profCtx.fillText(`${maxZ.toFixed(2)}м`, padX - 5, 25);
       profCtx.fillText(`${minZ.toFixed(2)}м`, padX - 5, profBaseY);
 
-      if (loc) {
+      // Отметки точек на профиле
+      anchors.forEach((anc, idx) => {
+        const clampedSt = Math.max(stStart, Math.min(stEnd, anc.station));
+        const x = padX + ((clampedSt - stStart) / stRange) * drawW;
+        const color = anchorColors[idx % anchorColors.length];
+        profCtx.strokeStyle = color;
+        profCtx.lineWidth = 1;
+        profCtx.setLineDash([2, 4]);
+        profCtx.beginPath(); profCtx.moveTo(x, 15); profCtx.lineTo(x, profBaseY); profCtx.stroke();
+        profCtx.setLineDash([]);
+        profCtx.fillStyle = color;
+        profCtx.font = '8px monospace';
+        profCtx.textAlign = 'center';
+        profCtx.fillText(`Т${idx + 1}`, x, 12);
+      });
+
+      if (loc && loc.calibrated !== false && Number.isFinite(loc.currentStation)) {
         const clampedSt = Math.max(stStart, Math.min(stEnd, loc.currentStation));
         const userX = padX + ((clampedSt - stStart) / stRange) * drawW;
         profCtx.strokeStyle = '#ef4444';
@@ -1879,9 +2226,14 @@
     bridgeBaseUrl: '',
     connected: false,
     inboxMessages: [],
+    lastStatus: null,
 
     init() {
       this.bridgeBaseUrl = localStorage.getItem('samosval_opencode_bridge_url') || (window.location.port === '4173' ? window.location.origin : 'http://127.0.0.1:4173');
+      try {
+        const savedSt = localStorage.getItem('samosval_opencode_bridge_last_status');
+        if (savedSt) this.lastStatus = JSON.parse(savedSt);
+      } catch (e) {}
       this.checkStatus();
       setInterval(() => this.pollInbox(), 12000);
     },
@@ -1893,16 +2245,36 @@
     },
 
     async checkStatus() {
+      const t0 = performance.now();
       try {
         const resp = await fetch(`${this.bridgeBaseUrl}/api/opencode-bridge/status`, { mode: 'cors' });
+        const latency = Math.round(performance.now() - t0);
         if (resp.ok) {
           const d = await resp.json();
           this.connected = true;
+          this.lastStatus = {
+            connected: true,
+            latency,
+            checkedAt: Date.now(),
+            checkedAtStr: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+            url: this.bridgeBaseUrl,
+            details: d
+          };
+          localStorage.setItem('samosval_opencode_bridge_last_status', JSON.stringify(this.lastStatus));
           this.renderAdminPanel();
           return d;
         }
       } catch (e) {
         this.connected = false;
+        this.lastStatus = {
+          connected: false,
+          latency: Math.round(performance.now() - t0),
+          checkedAt: Date.now(),
+          checkedAtStr: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+          url: this.bridgeBaseUrl,
+          error: e.message
+        };
+        localStorage.setItem('samosval_opencode_bridge_last_status', JSON.stringify(this.lastStatus));
       }
       this.renderAdminPanel();
       return null;
@@ -2036,7 +2408,8 @@
               <span>🛠️</span> Двусторонний диалог с OpenCode
             </div>
             <span class="ai-bridge-status-pill" style="background:${this.connected ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'};color:${this.connected ? '#4ade80' : '#f87171'};border-color:${this.connected ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)'};">
-              ${this.connected ? '🟢 Мост на связи' : '🔴 Офлайн'}
+              ${this.connected ? `🟢 Мост на связи (${this.lastStatus?.latency || 0} мс)` : '🔴 Офлайн'}
+              ${this.lastStatus?.checkedAtStr ? ` · ${this.lastStatus.checkedAtStr}` : ''}
             </span>
           </div>
 
@@ -2583,6 +2956,7 @@
             <button class="modal-close" type="button" onclick="document.getElementById('aiCadViewerModal').classList.remove('active','open');document.getElementById('aiCadViewerModal').style.display='none';">&times;</button>
           </div>
           <div class="modal-body" style="padding:14px;max-height:85dvh;overflow-y:auto;">
+            <div id="aiCadViewerWarning" style="display:none;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:#fde047;"></div>
             <div class="ai-cad-viewer-bar">
               <div style="font-size:12px;font-weight:700;color:#38bdf8;" id="aiCadViewerFileTitle">Файл: ${AiCadRoadEngine.data.cadFileName || 'Проект_вертикальная_планировка.dxf'}</div>
               <div class="ai-cad-legend">
@@ -2616,7 +2990,19 @@
         modal.style.display = 'flex';
         modal.classList.add('active', 'open');
         const titleEl = document.getElementById('aiCadViewerFileTitle');
-        if (titleEl) titleEl.textContent = 'Файл: ' + (AiCadRoadEngine.data.cadFileName || 'Проект_вертикальная_планировка.dxf');
+        const warnEl = document.getElementById('aiCadViewerWarning');
+        const cadData = AiCadRoadEngine.data.cadFileData;
+        if (titleEl) {
+          titleEl.textContent = 'Файл: ' + (AiCadRoadEngine.data.cadFileName || 'Проект_вертикальная_планировка.dxf') + (cadData?.isBinaryDwg ? ' [DWG Fallback]' : '');
+        }
+        if (warnEl) {
+          if (cadData?.isBinaryDwg) {
+            warnEl.style.display = 'block';
+            warnEl.innerHTML = `⚠️ <b>Честный fallback бинарного DWG (${cadData.dwgVersion || 'AutoCAD'}):</b> закрытый бинарный формат чертежа. Извлечено ${cadData.stations.length} текстовых маркеров ПК. Профиль построен по захватке. Для точной 3D-геометрии и векторных слоёв экспортируйте файл в DXF.`;
+          } else {
+            warnEl.style.display = 'none';
+          }
+        }
         setTimeout(() => {
           AiCadRoadEngine.drawViewerCanvases();
         }, 100);
@@ -2923,6 +3309,7 @@
       if (tab === 'analytics') this.renderAnalyticsUI();
       if (tab === 'cad') this.renderCadUI();
       if (tab === 'photo') this.renderPhotoUI();
+      if (tab === 'voice') this.syncApiInputs();
       if (tab === 'mobile') this.renderMobileConnectUI();
       if (tab === 'model') this.renderModelStats();
       if (tab === 'feedback') {
@@ -3061,16 +3448,6 @@
           <div>${b.message}</div>
         </div>
 
-        <div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);border-radius:10px;padding:10px;margin-top:10px;font-size:12px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-            <b style="color:#f59e0b;">🏁 Режим завершения смены (~16:00):</b>
-            <span style="font-size:11px;font-weight:700;color:#fde047;">${(window.state?.trucks || []).filter(t => window.state?.truckStatus?.[t.id]?.finalTrip).length} на финале</span>
-          </div>
-          <div style="color:var(--muted);font-size:11px;">
-            ${(new Date().getHours() === 15 && new Date().getMinutes() >= 30) || new Date().getHours() >= 16 ? '⏰ Время 15:30–16:00: активируйте «🏁 Финал» в карточках машин для своевременного сбора ТТН и отпуска с линии.' : 'Используйте кнопку «🏁 Финал» в карточке самосвала, чтобы отметить завершающий рейс перед закрытием смены.'}
-          </div>
-        </div>
-
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;">
           <button class="ai-btn-copy-wa" onclick="window.AiDynamicAnalytics.copyShareText()">📋 Скопировать сводку</button>
           <button class="ai-btn-start" style="background:linear-gradient(135deg,#0284c7,#0369a1);" onclick="window.AiDynamicAnalytics.shareViaTelegram()">✈️ В Telegram</button>
@@ -3083,33 +3460,53 @@
       if (!root) return;
       const c = AiCadRoadEngine.calculateVolume();
       const data = AiCadRoadEngine.data;
+      const anchors = data.anchors || [];
 
       let locInfo = '';
-      if (locRes) {
+      locRes = locRes || data.lastLocation;
+      if (locRes && (locRes.calibrated === false || !Number.isFinite(locRes.currentStation))) {
+        const coords = locRes.rawCoords || locRes.coordinates;
+        const lat = Number.isFinite(coords?.lat) ? coords.lat.toFixed(6) : '—';
+        const lon = Number.isFinite(coords?.lon) ? coords.lon.toFixed(6) : '—';
+        locInfo = `<div style="border:1px solid #38bdf8;border-radius:10px;padding:8px;margin-bottom:10px;font-size:12px;">Координаты: широта ${lat}, долгота ${lon}; пикетаж ещё не привязан.</div>`;
+      } else if (locRes) {
         locInfo = `
           <div style="background:rgba(56,189,248,0.15);border:1px solid #38bdf8;border-radius:10px;padding:8px;margin-bottom:10px;font-size:12px;">
             <b>🎯 Ваше местоположение на чертеже:</b><br>
-            • Текущий пикет: <b>ПК ${locRes.currentStation.toFixed(2)}</b> (отклонение от оси: ${locRes.offsetM}м)<br>
+            • Текущий пикет: <b>${escapeHtml(locRes.stationFormatted || 'ПК ' + locRes.currentStation.toFixed(2))}</b> (отклонение от оси: ${locRes.offsetM}м)<br>
             • Отметки: рельеф Z=${locRes.groundZ}м, проект Z=${locRes.projectZ}м (срезка <b>${locRes.cutCm} см</b>)<br>
             • До границы захватки: <b>${locRes.distanceToEndM} м</b> (точность GPS: ${locRes.accuracy}м)<br>
             • Остаток срезки от вас: <b>~${Math.round(locRes.distanceToEndM * data.widthM * (data.depthCm/100))} м³</b>
+            ${locRes.anchorsCount ? `<br>• Привязка: полилиния по <b>${locRes.anchorsCount} точкам</b> (сегмент #${(locRes.segmentIndex || 0) + 1})` : ''}
           </div>
         `;
       }
 
       let calibStatus = '';
-      if (data.vector?.ready) {
+      if (data.vector?.ready && anchors.length >= 2) {
+        const segCount = anchors.length - 1;
         calibStatus = `
           <div style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:8px;margin-bottom:8px;font-size:11px;color:#86efac;">
-            ✅ <b>Трасса откалибрована по 2 точкам:</b><br>
-            • База Т1: ПК ${data.anchor1.station.toFixed(2)} ➔ Т2: ПК ${data.anchor2.station.toFixed(2)}<br>
-            • Длина вектора: <b>${data.vector.distanceM} м</b> (азимут ${data.vector.azimuthDeg}°)
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <b>✅ Трасса откалибрована (${anchors.length} точек, ${segCount} сегм.):</b>
+              <button type="button" class="btn btn-secondary btn-small" style="font-size:9px;padding:1px 6px;" onclick="window.AiCopilotUI.clearCadAnchors()" title="Сбросить все точки">Сброс</button>
+            </div>
+            • Отрезок: ПК ${anchors[0].station.toFixed(2)} ➔ ПК ${anchors[anchors.length - 1].station.toFixed(2)}<br>
+            • Длина трассы: <b>${data.vector.distanceM} м</b> (генеральный азимут ${data.vector.azimuthDeg}°)<br>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">
+              ${anchors.map((a, i) => `
+                <span style="background:rgba(15,23,42,0.8);border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:10px;color:#e2e8f0;display:inline-flex;align-items:center;gap:4px;">
+                  <b>Т${i + 1}:</b> ПК ${a.station.toFixed(2)} (±${a.accuracy}м)
+                  <span style="cursor:pointer;color:#f87171;font-weight:700;margin-left:2px;" onclick="window.AiCopilotUI.deleteCadAnchor(${i})" title="Удалить точку">×</span>
+                </span>
+              `).join('')}
+            </div>
           </div>
         `;
-      } else if (data.anchor1) {
+      } else if (anchors.length === 1) {
         calibStatus = `
           <div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);border-radius:8px;padding:8px;margin-bottom:8px;font-size:11px;color:#fde047;">
-            ⚠️ <b>Точка 1 зафиксирована (ПК ${data.anchor1.station.toFixed(2)}):</b><br>
+            ⚠️ <b>Точка 1 зафиксирована (ПК ${anchors[0].station.toFixed(2)}):</b><br>
             Подойдите к следующему пикету (Т2) и нажмите кнопку «📍 2. Направление (Т2)» для калибровки вектора трассы.
           </div>
         `;
@@ -3128,8 +3525,15 @@
             <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(56,189,248,0.2);color:#38bdf8;font-weight:700;">Offline-first</span>
           </div>
           <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
-            Файл чертежа: <b style="color:#e2e8f0;">${data.cadFileName || 'Не выбран'}</b> ${data.cadFileData ? `(${data.cadFileData.stations.length} ПК, ${data.cadFileData.profile.length} отметок)` : ''}
+            Файл чертежа: <b style="color:#e2e8f0;">${data.cadFileName || 'Не выбран'}</b> ${data.cadFileData ? `(${data.cadFileData.stations.length} ПК, ${data.cadFileData.profile.length} отметок, ${data.cadFileData.format || 'DXF'})` : ''}
           </div>
+
+          ${data.cadFileData?.isBinaryDwg ? `
+            <div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.5);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:#fde047;">
+              ⚠️ <b>Честный fallback бинарного DWG (${data.cadFileData.dwgVersion || 'AutoCAD'}):</b><br>
+              Закрытый бинарный формат. Извлечено ${data.cadFileData.stations.length} текстовых маркеров ПК. Профиль рассчитан по захватке. Для векторной 3D-модели экспортируйте в DXF.
+            </div>
+          ` : ''}
 
           <input type="file" id="aiCadFileInput" accept=".dxf,.dwg,.json,.txt" style="display:none;" onchange="window.AiCopilotUI.handleCadFileUpload(event)">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
@@ -3140,10 +3544,11 @@
           ${locInfo}
           ${calibStatus}
 
-          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">2-точечная привязка пикетажа трассы:</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
-            <button class="ai-btn-step" onclick="window.AiCopilotUI.promptPoint1()">📍 1. Базовый ПК (Т1)</button>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">Многоточечная привязка пикетажа трассы:</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">
+            <button class="ai-btn-step" onclick="window.AiCopilotUI.promptPoint1()">📍 1. Базовый (Т1)</button>
             <button class="ai-btn-step" onclick="window.AiCopilotUI.promptPoint2()">📍 2. Направление (Т2)</button>
+            <button class="ai-btn-step" onclick="window.AiCopilotUI.promptAddPoint()">➕ Добавить ПК</button>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
@@ -3206,12 +3611,18 @@
       reader.onload = (e) => {
         const text = e.target.result;
         const parsed = AiCadRoadEngine.parseCadFileContent(file.name, text);
-        if (typeof showToastEl === 'function') {
-          showToastEl(`✅ Чертёж "${file.name}" загружен Offline (${parsed.stations.length} ПК, ${parsed.profile.length} отметок)`, false);
+        if (parsed.isBinaryDwg) {
+          if (typeof showToastEl === 'function') {
+            showToastEl(`⚠️ Честный fallback DWG (${parsed.dwgVersion}): найдено ${parsed.stations.length} ПК. Для точной 3D-модели экспортируйте в DXF.`, true);
+          }
+        } else {
+          if (typeof showToastEl === 'function') {
+            showToastEl(`✅ Чертёж "${file.name}" загружен Offline (${parsed.stations.length} ПК, ${parsed.profile.length} отметок)`, false);
+          }
         }
         this.renderCadUI();
         const titleEl = document.getElementById('aiCadViewerFileTitle');
-        if (titleEl) titleEl.textContent = 'Файл: ' + file.name;
+        if (titleEl) titleEl.textContent = 'Файл: ' + file.name + (parsed.isBinaryDwg ? ' [DWG Fallback]' : '');
         if (document.getElementById('aiCadViewerModal')?.classList.contains('open')) {
           AiCadRoadEngine.drawViewerCanvases();
         }
@@ -3238,7 +3649,7 @@
     },
 
     async promptPoint1() {
-      const cur = AiCadRoadEngine.data.anchor1?.station || AiCadRoadEngine.data.startStation;
+      const cur = AiCadRoadEngine.data.anchors?.[0]?.station || AiCadRoadEngine.data.anchor1?.station || AiCadRoadEngine.data.startStation;
       const pk = prompt('Введите номер первого базового пикета (Т1), где вы стоите (например 10.00):', cur);
       if (pk !== null && !isNaN(parseFloat(pk))) {
         await AiCadRoadEngine.calibratePoint(1, parseFloat(pk));
@@ -3246,14 +3657,33 @@
     },
 
     async promptPoint2() {
-      if (!AiCadRoadEngine.data.anchor1) {
+      if (!AiCadRoadEngine.data.anchors?.length && !AiCadRoadEngine.data.anchor1) {
         if (typeof showToastEl === 'function') showToastEl('Сначала зафиксируйте Точку 1!', true);
         return;
       }
-      const cur = AiCadRoadEngine.data.anchor2?.station || AiCadRoadEngine.data.endStation;
+      const cur = AiCadRoadEngine.data.anchors?.[1]?.station || AiCadRoadEngine.data.anchor2?.station || AiCadRoadEngine.data.endStation;
       const pk = prompt('Введите номер второго пикета трассы (Т2 для вектора направления, например 12.00):', cur);
       if (pk !== null && !isNaN(parseFloat(pk))) {
         await AiCadRoadEngine.calibratePoint(2, parseFloat(pk));
+      }
+    },
+
+    async promptAddPoint() {
+      const anchors = AiCadRoadEngine.data.anchors || [];
+      const lastSt = anchors.length ? anchors[anchors.length - 1].station + 1.0 : AiCadRoadEngine.data.startStation;
+      const pk = prompt('Введите номер следующего пикета трассы (ПК), где вы стоите (например ' + lastSt.toFixed(2) + '):', lastSt.toFixed(2));
+      if (pk !== null && !isNaN(parseFloat(pk))) {
+        await AiCadRoadEngine.addAnchorPoint(parseFloat(pk));
+      }
+    },
+
+    deleteCadAnchor(idx) {
+      AiCadRoadEngine.removeAnchorPoint(idx);
+    },
+
+    clearCadAnchors() {
+      if (confirm('Сбросить все точки привязки трассы?')) {
+        AiCadRoadEngine.clearAnchors();
       }
     },
 
@@ -3400,9 +3830,22 @@
       const ep = document.getElementById('aiApiEndpointInput');
       const mod = document.getElementById('aiApiModelInput');
       const key = document.getElementById('aiDeepSeekKeyInput');
+      const statusEl = document.getElementById('aiApiTestStatus');
+
       if (ep) ep.value = localStorage.getItem(STORAGE_KEY_API_ENDPOINT) || 'https://api.apimira.com/v1/chat/completions';
       if (mod) mod.value = localStorage.getItem(STORAGE_KEY_API_MODEL) || 'deepseek/deepseek-chat';
       if (key) key.value = localStorage.getItem(STORAGE_KEY_API_KEY) || localStorage.getItem(STORAGE_KEY_DEEPSEEK) || '';
+
+      const lastRaw = localStorage.getItem(STORAGE_KEY_API_STATUS) || localStorage.getItem('dt_ai_api_last_status');
+      if (lastRaw && statusEl && !statusEl.textContent) {
+        try {
+          const last = JSON.parse(lastRaw);
+          const rating = last.latencyRating || (last.elapsed < 400 ? '🟢 Отлично' : (last.elapsed < 1200 ? '🟡 Норма' : '🟠 Задержка'));
+          statusEl.style.color = last.ok ? '#34d399' : '#f87171';
+          statusEl.textContent = `Предыдущая проверка (${last.timeStr || ''}): ${last.message || last.status} · ${last.elapsed || 0} мс`;
+        } catch (e) {}
+      }
+      if (statusEl && !statusEl.textContent) statusEl.textContent = 'Внешний API не проверен/офлайн';
     },
 
     setApiPreset(preset) {
@@ -3746,19 +4189,24 @@
       const model = modelInput?.value.trim() || localStorage.getItem(STORAGE_KEY_API_MODEL) || 'deepseek/deepseek-chat';
       const apiKey = keyInput?.value.trim() || localStorage.getItem(STORAGE_KEY_API_KEY) || localStorage.getItem(STORAGE_KEY_DEEPSEEK);
 
-      if (!apiKey) {
-        const msg = '⚠️ Введите API-ключ для проверки связи';
+      if (navigator.onLine === false || !apiKey) {
+        window.aiApiUnchecked(statusEl, navigator.onLine === false ? 'offline' : 'not_checked');
+        const msg = 'Внешний API не проверен/офлайн. Для явной проверки нужны сеть и API-ключ.';
         if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = msg; }
         if (typeof showToastEl === 'function') showToastEl(msg, true);
         return;
       }
 
-      if (statusEl) { statusEl.style.color = '#38bdf8'; statusEl.textContent = '⏳ Тестирование связи с ' + endpoint + '...'; }
+      if (statusEl) { statusEl.style.color = '#38bdf8'; statusEl.textContent = '⏳ Проверка настроенного endpoint API...'; }
       if (btn) btn.disabled = true;
 
       const t0 = performance.now();
+      const startTs = Date.now();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
       try {
         const res = await fetch(endpoint, {
+          signal: controller.signal,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -3771,25 +4219,104 @@
           })
         });
         const elapsed = Math.round(performance.now() - t0);
+        const latencyRating = elapsed < 400 ? '🟢 Отлично' : (elapsed < 1200 ? '🟡 Норма' : '🟠 Задержка выше нормы');
+
+        const bridgeRaw = localStorage.getItem('samosval_opencode_bridge_last_status');
+        let bridgeInfo = '';
+        if (bridgeRaw) {
+          try {
+            const b = JSON.parse(bridgeRaw);
+            bridgeInfo = ` | Мост: ${b.connected ? '🟢 OK (' + (b.latency || 0) + ' мс)' : '🔴 Офлайн'}`;
+          } catch (e) {}
+        }
 
         if (res.ok) {
-          const data = await res.json().catch(() => ({}));
-          const text = data?.choices?.[0]?.message?.content || 'OK';
-          const successMsg = `✅ Связь успешна (200 OK, время ${elapsed} мс, ответ: "${text.trim()}")`;
+          const remaining = 15000 - (Date.now() - startTs);
+          const data = typeof window.aiApiReadJsonWithDeadline === 'function'
+            ? await window.aiApiReadJsonWithDeadline(res, remaining, controller)
+            : await (async () => {
+                if (remaining <= 0 || controller?.signal?.aborted) {
+                  controller?.abort();
+                  const err = new Error('Таймаут API (15 секунд)');
+                  err.name = 'AbortError';
+                  throw err;
+                }
+                let timerId = null;
+                const jp = res.json();
+                jp.catch(() => {});
+                const tp = new Promise((_, rej) => {
+                  timerId = setTimeout(() => {
+                    controller?.abort();
+                    const err = new Error('Таймаут API (15 секунд)');
+                    err.name = 'AbortError';
+                    rej(err);
+                  }, remaining);
+                });
+                try {
+                  return await Promise.race([jp, tp]);
+                } finally {
+                  if (timerId) clearTimeout(timerId);
+                }
+              })();
+          const fullElapsed = Math.round(performance.now() - t0);
+          const finalRating = fullElapsed < 400 ? '🟢 Отлично' : (fullElapsed < 1200 ? '🟡 Норма' : '🟠 Задержка выше нормы');
+          const text = data?.choices?.[0]?.message?.content ? 'Ответ модели получен' : 'HTTP OK';
+          const successMsg = `✅ Связь успешна (200 OK · ${fullElapsed} мс [${finalRating}]${bridgeInfo} · Ответ: "${text.trim()}")`;
           if (statusEl) { statusEl.style.color = '#34d399'; statusEl.textContent = successMsg; }
-          if (typeof showToastEl === 'function') showToastEl(`✅ API подключен (${elapsed}мс)`, false);
+          if (typeof showToastEl === 'function') showToastEl(`✅ API подключен (${fullElapsed}мс, ${finalRating})`, false);
+
+          const statusRecord = {
+            ok: true,
+            status: 200,
+            elapsed: fullElapsed,
+            latencyRating: finalRating,
+            timeStr: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            timestamp: Date.now(),
+            model,
+            message: `Ответ: "${text.trim()}"`
+          };
+          localStorage.setItem(STORAGE_KEY_API_STATUS, JSON.stringify(statusRecord));
+          localStorage.setItem('samosval_ai_api_last_status', JSON.stringify(statusRecord));
         } else {
-          const errText = await res.text().catch(() => '');
-          const failMsg = `❌ Ошибка ${res.status} (${res.statusText}): ${errText.slice(0, 100)}`;
+          const errText = 'Проверьте endpoint, модель и права ключа (подробности в Network).';
+          const failMsg = `❌ Ошибка ${res.status} (${res.statusText}) · ${elapsed} мс [${latencyRating}]${bridgeInfo}: ${errText.slice(0, 100)}`;
           if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = failMsg; }
           if (typeof showToastEl === 'function') showToastEl(`Ошибка API: ${res.status}`, true);
+
+          const statusRecord = {
+            ok: false,
+            status: res.status,
+            elapsed,
+            latencyRating,
+            timeStr: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            timestamp: Date.now(),
+            model,
+            message: `HTTP ${res.status}: ${errText.slice(0, 80)}`
+          };
+          localStorage.setItem(STORAGE_KEY_API_STATUS, JSON.stringify(statusRecord));
+          localStorage.setItem('samosval_ai_api_last_status', JSON.stringify(statusRecord));
         }
       } catch (err) {
         const elapsed = Math.round(performance.now() - t0);
-        const failMsg = `❌ Ошибка соединения или CORS (${elapsed} мс): ${err.message}`;
+        const diagnostic = window.aiApiDiagnosticError(err);
+        const failMsg = `❌ ${diagnostic.message} (${elapsed} мс)`;
         if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = failMsg; }
         if (typeof showToastEl === 'function') showToastEl('Ошибка соединения с API', true);
+
+        const statusRecord = {
+          ok: false,
+          status: diagnostic.status,
+          elapsed,
+          latencyRating: '🔴 Нет связи',
+          timeStr: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          timestamp: Date.now(),
+          model,
+          message: diagnostic.message
+        };
+        localStorage.setItem(STORAGE_KEY_API_STATUS, JSON.stringify(statusRecord));
+        localStorage.setItem('samosval_ai_api_last_status', JSON.stringify(statusRecord));
       } finally {
+        clearTimeout(timer);
         if (btn) btn.disabled = false;
       }
     },
@@ -3906,22 +4433,6 @@
       };
       setInterval(checkAndInject, 1500);
     }
-  };
-
-  // Функция переключения финального рейса
-  window.toggleTruckFinalTrip = function(truckId) {
-    if (!window.state) window.state = {};
-    if (!window.state.truckStatus) window.state.truckStatus = {};
-    if (!window.state.truckStatus[truckId]) window.state.truckStatus[truckId] = { onLine: true };
-    const st = window.state.truckStatus[truckId];
-    st.finalTrip = !st.finalTrip;
-    const truck = (window.state.trucks || []).find(t => t.id === truckId);
-    const name = truck ? `${truck.brand} ${truck.number}` : truckId;
-    if (typeof showToastEl === 'function') {
-      showToastEl(st.finalTrip ? `🏁 ${name}: назначен финальный рейс (к 16:00)` : `↩️ ${name}: финальный рейс отменён`, false);
-    }
-    if (typeof window.renderLine === 'function') window.renderLine();
-    if (window.AiCopilotUI?.activeTab === 'analytics') window.AiCopilotUI.renderAnalyticsUI();
   };
 
   // Экспорт в глобальную область

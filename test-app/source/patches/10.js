@@ -276,11 +276,12 @@
     return confirmed_toggleArrive.call(this,id,intent);
   };
   const confirmed_performLoad=window.performLoad;
-  window.performLoad=async function(id){
+  window.performLoad=async function(id, capturedIntent, extraOptions){
     if(!requireEdit('action_load')||lineActionInFlight[id])return {outcome:'ignored'};
-    const intent=captureLineIntent(id);if(!intent)return {outcome:'ignored'};
+    const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
+    if(extraOptions)Object.assign(intent,extraOptions);
     await shakeCard(id);
-    return confirmed_performLoad.call(this,id,intent);
+    return confirmed_performLoad.call(this,id,intent,extraOptions);
   };
   const confirmed_toggleTtn=window.toggleTtn;
   window.toggleTtn=async function(id){
@@ -388,14 +389,10 @@
         infoHtml += `<div class="info-row info-arrive"><span class="card-arrival-time">Прибыл <b>${escapeHtml(time)}</b></span>${by?`<span class="card-arrival-author" title="${escapeHtml(by)}">${escapeHtml(by)}</span>`:''}</div>`;
       }
 
-      const isFinal = !!st.finalTrip;
-      return `<div class="truck-card ${isA ? 'arrived' : ''} ${faded ? 'faded' : ''} ${isFinal ? 'card-final-trip' : ''}" data-truck-id="${t.id}">
+      return `<div class="truck-card ${isA ? 'arrived' : ''} ${faded ? 'faded' : ''}" data-truck-id="${t.id}">
         <div class="truck-top">
           <div class="truck-identity">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
-              <div class="truck-brand">${escapeHtml(t.brand)}</div>
-              <button type="button" class="btn btn-secondary ${isFinal ? 'btn-final-trip' : ''}" style="padding:1px 6px;font-size:10px;height:18px;min-height:18px;line-height:1;" onclick="window.toggleTruckFinalTrip('${t.id}')">${isFinal ? '🏁 Финал ✓' : '🏁 Финал'}</button>
-            </div>
+            <div class="truck-brand">${escapeHtml(t.brand)}</div>
             <div class="truck-plate-wrap">${renderRussianPlate(t.number)}</div>
           </div>
           <div class="truck-info">${infoHtml}</div>

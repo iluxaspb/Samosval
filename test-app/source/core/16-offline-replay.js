@@ -60,6 +60,7 @@
       const log={id:'pending_'+op.id,offlinePending:true,shiftId:op.shiftId,truckId:op.truckId,
         truckName:op.truckName||truckName(op.truckId),volume:op.volume||0,isGAI:!!op.isGAI,
         isTransfer:!!op.isTransfer,transferDest:op.transferDest||'',
+        location:op.location||null,station:op.station!==undefined?op.station:(op.location?.station??null),
         timeStr:new Date(timestamp).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
         timestamp,arrivalTimestamp:Number(st.arriveTimestamp)||null,createdBy:op.actor,createdByEmail:op.email,comment:''};
       st.lastLoadTimestamp=timestamp;st.lastLoadBy=op.actor;st.lastLoadLogId=logId;
@@ -103,7 +104,9 @@
         lastLoadTimestamp:Number(before.lastLoadTimestamp||0),wantArrived:!before.arriveStatus,collect:!before.ttnStatus,
         dependencyId:previous?.id||null,cycleMinutes:Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES),
         truckName:truck.brand+' '+truck.number,volume:truck.isGAI?0:truck.defaultVol,isGAI:!!truck.isGAI,
-        isTransfer:!!intent.isTransfer,transferDest:intent.transferDest||'',status:'pending'};
+        isTransfer:!!intent.isTransfer,transferDest:intent.transferDest||'',
+        location:intent.location||null,station:intent.station!==undefined?intent.station:(intent.location?.station??null),
+        status:'pending'};
       if(type==='load')op.logId='load_'+id+'_'+op.shiftId+'_cycle_'+op.expectedRevision+'_'+op.arrivalTimestamp;
       if(isNasRuntime())op.operationScope=nasStorageScope();
       items.push(op);offlineJournalWrite(items); // Commit locally first; never silently lose an action.
@@ -153,12 +156,15 @@
       if(!snap.exists){
         const names={reset:'🔄 Сброс таймера',arrive:op.wantArrived?'🚛 Прибытие на линию':'↩️ Снято прибытие на линию',
           load:'⚡ Погрузка самосвала',ttn:op.collect?'📄 Забрана ТТН':'↩️ Снята отметка ТТН'};
-        await ref.set({text:(names[op.type]||op.type)+': '+op.truckName,
+        const auditPayload = {text:(names[op.type]||op.type)+': '+op.truckName,
           timeStr:new Date(op.createdAt).toLocaleString('ru-RU'),
           objectName:state.shift?.objectName||'—',objectId:state.shift?.objectId||'',
           shiftId:op.shiftId,truckId:op.truckId,truckName:op.truckName,
           userEmail:op.email||'',userName:op.actor,createdByEmail:op.email||'',
-          timestamp:op.createdAt,eventType:op.type,offlineOperationId:op.id});
+          timestamp:op.createdAt,eventType:op.type,offlineOperationId:op.id};
+        if (op.type === 'load' && op.location) auditPayload.location = op.location;
+        if (op.type === 'load' && op.station !== undefined && op.station !== null) auditPayload.station = op.station;
+        await ref.set(auditPayload);
       }
     }catch(e){delivered=false;console.warn('Не удалось отправить аудит офлайн-действия',e);}
       if(delivered){const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);if(saved){saved.effectsDelivered=true;offlineJournalWrite(all);}}
@@ -235,6 +241,8 @@
                 volume:truck.isGAI?0:truck.defaultVol,timeStr:new Date(ts).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
                 timestamp:ts,arrivalTimestamp:Number(before.arriveTimestamp)||null,createdBy:op.actor,createdByEmail:op.email||'',
                 isGAI:!!truck.isGAI,comment:'',clientOperationId:op.id};
+              if(op.location)log.location=op.location;
+              if(op.station!==undefined&&op.station!==null)log.station=op.station;
               const update={lastLoadTimestamp:ts,lastLoadBy:op.actor,lastLoadLogId:logId,cycleRevision:revision+1,
                 arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:true};
               if(before.ttnStatus==='pending'){update.ttnStatus=true;update.ttnLogId=logId;}
@@ -262,9 +270,51 @@
           if(result.outcome==='confirmed'){
             if(result.didCommit){
               try{/* History is saved with the durable audit entry. */}catch(e){console.warn('[offline history]',e);}
+              const actor=op.actor,name=op.truckName||truckName(op.truckId);
+              if(op.type==='load'){
+                const logId=result.log?.id||op.logId||'';
+                const srcLoc=op.location||result.log?.location||null;
+                let fullLocation=null;
+                if(srcLoc&&typeof srcLoc==='object'){
+                  try{fullLocation=JSON.parse(JSON.stringify(srcLoc));}catch(_){fullLocation=Object.assign({},srcLoc);}
+                  const coords=fullLocation.rawCoords||fullLocation.coordinates||null;
+                  if(coords&&!fullLocation.rawCoords)fullLocation.rawCoords=coords;
+                  if(coords&&!fullLocation.coordinates)fullLocation.coordinates=coords;
+                  if(fullLocation.calibrated===undefined){
+                    fullLocation.calibrated=!!(fullLocation.stationFormatted||Number.isFinite(fullLocation.currentStation));
+                  }
+                  if(fullLocation.stationFormatted===undefined){
+                    fullLocation.stationFormatted=typeof op.station==='string'&&op.station.startsWith('ПК')?op.station:null;
+                  }
+                  if(fullLocation.currentStation===undefined){
+                    fullLocation.currentStation=Number.isFinite(op.station)?op.station:null;
+                  }
+                }
+                const stationVal=op.station!==undefined&&op.station!==null
+                  ? op.station
+                  : (result.log?.station!==undefined&&result.log?.station!==null
+                      ? result.log.station
+                      : (fullLocation?.stationFormatted??(Number.isFinite(fullLocation?.currentStation)?fullLocation.currentStation:(fullLocation?.station??null))));
+                const loadItem={
+                  text:'⚡ Погрузка\n🚛 '+name+'\n👤 '+actor,
+                  meta:{
+                    eventType:'load',
+                    operationId:op.id,
+                    truckId:op.truckId,
+                    logId,
+                    station:stationVal,
+                    location:fullLocation
+                  }
+                };
+                if(typeof window.captureMaxTestLoad==='function'){
+                  window.captureMaxTestLoad(loadItem);
+                }else if(typeof captureMaxTestLoad==='function'){
+                  captureMaxTestLoad(loadItem);
+                }else if(typeof enqueueMax==='function'){
+                  enqueueMax(loadItem.text,loadItem.meta);
+                }
+              }
               if(appConfig.maxEnabled){
-                const actor=op.actor,name=op.truckName||truckName(op.truckId);
-                if(op.type==='load'&&appConfig.notifyLoad)enqueueMax('⚡ Погрузка\n🚛 '+name+'\n👤 '+actor,{truckId:op.truckId,logId:result.log?.id||'',reis:getLogs().filter(l=>l.truckId===op.truckId).length});
                 if(op.type==='arrive'&&op.wantArrived&&appConfig.notifyArrive)enqueueMax('🚛 Приехал на объект\n🚛 '+name+'\n👤 '+actor);
                 if(op.type==='ttn'&&op.collect&&appConfig.notifyTtn)enqueueMax('📄 Забрал ТТН\n🚛 '+name+'\n👤 '+actor);
               }
