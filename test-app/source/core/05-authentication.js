@@ -57,6 +57,8 @@
     if(btn) btn.classList.add('active');
     document.getElementById('admin-sub-' + tab).classList.add('active');
     if (tab === 'server') openServerControl();
+    if (tab === 'opencode' && window.AiDeveloperBridge) window.AiDeveloperBridge.renderAdminPanel();
+    if (tab === 'aiperms' && window.AiPermissionsManager) window.AiPermissionsManager.renderPanel();
     if (tab === 'permissions') renderPermissionsMatrix();
     if (tab === 'requests' || tab === 'users') renderAdminPanel();
     if (tab === 'requests') refreshRegistrationRequests();

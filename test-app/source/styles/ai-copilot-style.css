@@ -113,6 +113,17 @@
 
 
 /* AI Modal / Drawer */
+#aiCopilotModal.active,
+#aiCopilotModal.open {
+  visibility: visible !important;
+  opacity: 1 !important;
+  display: flex !important;
+}
+#aiCopilotModal.active .modal-content,
+#aiCopilotModal.open .modal-content {
+  transform: scale(1) translateY(0) !important;
+  opacity: 1 !important;
+}
 #aiCopilotModal .modal-content {
   max-width: 580px;
   max-height: 92dvh;
@@ -121,13 +132,17 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 30px var(--ai-glow);
 }
 .ai-modal-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  display: flex;
   gap: 6px;
-  margin: 12px 0 16px;
+  margin: 8px 0 14px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
 }
 .ai-tab-btn {
-  padding: 8px 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 8px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -316,3 +331,393 @@
   cursor: pointer;
   margin-bottom: 8px;
 }
+
+/* ========================================================
+   НОВЫЕ СТИЛИ: АНАЛИТИКА, ФРЕЗА, ЯНДЕКС КАРТЫ, ФОТОКОНТРОЛЬ,
+   DWG ПИКЕТАЖ И МОСТ OPENCODE В АДМИНКЕ
+   ======================================================== */
+
+/* Шапка смены / Линия: Баннеры фотоконтроля и фрезы */
+.ai-shift-banner {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ai-shift-banner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ai-photo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+  font-size: 11px;
+  font-weight: 700;
+}
+.ai-photo-badge.completed {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #86efac;
+}
+.ai-btn-photo-quick {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ai-btn-photo-quick:active {
+  transform: scale(0.96);
+}
+
+/* Динамический дашборд аналитики */
+.ai-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ai-metric-tile {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+.ai-metric-val {
+  font-size: 18px;
+  font-weight: 800;
+  color: #38bdf8;
+  line-height: 1.2;
+}
+.ai-metric-lbl {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.ai-metric-sub {
+  font-size: 10px;
+  color: #a855f7;
+  margin-top: 2px;
+}
+
+/* Баланс автопарка (Bottleneck Index) */
+.ai-fleet-balance {
+  padding: 10px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  border: 1px solid transparent;
+}
+.ai-fleet-balance.optimal {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+.ai-fleet-balance.starvation {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+.ai-fleet-balance.excess {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fde047;
+}
+
+/* Кнопка WhatsApp / Telegram */
+.ai-btn-copy-wa {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+}
+.ai-btn-copy-wa:active {
+  transform: scale(0.98);
+}
+
+/* Яндекс Карты */
+.ai-btn-yandex {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #000;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-btn-yandex:active {
+  transform: scale(0.97);
+}
+
+/* Мост OpenCode в админке */
+.ai-opencode-panel {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.ai-bridge-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+.ai-btn-mission-dispatch {
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.25);
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.4);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.ai-btn-mission-dispatch:active {
+  transform: scale(0.98);
+}
+.ai-inbox-card {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid #334155;
+  border-left: 4px solid #38bdf8;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.ai-inbox-card.plan {
+  border-left-color: #a855f7;
+}
+
+/* DWG / Пикетажный модуль */
+.ai-cad-panel {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.ai-pk-slider-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.ai-pk-input {
+  width: 80px;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* AI Permissions Matrix */
+.ai-perm-group {
+  background: var(--card, #1e293b);
+  border: 1px solid var(--border, #334155);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.ai-perm-group-header {
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 800;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border, #334155);
+  color: #38bdf8;
+}
+.ai-perm-list {
+  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 640px) {
+  .ai-perm-list {
+    grid-template-columns: 1fr;
+  }
+}
+.ai-perm-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ai-perm-item:hover {
+  background: rgba(56, 189, 248, 0.06);
+  border-color: rgba(56, 189, 248, 0.25);
+}
+.ai-perm-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary, #38bdf8);
+  cursor: pointer;
+}
+.ai-perms-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.ai-perms-table th, .ai-perms-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border, #334155);
+}
+.ai-perms-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+.ai-perm-check-yes {
+  color: #34d399;
+  font-weight: 700;
+}
+.ai-perm-check-no {
+  color: #f87171;
+  opacity: 0.5;
+}
+
+/* ========================================================
+   МОБИЛЬНАЯ АДАПТАЦИЯ (PWA НА СМАРТФОНЕ / TOUCH-УСТРОЙСТВА)
+   ======================================================== */
+@media (max-width: 640px) {
+  /* Плавающая кнопка ИИ — над нижней панелью навигации (64px) */
+  .ai-floating-btn {
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
+    right: 12px !important;
+    padding: 10px 14px !important;
+    font-size: 13px !important;
+    min-height: 44px !important;
+    min-width: 44px !important;
+    z-index: 99 !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 20px var(--ai-glow) !important;
+  }
+
+  /* Нижняя шторка (Bottom Sheet) модального окна ИИ */
+  #aiCopilotModal {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+  #aiCopilotModal .modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 90dvh !important;
+    border-radius: 20px 20px 0 0 !important;
+    border-bottom: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+    margin: 0 !important;
+  }
+  #aiCopilotModal .modal-body {
+    padding: 10px 12px !important;
+    max-height: calc(90dvh - 110px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Горизонтальный скролл табов на телефоне */
+  .ai-modal-tabs {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x !important;
+    scrollbar-width: none !important;
+    gap: 8px !important;
+    padding: 4px 2px 8px !important;
+    flex-shrink: 0 !important;
+  }
+  .ai-modal-tabs::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .ai-tab-btn {
+    min-height: 44px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 8px 14px !important;
+    font-size: 13px !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Увеличенные touch-targets для пальцев (min 44px) */
+  .ai-btn-photo-quick,
+  .ai-btn-copy-wa,
+  .ai-btn-yandex,
+  .ai-btn-mission-dispatch,
+  .ai-btn-start,
+  .ai-btn-stop,
+  .ai-btn-step,
+  .ai-speed-btn,
+  .ai-voice-mic-btn {
+    min-height: 44px !important;
+  }
+
+  .ai-metric-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6px !important;
+  }
+  .ai-metric-tile {
+    padding: 8px !important;
+  }
+  .ai-metric-val {
+    font-size: 16px !important;
+  }
+}
+
+
+

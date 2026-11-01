@@ -1,7 +1,8 @@
-  async function performLoad(id,capturedIntent){
+  async function performLoad(id,capturedIntent,extraOptions){
     if(!requireEdit('action_load')||loadInFlight[id]||lineActionInFlight[id])return {outcome:'ignored'};
     const intent=capturedIntent||captureLineIntent(id);
     if(!intent)return {outcome:'ignored'};
+    if(extraOptions)Object.assign(intent,extraOptions);
     return {outcome:offlineQueueAction('load',id,intent)?'queued':'failed'};
   }
   async function toggleArrive(id,capturedIntent){

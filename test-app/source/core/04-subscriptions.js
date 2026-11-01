@@ -355,4 +355,5 @@
     const headerExtra = document.getElementById('headerExtraContent'); if (headerExtra) headerExtra.style.display = hasPermission('view_header') ? '' : 'none';
     const gaiToggleContainer = document.getElementById('gaiReportToggleContainer');
     if (gaiToggleContainer) { const canGai = hasPermission('view_gai_report'); gaiToggleContainer.style.display = canGai ? 'flex' : 'none'; if (!canGai) showGAITable = false; }
+    if (window.AiPermissionsManager) window.AiPermissionsManager.applyToUI();
   }

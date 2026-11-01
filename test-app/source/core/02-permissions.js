@@ -1,6 +1,8 @@
   function isForcedAdminEmail(email) { return String(email || '').toLowerCase() === FORCED_ADMIN_EMAIL; }
   function canViewReleaseHistory() { return permissionsLoaded && currentUserStatus === 'active' && ['admin','foreman'].includes(currentUserRole); }
   function canAdmin() { return currentUserStatus === 'active' && currentUserRole === 'admin'; }
+  function getCurrentUserRole() { return currentUserRole; }
+  window.getCurrentUserRole = getCurrentUserRole;
 
   // === SECURITY: пока permissionsLoaded === false, разрешаем только 'line' (и админа) ===
   function hasTabAccess(tabName) {
@@ -27,6 +29,8 @@
         else btn.classList.add('perm-blocked');
       }
     });
+    window.currentUserRole = currentUserRole;
+    if (window.AiPermissionsManager) window.AiPermissionsManager.applyToUI();
   }
 
   // === УТИЛИТЫ ===

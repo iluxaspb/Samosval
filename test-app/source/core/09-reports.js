@@ -12,7 +12,9 @@
     gaiO.textContent = 'Объект: ' + (state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : '—'); gaiD.textContent = state.shift ? state.shift.startDate : '';
     if (!state.shift) { mB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; gaiB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; lC.innerHTML = '<div class="empty-state">Нет рейсов</div>'; pV.textContent='0 м³'; gaiV.textContent='0'; return; }
     let logs = getLogs(); let stdLogs = logs.filter(l=>!l.isGAI); let gaiLogs = logs.filter(l=>l.isGAI);
-    let totV = stdLogs.reduce((s,l)=>s+l.volume,0); pV.textContent = totV + ' м³';
+    let factLogs = stdLogs.filter(l=>!l.isTransfer); let transLogs = stdLogs.filter(l=>!!l.isTransfer);
+    let totV = factLogs.reduce((s,l)=>s+l.volume,0); let transV = transLogs.reduce((s,l)=>s+l.volume,0);
+    pV.textContent = totV + ' м³' + (transV > 0 ? ' (+' + transV + ' м³ перем.)' : '');
     let aIds = getActiveLineIds().filter(id => { let t = findTruck(id); return t && !t.isGAI; });
     let tIds = new Set(aIds); stdLogs.forEach(l=>tIds.add(l.truckId));
     let rTrucks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?f:{id, brand:'Машина', number:'', defaultVol:0}; });
@@ -30,7 +32,8 @@
         if(tL[i]) {
           let cH = (st.ttnStatus === true && st.ttnLogId === tL[i].id) ? '<div class="hand-drawn-circle"></div>' : '';
           let commHtml = tL[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(tL[i].comment)}</div>` : '';
-          cells += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(tL[i].timeStr)}${tL[i].offlinePending?` <span title="Рейс сохранён на устройстве" style="color:#d97706;font-size:10px">☁</span>`:''} </div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(tL[i].createdByEmail, tL[i].createdBy))}</div>${commHtml}</div></td>`;
+          let transBadge = tL[i].isTransfer ? `<div style="font-size:9px; color:#7c3aed; font-weight:700; margin-top:1px;">🔄 ${escapeHtml(tL[i].transferDest || 'Перемещение')}</div>` : '';
+          cells += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(tL[i].timeStr)}${tL[i].offlinePending?` <span title="Рейс сохранён на устройстве" style="color:#d97706;font-size:10px">☁</span>`:''} </div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(tL[i].createdByEmail, tL[i].createdBy))}</div>${transBadge}${commHtml}</div></td>`;
         }
         else if(i===tL.length && st.ttnStatus === 'pending') {
           let dotHtml = st.arriveStatus ? `<div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div>` : '';
@@ -39,7 +42,10 @@
         else if(i===tL.length && st.arriveStatus) cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div></div></td>`;
         else cells += '<td></td>';
       }
-      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³ / ${tL.length} р</span>${dupHtml}</div>${t.number?renderRussianPlate(t.number):''}</td>${cells}</tr>`;
+      let tFactV = tL.filter(l=>!l.isTransfer).reduce((s,l)=>s+l.volume,0);
+      let tTransV = tL.filter(l=>l.isTransfer).reduce((s,l)=>s+l.volume,0);
+      let volLabel = tTransV > 0 ? `${tFactV} м³ (+${tTransV} перем.) / ${tL.length} р` : `${sum} м³ / ${tL.length} р`;
+      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">${volLabel}</span>${dupHtml}</div>${t.number?renderRussianPlate(t.number):''}</td>${cells}</tr>`;
     }).join('');
     gaiV.textContent = gaiLogs.length;
     let gaiLineIds = getActiveLineIds().filter(id => { let t = findTruck(id); return t && t.isGAI; });
@@ -67,7 +73,7 @@
     let canEditL = hasPermission('edit_logs');
     lC.innerHTML = logs.length === 0 ? '<div class="empty-state">Нет рейсов</div>' : logs.map(l=>{
       let a = resolveUserDisplayName(l.createdByEmail, l.createdBy); let au = a ? ` · 👤 ${escapeHtml(a)}` : '';
-      let volHtml = l.isGAI ? '<span style="color:#94a3b8;">(Рейс)</span>' : `<span style="color:var(--success);">+${l.volume} м³</span>`;
+      let volHtml = l.isGAI ? '<span style="color:#94a3b8;">(Рейс)</span>' : (l.isTransfer ? `<span style="color:#a855f7;font-weight:700;">+${l.volume} м³ (🔄 ${escapeHtml(l.transferDest || 'Перемещение')})</span>` : `<span style="color:var(--success);">+${l.volume} м³</span>`);
       let commHtml = l.comment ? `<div class="log-comment">💬 ${escapeHtml(l.comment)}</div>` : '';
       return `<div class="log-item"><div><div class="log-info">${truckLabelHtml(l.truckId, l.truckName)} — ${volHtml}</div><div class="log-meta">${escapeHtml(l.timeStr)}${au}${l.offlinePending?' · ☁️ офлайн':''}</div>${commHtml}</div>${canEditL&&!l.offlinePending?`<div style="display:flex;gap:6px;"><button class="btn-edit" onclick="openEditLog('${l.id}')">✏️</button><button class="btn-del" onclick="deleteLog('${l.id}')">X</button></div>`:''}</div>`;
     }).join('');
