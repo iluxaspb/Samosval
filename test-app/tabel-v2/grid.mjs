@@ -961,7 +961,7 @@ export async function mount(s, host) {
     if (
       hasSelection &&
       !dirty &&
-      (!simple() || selected !== end) &&
+      ((!simple() && sheetId === "linked") || selected !== end) &&
       D.range(selected, end).includes(k)
     ) {
       menu();
@@ -973,9 +973,19 @@ export async function mount(s, host) {
       if(repeated)return openHours(k);
       return;
     }
-    if (!simple()) {
+    if (sheetId !== "linked") {
       try { s.require("table", "edit"); } catch { selectCell(k); return; }
-      // Focus during the user gesture: Android will not open the keyboard after an awaited save.
+      // The first tap only selects a free-sheet cell and reveals its formula field.
+      // A second tap on that same cell enters the existing keyboard-edit path.
+      const repeated = hasSelection && !dirty && selected === end && selected === k;
+      if (repeated) {
+        // Focus during the user gesture: Android will not open the keyboard after an awaited save.
+        edit.readOnly = false;
+        edit.focus({ preventScroll: true });
+      }
+    } else if (!simple()) {
+      // Preserve the existing full linked-table editing behavior.
+      try { s.require("table", "edit"); } catch { selectCell(k); return; }
       edit.readOnly = false;
       edit.focus({ preventScroll: true });
     }
