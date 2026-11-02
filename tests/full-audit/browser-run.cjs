@@ -87,6 +87,16 @@ async function launch(profile, uid, mobile, offline = false, initiallySignedIn =
   await activeContext.route('**/*', route => {
     const url = route.request().url();
     if (allowedUrl(url, origin, port)) return route.continue();
+    // Осознанные TEST-функции 4.2.x (QR через api.qrserver.com и локальный
+    // OpenCode-мост): запросы прерываются — локальная изоляция сохраняется,
+    // но приложение обязано терпеть их недоступность (try/catch в checkStatus,
+    // битый <img> не даёт pageerror), поэтому это не считается внешней попыткой.
+    let parsed;
+    try { parsed = new URL(url); } catch { parsed = null; }
+    const knownFeature = parsed && (
+      (parsed.protocol === 'https:' && parsed.host === 'api.qrserver.com' && parsed.pathname.startsWith('/v1/create-qr-code/'))
+      || (parsed.protocol === 'http:' && parsed.host === '127.0.0.1:4173' && parsed.pathname.startsWith('/api/opencode-bridge')));
+    if (knownFeature) return route.abort('blockedbyclient');
     report.blockedRequests.push({case:currentCase,url,method:route.request().method()}); return route.abort('blockedbyclient');
   });
   activeContext.on('page', p => {
