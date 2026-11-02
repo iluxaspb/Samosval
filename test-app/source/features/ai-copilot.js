@@ -1368,6 +1368,7 @@
       { id: 5, title: 'Завершение смены / приёмка захватки' }
     ],
     completedSteps: {},
+    pendingPhotoId: null, // Runtime-состояние ожидаемой съёмки; не персистится в localStorage
     appType: 'camera_native', // 'camera_native' | 'app_custom'
     customAppUrl: '',
 
@@ -1405,26 +1406,39 @@
 
     triggerTakePhoto(stepId) {
       const id = stepId || this.getProgress().nextStep.id;
-      this.completedSteps[id] = { ts: Date.now(), timeStr: new Date().toLocaleTimeString('ru-RU') };
-      this.save();
-      if (window.AiCopilotUI) AiCopilotUI.renderShiftBanner();
-
-      if (this.appType === 'app_custom' && this.customAppUrl) {
-        window.open(this.customAppUrl, '_blank');
-      } else {
-        const input = document.getElementById('aiHiddenCameraInput');
-        if (input) input.click();
+      if (this.appType === 'app_custom') {
+        // Внешняя камера/приложение не даёт подтверждения: шаг не считаем автоматически.
+        this.pendingPhotoId = null;
+        if (typeof showToastEl === 'function') {
+          showToastEl(`📷 Внешнее приложение не передаёт подтверждение готового фото, шаг не засчитывается. Используйте встроенную камеру, чтобы засчитать шаг регламента.`, false);
+        }
+        if (this.customAppUrl) window.open(this.customAppUrl, '_blank');
+        return;
       }
-
+      // Нативная камера: шаг засчитываем только по факту выбранного файла в onFileCaptured.
+      const input = document.getElementById('aiHiddenCameraInput');
+      if (!input) { this.pendingPhotoId = null; return; }
+      this.pendingPhotoId = id;
+      input.value = '';
+      input.click();
       if (typeof showToastEl === 'function') {
-        showToastEl(`📸 Фото #${id} зафиксировано в регламенте смены!`, false);
+        showToastEl(`📸 Откройте камеру для шага #${id}: шаг засчитается после выбора фото.`, false);
       }
     },
 
     onFileCaptured(event) {
       const file = event.target.files?.[0];
-      if (file && typeof showToastEl === 'function') {
-        showToastEl(`📸 Фото успешно сохранено (${Math.round(file.size/1024)} Кб)`, false);
+      const id = this.pendingPhotoId;
+      this.pendingPhotoId = null;
+      if (!file) return; // Отмена камеры — шаг не засчитывается
+      const validStep = this.steps.some(s => String(s.id) === String(id));
+      if (!validStep) return; // Нет действительного ожидаемого шага — не засчитываем произвольный следующий
+      if (event.target && typeof event.target.value !== 'undefined') event.target.value = '';
+      this.completedSteps[id] = { ts: Date.now(), timeStr: new Date().toLocaleTimeString('ru-RU') };
+      this.save();
+      if (window.AiCopilotUI) AiCopilotUI.renderShiftBanner();
+      if (typeof showToastEl === 'function') {
+        showToastEl(`📸 Шаг #${id} регламента засчитан (${Math.round(file.size/1024)} Кб). Прогресс сохранён на устройстве.`, false);
       }
     }
   };
@@ -3527,6 +3541,12 @@
           <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
             Файл чертежа: <b style="color:#e2e8f0;">${data.cadFileName || 'Не выбран'}</b> ${data.cadFileData ? `(${data.cadFileData.stations.length} ПК, ${data.cadFileData.profile.length} отметок, ${data.cadFileData.format || 'DXF'})` : ''}
           </div>
+
+          ${data.cadFileData ? `
+            <div style="background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.4);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:#93c5fd;">
+              ℹ️ <b>Высотный профиль расчётный:</b> построен по параметрам захватки для любого формата (DXF и DWG), отдельные проектные Z-отметки из файла не извлекаются. Расчётные отметки нельзя использовать как проектные — ориентируйтесь на результаты геодезии.
+            </div>
+          ` : ''}
 
           ${data.cadFileData?.isBinaryDwg ? `
             <div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.5);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:#fde047;">

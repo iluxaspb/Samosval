@@ -31,6 +31,38 @@ for module in modules:
         assert all(('source' in part) != ('text' in part) for part in module['parts'])
         assert not module['sources'], 'Duplicate sources in split patch'
 
+# Read-only gate BEFORE builder.build(): all RELEASE sources must agree on a
+# single version. This runs on sources only — a legit source-only PR may produce
+# artifacts that still need the next rebuild, so no source/built diff comparison
+# is made here (that is the separate mainline-generated preflight). If the
+# sources disagree, we must not mutate committed artifacts by rebuilding.
+VERSION_FIELD = re.compile(r"version[ \t]*:[ \t]*'([^']+)'")
+
+def check_source_release_version(source_dir):
+    """Confirm IDENTICAL release version across shell meta/header, test-release.js
+    and the first release-history.js record. Read-only; raises on conflict."""
+    source_dir = Path(source_dir)
+    shell = (source_dir / 'shell.html').read_text()
+    meta = re.search(r'<meta name="test-app-version" content="([^"]+)"', shell)
+    assert meta, 'test-app-version meta missing in source shell.html'
+    meta_version = meta[1]
+    header = re.search(r'class="version-text"[^>]*>([^<]+)', shell)
+    assert header, 'version-text header missing in source shell.html'
+    assert header[1] == meta_version, \
+        'Source shell header (%s) differs from source meta (%s)' % (header[1], meta_version)
+    runtime = VERSION_FIELD.search((source_dir / 'features' / 'test-release.js').read_text())
+    assert runtime and runtime[1] == meta_version, 'Source test-release.js differs'
+    history_text = (source_dir / 'features' / 'release-history.js').read_text()
+    history_versions = VERSION_FIELD.findall(history_text)
+    assert history_versions and history_versions[0] == meta_version, \
+        'Source history first record (%s) differs from source meta (%s)' % (
+            history_versions[0] if history_versions else 'MISSING', meta_version)
+    assert history_versions.count(meta_version) == 1, \
+        'Source release version must appear exactly once in history (first record)'
+    return meta_version
+
+check_source_release_version(SOURCE)
+
 original_production = {p: (ROOT / p).read_bytes() for p in
     ['index.html', 'sw.js', 'manifest.json', 'firestore-v3.rules', 'firestore-coins-test.rules']}
 # Generate in CI from the submitted sources before verifying. Hashed outputs may
@@ -57,9 +89,28 @@ for module in modules:
 assert expected == html, 'Generated markup/styles/handlers/order do not match sources'
 assert '<!-- TEST-MODULE:' not in html
 release = re.search(r'<meta name="test-app-version" content="([^"]+)"', html)[1]
-assert "version:'" + release + "'" in (SOURCE / 'features' / 'test-release.js').read_text()
+# Release sources spell the field both as version:'X' and version: 'X'. Accept
+# both spellings, but keep the exact single-quoted value and first-entry order.
+VERSION_FIELD = re.compile(r"version[ \t]*:[ \t]*'([^']+)'")
+
+def release_version(name):
+    found = VERSION_FIELD.search((SOURCE / 'features' / name).read_text())
+    assert found, 'Release version field missing: ' + name
+    return found[1]
+
+# Regression: release-history.js spells its first record as version: '4.2.0'
+# (with a space), while older records use version:'4.1.6'. The former pattern
+# version:'X' skipped the spaced first record and matched 4.1.6 instead,
+# failing the audit. The first history record must be the release version and
+# must appear for this release exactly once (in first position).
+history_stack = (SOURCE / 'features' / 'release-history.js').read_text()
+history_versions = VERSION_FIELD.findall(history_stack)
+assert history_versions and history_versions[0] == release, \
+    'Runtime history differs: first record is ' + (history_versions[0] if history_versions else 'MISSING')
+assert history_versions.count(release) == 1, 'Release version must appear exactly once in history (first record)'
+assert release_version('test-release.js') == release, 'Runtime release version differs'
 assert re.search(r'class="version-text"[^>]*>([^<]+)', html)[1] == release, 'Initial header version differs'
-assert re.search(r"version:'([^']+)'", (SOURCE / 'features' / 'release-history.js').read_text())[1] == release, 'Runtime history version differs'
+assert release_version('release-history.js') == release, 'Runtime history version differs'
 assert manifest['channel'].startswith('test-' + release + '-')
 assert manifest['baseline_commit'] == model['baseline_commit']
 

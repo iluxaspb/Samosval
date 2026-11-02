@@ -23,8 +23,8 @@ export function presence(s, onChange) {
   const actor=s.host.session(), id=crypto.randomUUID(), objectId=s.object.id;
   let sheetId=null, selection=null, stop=null, timer=null, stopped=false, pending=null, generation=0;
   let peers=[], failure='', writing=false, again=false;
-  const collection=s.remote && s.host.workspace?.collection('tabelNextPresence');
-  const ref=collection?.doc(actor.uid+'_'+id);
+  const collection=(s.remote && s.host.workspace)?s.host.workspace.collection('tabelNextPresence'):null;
+  const ref=collection?collection.doc(actor.uid+'_'+id):null;
   const visible=()=>!document.hidden && !s.root.hidden && s.root.isConnected;
   // Keep a focused cell visible until the peer changes selection/leaves;
   // server-side presence expiry still clears abandoned sessions.
