@@ -307,6 +307,16 @@ def main():
                 if (parsed.scheme == 'http' and parsed.netloc == urlsplit(origin).netloc
                         and parsed.username is None and parsed.password is None):
                     route.continue_()
+                elif (parsed.scheme == 'https' and parsed.netloc == 'api.qrserver.com'
+                        and parsed.path.startswith('/v1/create-qr-code/')) or \
+                     (parsed.scheme == 'http' and parsed.netloc == '127.0.0.1:4173'
+                        and parsed.path.startswith('/api/opencode-bridge')):
+                    # Осознанные TEST-функции 4.2.x (QR через api.qrserver.com и
+                    # локальный OpenCode-мост): запросы прерываются — оффлайн-гарантия
+                    # остаётся, но приложение обязано терпеть их недоступность
+                    # (try/catch в checkStatus, битый <img> не даёт pageerror),
+                    # поэтому это не считается нарушением маршрутизации.
+                    route.abort('blockedbyclient')
                 else:
                     report['blockedRequests'].append(route.request.url); route.abort('blockedbyclient')
             ctx.route('**/*', route_request)

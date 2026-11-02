@@ -10,6 +10,7 @@ const calls=[],storage=new Map([['dt_max_queue',JSON.stringify([{id:'text',type:
 const config={maxEnabled:true,maxUrl:'https://relay.invalid',maxToken:'fixture',maxChatId:'123',maxPlateMode:'png'};
 const ctx={console,appConfig:config,localStorage:{getItem:k=>storage.get(k)||String(Date.now()),setItem:(k,v)=>storage.set(k,v)},MAX_QUEUE_KEY:'dt_max_queue',maxQueue:[],fetch:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return{ok:true};},AbortController,setTimeout,clearTimeout,window:{},firebase:{firestore:()=>({collection:()=>({doc:()=>({get:async()=>({exists:true,data:()=>config})})})})}};
 vm.createContext(ctx);
+vm.runInContext(take('  function isMaxTestLoad(', '  function loadMaxQueue()'),ctx);
 vm.runInContext(take('  function loadMaxQueue()', '  function enqueueMax('),ctx);
 ctx.loadMaxQueue();assert.equal(ctx.maxQueue.length,1);assert.equal(ctx.maxQueue[0].id,'text');assert.equal(storage.get('samosval_offline_v1_live'),'PRESERVE');
 vm.runInContext(take('  async function sendMaxOnce(', '  async function runMaxQueue('),ctx);
