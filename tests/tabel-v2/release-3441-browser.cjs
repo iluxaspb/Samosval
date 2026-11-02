@@ -28,6 +28,7 @@ const server=spawn('python3',['-m','http.server','8811','--bind','127.0.0.1'],{s
  await p.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);await p.mouse.down();await p.mouse.move(target.x+target.width/2,target.y+target.height/2);
  assert.equal(await p.locator('.tn-fill-target').count(),4);assert.match(await p.locator('.tn-fill-preview').innerText(),/4/);
  await p.screenshot({path:'/tmp/tabel3441-fill.png'});await p.mouse.up();
+ await action('menu').click();await p.locator('dialog[open]').waitFor();await p.locator('dialog[open] [data-action=fill]').click();await p.locator('dialog[open]').waitFor({state:'hidden'});
  await p.waitForFunction(()=>document.querySelector('[data-cell=A4]').textContent==='12');
  await action('undo').click();await p.waitForFunction(()=>document.querySelector('[data-cell=A4]').textContent==='');
  await action('sheet-access').click();assert.equal(await p.locator('dialog[open] input:checked').count(),0);

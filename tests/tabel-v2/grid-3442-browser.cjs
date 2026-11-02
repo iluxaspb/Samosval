@@ -71,7 +71,7 @@ const server = spawn(
         await p.locator("[data-range]").dispatchEvent("change");
         await cell(a).click();
         if (await p.locator("dialog[open]").count())
-          await p.locator("dialog[open] footer [data-action=close]").click();
+          await p.locator("dialog[open] header [data-action=close]").click();
       }
       if (formula) await cell(a).click();
       const x = await p.locator(".tn-fill").boundingBox(),
@@ -89,14 +89,18 @@ const server = spawn(
     );
     await cell("A1").click();
     await p.locator("dialog[open]").waitFor();
-    assert.match(await p.locator("dialog[open]").innerText(), /Копировать/);
-    await p.locator("dialog[open] [data-action=copy]").click();
+    const copyButton = p.locator("dialog[open] [data-action=copy]");
+    assert.equal(await copyButton.getAttribute("aria-label"), "Копировать");
+    assert.equal(await copyButton.isVisible(), true);
+    await copyButton.click();
     assert.equal(
       await p.evaluate(() => navigator.clipboard.readText()),
       "5\n7",
     );
-    await cell("C1").click();
-    await cell("C1").click();
+    // Current contract: the context menu opens on right-click (or a tap
+    // inside a multi-cell selection); a second tap on a selected cell
+    // focuses the editor instead of opening the menu.
+    await cell("C1").click({ button: "right" });
     await p.locator("dialog[open] [data-action=paste]").click();
     await p.waitForFunction(
       () => document.querySelector("[data-cell=C2]").textContent === "7",
@@ -193,6 +197,8 @@ const server = spawn(
     await p.locator(".tn-color-shades [data-color]").nth(3).click();
     await action("tool-border").click();
     await p.locator("[data-action=border-outer]").click();
+    await p.locator("dialog.tn-borders-dialog[open] [type=submit]").click();
+    await p.locator("dialog.tn-borders-dialog[open]").waitFor({ state: "hidden" });
     await p.waitForFunction(
       () =>
         document.querySelector("[data-cell=A1]").style.borderTopWidth === "1px",
@@ -212,7 +218,7 @@ const server = spawn(
       await p.locator("dialog[open] [data-action=clear]").isVisible(),
       false,
     );
-    await p.locator("dialog[open] footer [data-action=close]").click();
+    await p.locator("dialog[open] header [data-action=close]").click();
     await p.screenshot({ path: "/tmp/tabel3442-palette-grid.png" });
     // The required first sheet supports the same default selection and arithmetic.
     await p.evaluate(async () => {
@@ -276,8 +282,11 @@ const server = spawn(
       /Сумма: 24/,
     );
     await cell("B4").click();
-    assert.match(await p.locator("dialog[open]").innerText(), /Копировать/);
-    await p.locator("dialog[open] footer [data-action=close]").click();
+    assert.equal(
+      await p.locator("dialog[open] [data-action=copy]").getAttribute("aria-label"),
+      "Копировать",
+    );
+    await p.locator("dialog[open] header [data-action=close]").click();
     assert.deepEqual(errors, []);
     console.log(
       "PASS grid 3.4.42: drag selection, live sum, tap-menu copy/paste/clear, direct reference and SUM range picking, dependency recalculation, arithmetic, automatic commit on cell/blur/sheet/view change",

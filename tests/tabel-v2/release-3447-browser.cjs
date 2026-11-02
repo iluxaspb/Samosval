@@ -11,12 +11,12 @@ const server=spawn('python3',['-m','http.server','8820','--bind','127.0.0.1'],{s
  await p.locator('#open').click();await p.locator('[data-view=table]').click();
  const action=a=>p.locator(`[data-action="${a}"]`),cell=k=>p.locator(`[data-cell="${k}"]`),editor=p.locator('[data-editor]');
  await action('new-sheet').click();await p.locator('dialog[open] [type=submit]').click();await p.locator('dialog[open]').waitFor({state:'hidden'});
- await cell('A1').tap();assert.equal(await editor.evaluate(e=>document.activeElement===e),true);
+ await cell('A1').tap();await cell('A1').tap();assert.equal(await editor.evaluate(e=>document.activeElement===e),true);
  await editor.fill('5');await editor.press('Enter');await p.waitForFunction(()=>document.querySelector('[data-cell=A1]').textContent==='5');
  await cell('A2').tap();await editor.fill('7');await editor.press('Enter');await p.waitForFunction(()=>document.querySelector('[data-cell=A2]').textContent==='7');
  await cell('B1').tap();await p.waitForFunction(()=>document.querySelector('[data-range]').value==='B1');
  await p.locator('[data-symbol="="]').tap();await editor.pressSequentially('су');
- await p.locator('[data-action=suggest-formula]').waitFor();await p.locator('[data-action=suggest-formula]').tap();assert.equal(await editor.inputValue(),'=SUM(');
+ await p.locator('[data-action=suggest-formula][data-function=SUM]').waitFor();await p.locator('[data-action=suggest-formula][data-function=SUM]').tap();assert.equal(await editor.inputValue(),'=SUM(');
  const before=await p.evaluate(()=>JSON.stringify(qaStore.list('site-a/sheet:').map(r=>r.data)));
  await cell('A1').tap();assert.equal(await editor.inputValue(),'=SUM(A1)');
  assert.equal(await p.locator('[data-range]').inputValue(),'B1');

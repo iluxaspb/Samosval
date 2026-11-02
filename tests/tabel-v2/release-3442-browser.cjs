@@ -47,6 +47,7 @@ const server=spawn('python3',['-m','http.server','8812','--bind','127.0.0.1'],{s
   qaStore.remote={commit:async job=>job.key===key?({conflict:true,current:{revision:7,data:base.data,authorName:'Другой пользователь'}}):({revision:1,data:job.data})};
   await qaStore.save(key,mine,base,'Онлайн-ввод');await qaStore.flush();
  });
+ await p.locator('.tn-conflict-dialog[open]').waitFor();assert.match(await p.locator('.tn-conflict-dialog').innerText(),/Техника в составе/);await p.locator('.tn-conflict-dialog [data-action=server]').click();await p.waitForFunction(()=>[...document.querySelectorAll('dialog.tn-conflict-dialog[open]')].some(d=>d.innerText.includes('Другой пользователь')));
  await p.locator('.tn-conflict-dialog[open]').waitFor();assert.match(await p.locator('.tn-conflict-dialog').innerText(),/Другой пользователь/);
  await p.evaluate(()=>{qaStore.remote={commit:async job=>({revision:8,data:job.data})};});
  await p.locator('.tn-conflict-dialog [data-action=local]').click();await p.locator('dialog[open]').waitFor({state:'hidden'});

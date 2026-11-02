@@ -91,6 +91,7 @@ const server = spawn(
       e.scrollTop = 0;
     });
     await p.locator("[data-cell=B4]").tap();
+    await p.locator("[data-cell=B4]").tap();
     await p.locator("dialog.tn-hours-dialog[open]").waitFor();
     await p.locator("dialog[open] [data-action=close]").first().click();
     const daysBefore = await p.evaluate(() =>
@@ -113,8 +114,10 @@ const server = spawn(
     await p.locator("[data-cell=C4]").tap();
     await p.locator("dialog[open]").waitFor();
     assert.match(await p.locator("dialog[open]").innerText(), /Ячейки B4:D5/);
-    await p.locator("dialog[open] footer [data-action=close]").click();
-    // A tap outside the range must still open the keypad after a drag.
+    await p.locator("dialog[open] header [data-action=close]").click();
+    // A tap outside the range must still open the keypad after a drag
+    // (double-tap contract: first tap selects, second tap opens).
+    await p.locator("[data-cell=E4]").tap();
     await p.locator("[data-cell=E4]").tap();
     await p.locator("dialog.tn-hours-dialog[open]").waitFor();
     await p.locator("dialog[open] [data-action=close]").first().click();

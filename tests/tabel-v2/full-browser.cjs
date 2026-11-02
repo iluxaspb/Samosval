@@ -31,13 +31,16 @@ let browser;
     await p.waitForFunction(() => ready);
     await p.evaluate(() => seedLegacy());
     await p.locator("#open").click();
-    await p.locator("button[data-view=request]").waitFor();
+    await p.locator("button[data-view=shift]").waitFor();
     assert.equal(await p.evaluate(() => session.objectId), null);
     assert.equal(
-      await p.locator("button[data-view=request]").getAttribute("aria-pressed"),
+      await p.locator("button[data-view=shift]").getAttribute("aria-pressed"),
       "true",
     );
-    assert.equal(await p.locator("[name=equipment]:checked").count(), 1);
+    assert.equal(
+      await p.locator("button[data-view=request]").getAttribute("aria-pressed"),
+      "false",
+    );
     const action = (a) => p.locator('[data-action="' + a + '"]');
     const save = async () => {
       await p.locator("dialog[open] [type=submit]").click();
@@ -101,7 +104,15 @@ let browser;
     await p.locator("[data-tab=works]").click();
     await action("add-catalog").click();
     await p.locator("dialog[open] [name=name]").fill("Устройство основания");
-    await p.locator("dialog[open] [name=plan]").fill("1500");
+    await p.locator("dialog[open] [name=plan]").click();
+    await p.locator("dialog.tn-hours-dialog[open]").waitFor();
+    for (const d of ["1", "5", "0", "0"])
+      await p
+        .locator('dialog.tn-hours-dialog[open] [data-digit="' + d + '"]')
+        .click();
+    await p.locator("dialog.tn-hours-dialog[open] [type=submit]").click();
+    await p.locator("dialog.tn-hours-dialog").waitFor({ state: "hidden" });
+    assert.equal(await p.locator("dialog[open] [name=plan]").inputValue(), "1500");
     await save();
     await action("settings-menu").click();
     await p.locator(".tn-settings-menu").waitFor();
@@ -109,6 +120,8 @@ let browser;
     assert((await p.locator("dialog[open]").innerText()).includes("Песок"));
     await p.locator("dialog[open] [data-action=close]").first().click();
     await p.locator("button[data-view=request]").click();
+    await p.locator(".tn-request").waitFor();
+    assert.equal(await p.locator("[name=equipment]:checked").count(), 1);
     await p.locator(".tn-request [type=submit]").click();
     await action("object").click();
     await p.locator("dialog[open] [name=name]").fill("Новый объект");
@@ -152,7 +165,7 @@ let browser;
     await p.waitForFunction(() => !document.querySelector(".tn-app"));
     assert.deepEqual(errors, []);
     console.log(
-      "PASS full UI: no shift entry, migration, six menus, search selection, linked table, compact dates, shared catalogs, new object/defaults, formulas, reopen and revoked session",
+      "PASS full UI: open without requestFirst starts at shift view without object, migration, six menus, search selection, linked table, compact dates, shared catalogs, new object/defaults, formulas, reopen and revoked session",
     );
   } finally {
     await browser?.close();
@@ -162,4 +175,3 @@ let browser;
   console.error(e);
   process.exitCode = 1;
 });
-

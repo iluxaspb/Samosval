@@ -6,7 +6,7 @@ const server=spawn('python3',['-m','http.server','8793','--bind','127.0.0.1'],{s
  browser=await chromium.launch({headless:true,executablePath:'/tmp/tabel-chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
  const p=await browser.newPage({viewport:{width:393,height:852},isMobile:true,hasTouch:true});
  const errors=[];p.on('pageerror',e=>errors.push(e.message));p.setDefaultTimeout(7000);
- await p.goto('http://127.0.0.1:8793/tests/tabel-v2/harness.html');await p.waitForFunction(()=>ready);await p.evaluate(()=>{seedLegacy();objects[0].address='Невский проспект, 1';});
+ await p.goto('http://127.0.0.1:8793/tests/tabel-v2/harness.html');await p.waitForFunction(()=>ready);await p.evaluate(()=>{seedLegacy();objects[0].address='Невский проспект, 1';objects[0].name='Невский проспект, 1';});
  await p.locator('#open').click();await p.locator('[data-view=request]').click();await p.locator('[name=metro]').waitFor();
  assert.equal(await p.locator('.tn-request [name=equipment]').count(),1);
  assert.equal(await p.locator('[name=people][value=w1]').count(),0);
@@ -26,4 +26,3 @@ const server=spawn('python3',['-m','http.server','8793','--bind','127.0.0.1'],{s
  await p.locator('dialog[open] [data-action=close]').first().click();await p.locator('[data-action=exit]').click();await p.locator('#open').click();await p.locator('[data-view=request]').click();await p.locator('[name=metro]').waitFor();assert.equal(await p.locator('[name=metro]').inputValue(),'Путиловская');
  assert.deepEqual(errors,[]);console.log('PASS mobile requests: selected equipment only, no workers, metro/time persistence, ITR phone edit, lunch calculation/extras, night shift and share text');
 }finally{await browser?.close();server.kill();}})().catch(e=>{console.error(e);process.exitCode=1;});
-

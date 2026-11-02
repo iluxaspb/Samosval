@@ -885,6 +885,7 @@ export async function mount(s, host) {
   // Capture the cell and its input before waiting for storage. New keystrokes belong
   // to the new selection, even when a previous IndexedDB/Firebase save is pending.
   function queueCommit() {
+    if (!dirty) return chain;
     const target = selected, rawValue = edit.value;
     dirty = false;
     referencePick = null;

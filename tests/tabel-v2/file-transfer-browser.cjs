@@ -30,7 +30,7 @@ const server=spawn('python3',['-m','http.server','8821','--bind','127.0.0.1'],{s
  const download=await downloaded, book=new E.Workbook();await book.xlsx.load(fs.readFileSync(await download.path()));
  assert.equal(book.worksheets.length,2);assert.equal(book.worksheets[0].name,ws.name);
  assert.equal(book.worksheets[0].getCell('B2').formula,'SUM(A2:A3)');
- assert.equal(book.worksheets[1].getCell('A1').formula,"'Длинное название первого листа'!A2");
+ assert.equal(book.worksheets[1].getCell('A1').formula,"'ДЛИННОЕ НАЗВАНИЕ ПЕРВОГО ЛИСТА'!A2");
  assert.equal(book.worksheets[0].getCell('A90').value,'Последняя строка 90');
  await page.locator('[data-action=pdf]').click();
  await page.locator('[data-action=download-pdf]').waitFor({timeout:60000});
