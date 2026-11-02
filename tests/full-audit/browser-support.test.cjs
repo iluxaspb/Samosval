@@ -51,6 +51,12 @@ async function testServer() {
     assert(html.headers.get('content-security-policy').includes("img-src 'self' data: blob: https://api.qrserver.com;"));
     assert(html.headers.get('content-security-policy').includes("http://127.0.0.1:4173"));
     assert(!html.headers.get('content-security-policy').includes('google.com'));
+    // Замок 4.2.1: строгая CSP аудита допускает ровно два внешних TEST-origin
+    // (QR через api.qrserver.com и локальный OpenCode-мост) плюс loopback-порты
+    // фикстуры; любой новый внешний origin в CSP должен падать здесь, а не в e2e.
+    const cspHosts=[...html.headers.get('content-security-policy').matchAll(/https?:\/\/[a-zA-Z0-9.-]+(?::\d+)?/g)].map(m=>m[0]);
+    for (const host of cspHosts)
+      assert(host==='https://api.qrserver.com'||host.startsWith('http://127.0.0.1:'),'unexpected origin in audit CSP: '+host);
     assert.equal(html.headers.get('permissions-policy'),'camera=(), microphone=(), geolocation=()');
     const htmlText=await html.text();
     assert.match(htmlText, /<meta name="test-data-provider" content="firebase"/,
