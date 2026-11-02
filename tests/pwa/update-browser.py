@@ -24,9 +24,11 @@ CONFIG = {'projectId': PROJECT, 'apiKey': 'local-demo-not-a-credential',
           'storageBucket': PROJECT + '.invalid'}
 BASELINE_COMMIT = 'bd0e906e15a6cafb8b3dd7fd390d0fbc584218a7'
 BASELINE_BUILD = '01915a70c2b10014'
+# QR-коды генерируются внешним api.qrserver.com, локальный OpenCode-мост
+# слушает 127.0.0.1:4173 — это осознанные TEST-функции 4.2.x, разрешены явно.
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-       "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
-       "font-src 'self' data:; connect-src 'self'; worker-src 'self'; "
+       "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.qrserver.com; "
+       "font-src 'self' data:; connect-src 'self' http://127.0.0.1:4173; worker-src 'self'; "
        "media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'")
 
 

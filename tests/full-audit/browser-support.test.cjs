@@ -48,7 +48,8 @@ async function testServer() {
     for (const url of ['https://example.com/','https://firestore.googleapis.com/','http://127.0.0.1:8181/','http://localhost:8099/','file:///tmp/app','not-a-url']) assert.equal(allowedUrl(url,origin,8099),false,url);
     const html=await fetch(origin + '/Samosval/index-test.html'); assert.equal(html.status,200);
     assert(html.headers.get('content-security-policy').includes("connect-src 'self' http://127.0.0.1:8099"));
-    assert(html.headers.get('content-security-policy').includes("img-src 'self' data: blob:;"));
+    assert(html.headers.get('content-security-policy').includes("img-src 'self' data: blob: https://api.qrserver.com;"));
+    assert(html.headers.get('content-security-policy').includes("http://127.0.0.1:4173"));
     assert(!html.headers.get('content-security-policy').includes('google.com'));
     assert.equal(html.headers.get('permissions-policy'),'camera=(), microphone=(), geolocation=()');
     const htmlText=await html.text();
