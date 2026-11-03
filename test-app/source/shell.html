@@ -16,7 +16,7 @@
   <!-- TEST-MODULE:style-04 -->
   <!-- TEST-MODULE:style-05 -->
   <meta name="test-data-provider" content="synology-candidate">
-<meta name="test-app-version" content="4.2.1">
+ <meta name="test-app-version" content="4.1.6">
   <meta name="test-app-build" content="0f0881040d710261">
 </head>
 <body>
@@ -60,7 +60,7 @@
           <span id="syncDot" class="sync-dot init" aria-hidden="true">…</span>
           <span id="syncBadge" class="sync-badge"></span>
         </button>
-        <span class="version-text">4.2.1</span>
+        <span class="version-text">4.1.6</span>
       </div>
       <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -99,7 +99,6 @@
         <button class="btn btn-secondary btn-small" id="selectTrucksBtn" style="flex:1;" onclick="openSelectorModal()">🔍 Выбрать машины из базы на смену</button>
       </div>
       <div id="tabelV2Counts" hidden style="font-size:12px;padding:4px 0"></div>
-      <div id="aiShiftBannerContainer"></div>
       <div id="trucksLineList"></div>
     </div>
   </div>
@@ -223,8 +222,6 @@
     <div class="section-title">👑 Админ-панель</div>
     <div class="admin-tabs">
       <button class="admin-tab-btn" onclick="switchAdminTab('server', this)">🖥 Сервер</button>
-      <button class="admin-tab-btn" onclick="switchAdminTab('opencode', this)">🛠️ ИИ-Разработчик</button>
-      <button class="admin-tab-btn" onclick="switchAdminTab('aiperms', this)">🤖 Права ИИ</button>
       <button class="admin-tab-btn active" onclick="switchAdminTab('requests', this)">Заявки</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('users', this)">Юзеры</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('permissions', this)">Права</button>
@@ -235,8 +232,6 @@
     </div>
     
     <div id="admin-sub-server" class="admin-section"><div id="server-control-root"></div></div>
-    <div id="admin-sub-opencode" class="admin-section"><div id="opencode-bridge-root"></div></div>
-    <div id="admin-sub-aiperms" class="admin-section"><div id="ai-permissions-root"></div></div>
     <div id="admin-sub-requests" class="admin-section active"><div id="requestsListContainer"></div></div>
     
     <div id="admin-sub-users" class="admin-section">
@@ -310,56 +305,6 @@
       </details>
       <p class="admin-settings-note">Общие настройки применяются ко всем пользователям. Изменения сохраняются автоматически.</p>
       <div id="admin-game-settings-slot"></div>
-      <details class="admin-settings-group" id="admin-ai-settings" open>
-        <summary>🤖 ИИ и API-провайдеры <span>Apimira, DeepSeek, OpenAI, Local</span></summary>
-        <div class="form-card">
-          <div class="section-title" style="margin-top:0;">🤖 Настройки ИИ-ассистента и выбор API</div>
-          <p class="admin-settings-note" style="margin-bottom:12px;">
-            Гибкая настройка шлюзов ИИ: Apimira (шлюз моделей), прямой DeepSeek, OpenAI или локальные LLM (Ollama / vLLM). Поддерживается разделение моделей на лёгкие (быстрый голос/табель) и тяжёлые (глубокая аналитика/OpenCode). Без ключа работает встроенная математическая модель.
-          </p>
-
-          <div class="form-group">
-            <label>Быстрый выбор провайдера (пресет):</label>
-            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
-              <button type="button" class="btn btn-secondary btn-small" id="presetBtnApimira" onclick="selectAiProviderPreset('apimira')">🌟 Apimira (apimira.com)</button>
-              <button type="button" class="btn btn-secondary btn-small" id="presetBtnDeepseek" onclick="selectAiProviderPreset('deepseek')">⚡ DeepSeek Direct</button>
-              <button type="button" class="btn btn-secondary btn-small" id="presetBtnOpenai" onclick="selectAiProviderPreset('openai')">🧠 OpenAI Direct</button>
-              <button type="button" class="btn btn-secondary btn-small" id="presetBtnCustom" onclick="selectAiProviderPreset('custom')">🛠️ Свой шлюз / Local</button>
-            </div>
-          </div>
-
-          <div class="form-group" style="margin-top:10px;">
-            <label for="adminAiApiKey">Ключ API (API Key)</label>
-            <div style="display:flex; gap:6px;">
-              <input type="password" id="adminAiApiKey" class="form-control" placeholder="sk-..." oninput="onAiSettingsChanged()">
-              <button type="button" class="btn btn-secondary" style="padding:0 12px;" onclick="toggleAiApiKeyVisibility()" title="Показать/скрыть ключ">👁️</button>
-            </div>
-          </div>
-
-          <div class="form-group" style="margin-top:10px;">
-            <label for="adminAiEndpoint">URL / Endpoint API (OpenAI-совместимый эндпоинт)</label>
-            <input type="text" id="adminAiEndpoint" class="form-control" placeholder="https://api.apimira.com/v1/chat/completions" oninput="onAiSettingsChanged()">
-          </div>
-
-          <div class="form-group" style="margin-top:10px;">
-            <label for="adminAiModelLight">⚡ Модель для лёгких/быстрых задач (голос, табель, распознавание)</label>
-            <input type="text" id="adminAiModelLight" class="form-control" placeholder="deepseek/deepseek-chat" oninput="onAiSettingsChanged()">
-            <small style="color:var(--muted); font-size:10px;">Примеры: deepseek/deepseek-chat, gpt-4o-mini, google/gemini-2.0-flash, qwen-2.5-7b</small>
-          </div>
-
-          <div class="form-group" style="margin-top:10px;">
-            <label for="adminAiModelHeavy">🧠 Модель для тяжёлых задач (аналитика смены, OpenCode, планировка)</label>
-            <input type="text" id="adminAiModelHeavy" class="form-control" placeholder="deepseek/deepseek-reasoner" oninput="onAiSettingsChanged()">
-            <small style="color:var(--muted); font-size:10px;">Примеры: deepseek/deepseek-reasoner, gpt-4o, claude-3-7-sonnet, o3-mini</small>
-          </div>
-
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px;">
-            <button type="button" class="btn btn-quick" onclick="saveAdminAiSettings()">💾 Сохранить настройки ИИ</button>
-            <button type="button" class="btn btn-secondary" id="testAiConnectionBtn" onclick="testAdminAiConnection()">🧪 Проверить подключение</button>
-          </div>
-          <div id="adminAiTestResult" class="admin-settings-note" style="margin-top:8px;" role="status" aria-live="polite"></div>
-        </div>
-      </details>
       <details class="admin-settings-group" id="admin-max-settings">
         <summary>📱 MAX <span>Отправка, события и подключение</span></summary>
       <div class="form-card">
@@ -649,12 +594,9 @@
 <!-- TEST-MODULE:test-release -->
 <script id="test-pwa" src="./test-app/src/pwa.js"></script>
 <!-- TEST-MODULE:settings-hub -->
-<!-- TEST-MODULE:ai-copilot-style -->
-<!-- TEST-MODULE:ai-copilot -->
 <!-- Shared paper viewer is installed with Summary. -->
 </body>
 </html>
-
 
 
 

@@ -276,12 +276,11 @@
     return confirmed_toggleArrive.call(this,id,intent);
   };
   const confirmed_performLoad=window.performLoad;
-  window.performLoad=async function(id, capturedIntent, extraOptions){
+  window.performLoad=async function(id){
     if(!requireEdit('action_load')||lineActionInFlight[id])return {outcome:'ignored'};
-    const intent=capturedIntent||captureLineIntent(id);if(!intent)return {outcome:'ignored'};
-    if(extraOptions)Object.assign(intent,extraOptions);
+    const intent=captureLineIntent(id);if(!intent)return {outcome:'ignored'};
     await shakeCard(id);
-    return confirmed_performLoad.call(this,id,intent,extraOptions);
+    return confirmed_performLoad.call(this,id,intent);
   };
   const confirmed_toggleTtn=window.toggleTtn;
   window.toggleTtn=async function(id){

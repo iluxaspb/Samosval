@@ -157,15 +157,6 @@ const firebaseConfig = {
   let settings = Object.assign({ hapticArrive: true, hapticLoad: true, hapticTtn: true, cycleMinutes: MIN_CYCLE_MINUTES, holdLoad: 0.5, holdArrive: 0.5, holdTtn: 0.5 }, JSON.parse(localStorage.getItem('dt_settings_test347') || '{}'));
 
   let state = { trucks: [], objects: [], logs: [], truckStatus: {}, shift: null, archive: [], trash: [], audit: [], notifications: [], users: [], requests: [], plugins: [], patches: [] };
-  try {
-    Object.defineProperty(window, 'state', {
-      get() { return state; },
-      set(v) { state = v; },
-      configurable: true
-    });
-  } catch (e) {
-    window.state = state;
-  }
   // Object IDs are stable across rename; snapshot names are only fallback.
   function objectTitle(id, fallback = '—') {
     return (state.objects || []).find(o => o.id === id)?.name || fallback || '—';
