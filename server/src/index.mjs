@@ -22,6 +22,7 @@ import {readSettings,submitSettings} from './settings-store.mjs';
 import {submitArchive} from './archive-store.mjs';
 import {readGames,submitGame} from './game-store.mjs';
 import {readAuxiliary,submitAuxiliary} from './auxiliary-store.mjs';
+import {handleHealthRequest} from './health.mjs';
 
 const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
@@ -68,6 +69,7 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
   const requestUrl=new URL(req.url||'/', 'http://localhost');
   const path=requestUrl.pathname;
   if(req.method==='OPTIONS')return send(res,204,{});
+  if(handleHealthRequest(req,res))return;
   if(req.method==='GET' && path==='/health/live')return send(res,200,{status:'ok'});
   if(req.method==='GET' && path==='/health/ready'){
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
@@ -284,6 +286,3 @@ async function shutdown(){
 }
 process.on('SIGTERM',shutdown);
 process.on('SIGINT',shutdown);
-
-
-
