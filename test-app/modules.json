@@ -49,6 +49,7 @@
         "core/12-directories.js",
         "core/13-analytics.js",
         "core/14-backup.js",
+        "core/17-backup.js",
         "core/15-shifts.js",
         "core/16-offline-replay.js",
         "core/17-trip-actions.js",
@@ -56,6 +57,14 @@
         "core/19-navigation.js",
         "core/20-backend-mode.js",
         "core/22-server-control.js"
+      ]
+    },
+    {
+      "name": "auto-backup",
+      "kind": "script",
+      "attributes": " id=\"test-auto-backup\"",
+      "sources": [
+        "features/auto-backup.js"
       ]
     },
     {
