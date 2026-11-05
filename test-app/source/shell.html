@@ -16,7 +16,7 @@
   <!-- TEST-MODULE:style-04 -->
   <!-- TEST-MODULE:style-05 -->
   <meta name="test-data-provider" content="firebase">
- <meta name="test-app-version" content="4.1.8">
+ <meta name="test-app-version" content="4.1.9">
   <meta name="test-app-build" content="0f0881040d710261">
 </head>
 <body>
@@ -294,11 +294,11 @@
             <label for="testBackendMode">Подключение</label>
             <select id="testBackendMode" class="form-control" onchange="setTestBackendMode(this.value)" aria-describedby="testBackendModeNote" disabled>
               <option value="firebase">Только Firebase</option>
-              <option value="synology" disabled>Только Synology — интерфейс подключается</option>
+              <option value="synology">Только Synology</option>
               <option value="auto">Автоматически</option>
             </select>
           </div>
-          <p id="testBackendModeNote" class="admin-settings-note" role="status">Synology станет доступен после подключения тестового интерфейса.</p>
+          <p id="testBackendModeNote" class="admin-settings-note" role="status">Synology доступен для ручного выбора.</p>
           <button id="testSynologyCheck" type="button" class="btn btn-secondary" onclick="checkTestSynologyConnection()" disabled>Проверить Synology</button>
           <p id="testSynologyCheckResult" class="admin-settings-note" role="status" aria-live="polite"></p>
         </div>

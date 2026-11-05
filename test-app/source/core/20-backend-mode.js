@@ -31,11 +31,6 @@
       showError('Неизвестный режим сервера.');
       return false;
     }
-    if (mode === 'synology') {
-      renderTestBackendControls();
-      showError('Подключение интерфейса к Synology ещё не завершено. Режим не изменён.');
-      return false;
-    }
     try { localStorage.setItem(key, mode); }
     catch (_) {
       renderTestBackendControls();
@@ -119,7 +114,7 @@
     if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
     const note = document.getElementById('testBackendModeNote');
     if (note) note.textContent = isNasRuntime() ? 'Данные линии обслуживает Synology.' : getTestBackendMode() === 'auto'
-      ? 'Сейчас автоматически используется Firebase. Synology станет доступен после подключения всех экранов; резервное переключение — после проверки синхронизации баз.'
-      : 'Данные обслуживает Firebase. Режим Synology станет доступен после завершения подключения тестового интерфейса.';
+      ? 'Сейчас автоматически используется Firebase. Synology доступен для ручного выбора.'
+      : 'Данные обслуживает Firebase. Synology доступен для ручного выбора.';
   }
 
