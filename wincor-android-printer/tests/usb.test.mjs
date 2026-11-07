@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 let seq=0;
 function printer(serial='A'){
-  return {vendorId:123,productId:456,serialNumber:serial,productName:'4915',opened:false,
+  return {vendorId:123,productId:456,serialNumber:serial,productName:'WN HighPrint 4915xe',opened:false,
     configuration:{interfaces:[{interfaceNumber:0,alternates:[{alternateSetting:0,interfaceClass:7,interfaceSubclass:1,endpoints:[{endpointNumber:1,direction:'out',type:'bulk'}]}]}]},
     async open(){this.opened=true},async close(){this.opened=false},async claimInterface(){},async selectAlternateInterface(){},async releaseInterface(){},
     async transferOut(ep,chunk){return {status:'ok',bytesWritten:chunk.length}}};
@@ -15,7 +15,7 @@ async function setup(devices=[printer()]){
   return {usb,devices,chooser:()=>chooser,records};
 }
 test('saved authorised printer reconnects without chooser',async()=>{
-  const {usb,chooser}=await setup();await usb.connect();assert.equal(chooser(),1);assert.equal(usb.savePrinter(),'4915');await usb.disconnect();assert.match((await usb.connect()).message,/Сохранённый/);assert.equal(chooser(),1);assert.equal(usb.savedPrinterName(),'4915');await usb.disconnect();
+  const {usb,chooser}=await setup();await usb.connect();assert.equal(chooser(),1);assert.equal(usb.savePrinter(),'WN HighPrint 4915xe');await usb.disconnect();assert.match((await usb.connect()).message,/Сохранённый/);assert.equal(chooser(),1);assert.equal(usb.savedPrinterName(),'WN HighPrint 4915xe');await usb.disconnect();
 });
 test('explicit change and duplicate identities require chooser',async()=>{
   const {usb,devices,chooser}=await setup();await usb.connect();usb.savePrinter();await usb.disconnect();devices.push(printer());assert.equal((await usb.searchPrinters()).needsPermission,true);assert.equal(chooser(),1);await usb.disconnect();await usb.connect({useSaved:false});assert.equal(chooser(),2);await usb.disconnect();usb.forgetPrinter();assert.equal(usb.savedPrinterName(),'');
@@ -64,7 +64,7 @@ test('failed first channel falls back across configurations without printing',as
 });
 test('cancel changing printer preserves active connection and saved preference',async()=>{
  const {usb}=await setup();await usb.searchPrinters();usb.savePrinter();navigator.usb.requestDevice=async()=>{throw new DOMException('cancel','NotFoundError')};
- const r=await usb.connect({useSaved:false});assert.equal(r.ready,true);assert.equal(usb.connected(),true);assert.equal(usb.savedPrinterName(),'4915');await usb.disconnect();
+ const r=await usb.connect({useSaved:false});assert.equal(r.ready,true);assert.equal(usb.connected(),true);assert.equal(usb.savedPrinterName(),'WN HighPrint 4915xe');await usb.disconnect();
 });
 test('all channels failing reports no connection',async()=>{
  const {usb,devices}=await setup();devices[0].claimInterface=async()=>{throw Error('busy')};
@@ -77,4 +77,36 @@ test('ambiguous serialless devices are not silently deduplicated',async()=>{
 test('USB disconnect invalidates endpoint and notifies UI',async()=>{
  const {usb,devices}=await setup();let callback,called=0;navigator.usb.addEventListener=(name,fn)=>{assert.equal(name,'disconnect');callback=fn};
  usb.onDisconnect(()=>called++);await usb.searchPrinters();callback({device:printer('other')});assert.equal(called,0);callback({device:devices[0]});assert.equal(usb.connected(),false);assert.equal(called,1);
+});
+
+test('five stale permitted entries are skipped only on NotFound and sole live Wincor connects',async()=>{
+ const stale=Array.from({length:5},(_,i)=>{const d=printer(String(i));d.open=async()=>{throw new DOMException('removed','NotFoundError')};return d});
+ const live=printer('7');let sent=0;live.transferOut=async()=>{sent++;return {status:'ok',bytesWritten:1}};
+ const {usb}=await setup([...stale,live]);assert.equal((await usb.searchPrinters()).ready,true);assert.equal(sent,0);assert.equal(usb.diagnostics().events.filter(e=>e.phase==='probe-error').length,5);await usb.disconnect();
+});
+test('permission denial stops discovery without opening next device or chooser',async()=>{
+ const first=printer('0'),next=printer('1');let opened=0;first.open=async()=>{throw new DOMException('denied','SecurityError')};next.open=async()=>{opened++;next.opened=true};
+ const {usb,chooser}=await setup([first,next]);await assert.rejects(usb.searchPrinters(),{name:'SecurityError'});assert.equal(opened,0);assert.equal(chooser(),0);assert.equal(usb.connected(),false);
+});
+test('two live Wincor devices are not arbitrarily selected or claimed',async()=>{
+ const a=printer('A'),b=printer('B');let claims=0;a.claimInterface=b.claimInterface=async()=>claims++;
+ const {usb}=await setup([a,b]);assert.equal((await usb.searchPrinters()).ready,false);assert.equal(claims,0);assert.equal(a.opened,false);assert.equal(b.opened,false);
+});
+test('fresh connect replaces disconnected object without sending print bytes',async()=>{
+ const first=printer(),fresh=printer();let sends=0;first.transferOut=fresh.transferOut=()=>{sends++;throw Error('no print')};
+ const {usb,devices}=await setup([first]);const handlers={};navigator.usb.addEventListener=(name,fn)=>handlers[name]=fn;usb.onDisconnect(()=>{});const results=[];usb.onConnect(r=>results.push(r));
+ await usb.searchPrinters();usb.savePrinter();handlers.disconnect({device:first});assert.equal(usb.connected(),false);devices.push(fresh);
+ await handlers.connect({device:fresh});assert.equal(usb.connected(),true);assert.equal(results[0].ready,true);assert.equal(sends,0);assert.equal(usb.diagnostics().events.filter(e=>e.phase==='fresh-event-selected').at(-1).device.serialPresent,true);await usb.disconnect();
+});
+test('disconnect during pending open cannot install the removed connection',async()=>{
+ const d=printer();const {usb}=await setup([d]);let finish;d.open=()=>new Promise(r=>finish=()=>{d.opened=true;r()});let unplug;navigator.usb.addEventListener=(name,fn)=>{if(name==='disconnect')unplug=fn};usb.onDisconnect(()=>{});
+ const task=usb.searchPrinters();await Promise.resolve();unplug({device:d});finish();await assert.rejects(task,{name:'NotFoundError'});assert.equal(usb.connected(),false);assert.equal(d.opened,false);
+});
+
+test('unrelated printer is neither auto-connected nor opened by explicit choice',async()=>{
+ const d=printer();d.productName='Other printer';d.vendorId=999;let opens=0;d.open=async()=>{opens++};const {usb}=await setup([d]);let plug;navigator.usb.addEventListener=(n,fn)=>{if(n==='connect')plug=fn};let notifications=0;usb.onConnect(()=>notifications++);await plug({device:d});assert.equal(opens,0);assert.equal(notifications,0);await assert.rejects(usb.connect({useSaved:false}),/не опознано/);assert.equal(opens,0);
+});
+
+test('fresh permitted attach selects its object even if older enumerated records open',async()=>{
+ const old=printer('old'),fresh=printer('new');const {usb}=await setup([old,fresh]);let plug;navigator.usb.addEventListener=(name,fn)=>{if(name==='connect')plug=fn};usb.onConnect(()=>{});await plug({device:fresh});assert.equal(usb.connected(),true);assert.equal(fresh.opened,true);assert.equal(old.opened,false);await usb.disconnect();
 });
