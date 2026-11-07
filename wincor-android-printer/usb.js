@@ -6,7 +6,7 @@ function serialKey(d){if(!d.serialNumber)return null;if(!serialKeys.has(d.serial
 function id(d){if(!d)return null;if(!ids.has(d))ids.set(d,++nextId);return ids.get(d)}
 function info(d){return {id:id(d),vendorId:d.vendorId,productId:d.productId,name:d.productName||'',serialPresent:!!d.serialNumber,serialKey:serialKey(d),matchesSavedSerial:!!saved()?.serialNumber&&d.serialNumber===saved().serialNumber,opened:!!d.opened,channels:channels(d).map(o=>({configuration:o.c.configurationValue,interface:o.i.interfaceNumber,alternate:o.a.alternateSetting,endpoint:o.ep.endpointNumber}))}}
 function log(phase,details={}){history.push({time:new Date().toISOString(),epoch,phase,...details});if(history.length>4096){history.shift();droppedEvents++}}
-export const diagnostics=()=>({version:2,appVersion:'0.1.4',droppedEvents,lastTransfer:lastTransfer?structuredClone(lastTransfer):null,userAgent:navigator.userAgent||'',epoch,events:history.map(e=>structuredClone(e))});
+export const diagnostics=()=>({version:2,appVersion:'0.1.5',droppedEvents,lastTransfer:lastTransfer?structuredClone(lastTransfer):null,userAgent:navigator.userAgent||'',epoch,events:history.map(e=>structuredClone(e))});
 function saved(){try{const p=JSON.parse(localStorage.getItem(SAVED_KEY));return p&&Number.isInteger(p.vendorId)&&Number.isInteger(p.productId)?p:null}catch{return null}}
 export const savedPrinterName=()=>saved()?.name||'';
 export function savePrinter(){if(!connected())throw Error('Сначала подключи принтер');const p={vendorId:device.vendorId,productId:device.productId,serialNumber:device.serialNumber||'',name:device.productName||'USB-принтер'};localStorage.setItem(SAVED_KEY,JSON.stringify(p));log('save',{device:info(device)});return p.name}
@@ -179,4 +179,5 @@ export async function sendBytes(bytes,progress=()=>{},signal={cancelled:false},o
   }catch(error){Object.assign(lastTransfer,{status:'error',endedAt:new Date().toISOString(),elapsedMs:Date.now()-startTime});log('transfer-error',{id:id(activeDevice),stage:'transferOut',offset:lastTransfer.offset,error:error.name,message:error.message,elapsedMs:lastTransfer.elapsedMs});endpoint=undefined;if(!pending&&activeDevice.opened)await activeDevice.close().catch(()=>{});throw error}finally{sending=false}
 }
 export async function disconnect(){if(connecting||sending||pending)throw Error('Дождись завершения передачи или закрытия USB');endpoint=undefined;if(device?.opened){try{if(iface!==undefined)await device.releaseInterface(iface)}finally{await device.close()}}iface=undefined}
+
 
