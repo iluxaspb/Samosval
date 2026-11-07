@@ -37,6 +37,7 @@ jobs:
       - name: Mobile browser and USB mock regression
         run: node tests/usb.browser.mjs
       - name: Font editor and print rendering regression
+        if: ${{ !cancelled() }}
         run: node tests/fonts.browser.mjs
       - name: Upload synthetic-data browser screenshot
         if: always()
