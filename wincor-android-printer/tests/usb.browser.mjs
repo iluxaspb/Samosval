@@ -9,7 +9,7 @@ const {chromium}=createRequire(import.meta.url)('playwright');
 const root=fileURLToPath(new URL('../',import.meta.url));
 const types={'.js':'text/javascript','.html':'text/html','.css':'text/css','.png':'image/png','.jpg':'image/jpeg','.webmanifest':'application/manifest+json'};
 let swSuffix='';
-const server=createServer(async(req,res)=>{try{const name=new URL(req.url,'http://local').pathname;const file=path.join(root,name==='/'?'index.html':name);let body=await readFile(file);if(name==='/app.js')body=body.toString()+'\nglobalThis.__wincorTest={rasterPage,get job(){return previewJob},get packet(){return usbPacket}};';if(name==='/sw.js')body=body.toString()+swSuffix;res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache'});res.end(body)}catch{res.writeHead(404);res.end()}});
+const server=createServer(async(req,res)=>{try{const name=new URL(req.url,'http://local').pathname;const file=path.join(root,name==='/'?'index.html':name);let body=await readFile(file);if(name==='/app.js')body=body.toString()+'\nglobalThis.__wincorTest={rasterPage,flushSaves:()=>saveChain,get state(){return state},get job(){return previewJob},get packet(){return usbPacket}};';if(name==='/sw.js')body=body.toString()+swSuffix;res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache'});res.end(body)}catch{res.writeHead(404);res.end()}});
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const url=`http://127.0.0.1:${server.address().port}/`;
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']}).catch(async error=>{await new Promise(r=>server.close(r));throw error});
@@ -31,6 +31,10 @@ try{
  await page.locator('.bottomnav [data-id="print"]').click();
  await page.locator('summary').click();
  await page.getByLabel('Имя прораба',{exact:true}).fill('Петров Пётр');
+ const enteredTripValue=await page.evaluate(()=>{const s=__wincorTest.state,t=s.templates.find(t=>t.id===s.draft.templateId),f=t.fields.find(f=>f.source==='trip');return s.draft.tripValues?.[t.id]?.[f.id]});
+ assert.equal(enteredTripValue,'Петров Пётр','input updates the trip draft before storage');
+ // Reload only after the queued IndexedDB write transaction completes.
+ await page.evaluate(()=>__wincorTest.flushSaves());
  await page.reload();await page.locator('[data-truck]').waitFor();
  await page.locator('summary').click();
  assert.equal(await page.getByLabel('Имя прораба',{exact:true}).inputValue(),'Петров Пётр');
