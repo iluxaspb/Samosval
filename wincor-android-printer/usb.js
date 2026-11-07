@@ -5,27 +5,67 @@ function saved(){try{const p=JSON.parse(localStorage.getItem(SAVED_KEY));return 
 export const savedPrinterName=()=>saved()?.name||'';
 export function savePrinter(){if(!connected())throw Error('Сначала подключи принтер');const p={vendorId:device.vendorId,productId:device.productId,serialNumber:device.serialNumber||'',name:device.productName||'USB-принтер'};localStorage.setItem(SAVED_KEY,JSON.stringify(p));return p.name}
 export function forgetPrinter(){localStorage.removeItem(SAVED_KEY)}
+export function onDisconnect(listener){
+  const handler=e=>{if(e.device!==device)return;endpoint=undefined;iface=undefined;listener()};
+  navigator.usb?.addEventListener?.('disconnect',handler);
+  return ()=>navigator.usb?.removeEventListener?.('disconnect',handler);
+}
 export const connected=()=>!!device?.opened&&endpoint!==undefined&&!pending;
-export async function connect({useSaved=true}={}){
+function available(){
   if(connecting||sending||pending)throw Error('Дождись завершения передачи или закрытия USB');
   if(!navigator.usb)throw Error('WebUSB недоступен. Открой приложение в Chrome на Android по HTTPS.');
-  connecting=true;
+}
+function channels(d){
+  const configurations=d.configurations?.length?d.configurations:[d.configuration].filter(Boolean),result=[];
+  for(const c of configurations)for(const i of c.interfaces)for(const a of i.alternates)for(const ep of a.endpoints)
+    if(a.interfaceClass===7&&ep.direction==='out'&&ep.type==='bulk')result.push({c,i,a,ep});
+  return result;
+}
+async function openPrinter(chosen,reused=false){
+  const options=channels(chosen);
+  if(!options.length)return {ready:false,message:'Устройство найдено, но стандартный канал USB-печати отсутствует. Данные не отправлялись.'};
+  if(device?.opened)await device.close();
+  device=chosen;endpoint=undefined;iface=undefined;
+  const failures=[];
+  for(const o of options){
+    let claimed=false;
+    try{
+      if(!device.opened)await device.open();
+      if(!device.configuration||device.configuration.configurationValue!==o.c.configurationValue)await device.selectConfiguration(o.c.configurationValue);
+      await device.claimInterface(o.i.interfaceNumber);claimed=true;
+      await device.selectAlternateInterface(o.i.interfaceNumber,o.a.alternateSetting);
+      iface=o.i.interfaceNumber;endpoint=o.ep.endpointNumber;
+      return {ready:true,name:device.productName||'USB-принтер',message:(reused?'Сохранённый принтер найден: ':'Принтер найден: ')+(device.productName||'USB-принтер')+'. Канал USB открыт. Проверь печать одним бланком.',diagnostics:{vendorId:device.vendorId,productId:device.productId,configuration:o.c.configurationValue,interface:iface,alternate:o.a.alternateSetting,endpoint}};
+    }catch(error){
+      failures.push({configuration:o.c.configurationValue,interface:o.i.interfaceNumber,alternate:o.a.alternateSetting,error:error.name||'Error'});
+      if(claimed)await device.releaseInterface(o.i.interfaceNumber).catch(()=>{});
+      if(device.opened)await device.close();
+    }
+  }
+  return {ready:false,message:'Принтер найден, но открыть канал USB не удалось. Закрой другие программы печати, переподключи OTG и нажми «Поиск принтера».',diagnostics:{attempts:failures}};
+}
+export async function searchPrinters(){
+  available();connecting=true;
   try{
-    // requestDevice must remain reachable directly from the user's click when no preference exists.
-    const preference=useSaved?saved():null;
-    let chosen,reused=false;
-    if(preference){const permitted=await navigator.usb.getDevices();const matches=permitted.filter(d=>d.vendorId===preference.vendorId&&d.productId===preference.productId&&(d.serialNumber||'')===preference.serialNumber);if(matches.length===1){chosen=matches[0];reused=true}}
-    if(!chosen)chosen=await navigator.usb.requestDevice({filters:[]});
-    if(device?.opened){await device.close();endpoint=undefined;iface=undefined}
-    device=chosen;endpoint=undefined;iface=undefined;
-    await device.open();
-    if(!device.configuration)await device.selectConfiguration(device.configurations[0].configurationValue);
-    const diagnostics={name:device.productName,vendorId:device.vendorId,productId:device.productId,interfaces:device.configuration.interfaces.map(i=>({number:i.interfaceNumber,alternates:i.alternates.map(a=>({class:a.interfaceClass,subclass:a.interfaceSubclass,endpoints:a.endpoints.map(e=>({number:e.endpointNumber,direction:e.direction,type:e.type}))}))}))};
-    const options=[];for(const i of device.configuration.interfaces)for(const a of i.alternates)for(const ep of a.endpoints)if(a.interfaceClass===7&&ep.direction==='out'&&ep.type==='bulk')options.push({i,a,ep});
-    if(!options.length){await device.close();return {ready:false,diagnostics,message:'Нет стандартного USB-интерфейса принтера. Данные не отправлялись.'}}
-    const o=options[0];await device.claimInterface(o.i.interfaceNumber);await device.selectAlternateInterface(o.i.interfaceNumber,o.a.alternateSetting);iface=o.i.interfaceNumber;endpoint=o.ep.endpointNumber;
-    return {ready:true,diagnostics,message:reused?'Сохранённый принтер подключён.':'USB подключён.'};
-  }catch(error){endpoint=undefined;if(device?.opened)await device.close().catch(()=>{});throw error}finally{connecting=false}
+    const permitted=(await navigator.usb.getDevices()).filter(d=>channels(d).length),preference=saved();
+    const matches=preference?permitted.filter(d=>d.vendorId===preference.vendorId&&d.productId===preference.productId&&(d.serialNumber||'')===preference.serialNumber):[];
+    const candidates=matches.length===1?matches:permitted;
+    if(!candidates.length)return {ready:false,needsPermission:true,message:'Разрешённый принтер не найден. Проверь питание и OTG, затем нажми «Разрешить доступ к принтеру».'};
+    if(candidates.length!==1)return {ready:false,needsPermission:true,message:'Найдено несколько принтеров. Оставь подключённым один нужный принтер и повтори поиск или нажми «Выбрать другой принтер».'};
+    return await openPrinter(candidates[0],matches.length===1);
+  }finally{connecting=false}
+}
+export async function connect({useSaved=true}={}){
+  if(useSaved&&saved())return searchPrinters();
+  available();connecting=true;
+  try{
+    // Must be called synchronously from the click, before getDevices/close/other awaits.
+    const chosen=await navigator.usb.requestDevice({filters:[{classCode:7}]});
+    return await openPrinter(chosen);
+  }catch(error){
+    if(error.name==='NotFoundError')return {ready:connected(),message:'Выбор отменён. Сохранённый принтер не изменён.'};
+    throw error;
+  }finally{connecting=false}
 }
 export async function sendCanvas(canvas,progress,signal){const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);return sendBytes(rasterBytes(data.data,canvas.width,canvas.height),progress,signal)}
 export async function sendBytes(bytes,progress=()=>{},signal={cancelled:false}){
@@ -58,3 +98,4 @@ export async function sendBytes(bytes,progress=()=>{},signal={cancelled:false}){
   }catch(error){endpoint=undefined;if(!pending&&activeDevice.opened)await activeDevice.close().catch(()=>{});throw error}finally{sending=false}
 }
 export async function disconnect(){if(connecting||sending||pending)throw Error('Дождись завершения передачи или закрытия USB');endpoint=undefined;if(device?.opened){try{if(iface!==undefined)await device.releaseInterface(iface)}finally{await device.close()}}iface=undefined}
+

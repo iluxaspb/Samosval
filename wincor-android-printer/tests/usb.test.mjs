@@ -18,10 +18,10 @@ test('saved authorised printer reconnects without chooser',async()=>{
   const {usb,chooser}=await setup();await usb.connect();assert.equal(chooser(),1);assert.equal(usb.savePrinter(),'4915');await usb.disconnect();assert.match((await usb.connect()).message,/Сохранённый/);assert.equal(chooser(),1);assert.equal(usb.savedPrinterName(),'4915');await usb.disconnect();
 });
 test('explicit change and duplicate identities require chooser',async()=>{
-  const {usb,devices,chooser}=await setup();await usb.connect();usb.savePrinter();await usb.disconnect();devices.push(printer());await usb.connect();assert.equal(chooser(),2);await usb.disconnect();await usb.connect({useSaved:false});assert.equal(chooser(),3);await usb.disconnect();usb.forgetPrinter();assert.equal(usb.savedPrinterName(),'');
+  const {usb,devices,chooser}=await setup();await usb.connect();usb.savePrinter();await usb.disconnect();devices.push(printer());assert.equal((await usb.searchPrinters()).needsPermission,true);assert.equal(chooser(),1);await usb.disconnect();await usb.connect({useSaved:false});assert.equal(chooser(),2);await usb.disconnect();usb.forgetPrinter();assert.equal(usb.savedPrinterName(),'');
 });
-test('lost permission falls back to selection',async()=>{
-  const {usb,devices,chooser}=await setup();await usb.connect();usb.savePrinter();await usb.disconnect();devices[0]=printer('B');assert.equal((await usb.connect()).message,'USB подключён.');assert.equal(chooser(),2);await usb.disconnect();
+test('lost permission requires a new click, search never opens chooser',async()=>{
+  const {usb,devices,chooser}=await setup();await usb.connect();usb.savePrinter();await usb.disconnect();devices.length=0;assert.equal((await usb.searchPrinters()).needsPermission,true);assert.equal(chooser(),1);
 });
 test('partial USB writes continue from exact byte offset',async()=>{
   const {usb,devices}=await setup();await usb.connect();const sent=[];devices[0].transferOut=async(ep,chunk)=>{sent.push(...chunk.slice(0,2));return {status:'ok',bytesWritten:Math.min(2,chunk.length)}};
@@ -42,4 +42,39 @@ test('hard timeout closes USB and locks until original operation settles',async 
 });
 test('failed transfer invalidates connection instead of allowing silent replay',async()=>{
   const {usb,devices}=await setup();await usb.connect();devices[0].transferOut=async()=>({status:'stall',bytesWritten:0});await assert.rejects(usb.sendBytes(new Uint8Array([1])),/Ошибка передачи/);assert.equal(usb.connected(),false);assert.equal(devices[0].opened,false);
+});
+
+
+test('search finds a single authorised printer without a saved preference or chooser',async()=>{
+ const {usb,chooser}=await setup();assert.equal((await usb.searchPrinters()).ready,true);assert.equal(chooser(),0);await usb.disconnect();
+});
+test('explicit selection requests permission synchronously and filters printers',async()=>{
+ const {usb,devices}=await setup();let called=false;const old=devices[0];await usb.searchPrinters();
+ old.close=async()=>{assert.equal(called,true);old.opened=false};
+ navigator.usb.getDevices=()=>{throw Error('must not enumerate before chooser')};
+ navigator.usb.requestDevice=opts=>{called=true;assert.deepEqual(opts,{filters:[{classCode:7}]});return Promise.resolve(old)};
+ const task=usb.connect({useSaved:false});assert.equal(called,true);assert.equal((await task).ready,true);await usb.disconnect();
+});
+test('failed first channel falls back across configurations without printing',async()=>{
+ const {usb,devices}=await setup();const d=devices[0];const first=d.configuration;first.configurationValue=1;
+ const second=structuredClone(first);second.configurationValue=2;second.interfaces[0].interfaceNumber=4;
+ d.configurations=[first,second];const attempts=[];d.selectConfiguration=async n=>{d.configuration=d.configurations.find(c=>c.configurationValue===n)};
+ d.claimInterface=async n=>{attempts.push(n);if(n===0)throw Error('busy')};d.transferOut=()=>{throw Error('must not print')};
+ const r=await usb.searchPrinters();assert.equal(r.ready,true);assert.equal(r.diagnostics.interface,4);assert.deepEqual(attempts,[0,4]);await usb.disconnect();
+});
+test('cancel changing printer preserves active connection and saved preference',async()=>{
+ const {usb}=await setup();await usb.searchPrinters();usb.savePrinter();navigator.usb.requestDevice=async()=>{throw new DOMException('cancel','NotFoundError')};
+ const r=await usb.connect({useSaved:false});assert.equal(r.ready,true);assert.equal(usb.connected(),true);assert.equal(usb.savedPrinterName(),'4915');await usb.disconnect();
+});
+test('all channels failing reports no connection',async()=>{
+ const {usb,devices}=await setup();devices[0].claimInterface=async()=>{throw Error('busy')};
+ const r=await usb.searchPrinters();assert.equal(r.ready,false);assert.match(r.message,/открыть канал/);assert.equal(usb.connected(),false);assert.equal(devices[0].opened,false);
+});
+test('ambiguous serialless devices are not silently deduplicated',async()=>{
+ const {usb,chooser}=await setup([printer(''),printer('')]);assert.equal((await usb.searchPrinters()).needsPermission,true);assert.equal(chooser(),0);assert.equal(usb.connected(),false);
+});
+
+test('USB disconnect invalidates endpoint and notifies UI',async()=>{
+ const {usb,devices}=await setup();let callback,called=0;navigator.usb.addEventListener=(name,fn)=>{assert.equal(name,'disconnect');callback=fn};
+ usb.onDisconnect(()=>called++);await usb.searchPrinters();callback({device:printer('other')});assert.equal(called,0);callback({device:devices[0]});assert.equal(usb.connected(),false);assert.equal(called,1);
 });
