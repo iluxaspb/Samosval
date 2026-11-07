@@ -1,7 +1,60 @@
 import {rasterBytes} from './core.js';
-let device,iface,endpoint;
-export async function connect(){if(!navigator.usb)throw Error('WebUSB недоступен. Открой приложение в Chrome на Android по HTTPS.');device=await navigator.usb.requestDevice({filters:[]});await device.open();if(!device.configuration)await device.selectConfiguration(device.configurations[0].configurationValue);const diagnostics={name:device.productName,vendorId:device.vendorId,productId:device.productId,interfaces:device.configuration.interfaces.map(i=>({number:i.interfaceNumber,alternates:i.alternates.map(a=>({class:a.interfaceClass,subclass:a.interfaceSubclass,endpoints:a.endpoints.map(e=>({number:e.endpointNumber,direction:e.direction,type:e.type}))}))}))};
-const options=[];for(const i of device.configuration.interfaces)for(const a of i.alternates)for(const ep of a.endpoints)if(a.interfaceClass===7&&ep.direction==='out'&&ep.type==='bulk')options.push({i,a,ep});if(!options.length){await device.close();return {ready:false,diagnostics,message:'Нет стандартного USB-интерфейса принтера. Диагностика сохранена. Для этого режима понадобится отдельный транспорт; данные не отправлялись.'}}const o=options[0];await device.claimInterface(o.i.interfaceNumber);await device.selectAlternateInterface(o.i.interfaceNumber,o.a.alternateSetting);iface=o.i.interfaceNumber;endpoint=o.ep.endpointNumber;return {ready:true,diagnostics,message:'USB подключён. Протокол 4915 ещё требует пробной печати.'}}
-export const connected=()=>!!device?.opened&&endpoint!==undefined;
-export async function sendCanvas(canvas,progress,signal){if(!connected())throw Error('Сначала подключи принтер по USB');const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);const bytes=rasterBytes(data.data,canvas.width,canvas.height);for(let i=0;i<bytes.length;){if(signal.cancelled)throw Error('Отправка остановлена. Часть страницы могла попасть в принтер. Не повторяй автоматически.');const chunk=bytes.slice(i,i+4096);let timer;const result=await Promise.race([device.transferOut(endpoint,chunk),new Promise((_,rej)=>{timer=setTimeout(()=>rej(Error('Принтер не ответил за 15 секунд. Проверь бумагу и подключение.')),15000)})]).finally(()=>clearTimeout(timer));if(result.status!=='ok'||!result.bytesWritten)throw Error('Ошибка передачи USB. Проверь принтер; часть страницы могла быть передана.');i+=result.bytesWritten;progress(Math.round(i/bytes.length*100))}return true}
-export async function disconnect(){if(device?.opened){try{await device.releaseInterface(iface)}finally{await device.close()}}endpoint=undefined}
+const SAVED_KEY='wincor-android-printer.usb.v1';
+let device,iface,endpoint,connecting=false,sending=false,pending=false;
+function saved(){try{const p=JSON.parse(localStorage.getItem(SAVED_KEY));return p&&Number.isInteger(p.vendorId)&&Number.isInteger(p.productId)?p:null}catch{return null}}
+export const savedPrinterName=()=>saved()?.name||'';
+export function savePrinter(){if(!connected())throw Error('Сначала подключи принтер');const p={vendorId:device.vendorId,productId:device.productId,serialNumber:device.serialNumber||'',name:device.productName||'USB-принтер'};localStorage.setItem(SAVED_KEY,JSON.stringify(p));return p.name}
+export function forgetPrinter(){localStorage.removeItem(SAVED_KEY)}
+export const connected=()=>!!device?.opened&&endpoint!==undefined&&!pending;
+export async function connect({useSaved=true}={}){
+  if(connecting||sending||pending)throw Error('Дождись завершения передачи или закрытия USB');
+  if(!navigator.usb)throw Error('WebUSB недоступен. Открой приложение в Chrome на Android по HTTPS.');
+  connecting=true;
+  try{
+    // requestDevice must remain reachable directly from the user's click when no preference exists.
+    const preference=useSaved?saved():null;
+    let chosen,reused=false;
+    if(preference){const permitted=await navigator.usb.getDevices();const matches=permitted.filter(d=>d.vendorId===preference.vendorId&&d.productId===preference.productId&&(d.serialNumber||'')===preference.serialNumber);if(matches.length===1){chosen=matches[0];reused=true}}
+    if(!chosen)chosen=await navigator.usb.requestDevice({filters:[]});
+    if(device?.opened){await device.close();endpoint=undefined;iface=undefined}
+    device=chosen;endpoint=undefined;iface=undefined;
+    await device.open();
+    if(!device.configuration)await device.selectConfiguration(device.configurations[0].configurationValue);
+    const diagnostics={name:device.productName,vendorId:device.vendorId,productId:device.productId,interfaces:device.configuration.interfaces.map(i=>({number:i.interfaceNumber,alternates:i.alternates.map(a=>({class:a.interfaceClass,subclass:a.interfaceSubclass,endpoints:a.endpoints.map(e=>({number:e.endpointNumber,direction:e.direction,type:e.type}))}))}))};
+    const options=[];for(const i of device.configuration.interfaces)for(const a of i.alternates)for(const ep of a.endpoints)if(a.interfaceClass===7&&ep.direction==='out'&&ep.type==='bulk')options.push({i,a,ep});
+    if(!options.length){await device.close();return {ready:false,diagnostics,message:'Нет стандартного USB-интерфейса принтера. Данные не отправлялись.'}}
+    const o=options[0];await device.claimInterface(o.i.interfaceNumber);await device.selectAlternateInterface(o.i.interfaceNumber,o.a.alternateSetting);iface=o.i.interfaceNumber;endpoint=o.ep.endpointNumber;
+    return {ready:true,diagnostics,message:reused?'Сохранённый принтер подключён.':'USB подключён.'};
+  }catch(error){endpoint=undefined;if(device?.opened)await device.close().catch(()=>{});throw error}finally{connecting=false}
+}
+export async function sendCanvas(canvas,progress,signal){const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);return sendBytes(rasterBytes(data.data,canvas.width,canvas.height),progress,signal)}
+export async function sendBytes(bytes,progress=()=>{},signal={cancelled:false}){
+  if(sending||pending||connecting)throw Error('Передача уже выполняется. Не отправляй задание повторно.');
+  if(!connected())throw Error('Сначала подключи принтер по USB');
+  sending=true;const activeDevice=device,activeEndpoint=endpoint;
+  try{
+    for(let i=0;i<bytes.length;){
+      if(signal.cancelled)throw Error('Отправка остановлена. Часть страницы могла попасть в принтер. Не повторяй автоматически.');
+      const chunk=bytes.slice(i,i+4096),percent=Math.round(i/bytes.length*100);
+      let noticeTimer,deadlineTimer;
+      // A deadline must not orphan a still-running transfer and permit a second job.
+      pending=true;
+      const transfer=Promise.resolve().then(()=>activeDevice.transferOut(activeEndpoint,chunk));
+      let timedOut=false;
+      const deadline=new Promise((_,reject)=>{deadlineTimer=setTimeout(()=>{
+        timedOut=true;endpoint=undefined;
+        const closing=Promise.resolve().then(()=>activeDevice.close());
+        // Retain the lock until both the original transfer and close have settled.
+        Promise.allSettled([transfer,closing]).then(()=>{pending=false});
+        reject(Error('Принтер не принял данные за 2 минуты. USB закрывается. Часть задания могла попасть в принтер; не повторяй печать без проверки очереди.'));
+      },120000)});
+      noticeTimer=setTimeout(()=>{try{progress(percent,{waiting:true,message:'Ожидаем приём данных принтером. Проверь бумагу и состояние принтера; кабель не отключай.'})}catch{}},15000);
+      let result;
+      try{result=await Promise.race([transfer,deadline])}finally{clearTimeout(noticeTimer);clearTimeout(deadlineTimer);if(!timedOut)pending=false}
+      if(result.status!=='ok'||!Number.isInteger(result.bytesWritten)||result.bytesWritten<=0||result.bytesWritten>chunk.length)throw Error('Ошибка передачи USB. Часть задания могла быть передана; проверь очередь перед повтором.');
+      i+=result.bytesWritten;progress(Math.round(i/bytes.length*100),{waiting:false,bytesSent:i,totalBytes:bytes.length});
+    }
+    return true;
+  }catch(error){endpoint=undefined;if(!pending&&activeDevice.opened)await activeDevice.close().catch(()=>{});throw error}finally{sending=false}
+}
+export async function disconnect(){if(connecting||sending||pending)throw Error('Дождись завершения передачи или закрытия USB');endpoint=undefined;if(device?.opened){try{if(iface!==undefined)await device.releaseInterface(iface)}finally{await device.close()}}iface=undefined}

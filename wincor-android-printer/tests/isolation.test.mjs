@@ -12,7 +12,7 @@ function worker() {
   vm.runInNewContext(read('sw.js'), {
     URL, Promise,
     self: { location: { href: origin + '/Samosval/wincor-android-printer/sw.js' }, addEventListener: (n,f) => handlers[n]=f, clients: {claim:async()=>{}},skipWaiting:()=>{} },
-    caches: { open:async key=>(opened.push(key),cache), keys:async()=>['samosval-v4', 'wincor-legacy',prefix+'v0.0.1',prefix+'v0.1.0','wincor-android-printer:/another/:v0.0.1'],delete:async key=>deleted.push(key) },
+    caches: { open:async key=>(opened.push(key),cache), keys:async()=>['samosval-v4', 'wincor-legacy',prefix+'v0.0.1',prefix+'v0.1.1','wincor-android-printer:/another/:v0.0.1'],delete:async key=>deleted.push(key) },
     fetch: async req => (fetched.push(req.url), {ok:true})
   });
   return {handlers,opened,deleted,fetched,prefix,origin};
@@ -35,5 +35,5 @@ test('fetch ignores sibling apps, lookalike paths, external origins and writes',
 });
 test('own requests only consult this app cache, then network',async()=>{
  const w=worker();let done;const url=w.origin+'/Samosval/wincor-android-printer/index.html';w.handlers.fetch({request:{method:'GET',url},respondWith:p=>done=p});await done;
- assert.deepEqual(w.opened,[w.prefix+'v0.1.0']);assert.deepEqual(w.fetched,[url]);
+ assert.deepEqual(w.opened,[w.prefix+'v0.1.1']);assert.deepEqual(w.fetched,[url]);
 });
