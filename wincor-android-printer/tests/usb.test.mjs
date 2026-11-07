@@ -116,7 +116,7 @@ test('standard chunks preserve exact bytes with partial writes',async()=>{
  devices[0].transferOut=async(ep,chunk)=>{lengths.push(chunk.length);const n=Math.min(chunk.length,2047);sent.push(...chunk.slice(0,n));return {status:'ok',bytesWritten:n}};
  await usb.sendBytes(bytes);
  assert.deepEqual(sent,[...bytes]);assert.equal(lengths[0],4096);assert.ok(lengths.every(n=>n<=4096));
- const d=usb.diagnostics();assert.equal(d.lastTransfer.chunkSize,4096);assert.equal(d.lastTransfer.bytesAcknowledged,bytes.length);assert.equal(d.lastTransfer.status,'complete');assert.equal(d.appVersion,'0.1.6');await usb.disconnect();
+ const d=usb.diagnostics();assert.equal(d.lastTransfer.chunkSize,4096);assert.equal(d.lastTransfer.bytesAcknowledged,bytes.length);assert.equal(d.lastTransfer.status,'complete');assert.equal(d.appVersion,'0.1.7');await usb.disconnect();
 });
 test('bounded journal reports dropped events and retains transfer summary',async()=>{
  const {usb,devices}=await setup();await usb.connect();devices[0].transferOut=async(_endpoint,chunk)=>({status:'ok',bytesWritten:Math.min(64,chunk.length)});await usb.sendBytes(new Uint8Array(140000));const d=usb.diagnostics();assert.equal(d.events.length,4096);assert.ok(d.droppedEvents>0);assert.equal(d.lastTransfer.bytesAcknowledged,140000);assert.equal(d.lastTransfer.status,'complete');await usb.disconnect();

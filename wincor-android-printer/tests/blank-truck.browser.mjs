@@ -33,7 +33,14 @@ try{
  await page.locator('#blank-truck').check();assert.equal(await page.locator('[data-truck]').isChecked(),true);assert.equal(await page.locator('[data-truck]').isDisabled(),true);assert.match(await page.locator('#page-count').innerText(),/^3 /);
  await page.locator('#blank-copies').fill('20');await page.locator('#blank-copies').dispatchEvent('change');assert.equal(await page.locator('[data-action="blank-plus"]').isDisabled(),true);
  await page.locator('#blank-copies').fill('0');await page.locator('#blank-copies').dispatchEvent('change');assert.equal(await page.locator('#blank-copies').inputValue(),'20');
+ const toast=page.locator('#toast.show');
+ await toast.waitFor();
+ assert.match(await toast.innerText(),/От 1 до 20 копий/);
+ const toastPosition=await toast.evaluate(el=>({top:el.getBoundingClientRect().top,pointerEvents:getComputedStyle(el).pointerEvents}));
+ assert.ok(toastPosition.top>=0&&toastPosition.top<60,JSON.stringify(toastPosition));
+ assert.equal(toastPosition.pointerEvents,'none');
  await page.locator('#blank-copies').fill('3');await page.locator('#blank-copies').dispatchEvent('change');
+ assert.equal(await toast.count(),1);
  await page.locator('[data-action="prepare"]').click();await page.locator('.preview-page').waitFor();
  assert.doesNotMatch(await page.locator('.preview-page').innerText(),/А123АА178|Водитель/);
  snapshot=await page.evaluate(()=>__blankTest.job);assert.equal(snapshot.pages.length,3);assert.ok(snapshot.pages.every(p=>Object.keys(p.truck).length===0));
@@ -47,3 +54,4 @@ try{
  await mkdir(path.join(root,'test-artifacts'),{recursive:true});await page.screenshot({path:path.join(root,'test-artifacts','blank-truck-mobile.png'),fullPage:true});
  assert.deepEqual(errors,[]);console.log(JSON.stringify({emptyFleetBlankPrinting:true,independentCopyCounts:true,copyBounds:true,selectionPreserved:true,noTruckDataInBlankPreview:true,historyAfterReload:true,pageErrors:errors}));
 }finally{await browser.close();await new Promise(r=>server.close(r))}
+
