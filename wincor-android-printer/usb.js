@@ -54,9 +54,14 @@ export function monitor(listener,{interval=2000,visibility=globalThis.document}=
       if(device&&!all.includes(device)&&!sending&&!pending){removed.add(device);device=undefined;endpoint=undefined;iface=undefined;epoch++;log('monitor-detached')}
       if(connected()){fresh=null;return}
       if(!matches.length){blocked=false;suppressed=new WeakSet();fresh=null;if(changed)emit({ready:false,needsPermission:true,message:'Подключи Wincor через OTG. Если он уже подключён, нажми «Разрешить доступ»: браузер пока не предоставил устройство приложению.'});return}
-      if(!changed&&!fresh||blocked)return;
-      const candidate=fresh;fresh=null;attempted=candidate?[candidate]:matches;
-      const result=await searchPrinters({fresh:candidate,enumerated:all});
+      const eligible=matches.filter(d=>!suppressed.has(d));
+      // Android can replace the permitted object without a connect event.
+      // A previous stale/denied set must not block a genuinely new attachment,
+      // but polling must never reopen the objects that already failed.
+      if(blocked){if(!changed||!eligible.length)return;blocked=false}
+      if(!changed&&!fresh)return;
+      const candidate=fresh;fresh=null;attempted=candidate?[candidate]:eligible;
+      const result=await searchPrinters({fresh:candidate,enumerated:all.filter(d=>!suppressed.has(d))});
       if(!result.ready){blocked=true;attempted.forEach(d=>suppressed.add(d))}emit(result);
     }catch(error){
       blocked=true;attempted.forEach(d=>suppressed.add(d));fresh=null;log('monitor-error',{error:error.name,message:error.message});

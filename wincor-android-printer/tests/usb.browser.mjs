@@ -32,6 +32,7 @@ try{
  await page.locator('[data-action="field-add"]').click();
  await page.locator('[data-prop="label"]').fill('Имя прораба');
  await page.locator('[data-prop="label"]').dispatchEvent('change');
+  await page.locator('#modal [data-action="close"]').click();
  await page.locator('.bottomnav [data-id="print"]').click();
  await page.locator('summary').click();
  await page.getByLabel('Имя прораба',{exact:true}).fill('Петров Пётр');

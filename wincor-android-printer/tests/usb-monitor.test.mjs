@@ -40,3 +40,21 @@ test('monitor does not enumerate or reopen while transfer is pending and never r
 test('diagnostics preserve serial equality without raw serial or print payload',async()=>{
  const d=printer('PRIVATE-SERIAL-SECRET'),s=await setup([d]);await s.usb.searchPrinters();s.usb.savePrinter();await s.usb.sendBytes(new TextEncoder().encode('PRIVATE-PAYLOAD'));const report=JSON.stringify(s.usb.diagnostics());assert.equal(report.includes('PRIVATE-SERIAL-SECRET'),false);assert.equal(report.includes('PRIVATE-PAYLOAD'),false);assert.match(report,/serialKey/);assert.match(report,/matchesSavedSerial/);await s.usb.disconnect();
 });
+
+test('new permitted object resumes polling after stale-only failure without connect event',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const stale=printer();let staleOpens=0;stale.open=async()=>{staleOpens++;throw new DOMException('gone','NotFoundError')};
+ const s=await setup([stale]),stop=s.usb.monitor(()=>{},{visibility:s.visibility,interval:100});await flush();
+ assert.equal(s.usb.connected(),false);assert.equal(staleOpens,1);
+ const live=printer();s.devices.push(live);t.mock.timers.tick(100);await flush();
+ assert.equal(s.usb.connected(),true);assert.equal(staleOpens,1);assert.equal(s.counts.chooser,0);
+ stop();await s.usb.disconnect();
+});
+test('new attachment does not cause an earlier denied object to be retried',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const denied=printer();let deniedOpens=0;denied.open=async()=>{deniedOpens++;throw new DOMException('denied','SecurityError')};
+ const s=await setup([denied]),stop=s.usb.monitor(()=>{},{visibility:s.visibility,interval:100});await flush();
+ const live=printer('B');s.devices.push(live);t.mock.timers.tick(100);await flush();
+ assert.equal(s.usb.connected(),true);assert.equal(deniedOpens,1);assert.equal(s.counts.chooser,0);
+ t.mock.timers.tick(100);await flush();assert.equal(deniedOpens,1);stop();await s.usb.disconnect();
+});
