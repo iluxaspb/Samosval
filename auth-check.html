@@ -21,6 +21,7 @@ small{color:#94a3b8}
 </head>
 <body><main>
 <h1>🚛 Проверка входа «Самосвалы»</h1>
+<p><strong>Диагностика 2:</strong> исправлен тест API, выводится код и безопасное описание ошибки.</p>
 <p>Отдельная безопасная проверка подключения к рабочему Firebase. Данные рейсов не меняются. Пароль не сохраняется на этой странице и передаётся только через официальный Firebase SDK.</p>
 <section>
   <h2>1. Соединение и текущая сессия</h2>
@@ -40,7 +41,7 @@ small{color:#94a3b8}
   <small id="loginResult" role="status">Если вход пройдёт, вернитесь в основную программу.</small>
 </section>
 <a class="link" href="./index.html?authcheck=1">Открыть рабочую программу</a>
-<p>Если Firebase отклонит вход, пришлите только код ошибки из результата проверки. Не присылайте пароль, токены или скриншоты с паролем.</p>
+<p>Если Firebase отклонит вход, скопируйте результат проверки. Не присылайте пароль, токены или скриншоты с паролем.</p>
 </main>
 <script src="./app/vendor/firebase-app-compat-10.8.0.js"></script>
 <script src="./app/vendor/firebase-auth-compat-10.8.0.js"></script>
@@ -57,8 +58,21 @@ function add(stage,text) {
 }
 function codeOf(error) {
   var code=String((error && error.code) || '');
-  if (/^[a-z0-9/_-]{2,80}$/i.test(code)) return code;
-  return String((error && error.name) || 'unknown-error').replace(/[^a-z0-9_-]/gi,'').slice(0,60);
+  if (!code) {
+    var message=String((error && error.message) || '');
+    var found=message.match(/\(\s*(auth\/[a-z0-9._/-]+)\s*\)/i) || message.match(/\b(auth\/[a-z0-9._/-]+)/i);
+    if (found) code=found[1];
+  }
+  return (code || String((error && error.name) || 'unknown-error')).replace(/[^a-z0-9/_.:-]/gi,'').slice(0,140);
+}
+function safeDetail(error) {
+  return String((error && error.message) || '')
+    .replace(/https?:\/\/\S+/gi,'[URL]')
+    .replace(/AIza[a-z0-9_-]+/gi,'[ключ Firebase]')
+    .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi,'[email скрыт]')
+    .replace(/\b(password|refreshToken|idToken|access_token|token)=\S+/gi,'$1=[скрыто]')
+    .replace(/\s+/g,' ')
+    .slice(0,250);
 }
 function explain(code) {
   return {
@@ -111,19 +125,22 @@ auth.onAuthStateChanged(function(user){
 probe.addEventListener('click',async function(){
   probe.disabled=true;
   try {
-    add('Проверка API','соединяюсь с identitytoolkit.googleapis.com');
+    add('Проверка API','проверяю доступ к Firebase Authentication без изменения данных');
     var controller=new AbortController();
     var timeout=setTimeout(function(){controller.abort()},10000);
     try {
-      var response=await fetch('https://identitytoolkit.googleapis.com/v1/projects?key='+encodeURIComponent(firebaseConfig.apiKey),{cache:'no-store',signal:controller.signal});
+      var response=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key='+encodeURIComponent(firebaseConfig.apiKey),{
+        method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',signal:controller.signal,
+        body:JSON.stringify({identifier:'auth-check-probe@example.invalid',continueUri:new URL('./index.html',location.href).href})
+      });
       var reply={};
       try {reply=await response.json()}catch(e){}
       if(response.ok) {
-        add('Identity Toolkit','доступен (HTTP '+response.status+')');
-        var domains=Array.isArray(reply.authorizedDomains)?reply.authorizedDomains:[];
-        if(domains.length) add('Домен',domains.includes(location.hostname)?'домен обнаружен в списке разрешённых':'текущий домен отсутствует в списке (важно для OAuth)');
+        add('Identity Toolkit','работает (HTTP '+response.status+'). Firebase принял безопасный проверочный запрос.');
       } else {
-        add('Identity Toolkit','HTTP '+response.status+'; ошибка '+String(reply.error && (reply.error.status||reply.error.message)||'unknown').replace(/[^a-z0-9_ -]/gi,'').slice(0,70));
+        var apiError=reply.error || {};
+        add('Identity Toolkit','HTTP '+response.status+'; код '+String(apiError.status||'unknown').replace(/[^a-z0-9_ -]/gi,'').slice(0,60)
+          +'; причина '+safeDetail({message:apiError.message || 'Нет описания ошибки'}));
       }
     } catch(error) { add('Identity Toolkit',error.name==='AbortError'?'тайм-аут 10 секунд':'сетевая ошибка: '+codeOf(error)); }
     finally {clearTimeout(timeout)}
@@ -150,8 +167,9 @@ form.addEventListener('submit',async function(event){
     result.textContent='✅ Firebase принял вход. Теперь откройте рабочую программу по кнопке ниже.';
   }catch(error){
     var code=codeOf(error);
-    add('Вход',code+' — '+explain(code));
-    result.textContent='❌ '+code+': '+explain(code);
+    var detail=safeDetail(error);
+    add('Вход','код '+code+'; описание '+(detail||'(отсутствует)')+'; '+explain(code));
+    result.textContent='❌ '+code+': '+(detail||explain(code));
   }finally{login.disabled=false}
 });
 })();
