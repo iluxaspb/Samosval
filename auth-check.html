@@ -131,7 +131,7 @@ probe.addEventListener('click',async function(){
     try {
       var response=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key='+encodeURIComponent(firebaseConfig.apiKey),{
         method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',signal:controller.signal,
-        body:JSON.stringify({identifier:'auth-check-probe@example.invalid',continueUri:new URL('./index.html',location.href).href})
+        body:JSON.stringify({identifier:'samosval-auth-check-20261107@example.com',continueUri:'https://samosval-test.firebaseapp.com/'})
       });
       var reply={};
       try {reply=await response.json()}catch(e){}
