@@ -32,7 +32,7 @@ try{
  await page.locator('[data-action="field-add"]').click();
  await page.locator('[data-prop="label"]').fill('Имя прораба');
  await page.locator('[data-prop="label"]').dispatchEvent('change');
- await page.getByRole('button',{name:'Готово',exact:true}).click();
+ await page.locator('#field-toolbar [data-action="field-close"]').click();
  await page.locator('.bottomnav [data-id="print"]').click();
  await page.locator('summary').click();
  await page.getByLabel('Имя прораба',{exact:true}).fill('Петров Пётр');
@@ -57,7 +57,7 @@ try{
  await page.locator('#usb-small-chunks').check();
  await mkdir(path.join(root,'test-artifacts'),{recursive:true});await page.screenshot({path:path.join(root,'test-artifacts','usb-mobile.png'),fullPage:true});
  await page.evaluate(()=>usbMock.unplug());await page.locator('[data-action="usb-arm"]').click();assert.equal(await page.evaluate(()=>usbMock.bytes),0);await page.evaluate(()=>usbMock.replug());await page.waitForFunction(()=>document.querySelector('#usb-progress').textContent.startsWith('Все байты'));assert.equal(await page.evaluate(()=>usbMock.bytes),sizes.new);assert.equal(await page.locator('#usb-send').isDisabled(),true);assert.equal(await page.locator('#usb-small-chunks').isDisabled(),true);assert.equal(await page.evaluate(()=>usbMock.chunks.every(n=>n<=64)),true);assert.equal(await page.evaluate(()=>JSON.stringify(usbMock.received)===JSON.stringify([...__wincorTest.packet])),true);await page.evaluate(()=>{usbMock.unplug();usbMock.replug()});await page.waitForFunction(()=>__wincorTest.usbReady);assert.equal(await page.evaluate(()=>usbMock.bytes),sizes.new,'reconnect must not replay completed packet');
- await page.locator('#modal [data-action="usb-diagnostics"]').click();const journal=JSON.parse(await page.locator('#usb-diagnostic-text').inputValue());assert.equal(journal.appVersion,'0.1.4');assert.equal(journal.lastTransfer.mode,'small-chunks-test');const [download]=await Promise.all([page.waitForEvent('download'),page.locator('[data-action="usb-download-diagnostics"]').click()]);assert.match(download.suggestedFilename(),/^wincor-usb-.*\.json$/);assert.equal(JSON.parse(await readFile(await download.path(),'utf8')).lastTransfer.totalBytes,sizes.new);
+ await page.locator('#modal [data-action="usb-diagnostics"]').click();const journal=JSON.parse(await page.locator('#usb-diagnostic-text').inputValue());assert.equal(journal.appVersion,'0.1.5');assert.equal(journal.lastTransfer.mode,'small-chunks-test');const [download]=await Promise.all([page.waitForEvent('download'),page.locator('[data-action="usb-download-diagnostics"]').click()]);assert.match(download.suggestedFilename(),/^wincor-usb-.*\.json$/);assert.equal(JSON.parse(await readFile(await download.path(),'utf8')).lastTransfer.totalBytes,sizes.new);
  await page.locator('#modal [data-action="close"]').click();
  await page.reload();await page.locator('[data-truck]').waitFor();assert.equal(await page.locator('[data-truck]').count(),1);
  await page.locator('.bottomnav [data-id="settings"]').click();await page.waitForFunction(()=>__wincorTest.usbReady);assert.equal(await page.evaluate(()=>usbMock.calls),0);assert.match(await page.locator('#usb-status').innerText(),/Сохранённый принтер/);
@@ -84,4 +84,5 @@ try{
  assert.deepEqual(errors,[]);console.log(JSON.stringify({viewport:'393x852',sizes,reduction:+(sizes.old/sizes.new).toFixed(2),namedTripFieldsAndHistory:true,savedPrinterReconnect:true,staleDevicesSkipped:true,armedPacketSentOnce:true,noReconnectReplay:true,closeCancelsArm:true,noFailureReplay:true,packetBytesMatch:true,indexedDBPreservedAfterSWUpdate:true,pageErrors:errors}));
  await context.close();
 }finally{await browser.close();await new Promise(r=>server.close(r))}
+
 

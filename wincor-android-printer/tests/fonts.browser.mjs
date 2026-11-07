@@ -19,14 +19,14 @@ try{
  await page.locator('#props [data-action="field-select"]').first().click();
  await page.locator('[data-action="field-edit"]').click();
  assert.equal(await page.getByRole('tab',{name:'Оформление',exact:true}).getAttribute('aria-selected'),'true');
- const settingsBox=await page.locator('#modal').boundingBox();assert.ok(settingsBox.y<30&&settingsBox.height<852*.71&&settingsBox.width<=393);
+ const settingsBox=await page.locator('#field-toolbar').boundingBox();assert.ok(settingsBox.y<30&&settingsBox.height<=852/3&&settingsBox.width<=393);assert.equal(await page.locator('#modal').evaluate(el=>el.open),false);
  await page.locator('[data-prop="locked"]').check();assert.equal(await page.getByRole('button',{name:'Вправо',exact:true}).isEnabled(),false);
  await page.locator('[data-prop="locked"]').uncheck();
  const originalLeft=await page.locator('#sheet .field.sel').evaluate(el=>parseFloat(el.style.left));
  await page.getByRole('button',{name:'Вправо',exact:true}).click();
  assert.equal(await page.locator('#sheet .field.sel').evaluate(el=>parseFloat(el.style.left)),originalLeft+1.5);
  await page.getByRole('button',{name:'Влево',exact:true}).click();
- await page.getByRole('tab',{name:'Параметры поля',exact:true}).click();assert.equal(await page.locator('[data-prop="label"]').isVisible(),true);assert.equal(await page.locator('[data-prop="fontFamily"]').isVisible(),false);
+ await page.getByRole('tab',{name:'Параметры',exact:true}).click();assert.equal(await page.locator('[data-prop="label"]').isVisible(),true);assert.equal(await page.locator('[data-prop="fontFamily"]').isVisible(),false);
  await page.getByRole('tab',{name:'Оформление',exact:true}).click();
  for(const align of ['left','center','right']){await page.locator('[data-prop="align"]').selectOption(align);assert.equal(await page.locator('#sheet .field.sel').evaluate(el=>el.style.textAlign),align)}
  await page.locator('[data-prop="align"]').selectOption('center');
@@ -34,7 +34,7 @@ try{
  await page.locator('[data-prop="fontFamily"]').selectOption('Times New Roman');
  await page.locator('[data-prop="italic"]').check();
  assert.match(await page.locator('#sheet [data-field]').first().getAttribute('style'),/font-family:Times New Roman, serif.*font-style:italic/);
- await page.locator('#modal [data-action="close"]').first().click();await page.locator('[data-action="font-all"]').click();
+ await page.locator('#field-toolbar [data-action="field-close"]').click();await page.locator('[data-action="font-all"]').click();
  await page.locator('#font-form [name="fontFamily"]').selectOption('Courier New');
  await page.locator('#font-form [name="size"]').fill('14');
  await page.locator('#font-form [name="bold"]').check();
@@ -76,11 +76,12 @@ try{
  assert.ok(printStyle.family.includes('Times New Roman'));assert.equal(printStyle.size,'16pt');assert.equal(printStyle.weight,'400');assert.equal(printStyle.italic,'italic');
  await page.locator('#modal [data-action="close"]').click();await page.locator('[data-action="editor"]').click();
  await page.locator('#props [data-action="field-select"]').last().click();await page.locator('[data-action="field-edit"]').click();await page.locator('[data-prop="align"]').selectOption('left');
- await page.locator('#modal [data-action="close"]').first().click();await page.locator('[data-action="font-all"]').click();await page.locator('#font-form [name="fontFamily"]').selectOption('Arial');await page.locator('#font-form [name="italic"]').uncheck();await page.locator('#font-form [type="submit"]').click();
+ await page.locator('#field-toolbar [data-action="field-close"]').click();await page.locator('[data-action="font-all"]').click();await page.locator('#font-form [name="fontFamily"]').selectOption('Arial');await page.locator('#font-form [name="italic"]').uncheck();await page.locator('#font-form [type="submit"]').click();
  await page.waitForFunction(()=>!document.querySelector('#modal').open);
  await page.locator('.bottomnav [data-id="history"]').click();await page.locator('[data-action="job-open"]').first().click();
  assert.match(await page.locator('.preview-page span').filter({hasText:'Петров'}).getAttribute('style'),/font-family:Times New Roman, serif.*font-style:italic/);
  assert.deepEqual(await page.locator('.preview-page span').evaluateAll(els=>els.map(el=>el.style.textAlign)),expectedAligns);
  await mkdir(path.join(root,'test-artifacts'),{recursive:true});await page.screenshot({path:path.join(root,'test-artifacts','fonts-mobile.png'),fullPage:true});
- assert.deepEqual(errors,[]);console.log(JSON.stringify({fieldEditorTopModal:true,fieldEditorTabs:true,lockedNudges:true,existingFieldFonts:true,allFieldsAndNewDefaults:true,perFieldOverride:true,persistedAfterReload:true,previewRasterAndSystemPrint:true,historyFontSnapshot:true,existingAndNewFieldAlignment:true,threeAlignmentsAcrossRenderers:true,historyAlignmentSnapshot:true,pageErrors:errors}));
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({fieldEditorCompactToolbar:true,fieldEditorTabs:true,lockedNudges:true,existingFieldFonts:true,allFieldsAndNewDefaults:true,perFieldOverride:true,persistedAfterReload:true,previewRasterAndSystemPrint:true,historyFontSnapshot:true,existingAndNewFieldAlignment:true,threeAlignmentsAcrossRenderers:true,historyAlignmentSnapshot:true,pageErrors:errors}));
 }finally{await browser.close();await new Promise(r=>server.close(r))}
+
