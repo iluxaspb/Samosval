@@ -28,7 +28,9 @@ try{
  assert.ok((await panel.boundingBox()).height<=852/3+1);
  await page.getByRole('tab',{name:'Оформление',exact:true}).click();
  // A second field can be selected on the sheet while the panel remains open.
+ const secondFieldId=await page.locator('#sheet [data-field]').nth(1).getAttribute('data-field');
  await page.locator('#sheet [data-field]').nth(1).click();
+ assert.equal(await page.locator('#sheet .field.sel').getAttribute('data-field'),secondFieldId);
  assert.equal(await panel.isVisible(),true);
  await page.locator('[data-prop="bold"]').check();
  assert.equal(await page.locator('#sheet .field.sel').evaluate(el=>el.style.fontWeight),'700');
