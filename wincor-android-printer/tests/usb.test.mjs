@@ -110,16 +110,15 @@ test('unrelated printer is neither auto-connected nor opened by explicit choice'
 test('fresh permitted attach selects its object even if older enumerated records open',async()=>{
  const old=printer('old'),fresh=printer('new');const {usb}=await setup([old,fresh]);let plug;navigator.usb.addEventListener=(name,fn)=>{if(name==='connect')plug=fn};usb.onConnect(()=>{});await plug({device:fresh});assert.equal(usb.connected(),true);assert.equal(fresh.opened,true);assert.equal(old.opened,false);await usb.disconnect();
 });
-test('standard and small chunk experiment preserve exact bytes with partial writes and pin mode',async()=>{
- for(const small of [false,true]){
-  const {usb,devices}=await setup();await usb.connect();const sent=[],lengths=[],options={testSmallChunks:small},bytes=Uint8Array.from({length:9000},(_,i)=>i%251);
-  devices[0].transferOut=async(ep,chunk)=>{lengths.push(chunk.length);options.testSmallChunks=!small;const n=Math.min(chunk.length,small?37:2047);sent.push(...chunk.slice(0,n));return {status:'ok',bytesWritten:n}};
-  await usb.sendBytes(bytes,()=>{},{cancelled:false},options);
-  assert.deepEqual(sent,[...bytes]);assert.equal(lengths[0],small?64:4096);assert.ok(lengths.every(n=>n<=(small?64:4096)));
-  const d=usb.diagnostics();assert.equal(d.lastTransfer.chunkSize,small?64:4096);assert.equal(d.lastTransfer.bytesAcknowledged,bytes.length);assert.equal(d.lastTransfer.status,'complete');assert.equal(d.appVersion,'0.1.5');await usb.disconnect();
- }
+test('standard chunks preserve exact bytes with partial writes',async()=>{
+ const {usb,devices}=await setup();await usb.connect();
+ const sent=[],lengths=[],bytes=Uint8Array.from({length:9000},(_,i)=>i%251);
+ devices[0].transferOut=async(ep,chunk)=>{lengths.push(chunk.length);const n=Math.min(chunk.length,2047);sent.push(...chunk.slice(0,n));return {status:'ok',bytesWritten:n}};
+ await usb.sendBytes(bytes);
+ assert.deepEqual(sent,[...bytes]);assert.equal(lengths[0],4096);assert.ok(lengths.every(n=>n<=4096));
+ const d=usb.diagnostics();assert.equal(d.lastTransfer.chunkSize,4096);assert.equal(d.lastTransfer.bytesAcknowledged,bytes.length);assert.equal(d.lastTransfer.status,'complete');assert.equal(d.appVersion,'0.1.6');await usb.disconnect();
 });
 test('bounded journal reports dropped events and retains transfer summary',async()=>{
- const {usb,devices}=await setup();await usb.connect();await usb.sendBytes(new Uint8Array(140000),()=>{},{cancelled:false},{testSmallChunks:true});const d=usb.diagnostics();assert.equal(d.events.length,4096);assert.ok(d.droppedEvents>0);assert.equal(d.lastTransfer.bytesAcknowledged,140000);assert.equal(d.lastTransfer.status,'complete');await usb.disconnect();
+ const {usb,devices}=await setup();await usb.connect();devices[0].transferOut=async(_endpoint,chunk)=>({status:'ok',bytesWritten:Math.min(64,chunk.length)});await usb.sendBytes(new Uint8Array(140000));const d=usb.diagnostics();assert.equal(d.events.length,4096);assert.ok(d.droppedEvents>0);assert.equal(d.lastTransfer.bytesAcknowledged,140000);assert.equal(d.lastTransfer.status,'complete');await usb.disconnect();
 });
 

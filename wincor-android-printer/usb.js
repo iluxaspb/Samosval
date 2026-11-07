@@ -6,7 +6,7 @@ function serialKey(d){if(!d.serialNumber)return null;if(!serialKeys.has(d.serial
 function id(d){if(!d)return null;if(!ids.has(d))ids.set(d,++nextId);return ids.get(d)}
 function info(d){return {id:id(d),vendorId:d.vendorId,productId:d.productId,name:d.productName||'',serialPresent:!!d.serialNumber,serialKey:serialKey(d),matchesSavedSerial:!!saved()?.serialNumber&&d.serialNumber===saved().serialNumber,opened:!!d.opened,channels:channels(d).map(o=>({configuration:o.c.configurationValue,interface:o.i.interfaceNumber,alternate:o.a.alternateSetting,endpoint:o.ep.endpointNumber}))}}
 function log(phase,details={}){history.push({time:new Date().toISOString(),epoch,phase,...details});if(history.length>4096){history.shift();droppedEvents++}}
-export const diagnostics=()=>({version:2,appVersion:'0.1.5',droppedEvents,lastTransfer:lastTransfer?structuredClone(lastTransfer):null,userAgent:navigator.userAgent||'',epoch,events:history.map(e=>structuredClone(e))});
+export const diagnostics=()=>({version:2,appVersion:'0.1.6',droppedEvents,lastTransfer:lastTransfer?structuredClone(lastTransfer):null,userAgent:navigator.userAgent||'',epoch,events:history.map(e=>structuredClone(e))});
 function saved(){try{const p=JSON.parse(localStorage.getItem(SAVED_KEY));return p&&Number.isInteger(p.vendorId)&&Number.isInteger(p.productId)?p:null}catch{return null}}
 export const savedPrinterName=()=>saved()?.name||'';
 export function savePrinter(){if(!connected())throw Error('Сначала подключи принтер');const p={vendorId:device.vendorId,productId:device.productId,serialNumber:device.serialNumber||'',name:device.productName||'USB-принтер'};localStorage.setItem(SAVED_KEY,JSON.stringify(p));log('save',{device:info(device)});return p.name}
@@ -148,10 +148,10 @@ export async function connect({useSaved=true}={}){
   }finally{connecting=false}
 }
 export async function sendCanvas(canvas,progress,signal){const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);return sendBytes(rasterBytes(data.data,canvas.width,canvas.height),progress,signal)}
-export async function sendBytes(bytes,progress=()=>{},signal={cancelled:false},options={}){
+export async function sendBytes(bytes,progress=()=>{},signal={cancelled:false}){
   if(sending||pending||connecting)throw Error('Передача уже выполняется. Не отправляй задание повторно.');
   if(!connected())throw Error('Сначала подключи принтер по USB');
-  sending=true;const activeDevice=device,activeEndpoint=endpoint,chunkSize=options.testSmallChunks?64:4096,startTime=Date.now();lastTransfer={mode:options.testSmallChunks?'small-chunks-test':'standard',chunkSize,totalBytes:bytes.length,startedAt:new Date().toISOString(),bytesAcknowledged:0,offset:0,status:'sending'};log('transfer-start',{id:id(activeDevice),...lastTransfer});
+  sending=true;const activeDevice=device,activeEndpoint=endpoint,chunkSize=4096,startTime=Date.now();lastTransfer={mode:'standard',chunkSize,totalBytes:bytes.length,startedAt:new Date().toISOString(),bytesAcknowledged:0,offset:0,status:'sending'};log('transfer-start',{id:id(activeDevice),...lastTransfer});
   try{
     for(let i=0;i<bytes.length;){
       if(removed.has(activeDevice)||device!==activeDevice)throw Error('Принтер отключён во время передачи. Повтор автоматически не запускается.');
