@@ -36,6 +36,8 @@ jobs:
         run: npm test
       - name: Mobile browser and USB mock regression
         run: node tests/usb.browser.mjs
+      - name: Font editor and print rendering regression
+        run: node tests/fonts.browser.mjs
       - name: Upload synthetic-data browser screenshot
         if: always()
         uses: actions/upload-artifact@v4
@@ -44,3 +46,4 @@ jobs:
           path: wincor-android-printer/test-artifacts/
           if-no-files-found: ignore
           retention-days: 7
+
