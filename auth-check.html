@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Проверка входа Firebase — Учёт самосвалов</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{background:#0f172a;color:#f8fafc;font:16px system-ui,-apple-system,sans-serif;margin:0;padding:18px}
+main{max-width:540px;margin:auto}h1{font-size:22px;margin:12px 0}h2{font-size:16px;margin:8px 0 12px}
+section{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin:14px 0}
+p{color:#cbd5e1;font-size:14px;line-height:1.5}
+label{display:block;font-size:14px;margin:12px 0 5px}
+input{display:block;width:100%;padding:12px;border:1px solid #475569;border-radius:9px;background:#0f172a;color:#fff;font:inherit}
+button,.link{display:block;width:100%;border:0;border-radius:9px;padding:12px;margin:12px 0;background:#2563eb;color:white;font:inherit;font-weight:700;cursor:pointer;text-align:center;text-decoration:none}
+button:disabled{opacity:.6;cursor:wait}.secondary{background:#334155}
+#log{display:block;white-space:pre-wrap;overflow-wrap:anywhere;background:#0b1220;border:1px solid #334155;padding:12px;border-radius:9px;font:12px/1.65 monospace;min-height:60px}
+#session{color:#fde68a;font-weight:600}
+small{color:#94a3b8}
+</style>
+</head>
+<body><main>
+<h1>🚛 Проверка входа «Самосвалы»</h1>
+<p>Отдельная безопасная проверка подключения к рабочему Firebase. Данные рейсов не меняются. Пароль не сохраняется на этой странице и передаётся только через официальный Firebase SDK.</p>
+<section>
+  <h2>1. Соединение и текущая сессия</h2>
+  <p id="session" role="status">Проверяю Firebase…</p>
+  <button id="probe" type="button">Проверить подключение к Firebase</button>
+  <div id="log" role="status" aria-live="polite">Страница загружается…</div>
+  <button id="copy" class="secondary" type="button">Скопировать результат без личных данных</button>
+</section>
+<section>
+  <h2>2. Повторный вход</h2>
+  <p>Если сессия не активна, войдите с теми же email и паролем, что в рабочей программе. Ничего отправлять в чат не нужно.</p>
+  <form id="form" autocomplete="on">
+    <label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
+    <label for="password">Пароль</label><input id="password" type="password" autocomplete="current-password" required>
+    <button id="login" type="submit">Проверить вход через Firebase</button>
+  </form>
+  <small id="loginResult" role="status">Если вход пройдёт, вернитесь в основную программу.</small>
+</section>
+<a class="link" href="./index.html?authcheck=1">Открыть рабочую программу</a>
+<p>Если Firebase отклонит вход, пришлите только код ошибки из результата проверки. Не присылайте пароль, токены или скриншоты с паролем.</p>
+</main>
+<script src="./app/vendor/firebase-app-compat-10.8.0.js"></script>
+<script src="./app/vendor/firebase-auth-compat-10.8.0.js"></script>
+<script src="./app/vendor/firebase-firestore-compat-10.8.0.js"></script>
+<script>
+(function () {
+'use strict';
+var log=document.getElementById('log'),session=document.getElementById('session'),form=document.getElementById('form');
+var probe=document.getElementById('probe'),login=document.getElementById('login'),result=document.getElementById('loginResult');
+var lines=[];
+function add(stage,text) {
+  lines.push(stage+': '+text);
+  log.textContent=lines.join('\n');
+}
+function codeOf(error) {
+  var code=String((error && error.code) || '');
+  if (/^[a-z0-9/_-]{2,80}$/i.test(code)) return code;
+  return String((error && error.name) || 'unknown-error').replace(/[^a-z0-9_-]/gi,'').slice(0,60);
+}
+function explain(code) {
+  return {
+    'auth/network-request-failed':'Сеть не может связаться с Firebase. Проверьте мобильный интернет/Wi-Fi и ограничения доступа к Google API.',
+    'auth/invalid-api-key':'Firebase отклонил ключ проекта.',
+    'auth/operation-not-allowed':'В проекте Firebase отключён этот способ входа.',
+    'auth/unauthorized-domain':'Домен приложения не разрешён в Firebase.',
+    'auth/invalid-credential':'Firebase не принял учётные данные. Проверьте email и пароль.',
+    'auth/user-disabled':'Учётная запись отключена в Firebase Authentication.',
+    'auth/too-many-requests':'Firebase временно ограничил попытки входа.',
+    'auth/internal-error':'Ошибка Firebase. Может помочь повторная проверка сети.',
+    'permission-denied':'Firestore отклонил чтение профиля: проверьте Rules.'
+  }[code] || 'Зафиксируйте код ошибки — по нему можно установить причину.';
+}
+document.getElementById('copy').addEventListener('click',async function(){
+  try { await navigator.clipboard.writeText('Проверка Firebase / Самосвалы\n'+lines.join('\n')); this.textContent='Результат скопирован'; }
+  catch(e) { this.textContent='Не удалось скопировать: выделите текст вручную'; }
+});
+var firebaseConfig={
+  apiKey:'AIzaSyB42a5kp__3i9rD2BocdnOuKKoSlvEFLI4',
+  authDomain:'samosval-test.firebaseapp.com',
+  projectId:'samosval-test',
+  storageBucket:'samosval-test.firebasestorage.app',
+  messagingSenderId:'537285153088',
+  appId:'1:537285153088:web:cc40d712f36581784a2aa5'
+};
+if (!window.firebase || !firebase.initializeApp || !firebase.auth || !firebase.firestore) {
+  session.textContent='Firebase SDK не загрузился';
+  add('SDK','Ошибка загрузки файлов Firebase из GitHub Pages');
+  probe.disabled=true;login.disabled=true;
+  return;
+}
+var auth,db;
+try {
+  var app=firebase.apps.length?firebase.app():firebase.initializeApp(firebaseConfig);
+  if (app.options.projectId!=='samosval-test') throw Error('wrong-project');
+  auth=app.auth();db=app.firestore();
+  add('SDK','загружен; проект samosval-test');
+  add('Браузер',location.protocol==='https:'?'HTTPS':'без HTTPS');
+} catch(error) {
+  add('Инициализация','не выполнена: '+codeOf(error));
+  session.textContent='Ошибка инициализации Firebase';
+  probe.disabled=true;login.disabled=true;
+  return;
+}
+auth.onAuthStateChanged(function(user){
+  session.textContent=user?'Firebase: учётная запись авторизована':'Firebase: вход не выполнен';
+  add('Сессия',user?'есть':'нет');
+},function(error){add('Сессия — ошибка',codeOf(error))});
+probe.addEventListener('click',async function(){
+  probe.disabled=true;
+  try {
+    add('Проверка API','соединяюсь с identitytoolkit.googleapis.com');
+    var controller=new AbortController();
+    var timeout=setTimeout(function(){controller.abort()},10000);
+    try {
+      var response=await fetch('https://identitytoolkit.googleapis.com/v1/projects?key='+encodeURIComponent(firebaseConfig.apiKey),{cache:'no-store',signal:controller.signal});
+      var reply={};
+      try {reply=await response.json()}catch(e){}
+      if(response.ok) {
+        add('Identity Toolkit','доступен (HTTP '+response.status+')');
+        var domains=Array.isArray(reply.authorizedDomains)?reply.authorizedDomains:[];
+        if(domains.length) add('Домен',domains.includes(location.hostname)?'домен обнаружен в списке разрешённых':'текущий домен отсутствует в списке (важно для OAuth)');
+      } else {
+        add('Identity Toolkit','HTTP '+response.status+'; ошибка '+String(reply.error && (reply.error.status||reply.error.message)||'unknown').replace(/[^a-z0-9_ -]/gi,'').slice(0,70));
+      }
+    } catch(error) { add('Identity Toolkit',error.name==='AbortError'?'тайм-аут 10 секунд':'сетевая ошибка: '+codeOf(error)); }
+    finally {clearTimeout(timeout)}
+    if(auth.currentUser){
+      try {await auth.currentUser.getIdToken(true);add('Токен Firebase','успешно обновлён')}
+      catch(error){add('Токен Firebase',codeOf(error)+' — '+explain(codeOf(error)))}
+      try {
+        var snapshot=await Promise.race([
+          db.collection('users').doc(auth.currentUser.uid).get({source:'server'}),
+          new Promise(function(_,reject){setTimeout(function(){reject({code:'profile-timeout'})},12000)})
+        ]);
+        add('Профиль Firestore',snapshot.exists?'доступен':'документ профиля не найден');
+      } catch(error) {add('Профиль Firestore',codeOf(error)+' — '+explain(codeOf(error)))}
+    }else add('Проверка входа','не выполнена: нет авторизованного пользователя');
+  } finally {probe.disabled=false}
+});
+form.addEventListener('submit',async function(event){
+  event.preventDefault();login.disabled=true;result.textContent='Проверяю данные через Firebase…';
+  var email=document.getElementById('email').value.trim(),password=document.getElementById('password').value;
+  document.getElementById('password').value='';
+  try {
+    await auth.signInWithEmailAndPassword(email,password);
+    add('Вход','успешно');
+    result.textContent='✅ Firebase принял вход. Теперь откройте рабочую программу по кнопке ниже.';
+  }catch(error){
+    var code=codeOf(error);
+    add('Вход',code+' — '+explain(code));
+    result.textContent='❌ '+code+': '+explain(code);
+  }finally{login.disabled=false}
+});
+})();
+</script>
+</body></html>
