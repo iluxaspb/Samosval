@@ -1,7 +1,7 @@
 // Scope-specific namespace: never remove or read another application's caches.
 const BASE = new URL('./', self.location.href);
 const PREFIX = 'wincor-android-printer:' + BASE.pathname + ':';
-const CACHE = PREFIX + 'v0.1.5';
+const CACHE = PREFIX + 'v0.1.6';
 const FILES = ['./','index.html','style.css','app.js','core.js','usb.js','manifest.webmanifest','assets/ttn.jpg','assets/icon-192.png','assets/icon-512.png'];
 self.addEventListener('install', event => event.waitUntil(
   caches.open(CACHE).then(cache => cache.addAll(FILES.map(path => new URL(path, BASE).href)))

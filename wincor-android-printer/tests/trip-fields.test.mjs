@@ -51,3 +51,19 @@ test('legacy static text and truck sources remain unchanged; deleted fields leav
   assert.equal(value({source:'driver'},page.truck,page.data,job.settings),'Водитель');
   assert.equal(value({source:'trip',id:field.id},page.truck,{},job.settings),'');
 });
+
+
+test('one trip input supplies every linked position and is frozen in history',()=>{
+  const {state,field,template}=setup();
+  const linked=[newTripField(),newTripField()].map(copy=>({...copy,tripSourceId:field.id}));
+  template.fields.push(...linked);
+  assert.deepEqual(tripFields(template).map(item=>item.id),[field.id]);
+  setDraftField(state.draft,template.id,field.id,'Иван Петров');
+  const job=makeJob(state,['truck'],'2026-11-07',2);
+  setDraftField(state.draft,template.id,field.id,'Другой прораб');
+  for(const page of job.pages){
+    for(const item of [field,...linked])assert.equal(value(item,page.truck,page.data,job.settings),'Иван Петров');
+  }
+  state.jobs.push(job);
+  assert.doesNotThrow(()=>validate(clone(state)));
+});

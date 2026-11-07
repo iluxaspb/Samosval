@@ -33,8 +33,23 @@ try{
  await page.locator('[data-prop="label"]').fill('Имя прораба');
  await page.locator('[data-prop="label"]').dispatchEvent('change');
  await page.locator('#field-toolbar [data-action="field-close"]').click();
+ await page.locator('[data-action="field-add"]').click();
+ const fieldName=page.locator('[data-prop="label"]');
+ await fieldName.fill('Имя прораба');
+ page.once('dialog',dialog=>{assert.match(dialog.message(),/уже используется/);return dialog.dismiss()});
+ await fieldName.dispatchEvent('change');
+ assert.equal(await fieldName.inputValue(),'Новое поле');
+ await fieldName.fill('Имя прораба');
+ page.once('dialog',dialog=>{assert.match(dialog.message(),/Связать поля/);return dialog.accept()});
+ await fieldName.dispatchEvent('change');
+ await page.locator('#field-toolbar [data-action="field-close"]').click();
+ await page.locator('[data-action="template-settings"]').click();
+ await page.locator('#template-form [name="offsetY"]').fill('-2');
+ await page.locator('#template-form [type="submit"]').click();
+ await page.waitForFunction(()=>!document.querySelector('#modal').open);
  await page.locator('.bottomnav [data-id="print"]').click();
  await page.locator('summary').click();
+ assert.equal(await page.getByLabel('Имя прораба',{exact:true}).count(),1);
  await page.getByLabel('Имя прораба',{exact:true}).fill('Петров Пётр');
  const enteredTripValue=await page.evaluate(()=>{const s=__wincorTest.state,t=s.templates.find(t=>t.id===s.draft.templateId),f=t.fields.find(f=>f.source==='trip');return s.draft.tripValues?.[t.id]?.[f.id]});
  assert.equal(enteredTripValue,'Петров Пётр','input updates the trip draft before storage');
@@ -43,7 +58,22 @@ try{
  await page.reload();await page.locator('[data-truck]').waitFor();
  await page.locator('summary').click();
  assert.equal(await page.getByLabel('Имя прораба',{exact:true}).inputValue(),'Петров Пётр');
- await page.locator('[data-truck]').check();await page.locator('#job-copies').fill('2');await page.locator('#job-copies').dispatchEvent('change');await page.locator('[data-action="prepare"]').click();await page.locator('[data-action="usb-job"]').click();await page.waitForFunction(()=>document.querySelector('#usb-size')?.textContent.startsWith('Размер пакета:'));
+ await page.locator('[data-truck]').check();await page.locator('#job-copies').fill('2');await page.locator('#job-copies').dispatchEvent('change');await page.locator('[data-action="prepare"]').click();
+ await page.locator('.preview-page').waitFor();
+ assert.equal(await page.locator('.preview-page span').filter({hasText:'Петров Пётр'}).count(),2);
+ for(const width of [393,320,560]){
+  await page.setViewportSize({width,height:852});
+  const geometry=await page.evaluate(()=>{
+   const j=__wincorTest.job,sheet=document.querySelector('.preview-page'),bounds=sheet.getBoundingClientRect();
+   const image=sheet.querySelector('img').getBoundingClientRect();
+   return {backgroundY:image.top-bounds.top,offsetY:j.template.offsetY,fields:[...sheet.querySelectorAll('span')].map((el,i)=>({y:(el.getBoundingClientRect().top-bounds.top)/bounds.height*j.template.height,expected:j.template.fields[i].y-2}))};
+  });
+  assert.equal(geometry.offsetY,-2);
+  assert.equal(geometry.backgroundY,0);
+  assert.ok(geometry.fields.every(({y,expected})=>Math.abs(y-expected)<0.03),JSON.stringify(geometry));
+ }
+ await page.setViewportSize({width:393,height:852});
+ await page.locator('[data-action="usb-job"]').click();await page.waitForFunction(()=>document.querySelector('#usb-size')?.textContent.startsWith('Размер пакета:'));
  const tripSnapshot=await page.evaluate(()=>{const j=__wincorTest.job,f=j.template.fields.find(f=>f.source==='trip');return {label:f.label,value:j.pages[0].data.tripFields[f.id]}});
  assert.deepEqual(tripSnapshot,{label:'Имя прораба',value:'Петров Пётр'});
  const sizes=await page.evaluate(()=>{
@@ -54,10 +84,10 @@ try{
  await page.locator('#modal [data-action="usb-grant"]').waitFor();assert.equal(await page.evaluate(()=>usbMock.calls),0);
  await page.locator('#modal [data-action="usb-grant"]').click();await page.locator('#modal [data-action="usb-save"]').click();assert.equal(await page.evaluate(()=>usbMock.calls),1);
  await page.evaluate(()=>{usbMock.unplug();usbMock.cancel=true});await page.locator('#modal [data-action="usb-grant"]').click();assert.equal(await page.locator('#modal [data-action="usb-save"]').isDisabled(),true);await page.evaluate(()=>{usbMock.cancel=false;usbMock.replug(false)});await page.waitForFunction(()=>__wincorTest.usbReady);
- await page.locator('#usb-small-chunks').check();
+ assert.equal(await page.locator('#usb-small-chunks').count(),0);
  await mkdir(path.join(root,'test-artifacts'),{recursive:true});await page.screenshot({path:path.join(root,'test-artifacts','usb-mobile.png'),fullPage:true});
- await page.evaluate(()=>usbMock.unplug());await page.locator('[data-action="usb-arm"]').click();assert.equal(await page.evaluate(()=>usbMock.bytes),0);await page.evaluate(()=>usbMock.replug());await page.waitForFunction(()=>document.querySelector('#usb-progress').textContent.startsWith('Все байты'));assert.equal(await page.evaluate(()=>usbMock.bytes),sizes.new);assert.equal(await page.locator('#usb-send').isDisabled(),true);assert.equal(await page.locator('#usb-small-chunks').isDisabled(),true);assert.equal(await page.evaluate(()=>usbMock.chunks.every(n=>n<=64)),true);assert.equal(await page.evaluate(()=>JSON.stringify(usbMock.received)===JSON.stringify([...__wincorTest.packet])),true);await page.evaluate(()=>{usbMock.unplug();usbMock.replug()});await page.waitForFunction(()=>__wincorTest.usbReady);assert.equal(await page.evaluate(()=>usbMock.bytes),sizes.new,'reconnect must not replay completed packet');
- await page.locator('#modal [data-action="usb-diagnostics"]').click();const journal=JSON.parse(await page.locator('#usb-diagnostic-text').inputValue());assert.equal(journal.appVersion,'0.1.5');assert.equal(journal.lastTransfer.mode,'small-chunks-test');const [download]=await Promise.all([page.waitForEvent('download'),page.locator('[data-action="usb-download-diagnostics"]').click()]);assert.match(download.suggestedFilename(),/^wincor-usb-.*\.json$/);assert.equal(JSON.parse(await readFile(await download.path(),'utf8')).lastTransfer.totalBytes,sizes.new);
+ await page.evaluate(()=>usbMock.unplug());await page.locator('[data-action="usb-arm"]').click();assert.equal(await page.evaluate(()=>usbMock.bytes),0);await page.evaluate(()=>usbMock.replug());await page.waitForFunction(()=>document.querySelector('#usb-progress').textContent.startsWith('Все байты'));assert.equal(await page.evaluate(()=>usbMock.bytes),sizes.new);assert.equal(await page.locator('#usb-send').isDisabled(),true);assert.equal(await page.evaluate(()=>usbMock.chunks[0]),4096);assert.equal(await page.evaluate(()=>JSON.stringify(usbMock.received)===JSON.stringify([...__wincorTest.packet])),true);await page.evaluate(()=>{usbMock.unplug();usbMock.replug()});await page.waitForFunction(()=>__wincorTest.usbReady);assert.equal(await page.evaluate(()=>usbMock.bytes),sizes.new,'reconnect must not replay completed packet');
+ await page.locator('#modal [data-action="usb-diagnostics"]').click();const journal=JSON.parse(await page.locator('#usb-diagnostic-text').inputValue());assert.equal(journal.appVersion,'0.1.6');assert.equal(journal.lastTransfer.mode,'standard');const [download]=await Promise.all([page.waitForEvent('download'),page.locator('[data-action="usb-download-diagnostics"]').click()]);assert.match(download.suggestedFilename(),/^wincor-usb-.*\.json$/);assert.equal(JSON.parse(await readFile(await download.path(),'utf8')).lastTransfer.totalBytes,sizes.new);
  await page.locator('#modal [data-action="close"]').click();
  await page.reload();await page.locator('[data-truck]').waitFor();assert.equal(await page.locator('[data-truck]').count(),1);
  await page.locator('.bottomnav [data-id="settings"]').click();await page.waitForFunction(()=>__wincorTest.usbReady);assert.equal(await page.evaluate(()=>usbMock.calls),0);assert.match(await page.locator('#usb-status').innerText(),/Сохранённый принтер/);
