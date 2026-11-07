@@ -17,6 +17,8 @@ try{
  await page.locator('[data-action="editor"]').click();
  // An existing pre-upgrade field can be styled without migration.
  await page.locator('#props [data-action="field-select"]').first().click();
+ for(const align of ['left','center','right']){await page.locator('[data-prop="align"]').selectOption(align);assert.equal(await page.locator('#sheet .field.sel').evaluate(el=>el.style.textAlign),align)}
+ await page.locator('[data-prop="align"]').selectOption('center');
  assert.equal(await page.locator('[data-prop="fontFamily"]').inputValue(),'Arial');
  await page.locator('[data-prop="fontFamily"]').selectOption('Times New Roman');
  await page.locator('[data-prop="italic"]').check();
@@ -37,6 +39,7 @@ try{
  await page.locator('[data-prop="fontFamily"]').selectOption('Times New Roman');
  await page.locator('[data-prop="size"]').fill('16');await page.locator('[data-prop="size"]').dispatchEvent('change');
  await page.locator('[data-prop="bold"]').uncheck();
+ for(const align of ['left','center','right']){await page.locator('[data-prop="align"]').selectOption(align);assert.equal(await page.locator('#sheet .field.sel').evaluate(el=>el.style.textAlign),align)}
  await page.evaluate(()=>__fontsTest.flush());
  await page.reload();await page.locator('[data-action="truck-add"]').first().click();
  await page.locator('[name="plate"]').fill('А123АА178');await page.locator('#truck-form [type="submit"]').click();
@@ -44,17 +47,28 @@ try{
  await page.locator('[data-truck]').check();await page.locator('[data-action="prepare"]').click();
  const span=page.locator('.preview-page span').filter({hasText:'Петров'});
  await span.waitFor();
+ const expectedAligns=await page.evaluate(()=>__fontsTest.job.template.fields.map(f=>f.align));
+ assert.deepEqual(await page.locator('.preview-page span').evaluateAll(els=>els.map(el=>el.style.textAlign)),expectedAligns);
+ assert.equal(await span.evaluate(el=>el.style.textAlign),'right');
+ assert.equal(await page.locator('.preview-page span').first().evaluate(el=>el.style.textAlign),'center');
  const previewStyle=await span.evaluate(el=>({family:el.style.fontFamily,weight:el.style.fontWeight,italic:el.style.fontStyle}));
  assert.ok(previewStyle.family.includes('Times New Roman'));assert.equal(previewStyle.weight,'400');assert.equal(previewStyle.italic,'italic');
- const rasterFonts=await page.evaluate(()=>{const proto=CanvasRenderingContext2D.prototype,original=proto.fillText,fonts=[];proto.fillText=function(text,...args){fonts.push({text,font:this.font});return original.call(this,text,...args)};try{__fontsTest.rasterPage(__fontsTest.job,0)}finally{proto.fillText=original}return fonts});
+ const rasterFonts=await page.evaluate(()=>{const proto=CanvasRenderingContext2D.prototype,original=proto.fillText,fonts=[];proto.fillText=function(text,...args){fonts.push({text,font:this.font,align:this.textAlign,x:args[0]});return original.call(this,text,...args)};try{__fontsTest.rasterPage(__fontsTest.job,0)}finally{proto.fillText=original}return fonts});
  assert.ok(rasterFonts.some(x=>x.text==='Петров'&&x.font.includes('Times New Roman')&&x.font.includes('italic')&&x.font.includes('40px')));
- const printStyle=await page.evaluate(async()=>{const append=document.body.append;document.body.append=function(...els){append.apply(this,els);for(const el of els)if(el.tagName==='IFRAME')el.contentWindow.print=()=>{}};try{await __fontsTest.systemPrint()}finally{document.body.append=append}const fields=[...document.querySelector('#print-frame').contentDocument.querySelectorAll('.field')],el=fields.find(el=>el.textContent==='Петров');return {family:el.style.fontFamily,size:el.style.fontSize,weight:el.style.fontWeight,italic:el.style.fontStyle}});
+ const rasterExpected=await page.evaluate(()=>{const j=__fontsTest.job,t=j.template;return ['date','plate','trip'].map(source=>{const f=t.fields.find(f=>f.source===source),text=source==='date'?j.date.split('-').reverse().join('.'):source==='plate'?'А123АА178':'Петров';return {text,align:f.align,x:(f.x+t.offsetX+(f.align==='center'?f.w/2:f.align==='right'?f.w:0))*180/25.4}})});
+ assert.deepEqual(rasterExpected.map(f=>f.align),['center','left','right']);
+ for(const expected of rasterExpected){const actual=rasterFonts.find(f=>f.text===expected.text);assert.ok(actual,expected.text);assert.equal(actual.align,expected.align);assert.ok(Math.abs(actual.x-expected.x)<1e-9)}
+
+ const printStyle=await page.evaluate(async()=>{const append=document.body.append;document.body.append=function(...els){append.apply(this,els);for(const el of els)if(el.tagName==='IFRAME')el.contentWindow.print=()=>{}};try{await __fontsTest.systemPrint()}finally{document.body.append=append}const fields=[...document.querySelector('#print-frame').contentDocument.querySelectorAll('.field')],el=fields.find(el=>el.textContent==='Петров');return {family:el.style.fontFamily,size:el.style.fontSize,weight:el.style.fontWeight,italic:el.style.fontStyle,aligns:fields.map(f=>f.style.textAlign)}});
+ assert.deepEqual(printStyle.aligns,expectedAligns);
  assert.ok(printStyle.family.includes('Times New Roman'));assert.equal(printStyle.size,'16pt');assert.equal(printStyle.weight,'400');assert.equal(printStyle.italic,'italic');
  await page.locator('#modal [data-action="close"]').click();await page.locator('[data-action="editor"]').click();
+ await page.locator('#props [data-action="field-select"]').last().click();await page.locator('[data-prop="align"]').selectOption('left');
  await page.locator('[data-action="font-all"]').click();await page.locator('#font-form [name="fontFamily"]').selectOption('Arial');await page.locator('#font-form [name="italic"]').uncheck();await page.locator('#font-form [type="submit"]').click();
  await page.waitForFunction(()=>!document.querySelector('#modal').open);
  await page.locator('.bottomnav [data-id="history"]').click();await page.locator('[data-action="job-open"]').first().click();
  assert.match(await page.locator('.preview-page span').filter({hasText:'Петров'}).getAttribute('style'),/font-family:Times New Roman, serif.*font-style:italic/);
+ assert.deepEqual(await page.locator('.preview-page span').evaluateAll(els=>els.map(el=>el.style.textAlign)),expectedAligns);
  await mkdir(path.join(root,'test-artifacts'),{recursive:true});await page.screenshot({path:path.join(root,'test-artifacts','fonts-mobile.png'),fullPage:true});
- assert.deepEqual(errors,[]);console.log(JSON.stringify({existingFieldFonts:true,allFieldsAndNewDefaults:true,perFieldOverride:true,persistedAfterReload:true,previewRasterAndSystemPrint:true,historyFontSnapshot:true,pageErrors:errors}));
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({existingFieldFonts:true,allFieldsAndNewDefaults:true,perFieldOverride:true,persistedAfterReload:true,previewRasterAndSystemPrint:true,historyFontSnapshot:true,existingAndNewFieldAlignment:true,threeAlignmentsAcrossRenderers:true,historyAlignmentSnapshot:true,pageErrors:errors}));
 }finally{await browser.close();await new Promise(r=>server.close(r))}

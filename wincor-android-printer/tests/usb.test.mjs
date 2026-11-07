@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 let seq=0;
 function printer(serial='A'){
-  return {vendorId:123,productId:456,serialNumber:serial,productName:'WN HighPrint 4915xe',opened:false,
+  return {vendorId:2727,productId:17152,serialNumber:serial,productName:'WN HighPrint 4915xe',opened:false,
     configuration:{interfaces:[{interfaceNumber:0,alternates:[{alternateSetting:0,interfaceClass:7,interfaceSubclass:1,endpoints:[{endpointNumber:1,direction:'out',type:'bulk'}]}]}]},
     async open(){this.opened=true},async close(){this.opened=false},async claimInterface(){},async selectAlternateInterface(){},async releaseInterface(){},
     async transferOut(ep,chunk){return {status:'ok',bytesWritten:chunk.length}}};
@@ -52,7 +52,7 @@ test('explicit selection requests permission synchronously and filters printers'
  const {usb,devices}=await setup();let called=false;const old=devices[0];await usb.searchPrinters();
  old.close=async()=>{assert.equal(called,true);old.opened=false};
  navigator.usb.getDevices=()=>{throw Error('must not enumerate before chooser')};
- navigator.usb.requestDevice=opts=>{called=true;assert.deepEqual(opts,{filters:[{classCode:7}]});return Promise.resolve(old)};
+ navigator.usb.requestDevice=opts=>{called=true;assert.deepEqual(opts,{filters:[{vendorId:2727,productId:17152,classCode:7}]});return Promise.resolve(old)};
  const task=usb.connect({useSaved:false});assert.equal(called,true);assert.equal((await task).ready,true);await usb.disconnect();
 });
 test('failed first channel falls back across configurations without printing',async()=>{
@@ -109,4 +109,16 @@ test('unrelated printer is neither auto-connected nor opened by explicit choice'
 
 test('fresh permitted attach selects its object even if older enumerated records open',async()=>{
  const old=printer('old'),fresh=printer('new');const {usb}=await setup([old,fresh]);let plug;navigator.usb.addEventListener=(name,fn)=>{if(name==='connect')plug=fn};usb.onConnect(()=>{});await plug({device:fresh});assert.equal(usb.connected(),true);assert.equal(fresh.opened,true);assert.equal(old.opened,false);await usb.disconnect();
+});
+test('standard and small chunk experiment preserve exact bytes with partial writes and pin mode',async()=>{
+ for(const small of [false,true]){
+  const {usb,devices}=await setup();await usb.connect();const sent=[],lengths=[],options={testSmallChunks:small},bytes=Uint8Array.from({length:9000},(_,i)=>i%251);
+  devices[0].transferOut=async(ep,chunk)=>{lengths.push(chunk.length);options.testSmallChunks=!small;const n=Math.min(chunk.length,small?37:2047);sent.push(...chunk.slice(0,n));return {status:'ok',bytesWritten:n}};
+  await usb.sendBytes(bytes,()=>{},{cancelled:false},options);
+  assert.deepEqual(sent,[...bytes]);assert.equal(lengths[0],small?64:4096);assert.ok(lengths.every(n=>n<=(small?64:4096)));
+  const d=usb.diagnostics();assert.equal(d.lastTransfer.chunkSize,small?64:4096);assert.equal(d.lastTransfer.bytesAcknowledged,bytes.length);assert.equal(d.lastTransfer.status,'complete');assert.equal(d.appVersion,'0.1.4');await usb.disconnect();
+ }
+});
+test('bounded journal reports dropped events and retains transfer summary',async()=>{
+ const {usb,devices}=await setup();await usb.connect();await usb.sendBytes(new Uint8Array(140000),()=>{},{cancelled:false},{testSmallChunks:true});const d=usb.diagnostics();assert.equal(d.events.length,4096);assert.ok(d.droppedEvents>0);assert.equal(d.lastTransfer.bytesAcknowledged,140000);assert.equal(d.lastTransfer.status,'complete');await usb.disconnect();
 });
