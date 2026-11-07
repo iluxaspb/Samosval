@@ -18,9 +18,12 @@ try{
  await page.locator('#props [data-action="field-select"]').first().click();
  await page.locator('[data-action="field-edit"]').click();
  const panel=page.locator('#field-toolbar');
+ async function assertSheetBelowToolbar(){const toolbar=await panel.boundingBox(),viewport=await page.locator('#viewport').boundingBox(),field=await page.locator('#sheet .field.sel').boundingBox();assert.ok(viewport.y>=toolbar.y+toolbar.height,JSON.stringify({toolbar,viewport}));assert.ok(field.y>=toolbar.y+toolbar.height,JSON.stringify({toolbar,field}));}
+ await assertSheetBelowToolbar();
  for(const size of [{width:393,height:852},{width:852,height:393},{width:320,height:568}]){
   await page.setViewportSize(size);await panel.scrollIntoViewIfNeeded();
   const box=await panel.boundingBox();assert.ok(box.height<=size.height/3+1,JSON.stringify({size,box}));
+  await assertSheetBelowToolbar();
   assert.ok(box.width<=size.width);assert.equal(await page.locator('#modal').evaluate(el=>el.open),false);
  }
  await page.setViewportSize({width:393,height:852});
@@ -46,6 +49,6 @@ try{
  assert.ok(Object.values(validation).every(Boolean));
  await page.evaluate(()=>__editorTest.flush());await page.reload();await page.locator('[data-action="editor"]').click();assert.match(await page.locator('#sheet img').getAttribute('src'),/^data:image\/jpeg;base64,/);
  assert.deepEqual(errors,[]);await mkdir(path.join(root,'test-artifacts'),{recursive:true});
- await page.locator('#props [data-action="field-select"]').first().click();await page.locator('[data-action="field-edit"]').click();await page.screenshot({path:path.join(root,'test-artifacts','compact-editor-mobile.png')});
+ await page.locator('#props [data-action="field-select"]').first().click();await page.locator('[data-action="field-edit"]').click();await assertSheetBelowToolbar();await page.screenshot({path:path.join(root,'test-artifacts','compact-editor-mobile.png')});
  console.log(JSON.stringify({compactThirdScreen:true,nonmodalFieldSelection:true,allFilesFallback:true,jpegWithoutMimeImportedAndPersisted:true,mislabeledMimeDecoded:true,invalidImagesRejected:true,pageErrors:errors}));
 }finally{await browser.close();await new Promise(r=>server.close(r))}
