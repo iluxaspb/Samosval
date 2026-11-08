@@ -5,77 +5,12 @@
     {
       "name": "domain",
       "status": "passed",
-      "durationMs": 83
+      "durationMs": 139
     },
     {
       "name": "live-rule-boundary",
-      "status": "passed",
-      "durationMs": 23
-    },
-    {
-      "name": "new-ui",
-      "status": "passed",
-      "durationMs": 1840
-    },
-    {
-      "name": "plugin-service",
-      "status": "passed",
-      "durationMs": 450
-    },
-    {
-      "name": "legacy-core",
-      "status": "passed",
-      "durationMs": 125
-    },
-    {
-      "name": "host-integrity-and-build",
-      "status": "passed",
-      "durationMs": 1373
-    },
-    {
-      "name": "coins",
-      "status": "passed",
-      "durationMs": 88
-    },
-    {
-      "name": "actual-pwa",
-      "status": "passed",
-      "durationMs": 137
-    },
-    {
-      "name": "firebase-service-integration",
-      "status": "passed",
-      "durationMs": 4721
-    },
-    {
-      "name": "legacy-emulator",
-      "status": "passed",
-      "durationMs": 4618
-    },
-    {
-      "name": "sandbox-emulator",
-      "status": "passed",
-      "durationMs": 4283
-    },
-    {
-      "name": "integrated-rule-proposal-not-applied",
-      "status": "passed",
-      "durationMs": 4984
-    },
-    {
-      "name": "chromium-mobile",
-      "status": "passed",
-      "durationMs": 10294
-    },
-    {
-      "name": "pwa-upgrade-real-worker-local-fixture",
-      "status": "passed",
-      "durationMs": 2185
-    },
-    {
-      "name": "protected-paths",
-      "status": "passed",
-      "durationMs": 2589
+      "status": "failed",
+      "durationMs": 176
     }
   ],
   "blocked": [
