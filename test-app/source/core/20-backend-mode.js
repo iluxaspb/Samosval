@@ -9,14 +9,13 @@
   }
 
   function getTestBackendMode() {
-    if(isNasRuntime())return 'ubuntu';
     const key = testBackendPreferenceKey();
-    if (!key) return 'firebase';
+    if (!key) return 'ubuntu';
     try {
       const mode = localStorage.getItem(key);
       // Never activate an unsupported provider from an old or edited preference.
-      return mode === 'auto' || mode === 'ubuntu' ? mode : 'firebase';
-    } catch (_) { return 'firebase'; }
+      return mode === 'auto' || mode === 'ubuntu' || mode === 'firebase' ? mode : 'ubuntu';
+    } catch (_) { return 'ubuntu'; }
   }
 
   function setTestBackendMode(mode) {
@@ -108,14 +107,17 @@
     if (probeButton) probeButton.disabled = !allowed || !navigator.onLine || testUbuntuCheckPending;
     const select = document.getElementById('testBackendMode');
     if (select) {
-      select.disabled = !allowed || isNasRuntime();
+      select.disabled = !allowed;
       select.value = getTestBackendMode();
     }
     const actual = document.getElementById('testBackendActual');
     if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
     const note = document.getElementById('testBackendModeNote');
-    if (note) note.textContent = isNasRuntime() ? 'Данные линии обслуживает Ubuntu.' : getTestBackendMode() === 'auto'
-      ? 'Сейчас автоматически используется Firebase. Ubuntu доступен для ручного выбора.'
-      : 'Данные обслуживает Firebase. Ubuntu доступен для ручного выбора.';
+    const mode = getTestBackendMode();
+    if (note) note.textContent = mode === 'ubuntu'
+      ? 'Данные обслуживает Ubuntu.'
+      : mode === 'auto'
+        ? 'Автоматически: основной сервер — Ubuntu, при недоступности действия сохраняются в локальную очередь. Резервный Firebase недоступен: база Firestore тестового проекта удалена.'
+        : 'Выбран Firebase. Внимание: база Firestore тестового проекта удалена, данные не загрузятся — верните режим «Только Ubuntu» или «Автоматически».';
   }
 
