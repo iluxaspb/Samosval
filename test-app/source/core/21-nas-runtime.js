@@ -1,6 +1,6 @@
   // TEST runtime is hosted on Ubuntu. Firebase is used only for authentication
   // tokens; application data and writes go through the Ubuntu API.
-  const UBUNTU_API_BASE = 'https://samosval-test.iluxa.pro:18443';
+  const UBUNTU_API_BASE = 'https://samosval-test.iluxa.pro';
   function nasProvider() {
     const provider = document.querySelector('meta[name="test-data-provider"]')?.content;
     if (provider === 'ubuntu-candidate') return 'ubuntu';
