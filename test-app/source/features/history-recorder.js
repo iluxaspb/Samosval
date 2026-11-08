@@ -9,7 +9,7 @@
   function eligible(ref){
     if(ref.firestore!==db||!currentUid||currentUserStatus!=='active')return false;
     const p=ref.path.split('/');
-    return p.length===4&&ref.path.startsWith(prefix)&&collections.has(p[2]) || p.length===2&&(['users','registration_requests'].includes(p[0])||p[0]==='settings'&&['permissions','appConfig'].includes(p[1]));
+    return p.length===4&&ref.path.startsWith(prefix)&&collections.has(p[2]) || p.length===2&&(['users','registration_requests'].includes(p[0])||p[0]==='settings'&&p[1]==='permissions');
   }
   const copy=x=>x==null?x:JSON.parse(JSON.stringify(x));
   function merge(a,b){const out={...a};for(const [k,v] of Object.entries(b)){if(v&&Object.getPrototypeOf(v)===Object.prototype&&out[k]&&typeof out[k]==='object'&&!Array.isArray(out[k]))out[k]=merge(out[k],v);else out[k]=copy(v);}return out;}
@@ -26,13 +26,24 @@
   function refInfo(ref){const p=ref.path.split('/');return {collection:p.length===4?p[2]:p[0],id:p.at(-1),path:ref.path};}
   async function run(callback,options){
     if(isNasRuntime())throw new Error('Запись Firebase запрещена в режиме Synology');
+    const sessionGeneration=authSessionGeneration;
+    if(!isAuthSessionReady(sessionGeneration))throw {code:'auth-session-stale',message:'Дождитесь подтверждения учётной записи'};
     const historyId='history_'+(crypto.randomUUID?crypto.randomUUID():Date.now()+'_'+Math.random().toString(36).slice(2));
     const actor={uid:currentUid,email:currentEmail,name:getUserName()},time=Date.now();
     return rawTransaction(async tx=>{
-      const writes=[];const facade={get:r=>tx.get(r),set:(...args)=>{writes.push(['set',args]);return facade;},update:(...args)=>{writes.push(['update',args]);return facade;},delete:(...args)=>{writes.push(['delete',args]);return facade;}};
+      if(!isAuthSessionReady(sessionGeneration))throw {code:'auth-session-stale',message:'Сессия изменилась до записи'};
+      const writes=[],snapshots=new Map();
+      const policySnap=await tx.get(appConfigRef);
+      if(!isAuthSessionReady(sessionGeneration))throw {code:'auth-session-stale',message:'Сессия изменилась при чтении настроек'};
+      const facade={
+        get:async r=>{const snap=await tx.get(r);snapshots.set(r.path,snap.exists?snap.data():null);return snap;},
+        set:(...args)=>{writes.push(['set',args]);return facade;},
+        update:(...args)=>{writes.push(['update',args]);return facade;},
+        delete:(...args)=>{writes.push(['delete',args]);return facade;}
+      };
       const result=await callback(facade),records=new Map();
       for(const [method,args] of writes){const [ref,data,opts]=args;if(!eligible(ref))continue;
-        if(!records.has(ref.path)){const snap=await tx.get(ref);const before=snap.exists?snap.data():null;records.set(ref.path,{...refInfo(ref),before,after:copy(before)});}
+        if(!records.has(ref.path)){const before=snapshots.has(ref.path)?snapshots.get(ref.path):null;records.set(ref.path,{...refInfo(ref),before,after:copy(before)});}
         const op=records.get(ref.path);
         if(method==='delete')op.after=null;
         else if(method==='update'){if(!op.after)throw new Error('Обновляемая запись отсутствует');if(!data||typeof data!=='object')throw new Error('Используйте объект для изменения записи');op.after=update(op.after,data);}
@@ -46,8 +57,7 @@
         const description=title(operations);entry={text:description,timestamp:time,timeStr:new Date(time).toLocaleString('ru-RU'),userName:actor.name,userEmail:actor.email,createdByEmail:actor.email,shiftId:state.shift?.id||'',objectId:state.shift?.objectId||'',objectName:state.shift?.objectName||'',eventType:'history',history:{id:historyId,version:3,description,user:actor.name,userEmail:actor.email,userUid:actor.uid,timestamp:time,operations,undone:false}};
         // Freeze the reward policy with the confirmed history entry; legacy entries are never repriced.
         if(window.__gameRewardSnapshot&&operations.some(o=>o.collection==='logs'||o.collection==='truckStatus')){
-          const rewardPolicy=await tx.get(appConfigRef);
-          entry.history.gameRewards=window.__gameRewardSnapshot(rewardPolicy.exists?rewardPolicy.data():{},result?.gameRewardAction,time);
+          entry.history.gameRewards=window.__gameRewardSnapshot(policySnap.exists?policySnap.data():{},result?.gameRewardAction,time);
         }
         if(new Blob([JSON.stringify(entry)]).size>900000)throw new Error('Изменение слишком большое для одной записи истории. Разделите его на части.');
       }

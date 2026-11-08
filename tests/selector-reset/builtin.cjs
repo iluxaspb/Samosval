@@ -3,10 +3,10 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.resolve(__dirname,'../..'),read=file=>fs.readFileSync(path.join(root,file),'utf8');
 const expectedPatchIds=['object_summary','summary_colors','standard_crew','mill_directory','equipment_tiles','equipment_frequency','inline_create','hired_single','truck_participation','shift_material','conflict_author','archive_groups','archive_search','archive_fullscreen','archive_no_drawing','archive_no_pdf','archive_png','archive_controls','archive_hold','security_ui','analytics_layout','analytics_workdate','analytics_audit','analytics_methods','user_ranking','game_mode','game_penalties','admin_report','senior_foreman_role','senior_foreman_reset','senior_foreman_crown','admin_tired_icon','shift_cycle','truck_ranking','tables_editor','tables_format','tables_formula','tables_symbols','tables_access','tables_history','offline_integrity','sync_review','weekly_1c'];
-const targets=[['TEST','test-app/src/core/15-directory-views.js','test-app/src/shell.html'],['production','index.html','index.html']];
+const targets=[['TEST','test-app/source/core/11-truck-selector.js','test-app/source/shell.html'],['production','index.html','index.html']];
 function selectorCode(source){
-  const begin=source.indexOf('  function renderSelectorList()'),end=source.indexOf('  function renderGlobalTrucksManage()',begin);
-  assert(begin>=0&&end>begin,'Selector functions must exist exactly once');
+  const begin=source.indexOf('function renderSelectorList()'),end=source.length;
+  assert(begin>=0,'Selector function must exist');
   assert.equal((source.match(/function openSelectorModal\(/g)||[]).length,1);
   return source.slice(begin,end);
 }

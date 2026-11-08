@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {checkSynology} from '../../test-app/synology/connection-check.mjs';
 
-const line={format:'samosval-line-snapshot',version:1,source:'synology',workspaceId:'main_workspace',trucks:[{}],statuses:[],logs:[{volume:24},{volume:25},{volume:99,isGAI:true}]};
+const line={format:'samosval-line-snapshot',version:1,source:'ubuntu',workspaceId:'main_workspace',trucks:[{}],statuses:[],logs:[{volume:24},{volume:25},{volume:99,isGAI:true}]};
 const tabel={record:{revision:0,data:null}};
 const response=(body,status=200)=>({ok:status===200,status,json:async()=>body});
 test('probe checks both protected endpoints and excludes GAI from normal totals',async()=>{
@@ -11,7 +11,7 @@ test('probe checks both protected endpoints and excludes GAI from normal totals'
   assert.deepEqual(result,{trucks:1,logs:3,normal:2,volume:49});
   assert.equal(calls.length,2);
   assert.match(calls[1].url,/tabel\/records\?key=/);
-  for(const {url,options} of calls){assert.match(url,/^https:\/\/iluxa\.synology\.me:18443\//);assert.equal(options.method,undefined);assert.equal(options.body,undefined);assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');assert.equal(options.headers.Authorization,'Bearer test-token');}
+  for(const {url,options} of calls){assert.match(url,/^https:\/\/samosval-test\.iluxa\.pro:18443\//);assert.equal(options.method,undefined);assert.equal(options.body,undefined);assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');assert.equal(options.headers.Authorization,'Bearer test-token');}
 });
 test('old line-only API cannot pass a complete connection check',async()=>{
   let count=0;

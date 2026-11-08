@@ -42,7 +42,7 @@ test('line snapshot access, workspace isolation and concurrent consistency in Po
       await t.test('only current workspace and shift are returned with database IDs', async () => {
         const snapshot = await readLineSnapshot(pool, uid, ws);
         assert.equal(snapshot.cycleMinutes, 60);
-        assert.equal(snapshot.source, 'synology');
+        assert.equal(snapshot.source, 'ubuntu');
         assert.equal(snapshot.shift.id, current);
         assert.equal(snapshot.trucks.length, 1);
         assert.equal(snapshot.trucks[0].id, truck);

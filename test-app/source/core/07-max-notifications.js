@@ -35,10 +35,10 @@
       }
     } finally { maxSenderRunning = false; if (maxQueue.length) { const pending = maxQueue.filter(q => q.notBefore && q.notBefore > Date.now()); if (pending.length > 0) setTimeout(runMaxQueue, Math.max(5000, Math.min(...pending.map(q => q.notBefore)) - Date.now())); } }
   }
-  async function showMaxQueueStatus() { if(isNasRuntime()){try{const r=await nasRuntimeClient.readNotifications();appNotice('── ОЧЕРЕДЬ MAX · Synology ──\n'+Object.entries(r.counts).map(([k,v])=>k+': '+v).join('\n'));}catch(e){showError(e.message);}return;} let lines = ['── ОЧЕРЕДЬ MAX ──', `Отправка: ${appConfig.maxEnabled ? 'вкл' : 'выкл'}`, `В очереди: ${maxQueue.length}`]; if (maxLastError) lines.push(`Ошибка: ${maxLastError}`); appNotice(lines.join('\n')); }
+  async function showMaxQueueStatus() { if(isNasRuntime()){try{const r=await nasRuntimeClient.readNotifications();appNotice('── ОЧЕРЕДЬ MAX · Ubuntu ──\n'+Object.entries(r.counts).map(([k,v])=>k+': '+v).join('\n'));}catch(e){showError(e.message);}return;} let lines = ['── ОЧЕРЕДЬ MAX ──', `Отправка: ${appConfig.maxEnabled ? 'вкл' : 'выкл'}`, `В очереди: ${maxQueue.length}`]; if (maxLastError) lines.push(`Ошибка: ${maxLastError}`); appNotice(lines.join('\n')); }
   async function testMaxMessage() {
     if (!canAdmin()) return;
-    if(isNasRuntime()){try{await nasBusinessCommand('notification','test',{type:'notification.test'});showToastEl('✅ Тест поставлен в очередь Synology',false);}catch(e){showError(e.message);}return;}
+    if(isNasRuntime()){try{await nasBusinessCommand('notification','test',{type:'notification.test'});showToastEl('✅ Тест поставлен в очередь Ubuntu',false);}catch(e){showError(e.message);}return;}
     if (!appConfig.maxEnabled || !appConfig.maxUrl || !appConfig.maxChatId) { showError('Заполните URL, токен и Chat ID'); return; }
     showToastEl('⏳ Отправка теста...', false);
     let res = await sendMaxOnce({ type: 'text', text: '🧪 Тест\nПриложение «Учет самосвалов» подключено к Max.' });

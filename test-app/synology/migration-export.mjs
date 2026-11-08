@@ -73,10 +73,10 @@ $('check-api').addEventListener('click',async()=>{
   $('check-api').disabled=true;
   try{
     const user=await requireAdmin();
-    const response=await fetch('https://iluxa.synology.me:18443/api/v1/line/snapshot',{headers:{Authorization:'Bearer '+await user.getIdToken()},cache:'no-store',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(15000)});
+    const response=await fetch('https://ubuntu-api-test.iluxa.synology.me:18443/api/v1/line/snapshot',{headers:{Authorization:'Bearer '+await user.getIdToken()},cache:'no-store',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(15000)});
     if(!response.ok)throw new Error('Synology HTTP '+response.status);
     const snapshot=await response.json();
-    if(snapshot.format!=='samosval-line-snapshot'||snapshot.source!=='synology')throw new Error('Неверный ответ API');
+    if(snapshot.format!=='samosval-line-snapshot'||snapshot.source!=='ubuntu')throw new Error('Неверный ответ API');
     tell('Synology: ответ подтверждён по HTTPS.\nСмена: '+(snapshot.shift?.id||'закрыта')+'\nМашин в справочнике: '+snapshot.trucks.length+'\nСтатусов: '+snapshot.statuses.length+'\nЗаписей рейсов: '+snapshot.logs.length+'\nИнтервал: '+snapshot.cycleMinutes+' мин.\nОсновная страница приложения пока не переключена.');
   }catch(error){tell('Проверка Synology: '+error.message);}
   finally{$('check-api').disabled=false;}
@@ -86,7 +86,7 @@ $('probe').addEventListener('click',async()=>{
   $('probe').disabled=true;
   const truckId='synology_probe_20261030';
   try{
-    const user=await requireAdmin(),baseUrl='https://iluxa.synology.me:18443';
+    const user=await requireAdmin(),baseUrl='https://ubuntu-api-test.iluxa.synology.me:18443';
     const token=force=>user.getIdToken(force);
     const read=async()=>{const response=await fetch(baseUrl+'/api/v1/line/snapshot',{headers:{Authorization:'Bearer '+await token(false)},cache:'no-store',redirect:'error',credentials:'omit',signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error('Чтение: HTTP '+response.status);return response.json();};
     const before=await read(),status=before.statuses.find(s=>s.id===truckId);

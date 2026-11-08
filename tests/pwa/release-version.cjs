@@ -1,6 +1,6 @@
 // Version labels must describe the loaded release, not a legacy feature's release number.
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const release=fs.readFileSync('test-app/src/features/release-history.js','utf8');
+const release=fs.readFileSync('test-app/source/features/release-history.js','utf8');
 const current=release.match(/version:'([^']+)'/)[1];let replacement;
 const dialogs=new Map();
 const element=()=>({children:[],events:{},setAttribute(){},addEventListener(name,fn){this.events[name]=fn;},append(...nodes){this.children.push(...nodes);},showModal(){this.open=true;},focus(){this.focused=true;},close(){this.open=false;this.events.close?.();},remove(){dialogs.delete(this.id);}});
@@ -28,9 +28,9 @@ for(const version of ['3.1.22','3.1.21','3.1.20','3.1.19','3.1.18'])assert(headi
 dialog.close();assert.equal(dialogs.size,0);assert.equal(replacement.focused,true);
 replacement.events.click();assert.notEqual(dialogs.get('releaseHistoryDialog'),dialog,'Closing must allow reopening');
 dialogs.get('releaseHistoryDialog').close();
-vm.runInNewContext(fs.readFileSync('test-app/src/features/review-config.js','utf8'),context);
+vm.runInNewContext(fs.readFileSync('test-app/source/features/review-config.js','utf8'),context);
 assert.equal(context.window.TEST_REVIEW_RELEASE.label,context.window.TEST_APP_RELEASE.label);
-assert(fs.readFileSync('test-app/src/shell.html','utf8').includes('Версия '+current));
-assert(fs.readFileSync('test-app/src/features/timesheet-app.js','utf8').includes("window.TEST_APP_RELEASE?.label||'Тест'"));
-assert(/\.version-text\s*\{[^}]*color:\s*#e11d48/.test(fs.readFileSync('test-app/src/styles/base.css','utf8')));
+assert(fs.readFileSync('test-app/source/shell.html','utf8').includes('Версия '+current));
+assert(fs.readFileSync('test-app/source/shell.html','utf8').includes("version-text"));
+assert(/\.version-text\s*\{[^}]*color:\s*#e11d48/.test(fs.readFileSync('test-app/source/styles/style-04.css','utf8')));
 console.log('PASS header, reports and timesheet share one immutable current release; red label and retained history; admin gate, repeated click, close/reopen');

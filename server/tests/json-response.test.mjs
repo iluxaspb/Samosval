@@ -5,7 +5,7 @@ import {once} from 'node:events';
 import {sendJson} from '../src/json-response.mjs';
 import {createNasClient} from '../../test-app/synology/session-client.mjs';
 const hash='"'+'a'.repeat(64)+'"';
-const snapshot={format:'samosval-session',version:1,source:'synology',workspaceId:'main_workspace',identityReady:true,profile:{uid:'one',role:'admin',status:'active',deleted:false},permissions:{tabs:[],actions:[]}};
+const snapshot={format:'samosval-session',version:1,source:'ubuntu',workspaceId:'main_workspace',identityReady:true,profile:{uid:'one',role:'admin',status:'active',deleted:false},permissions:{tabs:[],actions:[]}};
 async function endpoint(t){
   let data={value:1},authorized=true,checks=0;
   const server=http.createServer((req,res)=>{checks++;if(!authorized)return sendJson(res,403,{error:'forbidden'});sendJson(res,200,data);});

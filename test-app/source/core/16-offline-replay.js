@@ -169,12 +169,25 @@
   }
   async function offlineReplayJournal(){
     if(isNasRuntime())return replayNasOfflineJournal();
-    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||Date.now()<offlineServerRetryAt||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
+    const sessionGeneration = authSessionGeneration;
+    const sessionIsCurrent = () => sessionGeneration === authSessionGeneration;
+    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||!profileServerConfirmed||!permissionsServerConfirmed||Date.now()<offlineServerRetryAt||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
     offlineReplayRunning=true;
     try{
-      for(const op of offlineJournalRead().filter(x=>x.status==='confirmed'&&!x.effectsDelivered))await offlineNotifyAccepted(op,op.savedResult||{});
-      for(const op of offlinePendingOps()){
-        if(!navigator.onLine||currentUserStatus!=='active')break;
+      for(const op of offlineJournalRead().filter(x=>x.status==='confirmed'&&!x.effectsDelivered)) {
+        // A confirmed operation from a closed/replaced shift must never emit
+        // notifications or audit into the newly restored shift.
+        if (state.shift?.id && op.shiftId !== state.shift.id) continue;
+        offlineNotifyAccepted(op,op.savedResult||{}).catch(e=>console.warn('[offline effects]',e));
+      }
+      // Re-read the durable journal after each operation. A user can enqueue a
+      // dependent action while this replay is already running; iterating a
+      // one-time snapshot would leave that new action pending until another
+      // online event or reload.
+      while(true){
+        const op=offlinePendingOps()[0];
+        if(!op)break;
+        if(!sessionIsCurrent()||!navigator.onLine||currentUserStatus!=='active')break;
         if(!offlineJournalRead().some(x=>x.id===op.id&&x.status==='pending'))continue;
         if(op.dependencyId){
           const previous=offlineJournalRead().find(x=>x.id===op.dependencyId);
@@ -184,8 +197,15 @@
           }
         }
         try{
+          if(!sessionIsCurrent())break;
           const result=await db.runTransaction(async tx=>{
-            const policy=await tx.get(appConfigRef);
+          if(!sessionIsCurrent()||currentUserStatus!=='active'||!profileServerConfirmed||!permissionsServerConfirmed){
+            throw {code:'auth-session-stale',message:'Сессия изменилась до чтения настроек'};
+          }
+          const policy=await tx.get(appConfigRef);
+          if(!sessionIsCurrent()||currentUserStatus!=='active'||!profileServerConfirmed||!permissionsServerConfirmed){
+            throw {code:'auth-session-stale',message:'Сессия изменилась при чтении настроек'};
+          }
             const sharedCycle=policy.exists?Number(policy.data().cycleMinutes)||15:15;
             const before=await readLineState(tx,op.truckId,op.shiftId);
             const truck=findTruck(op.truckId);if(!truck)throw {code:'truck-missing',message:'Самосвал не найден'};
@@ -253,6 +273,7 @@
             }
             return {outcome:'rejected',reason:'unsupported'};
           });
+          if(!sessionIsCurrent())break;
           offlineTransportRecovered();offlineAdoptResult(op,result);
           {const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);if(saved){saved.savedResult={status:result.status||null,beforeStatus:result.beforeStatus||op.beforeStatus,log:result.log||null};offlineJournalWrite(all);}}
           offlineResolve(op.id,result.outcome,result.reason||result.outcome);
@@ -267,16 +288,23 @@
                 if(op.type==='ttn'&&op.collect&&appConfig.notifyTtn)enqueueMax('📄 Забрал ТТН\n🚛 '+name+'\n👤 '+actor);
               }
             }
-            await offlineNotifyAccepted(op,result);
+            offlineNotifyAccepted(op,result).catch(e=>console.warn('[offline effects]',e));
           }else showToastEl('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)),true);
         }catch(e){
+          if(e.code==='auth-session-stale')break;
           if(offlineTransportError(e)){offlineTransportFailed(e);break;}
           if(!navigator.onLine||['aborted','cancelled'].includes(e.code)){offlineServerRetryAt=Date.now()+1500;break;}
           offlineResolve(op.id,'rejected',e.code||e.message||'error');offlineProjectState();refreshLineViews();
           showToastEl('⚠️ Офлайн-действие отклонено: '+escapeHtml(e.message||e.code||'ошибка'),true);
         }
       }
-    }finally{offlineReplayRunning=false;updateSyncUI();}
+    }finally{
+      offlineReplayRunning=false;updateSyncUI();
+      // A second action can be queued while this replay is in flight. The
+      // enqueue call coalesces while the lock is held, so drain the durable
+      // journal once the lock is released instead of waiting for reload/reconnect.
+      if (navigator.onLine && offlinePendingCount() > 0) queueMicrotask(() => offlineReplayJournal());
+    }
   }
   // Offline-first operations. The UI moves immediately; the journal replays
   // through server transactions even when navigator.onLine incorrectly says true.

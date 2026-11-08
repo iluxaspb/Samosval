@@ -18,6 +18,33 @@ const watchdog = setTimeout(() => {console.error('FAIL offline regression did no
   await Promise.all([a.c.offlineReplayEffects(), b.c.offlineReplayEffects()]);
   assert.equal(count(shared, 'notifications'), 1); assert.equal(count(shared, 'audit'), 1);
   console.log('PASS two clients and transaction retry produce one trip, one audit and one notification');
+  // An action enqueued while replay owns the queue must be discovered by the
+  // current replay pass; a concurrent call correctly coalesces and must not
+  // strand the dependent load until another online event.
+  const racing=client();
+  Object.assign(racing.c,{profileServerConfirmed:true,permissionsServerConfirmed:true,authSessionGeneration:1});
+  racing.c.state.truckStatus.t.arriveStatus=null;racing.c.state.truckStatus.t.arriveTimestamp=0;
+  racing.run("offlineRemoteStatuses.t.arriveStatus=null;offlineRemoteStatuses.t.arriveTimestamp=0;");
+  racing.shared.put('truckStatus/t',{...racing.shared.rows.get('truckStatus/t'),arriveStatus:null,arriveTimestamp:0});
+  queue(racing,'arrive');
+  const originalTransaction=racing.c.db.runTransaction;let releaseArrival,enteredArrival;
+  const arrivalEntered=new Promise(resolve=>{enteredArrival=resolve;});
+  racing.c.db.runTransaction=async callback=>originalTransaction(async tx=>{
+    const result=await callback(tx);
+    if(racing.c.offlineJournalRead().some(op=>op.type==='arrive'&&op.status==='pending')){
+      enteredArrival();await new Promise(resolve=>{releaseArrival=resolve;});
+    }
+    return result;
+  });
+  const firstReplay=replay(racing);await arrivalEntered;
+  const pendingArrival=racing.c.offlineJournalRead().find(op=>op.type==='arrive');
+  const loadOp={...pendingArrival,id:'load-during-replay',type:'load',status:'pending',dependencyId:pendingArrival.id,expectedRevision:2,arrivalTimestamp:1000000,createdAt:1000001,logId:'load-during-replay'};
+  racing.c.offlineJournalWrite([...racing.c.offlineJournalRead(),loadOp]);await racing.c.offlineReplayJournal();
+  releaseArrival();await firstReplay;
+  assert.equal(racing.c.offlinePendingCount(),0,'queue added during replay must not remain pending');
+  assert.equal(count(racing.shared,'logs'),1,'dependent load must commit during the same replay pass');
+  console.log('PASS action queued during active replay is drained without reconnect/reload');
+
 
   // The first commit succeeds but its acknowledgement is lost. Recreate the
   // client from its durable storage, then resend exactly the same operation.

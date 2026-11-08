@@ -13,7 +13,8 @@
   async function ensurePendingAccount(user) {
     if(isNasRuntime())return ensureNasPendingAccount(user);
     const profileRef = usersRef.doc(user.uid), requestRef = requestsRef.doc(user.uid);
-    await db.runTransaction(async tx => {
+    const rawTransaction = window.__historyRawTransaction || db.runTransaction.bind(db);
+    await rawTransaction(async tx => {
       const profile = await tx.get(profileRef);
       const request = await tx.get(requestRef);
       if (profile.exists && profile.data().status !== 'pending') return;

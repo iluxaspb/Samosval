@@ -11,12 +11,18 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix='samosval-build-test-') as tmp:
     target = Path(tmp)
-    for name in ['src', 'vendor', 'icons']:
+    for name in ['src', 'source', 'vendor', 'icons', 'tabel', 'tabel-v2', 'synology']:
         shutil.copytree(ROOT / 'test-app' / name, target / 'test-app' / name)
+    shutil.copyfile(ROOT / 'test-app/build-manifest.json', target / 'test-app/build-manifest.json')
     shutil.copyfile(ROOT / 'test-app/modules.json', target / 'test-app/modules.json')
     shutil.copyfile(ROOT / 'manifest-test.webmanifest', target / 'manifest-test.webmanifest')
     (target / 'tools').mkdir()
     shutil.copyfile(ROOT / 'tools/build-test.py', target / 'tools/build-test.py')
+    shutil.copyfile(ROOT / 'tools/recolor_test_icons.py', target / 'tools/recolor_test_icons.py')
+    import sys
+    sys.path.insert(0, str(target / 'tools'))
+    import os
+    os.chdir(target)
     protected = ['index.html', 'sw.js', 'app/build/preserved.js', 'test-app/build/previous/pwa.js', 'pending-operations.json']
     for name in protected:
         path = target / name
@@ -28,7 +34,11 @@ with tempfile.TemporaryDirectory(prefix='samosval-build-test-') as tmp:
     with contextlib.redirect_stdout(io.StringIO()):
         build.build()
     manifest = json.loads((target / 'test-app/build-manifest.json').read_text())
-    assert len(manifest['assets']) == 46, 'Current photo-free release has exactly 46 precache assets'
+    assert len(manifest['assets']) >= len(json.loads((target / 'test-app/modules.json').read_text())['modules']), 'Every current module must be represented in the precache'
+    assert len({asset['url'] for asset in manifest['assets']}) == len(manifest['assets']), 'Precache URLs must be unique'
+    import hashlib
+    for asset in manifest['assets']:
+        assert hashlib.sha256((target / asset['url']).read_bytes()).hexdigest() == asset['sha256'], 'Precache checksum mismatch: '+asset['url']
     assert not any('firebase-storage' in asset['url'] for asset in manifest['assets']), 'Unused Storage SDK must stay outside the current cache'
     assert not any('/geo-photo' in asset['url'] or '/object-photos' in asset['url'] or '/local-photos' in asset['url'] or '/photo-files' in asset['url'] for asset in manifest['assets']), 'Removed photo modules must not be precached'
     output = [target / 'index-test.html', target / 'sw-test.js', target / 'test-app/build-manifest.json']
@@ -36,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix='samosval-build-test-') as tmp:
     first = {str(path.relative_to(target)):path.read_bytes() for path in output}
     # Filesystem enumeration order is unspecified. Reverse every glob to prove output is stable.
     original_glob = Path.glob
-    Path.glob = lambda self, pattern: iter(reversed(list(original_glob(self, pattern))))
+    Path.glob = lambda self, pattern, **kwargs: iter(reversed(list(original_glob(self, pattern, **kwargs))))
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             build.build()

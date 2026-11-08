@@ -18,7 +18,7 @@ export async function readSession(pool,uid){
     const rows=active(row)?(await client.query('SELECT action,allowed FROM role_permissions WHERE role=$1 AND allowed=true',[row.role])).rows:[];
     const ready=(await client.query('SELECT initialized FROM identity_state WHERE id=1')).rows[0]?.initialized===true;
     await client.query('COMMIT');
-    return {format:'samosval-session',version:1,source:'synology',workspaceId:process.env.WORKSPACE_ID||'main_workspace',identityReady:ready,profile:profileView(row),permissions:active(row)?roleView(row.role,rows):{tabs:[],actions:[]}};
+    return {format:'samosval-session',version:1,source:'ubuntu',workspaceId:process.env.WORKSPACE_ID||'main_workspace',identityReady:ready,profile:profileView(row),permissions:active(row)?roleView(row.role,rows):{tabs:[],actions:[]}};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }
 export async function registerPending(pool,identity,input){
@@ -48,7 +48,7 @@ export async function readMembers(pool,uid){
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     if(!active(await profile(client,uid)))throw fail('forbidden',403);
     const rows=(await client.query("SELECT uid,email,display_name,role,status FROM app_users WHERE status IN ('active','disabled') AND profile->>'deleted' IS DISTINCT FROM 'true' ORDER BY uid")).rows;
-    await client.query('COMMIT');return {format:'samosval-members',version:1,source:'synology',members:rows.map(r=>({uid:r.uid,email:r.email,nickname:r.display_name,role:r.role,status:r.status}))};
+    await client.query('COMMIT');return {format:'samosval-members',version:1,source:'ubuntu',members:rows.map(r=>({uid:r.uid,email:r.email,nickname:r.display_name,role:r.role,status:r.status}))};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }
 export async function readAdministration(pool,uid){
@@ -63,7 +63,7 @@ export async function readAdministration(pool,uid){
     const all=(await client.query('SELECT role,action,allowed FROM role_permissions')).rows;
     const versions=(await client.query('SELECT role,revision FROM role_permission_versions')).rows;
     const permissions=Object.fromEntries(ROLES.filter(r=>r!=='admin').map(role=>[role,{...roleView(role,all.filter(r=>r.role===role)),revision:Number(versions.find(r=>r.role===role)?.revision||0)}]));
-    await client.query('COMMIT');return {format:'samosval-admin-access',version:1,source:'synology',users:users.filter(u=>!u.deleted),deletedUsers:users.filter(u=>u.deleted),requests,permissions};
+    await client.query('COMMIT');return {format:'samosval-admin-access',version:1,source:'ubuntu',users:users.filter(u=>!u.deleted),deletedUsers:users.filter(u=>u.deleted),requests,permissions};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }
 export async function identityOperation(pool,uid,input){

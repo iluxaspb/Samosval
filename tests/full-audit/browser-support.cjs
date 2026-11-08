@@ -59,7 +59,7 @@ function rewriteDemoSource(source, isCore = false) {
   let result = source.replaceAll('samosval-offline', PROJECT);
   // This suite explicitly exercises Firebase/emulator behavior. NAS acceptance
   // is covered by the server transport suite and authenticated live NAS checks.
-  result = result.replace(/(<meta name="test-data-provider" content=")synology-candidate("\s*\/?>)/g, '$1firebase$2');
+  result = result.replace(/(<meta name="test-data-provider" content=")(?:synology-candidate|ubuntu-candidate)("\s*\/?>)/g, '$1firebase$2');
   if (isCore) {
     const pattern = /const firebaseConfig\s*=\s*\{[\s\S]*?\};/g;
     assert.equal([...result.matchAll(pattern)].length, 1, 'Expected exactly one Firebase config in built core');

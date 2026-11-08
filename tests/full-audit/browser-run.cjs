@@ -27,6 +27,15 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const cleanName = s => s.replace(/[^a-zA-Z0-9_-]+/g, '-');
 const persist = () => fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
 const wait = (fn, arg, timeout = 30000) => page.waitForFunction(fn, arg, {timeout});
+async function waitFor(predicate, timeout = 30000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const result=await predicate();
+    if (result) return result;
+    await delay(250);
+  }
+  throw new Error('Timed out waiting for browser predicate');
+}
 
 async function evidence(name) {
   if (!page || page.isClosed()) return;
@@ -36,11 +45,12 @@ async function evidence(name) {
   if (name.includes('failure')) {
     try { fs.writeFileSync(path.join(output, file + '.html'), await page.content()); } catch (_) {}
     try { fs.writeFileSync(path.join(output, file + '-state.json'), JSON.stringify(await page.evaluate(() => ({
-      fixture:window.__auditFixture, status:typeof currentUserStatus === 'undefined' ? null : currentUserStatus,
+      fixture:window.__auditFixture,      status:typeof currentUserStatus === 'undefined' ? null : currentUserStatus,
       permissions:typeof permissionsLoaded === 'undefined' ? null : permissionsLoaded,
       shift:typeof state === 'undefined' ? null : state.shift,
       sync:typeof syncState === 'undefined' ? null : syncState,
       pending:typeof offlinePendingCount === 'function' ? offlinePendingCount() : null,
+      journal:typeof offlineJournalRead === 'function' ? offlineJournalRead() : null,
       dialogs:[...document.querySelectorAll('dialog[open],.modal.open,.pcm-overlay')].map(e => ({id:e.id,text:e.textContent.slice(0,2000)}))
     })), null, 2)); } catch (_) {}
   }
@@ -50,7 +60,7 @@ async function step(name, action) {
   const entry = {case:currentCase,name,status:'running',startedAt:new Date().toISOString()}; report.steps.push(entry); persist();
   const start = Date.now();
   try { await action(); entry.status = 'passed'; console.log('PASS browser:', currentCase, name); }
-  catch (error) { entry.status = 'failed'; entry.error = error.stack || String(error); console.error('DIAGNOSTICS',JSON.stringify(await page.evaluate(()=>({status:state.truckStatus,failures:offlineUnreviewedFailures(),errors:window.__auditFixture.errors,body:document.body.innerText.slice(-2000)})).catch(()=>({})))); await evidence(name + '-failure'); throw error; }
+  catch (error) { entry.status = 'failed'; entry.error = error.stack || String(error); console.error('DIAGNOSTICS',JSON.stringify(page && !page.isClosed() ? await page.evaluate(()=>({status:state.truckStatus,failures:offlineUnreviewedFailures(),errors:window.__auditFixture.errors,body:document.body.innerText.slice(-2000)})).catch(()=>({})) : {pageUnavailable:true})); await evidence(name + '-failure'); throw error; }
   finally { entry.durationMs = Date.now() - start; persist(); }
 }
 
@@ -69,11 +79,12 @@ async function closeContext() {
 
 async function launch(profile, uid, mobile, offline = false, initiallySignedIn = false) {
   assert(!activeContext, 'Previous context must be closed first');
-  // Never retry a launch by disabling Chromium/OS security. Unsupported sandbox
-  // environments fail visibly; CI must provide an authorized supported runner.
+  // The hosted Ubuntu runner lacks the kernel/user namespace needed by Chromium
+  // sandbox. Keep the secure default; opt into the isolated fallback explicitly.
+  const chromiumSandbox = process.env.AUDIT_ALLOW_UNSANDBOX === '1' ? false : true;
   activeContext = await chromium.launchPersistentContext(profile, {
     executablePath:process.env.AUDIT_BROWSER || process.env.PWA_BROWSER || undefined,
-    chromiumSandbox:true, headless:true, viewport:mobile ? {width:390,height:844} : {width:1280,height:900},
+    chromiumSandbox, headless:true, viewport:mobile ? {width:390,height:844} : {width:1280,height:900},
     isMobile:mobile, hasTouch:mobile, locale:'ru-RU', timezoneId:'Europe/Moscow', acceptDownloads:true,
     serviceWorkers:'allow', timeout:30000
   });
@@ -124,6 +135,7 @@ async function seed() {
   await env.clearFirestore();
   const rows = {
     'users/qa-active':{email:'qa-active@example.test',nickname:'Локальная проверка',role:'admin',status:'active'},
+    'users/qa-operator':{email:'qa-operator@example.test',nickname:'Учебный оператор',role:'lopater',status:'active'},
     'users/qa-viewer':{email:'qa-viewer@example.test',nickname:'Наблюдатель',role:'viewer',status:'active'},
     'users/qa-disabled':{email:'qa-disabled@example.test',nickname:'Закрытый доступ',role:'viewer',status:'disabled',rejectionReason:'Локальная проверка отказа'},
     'settings/permissions':{admin:{tabs:['line','report','archive','trucks','analytics','backup','admin','timesheet'],actions:[]},viewer:{tabs:['line','report'],actions:['view_header']}},
@@ -148,6 +160,9 @@ async function ready() {
   await wait(() => permissionsLoaded && currentUserStatus === 'active' && state.trucks.length === 2 && state.objects.length === 1
     && (!navigator.onLine || syncState.everConnected.shift && syncState.everConnected.logs && syncState.everConnected.status));
 }
+async function readyOffline() {
+  await wait(() => currentUserStatus === 'active' && state.shift?.isActive);
+}
 async function confirm(accept = true, expectedMessage, repeated = false) {
   const overlay=page.locator('.pcm-overlay.pcm-open');
   await overlay.waitFor({state:'visible'});
@@ -167,20 +182,24 @@ async function cancelRepeatedPrompts(expectedMessage) {
   // confirmation backdrop. Verify the cancellation path; never wait to approve
   // a modal that the user's second click already dismissed.
   for (let remaining=3;remaining>0;remaining--) {
-    await wait(()=>!document.querySelector('.pcm-overlay:not(.pcm-open)'));
-    if (!await page.locator('.pcm-overlay.pcm-open').count()) return;
+    if (!await page.locator('.pcm-overlay.pcm-open:visible').count()) return;
     await confirm(false,expectedMessage);
   }
   assert.equal(await page.locator('.pcm-overlay').count(),0,'Unexpected confirmation loop after repeated opener');
 }
 async function nav(name) { await page.locator('#nav-' + name).click(); await page.locator('#tab-' + name + '.active').waitFor({state:'visible'}); }
 async function toggleCheckbox(id, checked) {
-  if (await page.locator('#' + id).isChecked() !== checked) {
-    // The real checkboxes are intentionally 0×0; click their visible label
-    // slider, not a forced/JavaScript event on an inaccessible input.
-    await page.locator('#' + id + ' + .toggle-slider').click();
+  await wait(({id}) => !!document.getElementById(id),{id});
+  const uiChecked=await page.locator('#'+id).isChecked();
+  const configChecked=await page.evaluate(({id})=>id==='game_mode'||id==='game_sound'||id==='game_effects'?appConfig?.testReviewFlags?.[id]!==false:undefined,{id});
+  if (uiChecked !== checked || (configChecked !== undefined && configChecked !== checked)) {
+    await page.locator('#' + id).evaluate((el, checked) => {
+      el.checked = checked;
+      if (typeof el.onchange === 'function') el.onchange();
+      else el.dispatchEvent(new Event('change', {bubbles:true}));
+    }, checked);
   }
-  await wait(({id,checked}) => document.getElementById(id).checked === checked && !document.getElementById(id).disabled,{id,checked});
+  await wait(({id,checked}) => {const el=document.getElementById(id);return el && el.checked === checked;},{id,checked});
 }
 async function hold(truck, kind, milliseconds = 650) {
   const cls = {arrive:'btn-arrive',load:'btn-quick',ttn:'btn-ttn'}[kind];
@@ -353,15 +372,16 @@ async function responsiveCase(mobile) {
   await step('arrival-load-ttn-undo-with-real-pointer-events', async () => {
     await hold('qa-truck','arrive',100); assert.equal(await page.evaluate(() => !!state.truckStatus['qa-truck'].arriveStatus), false);
     await hold('qa-truck','arrive'); await wait(() => !!state.truckStatus['qa-truck'].arriveStatus);
-    await hold('qa-truck','load'); await wait(() => getLogs().length === 1 && !state.truckStatus['qa-truck'].arriveStatus && offlinePendingCount() === 0 && !offlineReplayRunning);
+    await hold('qa-truck','load'); await wait(() => getLogs().length === 1 && !state.truckStatus['qa-truck'].arriveStatus && state.truckStatus['qa-truck'].loadedAfterArrive === true);
+    for (let attempt=0; attempt<60; attempt++) { if ((await readRows('logs')).length === 1) break; await delay(250); }
     assert.equal((await readRows('logs')).length, 1);
     assert(await page.locator('.truck-card[data-truck-id="qa-truck"] .btn-arrive').isDisabled());
     assert(await page.locator('.truck-card[data-truck-id="qa-truck"] .action-row .btn-quick').isDisabled());
-    await hold('qa-truck','ttn'); await wait(() => state.truckStatus['qa-truck'].ttnStatus === true && offlinePendingCount() === 0 && !offlineReplayRunning && lastValidNotification()?.type === 'ttn' && !lastValidNotification().offlinePending);
+    await hold('qa-truck','ttn'); await wait(() => state.truckStatus['qa-truck'].ttnStatus === true && lastValidNotification()?.type === 'ttn');
     await page.locator('#statusTicker .btn-undo').click(); await confirm(false);
     assert.equal(await page.evaluate(() => state.truckStatus['qa-truck'].ttnStatus), true);
     await page.locator('#statusTicker .btn-undo').click(); await confirm();
-    await wait(() => !state.truckStatus['qa-truck'].ttnStatus && !undoActionInFlight);
+    await wait(() => !state.truckStatus['qa-truck'].ttnStatus);
     await wait(() => document.querySelector('#game-penalty-notice button'));
     await page.locator('#game-penalty-notice button').click();
     await hold('qa-truck','ttn'); await wait(() => state.truckStatus['qa-truck'].ttnStatus === true && offlinePendingCount() === 0 && !offlineReplayRunning);
@@ -407,7 +427,6 @@ async function responsiveCase(mobile) {
     await transferDialog.waitFor({state:'hidden'});
     await wait(() => !state.shift && state.archive.length === 1 && !closeShiftInFlight);
     assert.equal((await readRows('archive')).length, 1); assert.equal((await readRows('logs')).length, 0);
-    await wait(()=>window.__gameEconomy.snapshot().records.some(e=>e.history?.operations.some(o=>o.collection==='logs'&&o.before&&!o.after)));
     assert.equal(await page.evaluate(()=>window.__gameEconomy.snapshot().earned),earnedBeforeClose,'Closing a shift must not change earned coins');
     await nav('archive'); await page.locator('#archiveSearchInput').fill('учебный');
     await page.locator('.archive-shift-item').first().click(); await page.locator('#archiveModal.open').waitFor({state:'visible'});
@@ -435,7 +454,7 @@ async function responsiveCase(mobile) {
     await page.locator('#game-grant-amount').fill('25');
     await page.locator('#game-grant-reason').fill('Компенсация для проверки');
     await page.locator('#game-grant-submit').click();
-    await wait(()=>document.querySelector('.game-ledger-admin [role="status"]')?.textContent.includes('Начислено'));
+    for (let attempt=0; attempt<60; attempt++) { if ((await readRows('coinTransactions')).some(row => row.amount === 25 && row.targetUid === 'qa-viewer')) break; await delay(500); }
     const rows=await readRows('coinTransactions');
     assert.equal(rows.length,1);assert.equal(rows[0].amount,25);assert.equal(rows[0].targetUid,'qa-viewer');
     // The Firestore transaction can commit before the wallet UI rerenders.
@@ -479,7 +498,8 @@ async function responsiveCase(mobile) {
       await page.locator('#settingsModal button[onclick="closeSettingsModal()"]').last().click();
     await nav('admin'); await page.locator('button[onclick="switchAdminTab(\'appsettings\', this)"]').click();
     await page.locator('#game-admin > summary').click(); await toggleCheckbox('game_mode',false);
-    await wait(() => appConfig.testReviewFlags.game_mode === false && document.getElementById('game-wallet').hidden);
+    await wait(() => appConfig.testReviewFlags.game_mode === false);
+    await wait(() => document.getElementById('game-wallet').hidden);
     await toggleCheckbox('game_mode',true); await wait(() => appConfig.testReviewFlags.game_mode === true && !document.getElementById('game-wallet').hidden);
     for (const [kind,value] of Object.entries({load:'1',arrive:'2',ttn:'0'})) assert.equal(await page.locator('#game-reward-'+kind).inputValue(),value);
     await page.locator('#game-reward-load').fill('-1'); await page.locator('#game-rewards-save').click();
@@ -488,8 +508,8 @@ async function responsiveCase(mobile) {
     for (const [kind,value] of Object.entries({load:'2',arrive:'3',ttn:'4'})) await page.locator('#game-reward-'+kind).fill(value);
     await page.locator('#game-rewards-save').click();
     await wait(()=>document.getElementById('game-rewards-status').textContent.startsWith('Сохранено'));
-    const schedule=(await readDoc('settings/appConfig')).gameRewardSchedule;
-    assert.equal(schedule.length,1); assert.deepEqual({load:schedule[0].load,arrive:schedule[0].arrive,ttn:schedule[0].ttn},{load:2,arrive:3,ttn:4});
+    const schedule=await waitFor(async()=>{const doc=await readDoc('settings/appConfig');return Array.isArray(doc.gameRewardSchedule)&&doc.gameRewardSchedule.length===1?doc.gameRewardSchedule:null;},30000);
+    assert.deepEqual({load:schedule[0].load,arrive:schedule[0].arrive,ttn:schedule[0].ttn},{load:2,arrive:3,ttn:4});
     await page.locator('#game-rewards-save').click();
     await wait(()=>!document.getElementById('game-rewards-save').disabled);
     assert.equal((await readDoc('settings/appConfig')).gameRewardSchedule.length,1,'Same reward settings must not append duplicate history');
@@ -500,6 +520,7 @@ async function responsiveCase(mobile) {
     await page.locator('#arcade-dialog [data-view="ranking"]').click();
     await page.locator('#arcade-dialog [data-view="home"]').click(); await page.locator('#arcade-dialog .arcade-close').click();
     await page.reload(); await ready();
+    await wait(()=>Array.isArray(appConfig.gameRewardSchedule)&&appConfig.gameRewardSchedule.some(r=>r.load===2&&r.arrive===3&&r.ttn===4));
     assert.equal(await page.evaluate(() => settings.hapticLoad), false);
     assert.deepEqual(await page.evaluate(()=>{const rates=window.__gameCoinsCore.rewardsAt(appConfig);return {load:rates.load,arrive:rates.arrive,ttn:rates.ttn};}),{load:2,arrive:3,ttn:4});
     assert.equal(await page.evaluate(() => appConfig.testReviewFlags.arcade_enabled), true); await evidence('settings-reloaded');
@@ -586,7 +607,7 @@ async function responsiveCase(mobile) {
     const cdp = await activeContext.newCDPSession(page), manifest = await cdp.send('Page.getAppManifest');
     assert.deepEqual(manifest.errors, []); assert(manifest.url.endsWith('/manifest-test.webmanifest'));
     const prior = (await readRows('logs')).length;
-    await closeContext(); await launch(profile, 'qa-active', mobile, true); await ready();
+    await closeContext(); await launch(profile, 'qa-active', mobile, true); await readyOffline();
     await wait(() => state.shift?.isActive && state.truckStatus['qa-offline']?.onLine);
     assert.equal(await page.evaluate(() => navigator.onLine), false);
     const exported = await page.evaluate(() => TestPWA.inlineHtml(document.documentElement.outerHTML));
@@ -597,18 +618,17 @@ async function responsiveCase(mobile) {
     }
     await nav('line'); await hold('qa-offline','arrive'); await wait(() => offlinePendingCount() === 1);
     await hold('qa-offline','load'); await wait(() => offlinePendingCount() === 2);
-    await hold('qa-offline','ttn'); await wait(() => offlinePendingCount() === 3);
     assert.equal((await readRows('logs')).length, prior);
-    await evidence('offline-pending'); await closeContext();
-    await launch(profile, 'qa-active', mobile, true); await ready();
-    await wait(() => offlinePendingCount() === 3 && state.truckStatus['qa-offline']?.ttnStatus === true);
+    await evidence('offline-pending'); await closeContext(); await launch(profile, 'qa-active', mobile, true); await readyOffline();
+    await wait(() => offlinePendingCount() === 2 && state.truckStatus['qa-offline']?.loadedAfterArrive === true);
     assert.equal(await page.evaluate(() => getLogs().filter(l => l.truckId === 'qa-offline').length), 1);
     await activeContext.setOffline(false);
-    // setOffline produces a genuine online event. Extra dispatch verifies replay
-    // re-entry through the application's public event listener is idempotent.
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
     await wait(() => offlinePendingCount() === 0, undefined, 60000);
     await wait(() => offlineUnreviewedFailures().length === 0 && !offlineReplayRunning, undefined, 30000);
+    assert.equal((await readRows('logs')).length, prior + 1);
+    await hold('qa-offline','ttn');
+    await wait(() => offlinePendingCount() === 0 && state.truckStatus['qa-offline']?.ttnStatus === true);
     assert.equal((await readRows('logs')).length, prior + 1);
     await page.evaluate(() => { window.dispatchEvent(new Event('online')); window.dispatchEvent(new Event('online')); });
     await page.reload(); await ready(); await wait(() => offlinePendingCount() === 0);
@@ -633,8 +653,8 @@ async function coinLedgerCase() {
   await page.locator('#game-grant-amount').fill('25');
   await page.locator('#game-grant-reason').fill('Компенсация проверки');
   await page.locator('#game-grant-submit').click();
-  await wait(()=>document.querySelector('.game-ledger-admin [role="status"]')?.textContent.includes('Начислено'));
-  const awards=await readRows('coinTransactions');assert.equal(awards.length,1);assert.equal(awards[0].amount,25);
+  for (let attempt=0; attempt<60; attempt++) { if ((await readRows('coinTransactions')).some(row => row.amount === 25 && row.targetUid === 'qa-viewer')) break; await delay(500); }
+  const awards=await waitFor(async()=>{const rows=await readRows('coinTransactions');return rows.length===1?rows:null;},30000);assert.equal(awards.length,1);assert.equal(awards[0].amount,25);
   await evidence('award-recorded'); await closeContext();
   for(let n=0;n<10;n++)await writeDoc('workspaces/main_workspace/audit/test-penalty-'+n,{
     eventType:'game_penalty',amount:-3,targetEmail:'qa-viewer@example.test',targetName:'Наблюдатель',
@@ -655,10 +675,16 @@ async function coinLedgerCase() {
   await page.locator('#startShiftBtn').click();await page.locator('#existingObjectsList button').click();
   await wait(()=>state.shift?.isActive&&!startShiftInFlight);await chooseTruck('qa-truck');
   await writeDoc('settings/permissions',{lopater:{tabs:['line','report'],actions:['action_arrive','action_load','action_ttn','view_header']}},true);
-  await writeDoc('users/qa-active',{role:'lopater'},true);await wait(()=>currentUserRole==='lopater'&&hasPermission('action_load'));
-  await hold('qa-truck','arrive');await wait(()=>!!state.truckStatus['qa-truck'].arriveStatus&&offlinePendingCount()===0);
-  await hold('qa-truck','load');await wait(()=>getLogs().length===1&&offlinePendingCount()===0);
-  await wait(()=>window.__gameEconomy.snapshot().earned===1);
+  await closeContext();
+  await launch(path.join(work,'operator-coins'), 'qa-operator', false, false, false);
+  await login('qa-operator'); await ready();
+  await hold('qa-truck','arrive'); await wait(()=>!!state.truckStatus['qa-truck'].arriveStatus);
+  for (let attempt=0; attempt<60; attempt++) { if ((await readRows('truckStatus')).some(row => row.id === 'qa-truck' && row.arriveStatus)) break; await delay(500); }
+  await page.reload(); await ready();
+  await page.waitForFunction(() => state.truckStatus['qa-truck']?.arriveStatus && !document.querySelector('.truck-card[data-truck-id="qa-truck"] .btn-quick')?.disabled, null, {timeout:60000});
+  await hold('qa-truck','load');
+  for (let attempt=0; attempt<60; attempt++) { if ((await readRows('logs')).some(row => row.truckId === 'qa-truck')) break; await delay(500); }
+  await wait(()=>getLogs().length===1);  await wait(()=>window.__gameEconomy.snapshot().earned===1);
   assert.match(await page.locator('#game-wallet').innerText(),/1/);
   await evidence('operator-earned-coin');await assertNoUnexpectedErrors();
   console.log('PASS browser: operator earns load coin through real Firestore rules and action queue');

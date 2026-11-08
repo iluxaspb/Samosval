@@ -30,6 +30,6 @@ export async function readArchiveSnapshot(pool,uid,ws=WS){
     if(actor.role!=='admin'&&!(await client.query("SELECT 1 FROM role_permissions WHERE role=$1 AND action IN ('tab_archive','tab_analytics') AND allowed=true LIMIT 1",[actor.role])).rowCount)throw fail('forbidden',403);
     const data=await readArchiveEntries(client,ws);
     await client.query('COMMIT');
-    return {format:'samosval-archive-snapshot',version:1,source:'synology',workspaceId:ws,...data};
+    return {format:'samosval-archive-snapshot',version:1,source:'ubuntu',workspaceId:ws,...data};
   }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}finally{client.release();}
 }

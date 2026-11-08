@@ -41,7 +41,7 @@ export async function readLineSnapshot(pool, uid, workspaceId = process.env.WORK
     await client.query('COMMIT');
     return {
       format: 'samosval-line-snapshot', version: 1, workspaceId,
-      source: 'synology',
+      source: 'ubuntu',
       shift: shift ? { ...shift.payload, id: shift.shift_id, isActive: shift.is_active } : null,
       trucks, statuses, logs, cycleMinutes: workspace.cycle_minutes
     };

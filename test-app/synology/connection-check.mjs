@@ -1,5 +1,5 @@
 // Read-only HTTPS probe. Success does not switch the business data adapter.
-const endpoint='https://iluxa.synology.me:18443';
+const endpoint='https://samosval-test.iluxa.pro:18443';
 export async function checkSynology({getIdToken,guard=()=>{},fetchImpl=globalThis.fetch,timeoutMs=10000}={}) {
   if (typeof getIdToken!=='function'||typeof fetchImpl!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120000) throw TypeError('invalid-check-options');
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
@@ -18,7 +18,7 @@ export async function checkSynology({getIdToken,guard=()=>{},fetchImpl=globalThi
   }
   try {
     const line=await read('/api/v1/line/snapshot');
-    if(line?.format!=='samosval-line-snapshot'||line.version!==1||line.source!=='synology'||line.workspaceId!=='main_workspace'||!['trucks','statuses','logs'].every(k=>Array.isArray(line[k])))throw Error('Не подтверждён формат данных линии');
+    if(line?.format!=='samosval-line-snapshot'||line.version!==1||line.source!=='ubuntu'||line.workspaceId!=='main_workspace'||!['trucks','statuses','logs'].every(k=>Array.isArray(line[k])))throw Error('Не подтверждён формат данных линии');
     const tabel=await read('/api/v1/tabel/records?key=_catalog%2Fconfig');
     const record=tabel?.record;
     if(!record||!Number.isSafeInteger(record.revision)||record.revision<0||!(record.data===null||typeof record.data==='object'&&!Array.isArray(record.data)))throw Error('Не подтверждён формат данных табеля');

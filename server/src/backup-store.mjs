@@ -27,7 +27,7 @@ async function capture(c,ws){
  data.appConfig_test=native.workspace_settings.map(r=>({id:'appConfig_test',data:r.payload}));
  data.users=native.app_users.map(r=>({id:r.uid,data:{...r.profile,email:r.email,nickname:r.display_name,role:r.role,status:r.status}}));
  data.tabelNextRecords=native.tabel_records.map(r=>({id:r.record_id,data:r.payload}));
- return {version:2,source:'synology',workspaceId:ws,importSha256:state.import_sha256,data,native};
+ return {version:2,source:'ubuntu',workspaceId:ws,importSha256:state.import_sha256,data,native};
 }
 async function save(c,ws,id,type,description,actor){
  const payload=await capture(c,ws),now=Date.now();payload.createdAt=now;payload.type=type;payload.description=description;
@@ -40,11 +40,11 @@ export async function readBackups(pool,uid,id,ws=WS){
  const c=await pool.connect();try{await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');await serviceActor(c,uid,null,{admin:true,lock:false});
  let result;if(id){if(!validId(id))throw fail('invalid-backup-id');const row=(await c.query('SELECT meta,payload FROM workspace_backups WHERE workspace_id=$1 AND backup_id=$2 AND NOT deleted',[ws,id])).rows[0];if(!row)throw fail('backup-not-found',409);result=row;}
  else result={items:(await c.query("SELECT meta FROM workspace_backups WHERE workspace_id=$1 AND NOT deleted ORDER BY (meta->>'createdAt')::bigint DESC,backup_id DESC LIMIT 50",[ws])).rows.map(r=>r.meta)};
- await c.query('COMMIT');return {format:'samosval-backups',version:1,source:'synology',workspaceId:ws,...result};
+ await c.query('COMMIT');return {format:'samosval-backups',version:1,source:'ubuntu',workspaceId:ws,...result};
  }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}
 }
 async function restore(c,ws,payload,sections,actor){
- if(payload.source!=='synology'||payload.version!==2||payload.workspaceId!==ws||payload.importSha256!==(await c.query('SELECT import_sha256 FROM identity_state WHERE id=1')).rows[0]?.import_sha256)throw fail('backup-source-mismatch',409);
+ if(!['ubuntu','synology'].includes(payload.source)||payload.version!==2||payload.workspaceId!==ws||payload.importSha256!==(await c.query('SELECT import_sha256 FROM identity_state WHERE id=1')).rows[0]?.import_sha256)throw fail('backup-source-mismatch',409);
  const tables=new Set(Object.entries(sections).filter(([,v])=>v).flatMap(([k])=>sectionTables[k]));
  const rows=structuredClone(payload.native),current={};for(const table of tables)current[table]=(await c.query(`SELECT * FROM ${table}`+(workspaceTables.includes(table)?' WHERE workspace_id=$1':''),workspaceTables.includes(table)?[ws]:[])).rows;
  // Revisions move forward even when saved contents move back.

@@ -38,7 +38,7 @@ export async function readSettings(pool,uid,ws=WS){
     const actor=await serviceActor(client,uid,null,{lock:false});
     const row=(await client.query('SELECT payload,revision FROM workspace_settings WHERE workspace_id=$1',[ws])).rows[0];
     if(!row)throw fail('settings-not-ready',409);
-    await client.query('COMMIT');return {format:'samosval-settings',version:1,source:'synology',workspaceId:ws,revision:Number(row.revision),data:settingsView(row.payload,actor.role==='admin')};
+    await client.query('COMMIT');return {format:'samosval-settings',version:1,source:'ubuntu',workspaceId:ws,revision:Number(row.revision),data:settingsView(row.payload,actor.role==='admin')};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }
 export function submitSettings(pool,uid,input,ws=WS){

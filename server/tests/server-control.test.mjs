@@ -13,7 +13,7 @@ test('PostgreSQL control: admin gate, concurrent jobs, replay, stale worker and 
  oldState=(await pool.query("SELECT * FROM server_control_state WHERE channel='test'")).rows[0];
  for(const [uid,role]of[[admin,'admin'],[worker,'lopater']])await pool.query("INSERT INTO app_users(uid,email,display_name,role,status) VALUES ($1,$1,$1,$2,'active')",[uid,role]);
  await pool.query("INSERT INTO server_control_state(channel,payload) VALUES ('test',$1) ON CONFLICT(channel) DO UPDATE SET heartbeat=now(),payload=EXCLUDED.payload",[{protocol:1,imageId:image,release:{version:'4.1.1',verified:true}}]);
- const snapshot=await readServerControl(pool,admin);const user={uid:admin,getIdToken:async()=> 'fixture-token'};const client=createNasClient({getUser:()=>user,fetchImpl:async()=>new Response(JSON.stringify(snapshot),{headers:{'Content-Type':'application/json'}})});assert.equal((await client.readServerControl()).source,'synology');
+ const snapshot=await readServerControl(pool,admin);const user={uid:admin,getIdToken:async()=> 'fixture-token'};const client=createNasClient({getUser:()=>user,fetchImpl:async()=>new Response(JSON.stringify(snapshot),{headers:{'Content-Type':'application/json'}})});assert.equal((await client.readServerControl()).source,'ubuntu');
  const command={id:prefix,type:'check',channel:'test'};
  await assert.rejects(submitServerCommand(pool,worker,command),{status:403});await assert.rejects(readServerControl(pool,worker),{status:403});
  assert.equal((await submitServerCommand(pool,admin,command)).status,'queued');assert.equal((await submitServerCommand(pool,admin,command)).replayed,true);

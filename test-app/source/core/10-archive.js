@@ -89,7 +89,7 @@
     if(isNasRuntime()){
       if(state.shift?.isActive){showError('Сначала закройте текущую смену и подтвердите перенос в табель. После этого можно восстановить архив.');return;}
       if(!(await appConfirm(`Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date}?`)))return;
-      try{await nasArchiveAction('archive.restore',viewingArchiveId);closeArchiveModal();showToastEl('Смена восстановлена на Synology',false);}catch(error){showError('Ошибка восстановления: '+error.message);}return;
+      try{await nasArchiveAction('archive.restore',viewingArchiveId);closeArchiveModal();showToastEl('Смена восстановлена на Ubuntu',false);}catch(error){showError('Ошибка восстановления: '+error.message);}return;
     }
     const hasActive = state.shift && state.shift.isActive;
     const msg = hasActive ? `Активная смена "${objectTitle(state.shift.objectId,state.shift.objectName)}" будет заменена.\n\nВосстановить "${objectTitle(s.objectId,s.objectName)}" от ${s.date}?` : `Восстановить смену "${objectTitle(s.objectId,s.objectName)}" от ${s.date}?`;
@@ -97,13 +97,26 @@
     try {
       showToastEl('⏳ Восстановление...', false);
       await cleanupOldShiftData(); await clearAllNotifications();
+      // A closed shift is already represented by its archive. Do not replay
+      // its local, already-confirmed operations against the restored shift.
+      // Keeping them would reuse the old load payload with the new shiftId.
+      if (typeof offlineJournalRead === 'function' && typeof offlineJournalWrite === 'function') {
+        const sourceShiftId = s.sourceShiftId || '';
+        const journal = offlineJournalRead();
+        const remaining = journal.filter(op => op.shiftId !== sourceShiftId && op.shiftId !== viewingArchiveId);
+        if (remaining.length !== journal.length) offlineJournalWrite(remaining);
+      }
       const newSid = 'shift_' + Date.now();
       await tfAwait(refs.shift.set({ id: newSid, objectName: objectTitle(s.objectId,s.objectName), objectId: s.objectId || '', startDate: s.date, startedAt: Date.now(), startedBy: getUserName(), isActive: true, restoredFrom: viewingArchiveId }));
       const batch = db.batch(); const logsByTruck = {};
-      (s.logs || []).forEach((l, idx) => { const lid = `load_${l.truckId}_${newSid}_${l.timestamp || Date.now()}_${idx}`; batch.set(refs.logs.doc(lid), { shiftId: newSid, truckId: l.truckId, truckName: l.truckName, volume: l.volume, timeStr: l.timeStr, timestamp: l.timestamp, createdBy: l.createdBy, createdByEmail: l.createdByEmail || '', isGAI: !!l.isGAI, comment: l.comment || '' }); if (!logsByTruck[l.truckId]) logsByTruck[l.truckId] = []; logsByTruck[l.truckId].push({ id: lid, ts: l.timestamp || 0 }); });
+      (s.logs || []).forEach((l, idx) => { const lid = `load_${l.truckId}_${newSid}_${l.timestamp || Date.now()}_${idx}`; batch.set(refs.logs.doc(lid), { shiftId: newSid, truckId: l.truckId, truckName: l.truckName, volume: l.volume, timeStr: l.timeStr, timestamp: l.timestamp, arrivalTimestamp: l.arrivalTimestamp || null, createdBy: l.createdBy, createdByEmail: l.createdByEmail || '', isGAI: !!l.isGAI, comment: l.comment || '', clientOperationId: `restore_${viewingArchiveId}_${l.id || idx}` }); if (!logsByTruck[l.truckId]) logsByTruck[l.truckId] = []; logsByTruck[l.truckId].push({ id: lid, ts: l.timestamp || 0 }); });
       const allIds = new Set(); (s.activeLineIds || []).forEach(id => allIds.add(id)); (s.logs || []).forEach(l => allIds.add(l.truckId));
       allIds.forEach(id => { const truckLogs = (logsByTruck[id] || []).slice().sort((a, b) => a.ts - b.ts); const lastLog = truckLogs[truckLogs.length - 1]; let ttnStatus = null, ttnLogId = null; if (s.ttnStatus && s.ttnStatus[id]) { ttnStatus = true; ttnLogId = lastLog ? lastLog.id : null; } batch.set(refs.truckStatus.doc(id), { id, shiftId: newSid, onLine: true, addedBy: getUserName(), addedAt: Date.now(), arriveStatus: null, arriveTimestamp: null, arriveBy: null, ttnStatus, ttnBy: null, ttnLogId, lastLoadTimestamp: lastLog ? lastLog.ts : null, lastLoadBy: null, lastLoadLogId:lastLog?lastLog.id:null, cycleRevision:0, loadedAfterArrive: false }); });
-      await tfAwait(batch.commit()); await tfAwait(refs.archive.doc(viewingArchiveId).delete());
+      // Restore and archive removal must be one durable commit. Otherwise the
+      // live-shift listener can observe the new shift while the old archive
+      // remains visible and recovery appears to hang on a stale snapshot.
+      batch.delete(refs.archive.doc(viewingArchiveId));
+      await tfAwait(batch.commit());
       addAudit(`♻️ Смена восстановлена из архива: ${objectTitle(s.objectId,s.objectName)} (${s.date})`).catch(()=>{});
       closeArchiveModal(); showToastEl('✅ Смена восстановлена', false);
     } catch(e) { showError('Ошибка восстановления: ' + e.message); }

@@ -10,9 +10,9 @@ function scAllowed(){return isNasRuntime()&&canAdmin()&&!!nasRuntimeClient;}
 function scVisible(){return document.getElementById('tab-admin')?.classList.contains('active')&&document.getElementById('admin-sub-server')?.classList.contains('active')&&!document.hidden;}
 function renderServerControl(){
  const root=document.getElementById('server-control-root');if(!root)return;
- if(!scAllowed()){serverControlSnapshot=null;root.textContent=isNasRuntime()?'Требуется активный администратор.':'Центр управления доступен в тестовой версии Synology.';return;}
+ if(!scAllowed()){serverControlSnapshot=null;root.textContent=isNasRuntime()?'Требуется активный администратор.':'Центр управления доступен в тестовой версии Ubuntu.';return;}
  const s=serverControlSnapshot,a=s?.agent,fresh=!!s&&!serverControlError&&Date.now()-s.readAt<30000,available=fresh&&a?.available&&!serverControlBusy,job=s?.jobs.find(j=>['queued','running'].includes(j.status)),disabled=!available||!!job;
- let html='<div class="sc-heading"><div><h3>Центр управления</h3><span class="sc-channel">TEST · Synology</span></div>'+scButton('refresh','Обновить',!!serverControlFlight)+'</div>';
+ let html='<div class="sc-heading"><div><h3>Центр управления</h3><span class="sc-channel">TEST · Ubuntu</span></div>'+scButton('refresh','Обновить',!!serverControlFlight)+'</div>';
  html+='<p class="sc-status" role="status">'+scText(serverControlError||(!s?'Загружаю состояние…':!fresh?'Показаны последние полученные данные':a?.available?'Служба управления на связи':'Служба управления не подключена. Серверные действия недоступны.'))+'</p>';
  html+='<nav class="sc-nav" aria-label="Разделы центра управления">'+[['overview','Обзор'],['resources','Ресурсы'],['updates','Обновления'],['backups','Копии'],['objects','Объекты'],['journal','Журнал']].map(([key,label])=>'<button type="button" data-sc-section="'+key+'" aria-pressed="'+(key===serverControlSection)+'">'+label+'</button>').join('')+'</nav>';
  if(job)html+='<p class="sc-progress" role="status">'+scText(serverControlLabels[job.type])+' · '+scText(serverControlLabels[job.stage]||job.stage)+'. Задание продолжится на NAS после закрытия приложения.</p>';

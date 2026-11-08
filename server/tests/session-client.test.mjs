@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {createNasClient} from '../../test-app/synology/session-client.mjs';
 const reply=(body,status=200)=>({ok:status>=200&&status<300,status,json:async()=>structuredClone(body)});
 const profile={uid:'one',status:'active',role:'admin',deleted:false};
-const session=()=>({format:'samosval-session',version:1,source:'synology',workspaceId:'main_workspace',identityReady:true,profile:{...profile},permissions:{tabs:['line'],actions:[]}});
-const line=()=>({format:'samosval-line-snapshot',version:1,source:'synology',workspaceId:'main_workspace',cycleMinutes:15,shift:{id:'shift',isActive:true},trucks:[{id:'truck'}],statuses:[{id:'truck',shiftId:'shift',onLine:true}],logs:[{id:'log',truckId:'truck',shiftId:'shift',timestamp:2},{id:'earlier',truckId:'truck',shiftId:'shift',timestamp:1}]});
+const session=()=>({format:'samosval-session',version:1,source:'ubuntu',workspaceId:'main_workspace',identityReady:true,profile:{...profile},permissions:{tabs:['line'],actions:[]}});
+const line=()=>({format:'samosval-line-snapshot',version:1,source:'ubuntu',workspaceId:'main_workspace',cycleMinutes:15,shift:{id:'shift',isActive:true},trucks:[{id:'truck'}],statuses:[{id:'truck',shiftId:'shift',onLine:true}],logs:[{id:'log',truckId:'truck',shiftId:'shift',timestamp:2},{id:'earlier',truckId:'truck',shiftId:'shift',timestamp:1}]});
 const op=()=>({id:'stable',type:'load',truckId:'truck',shiftId:'shift',createdAt:1000});
 function fixture(fetchImpl,options={}){
   let user={uid:'one',getIdToken:async()=> 'private-token'};
@@ -15,7 +15,7 @@ function fixture(fetchImpl,options={}){
 test('NAS snapshots retain server ordering; GET transport sends no cookies or referrer',async()=>{
   const seen=[];const {client}=fixture(async(url,options)=>{seen.push({url,options});return reply(line());});
   assert.deepEqual(await client.readLine(),line());
-  const {url,options}=seen[0];assert.equal(url,'https://iluxa.synology.me:18443/api/v1/line/snapshot');
+  const {url,options}=seen[0];assert.equal(url,'https://samosval-test.iluxa.pro:18443/api/v1/line/snapshot');
   assert.equal(options.redirect,'error');assert.equal(options.credentials,'omit');assert.equal(options.cache,'no-store');assert.equal(options.referrerPolicy,'no-referrer');assert.equal(options.method,'GET');assert.equal('body' in options,false);
 });
 test('NAS configuration rejects insecure endpoints, credentials, path and query injection',()=>{
@@ -23,7 +23,7 @@ test('NAS configuration rejects insecure endpoints, credentials, path and query 
 });
 test('NAS scopes distinguish UID, workspace and endpoint, and reject old Firebase outboxes before any I/O',async()=>{
   let calls=0;const {client}=fixture(async()=>{calls++;return reply({outcome:'confirmed',status:{}});});
-  for(const operationScope of [undefined,'firebase','',JSON.stringify(['synology','https://other.test','main_workspace','one']),JSON.stringify(['synology','https://iluxa.synology.me:18443','main_workspace','other'])])await assert.rejects(client.submitLine(op(),{operationScope}),{code:'outbox-scope-mismatch'});
+  for(const operationScope of [undefined,'firebase','',JSON.stringify(['ubuntu','https://other.test','main_workspace','one']),JSON.stringify(['ubuntu','https://samosval-test.iluxa.pro:18443','main_workspace','other'])])await assert.rejects(client.submitLine(op(),{operationScope}),{code:'outbox-scope-mismatch'});
   assert.equal(calls,0);
   await client.submitLine(op(),{operationScope:client.scope});assert.equal(calls,1);
 });
@@ -81,7 +81,7 @@ test('NAS line rejects foreign source, duplicate rows, cross-shift records and i
   }
 });
 test('NAS archive preserves saved layout and log order without rebuilding it',async()=>{
-  const saved={format:'samosval-archive-snapshot',version:1,source:'synology',workspaceId:'main_workspace',importedAt:1000,archives:[{id:'archive',paper:{heights:[20,31]},logs:[{timestamp:2},{timestamp:1}]}],trash:[]};
+  const saved={format:'samosval-archive-snapshot',version:1,source:'ubuntu',workspaceId:'main_workspace',importedAt:1000,archives:[{id:'archive',paper:{heights:[20,31]},logs:[{timestamp:2},{timestamp:1}]}],trash:[]};
   const {client}=fixture(async()=>reply(saved));assert.deepEqual(await client.readArchive(),saved);
 });
 test('NAS history writes bind confirmation to requested action and direction',async()=>{
@@ -96,7 +96,7 @@ test('NAS polling checks session first and publishes revoked access without requ
   const value=session();value.profile.status='disabled';
   const {client}=fixture(async url=>{calls.push(url);return reply(value);});
   await new Promise((resolve,reject)=>{close=client.subscribeLine({onSession:s=>{assert.equal(s.profile.status,'disabled');queueMicrotask(()=>{close();resolve();});},onSnapshot:()=>reject(Error('disabled account read line')),onError:reject});});
-  assert.deepEqual(calls,['https://iluxa.synology.me:18443/api/v1/session']);client.stop();
+  assert.deepEqual(calls,['https://samosval-test.iluxa.pro:18443/api/v1/session']);client.stop();
 });
 test('NAS unsubscribe suppresses callbacks from an already in-flight response',async()=>{
   let release,calls=0;
@@ -116,12 +116,12 @@ test('NAS admin confirmation is bound to operation and target user',async()=>{
   }
 });
 test('NAS admin snapshot validates profile revisions and preserves pending request identity',async()=>{
-  const snapshot={format:'samosval-admin-access',version:1,source:'synology',users:[{uid:'one',revision:1}],deletedUsers:[],requests:[{uid:'one',revision:0}],permissions:{viewer:{tabs:['line'],actions:[],revision:1}}};
+  const snapshot={format:'samosval-admin-access',version:1,source:'ubuntu',users:[{uid:'one',revision:1}],deletedUsers:[],requests:[{uid:'one',revision:0}],permissions:{viewer:{tabs:['line'],actions:[],revision:1}}};
   const {client}=fixture(async()=>reply(snapshot));assert.deepEqual(await client.readAdministration(),snapshot);
   snapshot.users[0].revision=-1;await assert.rejects(client.readAdministration(),{code:'invalid-api-response'});
 });
 test('NAS presence refuses foreign sheet data and strips impersonation fields from updates',async()=>{
-  const envelope={format:'samosval-tabel-presence',version:1,source:'synology',workspaceId:'main_workspace'};let body;
+  const envelope={format:'samosval-tabel-presence',version:1,source:'ubuntu',workspaceId:'main_workspace'};let body;
   const {client}=fixture(async(_url,options)=>{if(options.method==='GET')return reply({...envelope,peers:[{uid:'peer',name:'Peer',objectId:'foreign',sheetId:'one',seen:1000,selection:null}]});body=JSON.parse(options.body);return reply({...envelope,removed:true});});
   await assert.rejects(client.readPresence({objectId:'site',sheetId:'one'}),{code:'invalid-api-response'});
   await client.removePresence({sessionId:'browser',sequence:2,uid:'forged',name:'Forged'});assert.deepEqual(body,{type:'remove',sessionId:'browser',sequence:2});

@@ -18,22 +18,22 @@ assert.equal(c.getTestBackendIndicator({state:'syncing'}).letter,'F');
 assert.equal(c.getTestBackendIndicator({state:'offline'}).letter,'О');
 assert.equal(c.getTestBackendIndicator({state:'init'}).letter,'…');
 assert.equal(c.getTestBackendIndicator({state:'error'}).letter,'!');
-assert.equal(c.setTestBackendMode('synology'),false);assert.equal(c.getTestBackendMode(),'auto');assert.equal(c.getTestBackendIndicator({state:'ok'}).letter,'F');
-assert.equal(c.setTestBackendMode('unexpected'),false);assert.equal(c.getTestBackendMode(),'auto');
+assert.equal(c.setTestBackendMode('ubuntu'),true);assert.equal(c.getTestBackendMode(),'ubuntu');assert.equal(c.getTestBackendIndicator({state:'ok'}).letter,'F');
+assert.equal(c.setTestBackendMode('unexpected'),false);assert.equal(c.getTestBackendMode(),'ubuntu');
 const before=[...saved];
 for(const change of [{currentUserRole:'viewer'},{currentUserRole:'admin',currentUserStatus:'disabled'},{currentUserStatus:'active',permissionsLoaded:false}]){
  Object.assign(c,change);assert.equal(c.setTestBackendMode('firebase'),false);assert.deepEqual([...saved],before);assert.equal(nodes['admin-backend-settings'].hidden,true);
 }
 Object.assign(c,{permissionsLoaded:true,currentUserRole:'admin',currentUserStatus:'active'});
 c.currentUid='admin-b';assert.equal(c.getTestBackendMode(),'firebase');assert.equal(c.setTestBackendMode('firebase'),true);
-c.currentUid='admin-a';assert.equal(c.getTestBackendMode(),'auto');
+c.currentUid='admin-a';assert.equal(c.getTestBackendMode(),'ubuntu');
 saved.set(c.testBackendPreferenceKey(),'synology');assert.equal(c.getTestBackendMode(),'firebase','unsupported stored selection cannot enable NAS');
 c.currentUid='';assert.equal(c.getTestBackendIndicator({state:'ok'}).letter,'…');assert.equal(c.setTestBackendMode('auto'),false);
 c.currentUid='admin-a';c.localStorage.setItem=()=>{throw Error('quota')};assert.equal(c.setTestBackendMode('auto'),false);assert.equal(nodes.testBackendMode.value,'firebase');
 const shell=fs.readFileSync('test-app/source/shell.html','utf8');
 assert.match(shell,/<button[^>]+class="sync-dot-wrap"/);
-assert.match(shell,/<option value="synology" disabled>/);
+assert.match(shell,/<option value="ubuntu">Только Ubuntu<\/option>/);
 assert.match(shell,/id="testBackendMode"[^>]+aria-describedby="testBackendModeNote" disabled/);
 c.isNasRuntime=()=>true;c.localStorage.setItem=(k,v)=>saved.set(k,v);c.currentUid='admin-a';
-assert.equal(c.getTestBackendMode(),'synology');assert.equal(c.getTestBackendIndicator({state:'ok'}).letter,'S');assert.equal(c.getTestBackendIndicator({state:'offline'}).letter,'О');
+assert.equal(c.getTestBackendMode(),'ubuntu');assert.equal(c.getTestBackendIndicator({state:'ok'}).letter,'U');assert.equal(c.getTestBackendIndicator({state:'offline'}).letter,'О');
 console.log('PASS backend controls: admin checks, account isolation, persistence failure, honest F/O/init/error states, unavailable NAS rejection; no business writes or queue mutations');

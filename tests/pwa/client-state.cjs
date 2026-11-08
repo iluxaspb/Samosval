@@ -2,13 +2,13 @@
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
 const source = fs.readFileSync('test-app/src/pwa.js','utf8');
 function harness({registerError=null, registration=null, supported=true, secure=true, build='0123456789abcdef'}={}) {
-  const nodes=Object.fromEntries(['state','install','check','version'].map(id=>['#test-pwa-'+id,{textContent:'',hidden:false,disabled:false}]));
-  const group={style:{},querySelector:id=>nodes[id]},events={},timers=new Map();let nextTimer=0,attempts=0,error=registerError,reg=registration;
+  const nodes=Object.fromEntries(['state','install','check','version','update-banner'].map(id=>['#test-pwa-'+id,{textContent:'',hidden:false,disabled:false,setAttribute(){},removeAttribute(){},toggleAttribute(){},addEventListener(){},classList:{add(){},remove(){}}}]));
+  const make=()=>({textContent:'',hidden:false,disabled:false,onclick:null,style:{},classList:{add(){},remove(){},toggle(){}},setAttribute(){},removeAttribute(){},toggleAttribute(){},addEventListener(){},append(){},appendChild(){},querySelector(){return make();},querySelectorAll(){return []},remove(){},showModal(){},close(){}});const group={style:{},querySelector:id=>nodes[id]||make(),append(){}};const created=[];events={},timers=new Map();let nextTimer=0,attempts=0,error=registerError,reg=registration;
   const mutations=[];
   const storage={getItem(){return null;},setItem(){mutations.push('set');},removeItem(){mutations.push('remove');},clear(){mutations.push('clear');}};
   const context={
     window:{isSecureContext:secure,TEST_APP_RELEASE:{version:'3.1.22 · тест',label:'Тест 3.1.22'},TestStorageState:{persistent:true},__testGetShift:()=>({id:'s'}),addEventListener:(name,fn)=>events[name]=fn,dispatchEvent(){}},
-    document:{hidden:false,currentScript:{src:'https://example.test/Samosval/test-app/build/'+build+'/pwa.js'},createElement:()=>group,querySelector:selector=>selector.startsWith('meta')?{content:build}:{append(){}},addEventListener:(name,fn)=>events[name]=fn},
+    document:{head:{append(){}},body:{append(){}},hidden:false,currentScript:{src:'https://example.test/Samosval/test-app/build/'+build+'/pwa.js'},createElement:tag=>{const el=make();el.tagName=tag;created.push(el);return el;},querySelector:selector=>selector.startsWith('meta')?{content:build}:selector.includes('settingsModal')?{querySelector:()=>group,append(){}}:{append(){},querySelector:()=>group},addEventListener:(name,fn)=>events[name]=fn},
     navigator:{onLine:true,...(supported?{serviceWorker:{addEventListener:(name,fn)=>events[name]=fn,register:async()=>{attempts++;if(error)throw Error(error);return reg;}}}:{})},
     location:{protocol:'https:',pathname:'/Samosval/index-test.html',href:'https://example.test/Samosval/index-test.html',reload(){mutations.push('reload');}},
     matchMedia:()=>({matches:false}),currentUid:'qa',permissionsLoaded:true,currentUserStatus:'active',currentUserRole:'admin',

@@ -63,14 +63,15 @@ service cloud.firestore {
 
     function validLoadingStatus(truckId) {
       let logId = request.resource.data.get('lastLoadLogId', 'missing');
-      let log = getAfter(/databases/$(database)/documents/workspaces/main_workspace/logs/$(logId)).data;
-      return resource.data.get('arriveStatus', null) != null
+      let logPath = /databases/$(database)/documents/workspaces/main_workspace/logs/$(logId);
+      return existsAfter(logPath)
+        && resource.data.get('arriveStatus', null) != null
         && request.resource.data.get('arriveStatus', null) == null
         && nextCycleRevision()
-        && log.truckId == truckId
-        && log.shiftId == resource.data.shiftId
-        && log.timestamp == request.resource.data.lastLoadTimestamp
-        && log.createdByEmail == request.auth.token.get('email', '');
+        && getAfter(logPath).data.truckId == truckId
+        && getAfter(logPath).data.shiftId == resource.data.shiftId
+        && getAfter(logPath).data.timestamp == request.resource.data.lastLoadTimestamp
+        && getAfter(logPath).data.createdByEmail == request.auth.token.get('email', '');
     }
 
     function validHistoryOperation(op) {

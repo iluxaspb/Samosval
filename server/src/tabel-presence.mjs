@@ -25,7 +25,7 @@ export function presenceIntent(input){
 export function createPresenceService({authorize,workspaceId='main_workspace',now=Date.now,ttlMs=120000,maxEntries=256,maxPerUser=8}={}){
   if(typeof authorize!=='function'||typeof now!=='function'||!Number.isSafeInteger(ttlMs)||ttlMs<1000||!Number.isSafeInteger(maxEntries)||maxEntries<1||!Number.isSafeInteger(maxPerUser)||maxPerUser<1)throw TypeError('invalid-presence-options');
   const rows=new Map(),key=(uid,id)=>JSON.stringify([uid,id]);
-  const base=()=>({format:'samosval-tabel-presence',version:1,source:'synology',workspaceId});
+  const base=()=>({format:'samosval-tabel-presence',version:1,source:'ubuntu',workspaceId});
   const prune=()=>{for(const [id,row] of rows)if(now()-row.seen>=ttlMs)rows.delete(id);};
   const access=async(uid,target)=>{const actor=await authorize(uid,target);if(actor?.uid!==uid||actor?.workspaceId!==workspaceId||typeof actor.name!=='string')throw fail('forbidden',403);return actor;};
   function room(uid){

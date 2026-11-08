@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNasClient} from '../../test-app/synology/session-client.mjs';
-const envelope=format=>({format,version:1,source:'synology',workspaceId:'main_workspace'});
+const envelope=format=>({format,version:1,source:'ubuntu',workspaceId:'main_workspace'});
 const bodies={
   '/api/v1/games':{...envelope('samosval-games'),records:[],adjustments:[],head:{gameRound:0,bank:1000},players:{}},
   '/api/v1/auxiliary':{...envelope('samosval-auxiliary'),plugins:[],patches:[],audit:[],notifications:[]},

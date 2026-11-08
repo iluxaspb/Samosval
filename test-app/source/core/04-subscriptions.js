@@ -18,10 +18,11 @@
         saveCache(); scheduleRender('renderHeaderStats');
       }, error => console.warn('Техника: история дня', error));
   }
-  function startSync() {
+  function startSync(sessionGeneration = authSessionGeneration) {
     stopSync();
     if(isNasRuntime())return;
-    unsubscribers.push(refs.trucks.onSnapshot({ includeMetadataChanges: true }, s => { state.trucks = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('trucks', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalTrucksManage'); scheduleRenderForTab('line', 'renderLine'); scheduleRender('renderHeaderStats'); }, e=>reportSyncError('trucks', e)));
+    const currentSession = () => sessionGeneration === authSessionGeneration && currentUid;
+    unsubscribers.push(refs.trucks.onSnapshot({ includeMetadataChanges: true }, s => { if (!currentSession()) return; state.trucks = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('trucks', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalTrucksManage'); scheduleRenderForTab('line', 'renderLine'); scheduleRender('renderHeaderStats'); }, e=>{if(currentSession())reportSyncError('trucks', e)}));
     unsubscribers.push(refs.objects.onSnapshot({ includeMetadataChanges: true }, s => { state.objects = s.docs.map(d => Object.assign({id:d.id}, d.data())); if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName); for(const a of state.archive||[])if(a.objectId)a.objectName=objectTitle(a.objectId,a.objectName); markSync('objects', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalObjectsManage'); scheduleRender('renderHeaderStats'); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('archive', 'renderArchive'); scheduleRenderForTab('analytics', 'renderAnalytics'); window.dispatchEvent(new Event('samosval-objects-changed')); }, e=>reportSyncError('objects', e)));
     unsubscribers.push(refs.logs.onSnapshot({includeMetadataChanges:true},receiveLoadLogs,e=>reportSyncError('logs',e)));
     unsubscribers.push(refs.truckStatus.onSnapshot({includeMetadataChanges:true},receiveTruckStatuses,e=>reportSyncError('status',e)));
@@ -40,11 +41,11 @@
       }, e=>reportSyncError('audit', e)));
     }
     if (!canAdmin()) usersUnsubscriber = usersRef.onSnapshot(s => { state.users = s.docs.map(d => Object.assign({id:d.id}, d.data())); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('analytics', 'renderAnalytics'); scheduleRenderForTab('line', 'renderLine'); }, e=>console.warn(e));
-    unsubscribers.push(appConfigRef.onSnapshot(doc => { if (doc.exists) { let d = doc.data(); if(Number.isFinite(d.cycleMinutes)){settings.cycleMinutes=Math.max(15,d.cycleMinutes);localStorage.setItem('dt_settings_test347',JSON.stringify(settings));} appConfig = { maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '', notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true, notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true, notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true, notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true, notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true, notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true, testReviewFlags: d.testReviewFlags || {}, gameRewardSchedule: Array.isArray(d.gameRewardSchedule) ? d.gameRewardSchedule : [] }; renderAppSettingsIfActive(); if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue(); } window.__gameConfigChanged?.(); }, e => console.warn(e)));
-
     // === SECURITY: права и флаг готовности ===
     unsubscribers.push(permsRef.onSnapshot({ includeMetadataChanges: true }, doc => {
+      if (!currentSession()) return;
       markSync('permissions', doc.metadata.fromCache, doc.metadata.hasPendingWrites, doc.exists ? 1 : 0);
+      permissionsServerConfirmed = !doc.metadata.fromCache;
       if (doc.exists) {
         permissionsConfig = doc.data();
       } else {
@@ -53,6 +54,10 @@
       }
       permissionsLoaded = true;
       document.body.setAttribute('data-perms-ready', '1');
+      // Do not read appConfig from a restored IndexedDB session.  The profile
+      // and permissions snapshots must first be confirmed by the server;
+      // otherwise a transient permission error is misclassified as offline.
+      if (!doc.metadata.fromCache && profileServerConfirmed) startAppConfigSync();
       updateNavUI();
       applyRoleUI();
       renderAll();
@@ -65,6 +70,41 @@
       updateNavUI();
       applyRoleUI();
       renderAll();
+    }));
+  }
+
+  function startAppConfigSync(sessionGeneration = authSessionGeneration) {
+    const sessionUid = currentUid;
+    if (isNasRuntime() || !sessionUid || currentUserStatus !== 'active' || !profileServerConfirmed || !permissionsServerConfirmed || appConfigSyncUid === sessionUid && appConfigSyncGeneration === sessionGeneration) return;
+    appConfigSyncUid = sessionUid;
+    appConfigSyncGeneration = sessionGeneration;
+    unsubscribers.push(appConfigRef.onSnapshot({includeMetadataChanges:true}, doc => {
+      if (sessionUid !== currentUid || sessionGeneration !== authSessionGeneration || currentUserStatus !== 'active') return;
+      if (doc.exists) {
+        const d = doc.data();
+        if(Number.isFinite(d.cycleMinutes)){
+          settings.cycleMinutes=Math.max(15,d.cycleMinutes);
+          localStorage.setItem('dt_settings_test347',JSON.stringify(settings));
+        }
+        appConfig = {
+          maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '',
+          notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true,
+          notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true,
+          notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true,
+          notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true,
+          notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true,
+          notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true,
+          testReviewFlags: d.testReviewFlags || {},
+          gameRewardSchedule: Array.isArray(d.gameRewardSchedule) ? d.gameRewardSchedule : []
+        };
+        renderAppSettingsIfActive();
+        if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue();
+      }
+      markSync('appConfig', doc.metadata.fromCache, doc.metadata.hasPendingWrites, doc.exists ? 1 : 0);
+      window.__gameConfigChanged?.();
+    }, e => {
+      if (sessionUid !== currentUid || sessionGeneration !== authSessionGeneration) return;
+      reportSyncError('appConfig', e);
     }));
   }
 
@@ -259,8 +299,13 @@
 
   // === АВТОРИЗАЦИЯ ===
   auth.onAuthStateChanged(async user => {
+    const sessionGeneration = ++authSessionGeneration;
     if (user) {
+      const sessionIsCurrent = () => sessionGeneration === authSessionGeneration && currentUid === user.uid;
       stopSync();
+      profileServerConfirmed = false;
+      permissionsServerConfirmed = false;
+      appConfigSyncUid = '';
       permissionsLoaded = false;
       permissionsConfig = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS));
       document.body.removeAttribute('data-perms-ready');
@@ -278,12 +323,13 @@
       if (userDocUnsubscriber) userDocUnsubscriber();
       userDocUnsubscriber = usersRef.doc(currentUid).onSnapshot({ includeMetadataChanges:true }, async snap => {
         try {
+        if (!sessionIsCurrent()) return;
         if (currentUid !== user.uid) return;
         markSync('profile', snap.metadata.fromCache, snap.metadata.hasPendingWrites, snap.exists ? 1 : 0);
         if (!snap.exists && snap.metadata.fromCache) { updateSyncUI(); return; }
         if (!snap.exists) {
-          if (forced) await usersRef.doc(currentUid).set({ email: currentEmail, nickname: defaultNick, role: 'admin', status: 'active', createdAt: Date.now(), bootstrap: true });
-          else { await ensurePendingAccount(user); return; }
+          if (forced) { await usersRef.doc(currentUid).set({ email: currentEmail, nickname: defaultNick, role: 'admin', status: 'active', createdAt: Date.now(), bootstrap: true }); if (!sessionIsCurrent()) return; }
+          else { await ensurePendingAccount(user); if (!sessionIsCurrent()) return; return; }
         }
         const data = snap.exists ? snap.data() : {};
         currentUserRole = data.role || (forced ? 'admin' : 'viewer');
@@ -292,11 +338,12 @@
         if (snap.exists && !data.nickname && defaultNick && !forced) { usersRef.doc(currentUid).set({ nickname: defaultNick }, { merge: true }).catch(()=>{}); currentUserNickname = defaultNick; }
         if (forced && (currentUserRole !== 'admin' || currentUserStatus !== 'active')) { await usersRef.doc(currentUid).set({ role: 'admin', status: 'active', nickname: currentUserNickname || defaultNick }, { merge: true }); currentUserRole = 'admin'; currentUserStatus = 'active'; }
         if (currentUserStatus === 'pending') {
-          try { await ensurePendingAccount(user); document.getElementById('registrationStatusText').textContent='Ваша заявка отправлена. Ожидайте решения администратора.'; }
-          catch(e) { document.getElementById('registrationStatusText').textContent='Заявка не отправлена: ' + (e.message || e.code) + '. Обратитесь к администратору.'; }
-          activeProfileKey = ''; stopSync(); document.getElementById('pendingScreen').style.display = 'flex'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = 'none'; document.querySelector('.container').style.display = 'none'; document.querySelector('nav').style.display = 'none'; return; }
+          try { await ensurePendingAccount(user); if (!sessionIsCurrent()) return; document.getElementById('registrationStatusText').textContent='Ваша заявка отправлена. Ожидайте решения администратора.'; }
+          catch(e) { if (!sessionIsCurrent()) return; document.getElementById('registrationStatusText').textContent='Заявка не отправлена: ' + (e.message || e.code) + '. Обратитесь к администратору.'; }
+          if (!sessionIsCurrent()) return;
+          activeProfileKey = ''; profileServerConfirmed = false; permissionsServerConfirmed = false; appConfigSyncUid = ''; stopSync(); document.getElementById('pendingScreen').style.display = 'flex'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = 'none'; document.querySelector('.container').style.display = 'none'; document.querySelector('nav').style.display = 'none'; return; }
         if (currentUserStatus === 'disabled') {
-          permissionsLoaded=false;document.body.removeAttribute('data-perms-ready');
+          permissionsLoaded=false; profileServerConfirmed = false; permissionsServerConfirmed = false; appConfigSyncUid = ''; document.body.removeAttribute('data-perms-ready');
           cancelHold();document.querySelectorAll('dialog[open]').forEach(d=>d.close());document.querySelectorAll('.modal.open').forEach(d=>d.classList.remove('open'));
           window.__gameAccessChanged?.();
           document.getElementById('disabledStatusTitle').textContent=data.rejectionReason?'Заявка отклонена':'Доступ временно ограничен';
@@ -305,13 +352,23 @@
         }
         document.getElementById('pendingScreen').style.display = 'none'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = ''; document.querySelector('.container').style.display = ''; document.querySelector('nav').style.display = 'flex';
         updateUserBadge(); updateNavUI(); applyRoleUI(); updateSyncUI();
+        // A cached profile is useful for painting the shell, but it is not proof
+        // that the restored Firebase session may read appConfig or the workspace.
+        // Starting listeners here used to turn the cache-only permission error
+        // into a false offline state and left the queue pending.
+        if (!snap.metadata.fromCache && snap.exists && currentUserStatus === 'active') profileServerConfirmed = true;
+        if (snap.metadata.fromCache) {
+          updateSyncUI();
+          return;
+        }
         const profileKey = currentUid + ':' + currentUserRole + ':' + currentUserStatus;
         if (activeProfileKey === profileKey) return;
         activeProfileKey = profileKey;
-        startSync(); startAdminSync(); setTimeout(runMaxQueue, 1200);
-        loadAndApplyPatches().catch(e => reportSyncError('patches', e));
+        startSync(sessionGeneration); startAdminSync(); startAppConfigSync(sessionGeneration); setTimeout(() => { if (sessionIsCurrent()) runMaxQueue(); }, 1200);
+        loadAndApplyPatches().catch(e => { if (sessionIsCurrent()) reportSyncError('patches', e); });
         } catch(e) { reportSyncError('profile', e); }
       }, e => {
+        if (!sessionIsCurrent()) return;
         stopSync(); permissionsLoaded = false; currentUserRole = null; activeProfileKey = '';
         document.body.removeAttribute('data-perms-ready');
         document.getElementById('userBadgeLabel').textContent = '👤 Учётная запись не загружена';
@@ -320,6 +377,7 @@
       });
     } else {
       currentEmail = ''; currentUid = ''; currentUserRole = null; currentUserStatus = null; currentUserNickname = '';
+      profileServerConfirmed = false; permissionsServerConfirmed = false; appConfigSyncUid = ''; appConfigSyncGeneration = 0;
       permissionsLoaded = false;
       document.body.removeAttribute('data-perms-ready');
       if (userDocUnsubscriber) { userDocUnsubscriber(); userDocUnsubscriber = null; }

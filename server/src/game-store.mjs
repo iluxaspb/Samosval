@@ -50,7 +50,7 @@ export async function readGames(pool,uid,ws=WS){
     const data=await gameData(client,ws);
     if(actor.role!=='admin')data.adjustments=data.adjustments.filter(r=>r.targetUid===uid);
     data.records=data.records.map(gameTransferRecord);
-    await client.query('COMMIT');return {format:'samosval-games',version:1,source:'synology',workspaceId:ws,...data};
+    await client.query('COMMIT');return {format:'samosval-games',version:1,source:'ubuntu',workspaceId:ws,...data};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }
 export function submitGame(pool,uid,input,ws=WS){

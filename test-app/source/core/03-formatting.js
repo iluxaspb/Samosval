@@ -69,6 +69,12 @@
     syncState.pendingWrites[source] = !!hasPendingWrites;
     if (!hasPendingWrites) delete syncState.pendingWrites[source];
     updateSyncUI();
+    // A replay may have been blocked by a just-completed status/shift write.
+    // The queue must be retried when the authoritative snapshot confirms that
+    // write; otherwise a load enqueued during arrival remains pending forever.
+    if ((source === 'status' || source === 'shift') && !hasPendingWrites && typeof offlineReplayJournal === 'function' && offlinePendingCount() > 0) {
+      queueMicrotask(() => offlineReplayJournal());
+    }
   }
   function reportSyncError(source, error) {
     syncState.errors = syncState.errors || {};

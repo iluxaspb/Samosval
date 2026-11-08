@@ -20,13 +20,27 @@
     try { localStorage.setItem(key, String(v || Date.now())); } catch(e) {}
   }
 
-  async function getConfig() {
+  function sessionReady(generation) {
+    return typeof currentUserStatus !== 'undefined'
+      && currentUserStatus === 'active'
+      && typeof currentUid !== 'undefined'
+      && !!currentUid
+      && typeof profileServerConfirmed !== 'undefined'
+      && profileServerConfirmed
+      && typeof permissionsServerConfirmed !== 'undefined'
+      && permissionsServerConfirmed
+      && (generation == null || generation === authSessionGeneration);
+  }
+
+  async function getConfig(generation = authSessionGeneration) {
+    if (!sessionReady(generation)) return null;
     const now = Date.now();
     if (cachedConfig && (now - cachedConfigAt) < CONFIG_CACHE_MS) {
       return cachedConfig;
     }
     try {
       const doc = await firebase.firestore().collection('settings').doc('appConfig').get();
+      if (!sessionReady(generation)) return null;
       if (doc.exists) {
         cachedConfig = doc.data();
         cachedConfigAt = now;
@@ -70,7 +84,9 @@
 
   window.sendMaxOnce = async function(item) {
     if (!item || item.type !== 'text') return 'drop';
-    const cfg = await getConfig();
+    const generation = authSessionGeneration;
+    const cfg = await getConfig(generation);
+    if (!cfg || !sessionReady(generation)) return 'drop';
     if (!cfg.maxEnabled || !cfg.maxUrl) return 'drop';
 
     const url = cfg.maxUrl;

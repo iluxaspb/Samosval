@@ -333,7 +333,7 @@
         const blob=await new Promise((resolve,reject)=>canvas.toBlob(result=>result?resolve(result):reject(new Error('Браузер не смог создать PNG')),'image/png'));
         const clean=value=>String(value||'').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_');
         const url=URL.createObjectURL(blob),link=document.createElement('a');
-        link.href=url;link.download=clean(selected.objectName).slice(0,70)+'_'+clean(selected.date)+(gai?'_ГАИ':'')+'.png';
+        link.href=url;link.download='samosval_archive_'+clean(selected.date)+(gai?'_gai':'')+'.png';
         document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
         showToastEl('Отчёт PNG сохранён',false);
       } catch(error) {console.warn('Archive PNG',error);showError('Не удалось сохранить PNG: '+error.message);}

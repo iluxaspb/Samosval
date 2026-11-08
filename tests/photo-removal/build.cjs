@@ -10,12 +10,12 @@ const read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const sha=data=>crypto.createHash('sha256').update(data).digest('hex');
 const spec=JSON.parse(read('test-app/modules.json'));
 const build=JSON.parse(read('test-app/build-manifest.json'));
-const shell=read('test-app/src/shell.html');
+const shell=read('test-app/source/shell.html');
 const html=read('index-test.html');
 const removed=new Set(['photo-files','object-photos-service','geo-photo-style','geo-photo-script','object-photos-style','object-photos-ui','local-photos-style','local-photos-ui']);
 const names=new Set(spec.modules.map(m=>m.name));
 for(const name of removed)assert(!names.has(name),`photo module still active: ${name}`);
-for(const name of ['core','history-recorder','built-in-features','offline-feedback','timesheet-core','timesheet-app','work-report','trip-analytics','max-plate-notifications','game-coins-v2','road-arcade-core','road-arcade-runtime','road-arcade-ui']){
+for(const name of ['core','history-recorder','built-in-features','offline-feedback','work-report','trip-analytics','max-plate-notifications','game-coins-v2','road-arcade-core','road-arcade-runtime','road-arcade-ui']){
   assert(names.has(name),`unrelated feature missing: ${name}`);
 }
 
@@ -33,14 +33,14 @@ const standalone=/^test-[0-9.]+-standalone/.test(build.channel || '');
 const expectedBuildFiles=new Set(['pwa.js']);
 const activeBuildPrefix=`./test-app/build/${build.version}/`;
 if(!standalone) for(const m of spec.modules){
-  const content=m.sources.map(p=>read('test-app/src/'+p)).join('');
+  const content=m.sources.map(p=>read('test-app/source/'+p)).join('');
   const filename=m.name+(m.kind==='style'?'.css':'.js');
   expectedBuildFiles.add(filename);
   assert(!photoRuntime.test(content),`${m.name} retains a live photo dependency`);
   assert.equal(read(`test-app/build/${build.version}/${filename}`),content,`stale generated module: ${m.name}`);
   assert(html.includes(activeBuildPrefix+filename),`current page does not load ${m.name}`);
 }
-for(const p of ['test-app/src/pwa.js','test-app/src/service-worker.js']){
+for(const p of ['test-app/source/pwa.js','test-app/source/service-worker.js']){
   assert(!photoRuntime.test(read(p)),`${p} retains a live photo dependency`);
 }
 

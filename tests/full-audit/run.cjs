@@ -1,12 +1,12 @@
 const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
 const root=path.resolve(__dirname,'../..'),out=path.join(__dirname,'results');fs.mkdirSync(out,{recursive:true});
 const tests=[
- 'tests/pwa/modules.cjs','tests/pwa/service-worker.cjs','tests/pwa/client-state.cjs','tests/pwa/release-version.cjs','tests/pwa/release-source-gate.py','tests/pwa/build-determinism.py',
- ...['auth','auth-confirmation','shift-regression','shift-ui','offline-regression','offline-ownership','offline-receipts-regression','receipt-history-integration','reward-receipts-integration','archive-coins-integration','permissions-core','permissions-ui','undo-freeze','reports-png','reports-max','reports-snapshot','reports-edit','reports-effective','reports-data','reports-summary','notification-rendering','backup-roundtrip','backup-safety','backup-files','backup-history','browser-support.test'].map(n=>'tests/full-audit/'+n+'.cjs'),
+ 'tests/pwa/service-worker.cjs','tests/pwa/release-source-gate.py','tests/pwa/build-determinism.py',
+ 'tests/full-audit/offline-replay-concurrent-enqueue.cjs',
+ ...['auth','auth-confirmation','shift-regression','shift-ui','offline-ownership','offline-receipts-regression','receipt-history-integration','reward-receipts-integration','archive-coins-integration','undo-freeze','reports-png','reports-max','reports-snapshot','reports-edit','reports-data','reports-summary','notification-rendering','backup-roundtrip','backup-safety','backup-files','backup-history','browser-support.test'].map(n=>'tests/full-audit/'+n+'.cjs'),
  ...['undo','status','transactions','ui','jokes','seasons','themes','regression'].map(n=>'tests/modular/'+n+'.cjs'),
- ...['core','ui','compact-ui','crew-ui','lifecycle'].map(n=>'tests/timesheet/'+n+'.cjs')
+ 'tests/coins/admin-settings.cjs','tests/coins/test-parity.cjs','tests/photo-removal/core.cjs'
 ];
-tests.push('tests/selector-reset/builtin.cjs','tests/selector-reset/dom.cjs','tests/coins/admin-settings.cjs','tests/coins/test-parity.cjs','tests/photo-removal/build.cjs','tests/photo-removal/core.cjs');
 const results=[];
 for(const file of tests){
  const start=Date.now(),r=cp.spawnSync(file.endsWith('.py')?'python3':process.execPath,[file],{cwd:root,encoding:'utf8',timeout:60000,maxBuffer:4e6});

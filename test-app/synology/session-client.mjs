@@ -7,7 +7,7 @@ export class NasClientError extends Error {
 }
 const record=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const ids=rows=>Array.isArray(rows)&&rows.every(x=>record(x)&&typeof x.id==='string'&&x.id.length>0)&&new Set(rows.map(x=>x.id)).size===rows.length;
-const envelope=(x,format,workspaceId)=>record(x)&&x.format===format&&x.version===1&&x.source==='synology'&&x.workspaceId===workspaceId;
+const envelope=(x,format,workspaceId)=>record(x)&&x.format===format&&x.version===1&&x.source==='ubuntu'&&x.workspaceId===workspaceId;
 const receipt=x=>record(x)&&(['confirmed','rejected'].includes(x.outcome))&&(x.outcome==='confirmed'?record(x.status):typeof x.reason==='string');
 
 function abortable(value,signal) {
@@ -19,7 +19,7 @@ function abortable(value,signal) {
   });
 }
 
-export function createNasClient({baseUrl='https://iluxa.synology.me:18443',workspaceId='main_workspace',
+export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443',workspaceId='main_workspace',
   getUser,fetchImpl=globalThis.fetch,timeoutMs=20000}={}) {
   let base;
   try {base=new URL(baseUrl);}catch{throw TypeError('invalid-api-url');}
@@ -35,7 +35,7 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
   // Origin, workspace and UID are inseparable from caches and outbox entries.
   const epochKey='samosval_nas_dataset_epoch:'+JSON.stringify([base.origin,workspaceId,uid]);
   let datasetEpoch=0;try{datasetEpoch=Number(globalThis.localStorage?.getItem(epochKey)||0)||0;}catch{}
-  const scope=JSON.stringify(['synology',base.origin,workspaceId,uid,...(datasetEpoch?[datasetEpoch]:[])]);
+  const scope=JSON.stringify(['ubuntu',base.origin,workspaceId,uid,...(datasetEpoch?[datasetEpoch]:[])]);
   function checkEpoch(response){const raw=response.headers?.get?.('X-Samosval-Epoch');if(raw==null||!/^\d+$/.test(raw)||Number(raw)===datasetEpoch)return;
     try{globalThis.localStorage?.setItem(epochKey,raw);}catch{}
     stopped=true;for(const close of subscriptions)close();
@@ -116,9 +116,9 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
     (x.shift===null?x.statuses.length===0&&x.logs.length===0:record(x.shift)&&typeof x.shift.id==='string'&&x.shift.id.length>0&&(x.shift.isActive===true||x.shift.isActive===false&&x.shift.closing===true)&&
       x.statuses.every(s=>s.shiftId===x.shift.id)&&x.logs.every(l=>l.shiftId===x.shift.id&&typeof l.truckId==='string'))});
   const readArchive=()=>backgroundRequest('/api/v1/archive/snapshot',{validate:x=>envelope(x,'samosval-archive-snapshot',workspaceId)&&Number.isFinite(x.importedAt)&&ids(x.archives)&&ids(x.trash)});
-  const readHistory=()=>request('/api/v1/history',{validate:x=>record(x)&&x.format==='samosval-line-history'&&x.version===1&&x.source==='synology'&&ids(x.items)});
+  const readHistory=()=>request('/api/v1/history',{validate:x=>record(x)&&x.format==='samosval-line-history'&&x.version===1&&x.source==='ubuntu'&&ids(x.items)});
   const readCatalog=()=>request('/api/v1/catalog',{validate:x=>envelope(x,'samosval-catalog',workspaceId)&&ids(x.trucks)&&ids(x.objects)&&[...x.trucks,...x.objects].every(r=>record(r.data)&&Number.isSafeInteger(r.revision)&&r.revision>0)});
-  const readMembers=()=>request('/api/v1/members',{validate:x=>record(x)&&x.format==='samosval-members'&&x.version===1&&x.source==='synology'&&Array.isArray(x.members)&&x.members.every(m=>record(m)&&typeof m.uid==='string'&&typeof m.nickname==='string')});
+  const readMembers=()=>request('/api/v1/members',{validate:x=>record(x)&&x.format==='samosval-members'&&x.version===1&&x.source==='ubuntu'&&Array.isArray(x.members)&&x.members.every(m=>record(m)&&typeof m.uid==='string'&&typeof m.nickname==='string')});
   const readAuxiliary=()=>backgroundRequest('/api/v1/auxiliary',{validate:x=>envelope(x,'samosval-auxiliary',workspaceId)&&['plugins','patches','audit','notifications'].every(k=>ids(x[k]))});
   async function submitAuxiliary(operation,{operationScope}={}){
     const op=scopedOperation(operation,operationScope);
@@ -167,7 +167,7 @@ export function createNasClient({baseUrl='https://iluxa.synology.me:18443',works
       (op.type!=='prepare'||x.archive===null||record(x.archive)&&x.archive.sourceShiftId===op.shiftId)});
   }
   const profiles=rows=>Array.isArray(rows)&&rows.every(x=>record(x)&&typeof x.uid==='string'&&x.uid&&Number.isSafeInteger(x.revision)&&x.revision>0)&&new Set(rows.map(x=>x.uid)).size===rows.length;
-  const readAdministration=()=>request('/api/v1/admin/access',{validate:x=>record(x)&&x.format==='samosval-admin-access'&&x.version===1&&x.source==='synology'&&profiles(x.users)&&profiles(x.deletedUsers)&&Array.isArray(x.requests)&&x.requests.every(r=>record(r)&&typeof r.uid==='string'&&Number.isSafeInteger(r.revision)&&r.revision>=0)&&record(x.permissions)&&Object.values(x.permissions).every(p=>record(p)&&Array.isArray(p.tabs)&&Array.isArray(p.actions)&&Number.isSafeInteger(p.revision)&&p.revision>0)});
+  const readAdministration=()=>request('/api/v1/admin/access',{validate:x=>record(x)&&x.format==='samosval-admin-access'&&x.version===1&&x.source==='ubuntu'&&profiles(x.users)&&profiles(x.deletedUsers)&&Array.isArray(x.requests)&&x.requests.every(r=>record(r)&&typeof r.uid==='string'&&Number.isSafeInteger(r.revision)&&r.revision>=0)&&record(x.permissions)&&Object.values(x.permissions).every(p=>record(p)&&Array.isArray(p.tabs)&&Array.isArray(p.actions)&&Number.isSafeInteger(p.revision)&&p.revision>0)});
   const registerPending=({nickname}={})=>request('/api/v1/registration',{operation:nickname===undefined?{}:{nickname},validate:x=>record(x)&&typeof x.created==='boolean'&&record(x.profile)&&x.profile.uid===uid&&['pending','active','disabled'].includes(x.profile.status)});
   async function submitAdministration(operation,{operationScope}={}) {
     guard();if(operationScope!==scope)throw new NasClientError('outbox-scope-mismatch');

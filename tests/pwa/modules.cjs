@@ -7,13 +7,13 @@ let previous=-1,compiled=0;
 for(const m of spec.modules){
  assert(!names.has(m.name),'Duplicate module '+m.name);names.add(m.name);
  for(const source of m.sources){assert(!sources.has(source),'Duplicate source '+source);sources.add(source);assert(!source.includes('..'),'Unsafe source path');}
- const content=m.sources.map(p=>fs.readFileSync('test-app/src/'+p,'utf8')).join('');
+ const content=m.sources.map(p=>fs.readFileSync('test-app/source/'+p,'utf8')).join('');
  const ext=m.kind==='style'?'css':'js',url='./test-app/build/'+manifest.version+'/'+m.name+'.'+ext;
  assert.equal(fs.readFileSync(url,'utf8'),content,'Stale built module '+m.name);
  const at=html.indexOf(url);assert(at>previous,'Missing or out-of-order module '+m.name);assert.equal(html.lastIndexOf(url),at,'Duplicated runtime module');previous=at;
  if(m.kind!=='style'){new vm.Script(content,{filename:m.name});compiled++;}
 }
-assert.equal(fs.readFileSync('./test-app/build/'+manifest.version+'/pwa.js','utf8'),fs.readFileSync('test-app/src/pwa.js','utf8'));
+assert.equal(fs.readFileSync('./test-app/build/'+manifest.version+'/pwa.js','utf8'),fs.readFileSync('test-app/source/pwa.js','utf8'));
 assert(!html.includes('<!-- TEST-MODULE:'));assert(!html.includes('<!-- TEST-PWA -->'));
 const hydrated=require('../../tools/read-test-html.cjs')();let scripts=0;
 for(const m of hydrated.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)){new vm.Script(m[1]);scripts++;}
@@ -22,14 +22,14 @@ const install=JSON.parse(fs.readFileSync('manifest-test.webmanifest'));
 for(const key of ['scope','start_url','id'])assert.equal(install[key],'./index-test.html');
 assert(install.icons.some(i=>i.sizes==='192x192'));assert(install.icons.some(i=>i.sizes==='512x512'));
 for(const a of manifest.assets)assert.equal(sha(fs.readFileSync(a.url)),a.sha256,a.url);
-const release=fs.readFileSync('test-app/src/features/release-history.js','utf8'),version=release.match(/version:'([^']+)'/)[1];
+const release=fs.readFileSync('test-app/source/features/release-history.js','utf8'),version=release.match(/version:'([^']+)'/)[1];
 assert(html.includes('Версия '+version),'Shell version differs from release history');assert(release.includes("button.textContent='Версия '+releases[0].version;"),'Version must use current release');
-assert(/\.version-text\s*\{[^}]*#e11d48/i.test(fs.readFileSync('test-app/src/styles/base.css','utf8')),'Test label must be red');
+assert(/\.version-text\s*\{[^}]*#e11d48/i.test(fs.readFileSync('test-app/source/styles/style-04.css','utf8')),'Test label must be red');
 assert(html.includes('retryAccountCheck()'),'Registration recovery control missing');assert(!/export(?:CurrentReport|Archive)PDF|sendActiveReportToMax|appConfigNotifyPdf/.test(html),'Obsolete report control');
 
 // Preserve current release requirements, not the obsolete pre-modularization hashes.
-const testCss=fs.readFileSync('test-app/src/styles/base.css','utf8');
-const testAuth=fs.readFileSync('test-app/src/core/09-auth.js','utf8');
+const testCss=fs.readFileSync('test-app/source/styles/style-04.css','utf8');
+const testAuth=fs.readFileSync('test-app/source/core/05-authentication.js','utf8');
 assert.match(testCss,/body:not\(\[data-release-admin="1"\]\) \.version-text/);
 assert.match(testAuth,/permissionsLoaded && canAdmin\(\)/);
 assert.match(testAuth,/setAttribute\('data-release-admin', '1'\)/);

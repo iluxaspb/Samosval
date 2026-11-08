@@ -42,8 +42,12 @@ const showError=s=>{window.lastError=s},showToastEl=s=>{window.lastToast=s};
             assert indicator.inner_text()=='F'
             assert select.input_value()=='firebase'
             assert page.locator('#syncBadge').inner_text()=='2'
-            assert page.locator('#testBackendMode option[value="synology"]').is_disabled()
-            select.select_option('auto');assert 'автоматически используется Firebase' in page.locator('#testBackendModeNote').inner_text()
+            assert not page.locator('#testBackendMode option[value="ubuntu"]').is_disabled()
+            with page.expect_navigation(wait_until='load'):
+                select.select_option('auto')
+            assert page.evaluate("localStorage.getItem(testBackendPreferenceKey())")=='auto'
+            assert select.input_value()=='auto'
+            assert page.locator('#testBackendModeNote').inner_text() in ('Сейчас автоматически используется Firebase. Ubuntu доступен для ручного выбора.','Данные обслуживает Firebase. Ubuntu доступен для ручного выбора.')
             assert indicator.inner_text()=='F'
             page.reload();assert select.input_value()=='auto'
             page.evaluate("currentUid='admin-b';updateSyncUI()")
@@ -53,8 +57,9 @@ const showError=s=>{window.lastError=s},showToastEl=s=>{window.lastToast=s};
             assert page.evaluate("setTestBackendMode('firebase')") is False
             page.evaluate("currentUserRole='admin';updateSyncUI()")
             assert select.input_value()=='auto'
-            assert page.evaluate("setTestBackendMode('synology')") is False
-            assert select.input_value()=='auto' and indicator.inner_text()=='F'
+            with page.expect_navigation(wait_until='load'):
+                assert page.evaluate("setTestBackendMode('ubuntu')") is True
+            assert select.input_value()=='ubuntu' and indicator.inner_text()=='F'
             page.evaluate('offlineServerUnreachable=true;updateSyncUI()')
             assert indicator.inner_text()=='О'
             page.wait_for_function('getComputedStyle(document.querySelector("#syncDot")).backgroundColor==="rgb(100, 116, 139)"')

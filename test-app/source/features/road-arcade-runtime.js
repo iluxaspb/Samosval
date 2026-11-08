@@ -39,14 +39,17 @@ function readSpin(){try{const v=JSON.parse(localStorage.getItem(pendingKey())||'
 function storeSpin(op){ownPending=op;try{if(op)localStorage.setItem(pendingKey(),JSON.stringify(op));else localStorage.removeItem(pendingKey());}catch(e){if(op)throw Error('Браузер не разрешил сохранить вращение. Разрешите локальное хранилище.');}}
 async function transact(action){
  const user=currentUid,email=currentEmail,name=getUserName(),economy=window.__gameEconomy?.snapshot();
- if(!active()||!navigator.onLine||!ready||!economy?.ready)throw Error('Дождитесь связи и синхронизации кошелька.');
+ const sessionGeneration=authSessionGeneration;
+ if(!active()||!navigator.onLine||!ready||!economy?.ready||!isAuthSessionReady(sessionGeneration))throw Error('Дождитесь связи и синхронизации кошелька.');
  if(action.kind!=='purchase'&&!available(action.kind==='finish'?'mario':action.kind))throw Error('Эта мини-игра выключена администратором.');
  if(isNasRuntime())return nasGameAction(action);
  const operation={...action,id:action.id||uid()},receipt=refs.audit.doc(receiptId(user,operation.id)),baseRound=head.gameRound;
  const raw=window.__historyRawTransaction||db.runTransaction.bind(db);
  const result=await raw(async tx=>{
+  if(!isAuthSessionReady(sessionGeneration)||currentUid!==user)throw Error('Учётная запись или доступ изменились.');
   const saved=await tx.get(receipt);if(saved.exists)return {...saved.data().outcome,replayed:true};
   const profile=await tx.get(usersRef.doc(user)),policyDoc=await tx.get(appConfigRef),policy=policyDoc.exists?policyDoc.data():{};
+  if(!isAuthSessionReady(sessionGeneration)||currentUid!==user)throw Error('Учётная запись или доступ изменились.');
   if(currentUid!==user||!profile.exists||profile.data().status!=='active')throw Error('Учётная запись или доступ изменились.');
   if(!flag('game_mode',policy))throw Error('Игровой режим выключен.');
   const kind=operation.kind==='finish'?'mario':operation.kind;

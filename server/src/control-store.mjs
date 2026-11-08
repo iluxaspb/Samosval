@@ -81,6 +81,6 @@ export async function readCatalog(pool,uid,ws=WS){
     if(!line&&!permissions.includes('tab_timesheet'))throw fail('forbidden',403);
     const rows=async(table,key)=>(await client.query(`SELECT ${key} AS id,payload,revision FROM ${table} WHERE workspace_id=$1 AND payload->>'deleted' IS DISTINCT FROM 'true' ORDER BY ${key}`,[ws])).rows.map(r=>({id:r.id,data:r.payload,revision:Number(r.revision)}));
     const trucks=line?await rows('line_trucks','truck_id'):[],objects=await rows('workspace_objects','object_id');
-    await client.query('COMMIT');return {format:'samosval-catalog',version:1,source:'synology',workspaceId:ws,trucks,objects};
+    await client.query('COMMIT');return {format:'samosval-catalog',version:1,source:'ubuntu',workspaceId:ws,trucks,objects};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }

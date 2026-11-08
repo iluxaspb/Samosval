@@ -88,7 +88,7 @@
 
   // ===== Создание бэкапа =====
   async function createBackup(type, description) {
-    if(isNasRuntime()){try{const r=await nasBackupCommand('create:'+type,{type:'backup.create',backupType:type,description:description||''});if(type==='auto')localStorage.setItem('dt_backup_last_auto_test347',String(Date.now()));showToastEl('✅ Бэкап создан на Synology',false);renderBackupUI();return r.result.meta;}catch(e){showError('Ошибка бэкапа: '+e.message);return null;}}
+    if(isNasRuntime()){try{const r=await nasBackupCommand('create:'+type,{type:'backup.create',backupType:type,description:description||''});if(type==='auto')localStorage.setItem('dt_backup_last_auto_test347',String(Date.now()));showToastEl('✅ Бэкап создан на Ubuntu',false);renderBackupUI();return r.result.meta;}catch(e){showError('Ошибка бэкапа: '+e.message);return null;}}
 
     if (backupInProgress) {
       if (typeof showToastEl === 'function') showToastEl('⏳ Уже идёт создание бэкапа', true);
@@ -237,7 +237,7 @@
 
   // ===== Удаление бэкапа =====
   async function deleteBackup(id) {
-    if(isNasRuntime()){if(await appConfirm('Убрать точку восстановления из списка? Копия сохранится на Synology.')){try{await nasBackupCommand(id,{type:'backup.delete',backupId:id});renderBackupUI();}catch(e){showError(e.message);}}return;}
+    if(isNasRuntime()){if(await appConfirm('Убрать точку восстановления из списка? Копия сохранится на Ubuntu.')){try{await nasBackupCommand(id,{type:'backup.delete',backupId:id});renderBackupUI();}catch(e){showError(e.message);}}return;}
     if (!(await appConfirm('Удалить этот бэкап? Восстановить из него будет невозможно.'))) return;
     try {
       const chunksSnap = await BACKUPS_COLL.doc(id).collection('chunks').get();
@@ -270,7 +270,7 @@
 
   // ===== Восстановление =====
   async function restoreBackup(id, sections) {
-    if(isNasRuntime()){try{await nasBackupCommand(id,{type:'backup.restore',backupId:id,sections});showToastEl('✅ Восстановлено на Synology. Перезагрузка...',false);location.reload();}catch(e){showError(e.message);}return;}
+    if(isNasRuntime()){try{await nasBackupCommand(id,{type:'backup.restore',backupId:id,sections});showToastEl('✅ Восстановлено на Ubuntu. Перезагрузка...',false);location.reload();}catch(e){showError(e.message);}return;}
     // sections: { base: true, archive: true, settings: true, users: true, shift: true }
     try {
       if (typeof showToastEl === 'function') showToastEl('⏳ Чтение бэкапа...', false);

@@ -1,7 +1,14 @@
-  // Activated only in an isolated NAS candidate build, never by a stored preference.
-  // The normal TEST build remains Firebase until every feature has a NAS adapter.
-  function isNasRuntime() { return document.querySelector('meta[name="test-data-provider"]')?.content === 'synology-candidate'; }
-  function nasStorageScope() { const base='https://iluxa.synology.me:18443';let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval_nas_dataset_epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify(['synology',base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
+  // TEST runtime is hosted on Ubuntu. Firebase is used only for authentication
+  // tokens; application data and writes go through the Ubuntu API.
+  const UBUNTU_API_BASE = 'https://samosval-test.iluxa.pro:18443';
+  function nasProvider() {
+    const provider = document.querySelector('meta[name="test-data-provider"]')?.content;
+    if (provider === 'ubuntu-candidate') return 'ubuntu';
+    try { return localStorage.getItem('dt_backend_mode_test:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + currentUid) === 'ubuntu' ? 'ubuntu' : 'firebase'; } catch (_) { return 'firebase'; }
+  }
+  function isNasRuntime() { return nasProvider() !== 'firebase'; }
+  function nasApiBase() { return UBUNTU_API_BASE; }
+  function nasStorageScope() { const base=nasApiBase();let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval_nas_dataset_epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify([nasProvider(),base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0;
   const nasReceiptFloors = new Map();
   const nasPresenceLeavers=new Set();
@@ -40,7 +47,7 @@
       state.trucks=[];state.logs=[];state.truckStatus={};state.shift=null;state.archive=[];state.trash=[];state.audit=[];state.users=[];
       offlineRemoteStatuses={};offlineRemoteLogs=[];initialized=false;cancelHold();
       document.querySelectorAll('dialog[open]').forEach(d=>d.close());
-      document.getElementById('registrationStatusText').textContent='Учётная запись ожидает допуска на сервере Synology.';
+      document.getElementById('registrationStatusText').textContent='Учётная запись ожидает допуска на сервере Ubuntu.';
       document.getElementById('disabledStatusText').textContent=profile?.rejectionReason||'Доступ ограничен администратором.';
     }
     markSync('profile',false,false,profile?1:0);markSync('permissions',false,false,active?1:0);
@@ -82,7 +89,7 @@
     try{
       const {createNasClient}=await loadNasSessionClient();
       if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid)return;
-      const client=createNasClient({getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
+      const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
       for(const name of ['plugins','patches','audit','notifications'])refs[name]=nasAuxCollection(name,client,epoch);
       let registering=false;
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
@@ -113,7 +120,7 @@
     })();nasAuxRead=work;try{return await work;}finally{if(nasAuxRead===work)nasAuxRead=null;}
   }
   function nasAuxCollection(name,client,epoch,filters=[],ordering=null,maximum=null){
-    const guard=()=>{if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch||currentUid!==client.uid||currentUserStatus!=='active')throw Error('Сеанс Synology изменился');};
+    const guard=()=>{if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch||currentUid!==client.uid||currentUserStatus!=='active')throw Error('Сеанс Ubuntu изменился');};
     const document=id=>({id,ref:null,exists:true,data:()=>{const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id);if(!row)return undefined;const {id:_,revision,...data}=row;return data;}});
     const wrap=row=>{const snap=document(row.id);snap.ref=collection.doc(row.id);return snap;};
     const collection={
@@ -131,7 +138,7 @@
         if(ordering){const [k,d]=ordering;rows=rows.slice().sort((a,b)=>(a[k]>b[k]?1:a[k]<b[k]?-1:0)*(d==='desc'?-1:1));}if(maximum!==null)rows=rows.slice(0,maximum);const docs=rows.map(wrap);return {docs,size:docs.length,empty:!docs.length,forEach:fn=>docs.forEach(fn),metadata:{fromCache:false,hasPendingWrites:false}};}
     };return collection;
   }
-  async function nasBackupRead(id){if(!canAdmin()||!nasRuntimeClient)throw Error('Требуется администратор Synology');return nasRuntimeClient.readBackups(id);}
+  async function nasBackupRead(id){if(!canAdmin()||!nasRuntimeClient)throw Error('Требуется администратор Ubuntu');return nasRuntimeClient.readBackups(id);}
   async function nasBackupCommand(target,fields){return nasBusinessCommand('backup',target,fields);}
   async function nasReportAction(type,log,data){
     const expected={volume:log.volume,timestamp:log.timestamp,timeStr:log.timeStr,comment:log.comment||'',truckId:log.truckId,shiftId:log.shiftId};
@@ -139,7 +146,7 @@
     await nasRefreshLine();await Promise.allSettled([refreshNasGames(),refreshNasAuxiliary()]);return result;
   }
   async function nasHistoryAction(action,direction){
-    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Synology не загружен');
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Ubuntu не загружен');
     const key='samosval_nas_history_v1:'+client.scope+':'+action.id+':'+direction;
     let op=JSON.parse(localStorage.getItem(key)||'null');if(!op){op={id:'history_'+crypto.randomUUID().replaceAll('-',''),actionId:action.id,direction,expectedRevision:action.revision};localStorage.setItem(key,JSON.stringify(op));}
     let result;try{result=await client.submitHistory(op,{operationScope:client.scope});}catch(error){if([400,409].includes(error.status)&&epoch===nasRuntimeEpoch)localStorage.removeItem(key);throw error;}if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
@@ -167,7 +174,7 @@
   async function nasSaveSettings(patch,values){
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!canAdmin())throw Error('Требуется администратор');
     if(!nasSettingsSnapshot)await refreshNasSettings();
-    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||!nasSettingsSnapshot)throw Error('Обновите настройки Synology');
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||!nasSettingsSnapshot)throw Error('Обновите настройки Ubuntu');
     const result=await nasBusinessCommand('settings','config',{type:values?'settings.rewards':'settings.patch',expectedRevision:nasSettingsSnapshot.revision,...(values?{values}:{patch})});
     if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||!canAdmin())throw Error('Сеанс администратора изменился');
     acceptNasSettings({revision:result.result.revision,data:result.result.data});return result.result.data;
@@ -235,17 +242,17 @@
   }
   function nasTabelHost(){
     const client=nasRuntimeClient,user=auth.currentUser,epoch=nasRuntimeEpoch;
-    if(!client||!user)throw Error('Сеанс Synology не загружен');
+    if(!client||!user)throw Error('Сеанс Ubuntu не загружен');
     const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||auth.currentUser!==user||currentUid!==client.uid||currentUserStatus!=='active'||!permissionsLoaded||!hasTabAccess('timesheet'))throw Error('Доступ к табелю изменился');};
     const remoteFactory=async jobGuard=>{
       guard();const {createTabelRemote}=await loadNasTabelRemote();guard();
-      return createTabelRemote({datasetEpoch:client.datasetEpoch,baseUrl:'https://iluxa.synology.me:18443',
+      return createTabelRemote({datasetEpoch:client.datasetEpoch,baseUrl:nasApiBase(),
         getIdToken:async force=>{guard();const token=await user.getIdToken(force);guard();return token;},
         guard:job=>{guard();jobGuard?.(job);}});
     };
     return {session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,name:getUserName(),role:currentUserRole,
       active:epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&currentUserStatus==='active',view:epoch===nasRuntimeEpoch&&permissionsLoaded&&hasTabAccess('timesheet'),edit:hasPermission('timesheet_edit'),objectId:state.shift?.objectId,runtimeId:epoch,
-      provider:'synology',providerScope:client.scope}),remoteFactory,
+      provider:nasProvider(),providerScope:client.scope}),remoteFactory,
       presenceRemote:{list:target=>{guard();return client.readPresence(target);},write:payload=>{guard();return client.writePresence(payload);},remove:payload=>client.removePresence(payload)},
       registerPresenceLeave:callback=>{nasPresenceLeavers.add(callback);return ()=>nasPresenceLeavers.delete(callback);},
       get shift(){return state.shift;},get objects(){return state.objects;},
@@ -264,12 +271,12 @@
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');
     const {createNasClient}=await loadNasSessionClient();
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');
-    const client=createNasClient({getUser,workspaceId:WORKSPACE_ID});
+    const client=createNasClient({baseUrl: nasApiBase(), getUser,workspaceId:WORKSPACE_ID});
     try{return await client.registerPending({nickname:sanitizeName(user.email||'')});}finally{client.stop();}
   }
   async function refreshNasAdministration() {
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
-    if(!client||!canAdmin())throw Error('Требуется активный администратор Synology');
+    if(!client||!canAdmin())throw Error('Требуется активный администратор Ubuntu');
     if(nasAdminRead)return nasAdminRead;
     const work=(async()=>{
       const snapshot=await client.readAdministration();
@@ -283,7 +290,7 @@
   function nasIdentityJournalKey(){return 'samosval_nas_identity_v1:'+nasStorageScope();}
   async function nasAdminAction(type,payload) {
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
-    if(!client||!canAdmin()||!navigator.onLine)throw Error('Для изменения доступа нужен администратор и соединение с Synology');
+    if(!client||!canAdmin()||!navigator.onLine)throw Error('Для изменения доступа нужен администратор и соединение с Ubuntu');
     if(!nasAdministration)await refreshNasAdministration();
     if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||!canAdmin())throw Error('Сеанс администратора изменился');
     const key=nasIdentityJournalKey(),intent=JSON.stringify({type,...payload});
@@ -316,7 +323,7 @@
     }
   }
   async function runNasAdminAction(type,payload) {
-    try{await nasAdminAction(type,payload);showToastEl('Изменение сохранено на Synology',false);return true;}
+    try{await nasAdminAction(type,payload);showToastEl('Изменение сохранено на Ubuntu',false);return true;}
     catch(error){if(canAdmin())renderAdminPanel();showError(error.message||'Изменение не подтверждено');return false;}
   }
   async function replayNasOfflineJournal() {
@@ -352,7 +359,7 @@
   // Persist the complete immutable intent before sending. Lost replies reuse IDs.
   async function nasBusinessCommand(channel,target,fields) {
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
-    if(!client||currentUserStatus!=='active'||!navigator.onLine)throw Error('Нужно соединение с Synology');
+    if(!client||currentUserStatus!=='active'||!navigator.onLine)throw Error('Нужно соединение с Ubuntu');
     const captured=JSON.parse(JSON.stringify(fields));
     const key='samosval_nas_commands_v1:'+client.scope,slot=channel+':'+target;
     const {expectedRevision,expectedTtnRevision,expectedObjectId,expected,...desired}=captured,intent=JSON.stringify(desired);
@@ -362,7 +369,7 @@
     const live=()=>epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&client.uid===currentUid;
     const run=async()=>{
       if(!live())throw Error('Учётная запись изменилась');
-      const queue=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(queue))throw Error('Не удалось прочитать очередь Synology');
+      const queue=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(queue))throw Error('Не удалось прочитать очередь Ubuntu');
       let pending=queue.find(x=>x.slot===slot);
       if(pending&&pending.intent!==intent)throw Error('Сначала повторите предыдущее неподтверждённое изменение');
       if(!pending){
@@ -411,7 +418,7 @@
 
   function loadNasMaterialTransfer(){return import(new URL('./test-app/tabel-v2/material-transfer.mjs',document.baseURI).href);}
   async function nasCloseCurrentShift(shiftId){
-    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Synology не загружен');
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Ubuntu не загружен');
     const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUid!==client.uid)throw Error('Учётная запись изменилась');};
     const key='samosval_nas_close_v1:'+client.scope+':'+shiftId;
     let prepared=JSON.parse(localStorage.getItem(key)||'null');

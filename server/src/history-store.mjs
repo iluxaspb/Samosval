@@ -100,6 +100,6 @@ export async function readLineHistory(pool,uid,ws=WS){
       canUndo:!row.undone&&row.is_active&&row.closing!=='true'&&(profile.role==='admin'||permissions.includes('history_undo_any')||row.uid===uid&&permissions.includes('history_undo_own')),
       canRedo:row.undone&&row.is_active&&row.closing!=='true'&&(profile.role==='admin'||permissions.includes('history_redo_any')||row.uid===uid&&permissions.includes('history_redo_own'))});
     items.sort((a,b)=>b.timestamp-a.timestamp);
-    await client.query('COMMIT');return {format:'samosval-line-history',version:1,source:'synology',items};
+    await client.query('COMMIT');return {format:'samosval-line-history',version:1,source:'ubuntu',items};
   }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}finally{client.release();}
 }

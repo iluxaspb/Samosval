@@ -35,7 +35,7 @@ export async function readServerControl(pool,uid,ws=process.env.WORKSPACE_ID||'m
   const users=(await c.query("SELECT count(*)::int AS registered,count(*) FILTER(WHERE status='active' AND NOT COALESCE((profile->>'deleted')::boolean,false))::int AS active,count(*) FILTER(WHERE status='pending')::int AS pending FROM app_users")).rows[0];
   const database=(await c.query('SELECT pg_database_size(current_database())::text AS bytes,current_database() AS name')).rows[0];
   const backups=(await c.query("SELECT meta FROM workspace_backups WHERE workspace_id=$1 AND NOT deleted ORDER BY (meta->>'createdAt')::bigint DESC LIMIT 10",[ws])).rows.map(r=>r.meta);
-  await c.query('COMMIT');return {format:'samosval-server-control',version:1,source:'synology',workspaceId:ws,channel:'test',readAt:Date.now(),api:apiMetrics(),database:{status:'connected',...database},agent:{available:controlFresh(state),heartbeat:state?.heartbeat||null,...(state?.payload||{})},jobs,events,objects,users,backups};
+  await c.query('COMMIT');return {format:'samosval-server-control',version:1,source:'ubuntu',workspaceId:ws,channel:'test',readAt:Date.now(),api:apiMetrics(),database:{status:'connected',...database},agent:{available:controlFresh(state),heartbeat:state?.heartbeat||null,...(state?.payload||{})},jobs,events,objects,users,backups};
  }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}
 }
 export async function submitServerCommand(pool,uid,input){

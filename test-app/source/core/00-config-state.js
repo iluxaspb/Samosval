@@ -184,6 +184,20 @@ const firebaseConfig = {
   let usersUnsubscriber = null;
   let reqsUnsubscriber = null;
   let userDocUnsubscriber = null;
+  let profileServerConfirmed = false;
+  let permissionsServerConfirmed = false;
+  // Monotonically changes for every Firebase Auth callback, including logout.
+  // Async profile/permission work must never cross this boundary.
+  let authSessionGeneration = 0;
+  function isAuthSessionReady(generation = authSessionGeneration) {
+    return generation === authSessionGeneration
+      && !!currentUid
+      && currentUserStatus === 'active'
+      && profileServerConfirmed
+      && permissionsServerConfirmed;
+  }
+  let appConfigSyncUid = '';
+  let appConfigSyncGeneration = 0;
   let showGAITable = false;
   let confirmedLoadIds = new Set();
   function validTickerNotification(item) {

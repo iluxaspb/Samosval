@@ -17,13 +17,17 @@ service cloud.firestore {
     }
 
     function active() {
-      return signedIn() && (owner() || account().get('status', '') == 'active');
+      return signedIn() && (owner() || (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && account().get('status', '') == 'active'
+      ));
     }
 
     function admin() {
       return signedIn() && (owner() || (
-        account().get('status', '') == 'active'
-        && account().get('role', '') == 'admin'
+        exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', '') == 'active'
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin'
       ));
     }
 
@@ -63,14 +67,15 @@ service cloud.firestore {
 
     function validLoadingStatus(truckId) {
       let logId = request.resource.data.get('lastLoadLogId', 'missing');
-      let log = getAfter(/databases/$(database)/documents/workspaces/main_workspace/logs/$(logId)).data;
-      return resource.data.get('arriveStatus', null) != null
+      let logPath = /databases/$(database)/documents/workspaces/main_workspace/logs/$(logId);
+      return existsAfter(logPath)
+        && resource.data.get('arriveStatus', null) != null
         && request.resource.data.get('arriveStatus', null) == null
         && nextCycleRevision()
-        && log.truckId == truckId
-        && log.shiftId == resource.data.shiftId
-        && log.timestamp == request.resource.data.lastLoadTimestamp
-        && log.createdByEmail == request.auth.token.get('email', '');
+        && getAfter(logPath).data.truckId == truckId
+        && getAfter(logPath).data.shiftId == resource.data.shiftId
+        && getAfter(logPath).data.timestamp == request.resource.data.lastLoadTimestamp
+        && getAfter(logPath).data.createdByEmail == request.auth.token.get('email', '');
     }
 
     function validHistoryOperation(op) {
@@ -174,7 +179,7 @@ service cloud.firestore {
     // The existing client uses this document for MAX notifications.
     match /settings/appConfig {
       allow read: if active();
-      allow write: if admin();
+      allow write: if active();
     }
 
     match /settings/undoRedoStacks {
@@ -206,8 +211,10 @@ service cloud.firestore {
       // The application subscribes to these shared collections.
       // Non-admin writes are granted separately below.
       match /{collection}/{id} {
+        // Explicit collection blocks below own the operational data paths.
+        // Keep this fallback read-only so batch restores cannot evaluate an
+        // unrelated admin write branch for a nested document.
         allow read: if collection != 'coinTransactions' && active();
-        allow write: if collection != 'coinTransactions' && admin();
       }
 
       match /trucks/{id} {
@@ -228,7 +235,7 @@ service cloud.firestore {
       }
 
       match /truckStatus/{id} {
-        allow create: if can('edit_line') || can('archive_edit');
+        allow create: if can('archive_edit') || can('edit_line');
 
         allow update: if (
           loadingAllowed()
@@ -258,8 +265,10 @@ service cloud.firestore {
 
       match /logs/{id} {
         allow create: if (
+          can('archive_edit')
+        ) || (
           loadingAllowed() && ownNewRecord() && validLoadCreate(id)
-        ) || can('archive_edit');
+        );
 
         allow update: if can('edit_logs');
         allow delete: if can('edit_logs') || can('close_shift')
@@ -270,7 +279,7 @@ service cloud.firestore {
       match /archive/{id} {
         allow create: if can('close_shift') || can('import_backup');
         allow update: if can('archive_edit') || can('import_backup');
-        allow delete: if can('archive_delete') || can('archive_edit');
+        allow delete: if can('archive_edit') || can('archive_delete');
       }
 
       match /trash/{id} {

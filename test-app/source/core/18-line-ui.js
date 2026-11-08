@@ -171,7 +171,7 @@
     if (!email || !pass) { showError('Заполните поля'); return; }
     if(isNasRuntime()){
       const secAuth=secondaryApp.auth();
-      try{const credential=await secAuth.createUserWithEmailAndPassword(email,pass);await ensureNasPendingAccount(credential.user,()=>secAuth.currentUser);await refreshNasAdministration();await nasAdminAction('registration.approve',{uid:credential.user.uid,role});showToastEl('Пользователь создан на Synology',false);}
+      try{const credential=await secAuth.createUserWithEmailAndPassword(email,pass);await ensureNasPendingAccount(credential.user,()=>secAuth.currentUser);await refreshNasAdministration();await nasAdminAction('registration.approve',{uid:credential.user.uid,role});showToastEl('Пользователь создан на Ubuntu',false);}
       catch(error){showError('Создание доступа не завершено: '+error.message);}
       finally{await secAuth.signOut();document.getElementById('newUserPassword').value='';}return;
     }
@@ -266,8 +266,13 @@
         const status = await tx.get(statusRef);
         const logRef = last.type === 'load' && last.logId ? refs.logs.doc(last.logId) : null;
         const log = logRef ? await tx.get(logRef) : null;
-        if (!notification.exists) throw {code:'already-undone',message:'Действие уже отменено'};
-        if (!hasPermission('undo_any') && notification.data().createdByEmail !== currentEmail) throw {code:'not-owner',message:'Можно отменить только своё действие'};
+        // A notification is a presentation record, not the source of truth for
+        // the current TTN state. It may be absent after cleanup or a delayed
+        // listener update; the status transaction still proves whether this
+        // exact TTN can be undone. Arrive/load keep the stricter notification
+        // requirement because they also need their durable history/log.
+        if (!notification.exists && last.type !== 'ttn') throw {code:'already-undone',message:'Действие уже отменено'};
+        if (notification.exists && !hasPermission('undo_any') && notification.data().createdByEmail !== currentEmail) throw {code:'not-owner',message:'Можно отменить только своё действие'};
         if (!status.exists) throw {code:'status-missing',message:'Самосвал отсутствует на линии'};
         const current = status.data();
         const keys=['shiftId','onLine','arriveStatus','arriveTimestamp','arriveBy','lastLoadTimestamp','lastLoadBy','loadedAfterArrive','ttnStatus','ttnBy','ttnLogId','cycleRevision','lastLoadLogId','ttnRevision'];
@@ -289,7 +294,18 @@
         }
         if(last.type==='arrive'||last.type==='load')update.cycleRevision=Number(current.cycleRevision||0)+1;
         if(last.type==='ttn'||last.type==='load')update.ttnRevision=Number(current.ttnRevision||0)+1;
-        const original=notification.data();
+        // TTN can be confirmed by truckStatus even when its presentation
+        // notification has not arrived (or was cleaned up). Build the penalty
+        // scope from the durable action in that case instead of dereferencing
+        // an absent notification snapshot.
+        const original=notification.exists ? notification.data() : {
+          ...last,
+          createdByEmail:last.createdByEmail||last.email||currentEmail,
+          createdBy:last.createdBy||last.actor||getUserName(),
+          type:last.type,
+          truckId:last.truckId,
+          logId:last.logId||current.ttnLogId||null
+        };
         const penaltyKey=original.gamePenaltyKey||window.__gamePenaltyKey(last.type,last.truckId,current,last.logId,last.id);
         const savePenalty=await window.__gameStagePenalty(tx,penaltyKey,{user:original.createdByEmail,name:original.createdBy,description:({load:'Погрузка',arrive:'Прибытие',ttn:'Отметка ТТН'}[last.type])+' · '+truckName(last.truckId),...window.__gamePenaltyScope(penaltyKey,original,current)});
         tx.update(statusRef,update);
