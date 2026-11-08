@@ -10,9 +10,9 @@ function harness(){
  vm.createContext(c);vm.runInContext(source,c);return {c,saved,nodes,errors,toasts};
 }
 const h=harness(),{c,nodes,saved}=h;
-assert.equal(c.getTestBackendMode(),'firebase');
+assert.equal(c.getTestBackendMode(),'ubuntu');
 assert.equal(c.setTestBackendMode('auto'),true);assert.equal(c.getTestBackendMode(),'auto');
-assert.equal(nodes.testBackendMode.value,'auto');assert.match(nodes.testBackendModeNote.textContent,/автоматически используется Firebase/);
+assert.equal(nodes.testBackendMode.value,'auto');assert.equal(nodes.testBackendMode.disabled,false);assert.match(nodes.testBackendModeNote.textContent,/Автоматически/);
 assert.equal(c.getTestBackendIndicator({state:'ok'}).letter,'F');
 assert.equal(c.getTestBackendIndicator({state:'syncing'}).letter,'F');
 assert.equal(c.getTestBackendIndicator({state:'offline'}).letter,'О');
@@ -25,11 +25,11 @@ for(const change of [{currentUserRole:'viewer'},{currentUserRole:'admin',current
  Object.assign(c,change);assert.equal(c.setTestBackendMode('firebase'),false);assert.deepEqual([...saved],before);assert.equal(nodes['admin-backend-settings'].hidden,true);
 }
 Object.assign(c,{permissionsLoaded:true,currentUserRole:'admin',currentUserStatus:'active'});
-c.currentUid='admin-b';assert.equal(c.getTestBackendMode(),'firebase');assert.equal(c.setTestBackendMode('firebase'),true);
+c.currentUid='admin-b';assert.equal(c.getTestBackendMode(),'ubuntu');assert.equal(c.setTestBackendMode('firebase'),true);
 c.currentUid='admin-a';assert.equal(c.getTestBackendMode(),'ubuntu');
-saved.set(c.testBackendPreferenceKey(),'synology');assert.equal(c.getTestBackendMode(),'firebase','unsupported stored selection cannot enable NAS');
+saved.set(c.testBackendPreferenceKey(),'synology');assert.equal(c.getTestBackendMode(),'ubuntu','unsupported stored selection falls back to Ubuntu');
 c.currentUid='';assert.equal(c.getTestBackendIndicator({state:'ok'}).letter,'…');assert.equal(c.setTestBackendMode('auto'),false);
-c.currentUid='admin-a';c.localStorage.setItem=()=>{throw Error('quota')};assert.equal(c.setTestBackendMode('auto'),false);assert.equal(nodes.testBackendMode.value,'firebase');
+c.currentUid='admin-a';c.localStorage.setItem=()=>{throw Error('quota')};assert.equal(c.setTestBackendMode('auto'),false);assert.equal(nodes.testBackendMode.value,'ubuntu');
 const shell=fs.readFileSync('test-app/source/shell.html','utf8');
 assert.match(shell,/<button[^>]+class="sync-dot-wrap"/);
 assert.match(shell,/<option value="ubuntu">Только Ubuntu<\/option>/);

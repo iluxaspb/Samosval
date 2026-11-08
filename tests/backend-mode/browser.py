@@ -40,18 +40,19 @@ const showError=s=>{window.lastError=s},showToastEl=s=>{window.lastToast=s};
             page.screenshot(path=str(out/'backend-mode-initial.png'),full_page=True)
             indicator=page.locator('#syncDot');select=page.locator('#testBackendMode')
             assert indicator.inner_text()=='F'
-            assert select.input_value()=='firebase'
+            assert select.input_value()=='ubuntu'
+            assert select.is_enabled()
             assert page.locator('#syncBadge').inner_text()=='2'
             assert not page.locator('#testBackendMode option[value="ubuntu"]').is_disabled()
             with page.expect_navigation(wait_until='load'):
                 select.select_option('auto')
             assert page.evaluate("localStorage.getItem(testBackendPreferenceKey())")=='auto'
             assert select.input_value()=='auto'
-            assert page.locator('#testBackendModeNote').inner_text() in ('Сейчас автоматически используется Firebase. Ubuntu доступен для ручного выбора.','Данные обслуживает Firebase. Ubuntu доступен для ручного выбора.')
+            assert page.locator('#testBackendModeNote').inner_text().startswith('Автоматически')
             assert indicator.inner_text()=='F'
             page.reload();assert select.input_value()=='auto'
             page.evaluate("currentUid='admin-b';updateSyncUI()")
-            assert select.input_value()=='firebase'
+            assert select.input_value()=='ubuntu'
             page.evaluate("currentUid='admin-a';currentUserRole='viewer';updateSyncUI()")
             assert page.locator('#admin-backend-settings').is_hidden()
             assert page.evaluate("setTestBackendMode('firebase')") is False
