@@ -1,0 +1,87 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {readFile,mkdir} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+const {chromium}=createRequire(import.meta.url)('playwright');
+const root=fileURLToPath(new URL('../',import.meta.url));
+const types={'.js':'text/javascript','.html':'text/html','.css':'text/css','.png':'image/png','.jpg':'image/jpeg','.webmanifest':'application/manifest+json'};
+const server=createServer(async(req,res)=>{try{const name=new URL(req.url,'http://local').pathname,file=path.join(root,name==='/'?'index.html':name);let body=await readFile(file);if(name==='/app.js')body=body.toString()+'\nglobalThis.__fontsTest={rasterPage,systemPrint,flush:()=>saveChain,get state(){return state},get job(){return previewJob}};';res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(body)}catch{res.writeHead(404);res.end()}});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const browser=await chromium.launch({headless:true,args:['--no-sandbox']}).catch(async error=>{await new Promise(r=>server.close(r));throw error});
+try{
+ const page=await browser.newPage({viewport:{width:393,height:852},isMobile:true,hasTouch:true}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(`http://127.0.0.1:${server.address().port}/`);
+ await page.locator('[data-action="editor"]').click();
+ // An existing pre-upgrade field can be styled without migration.
+ await page.locator('#props [data-action="field-select"]').first().click();
+ await page.locator('[data-action="field-edit"]').click();
+ assert.equal(await page.getByRole('tab',{name:'Оформление',exact:true}).getAttribute('aria-selected'),'true');
+ const settingsBox=await page.locator('#field-toolbar').boundingBox();assert.ok(settingsBox.y<30&&settingsBox.height<=852/3&&settingsBox.width<=393);assert.equal(await page.locator('#modal').evaluate(el=>el.open),false);
+ await page.locator('[data-prop="locked"]').check();assert.equal(await page.getByRole('button',{name:'Вправо',exact:true}).isEnabled(),false);
+ await page.locator('[data-prop="locked"]').uncheck();
+ const originalLeft=await page.locator('#sheet .field.sel').evaluate(el=>parseFloat(el.style.left));
+ await page.getByRole('button',{name:'Вправо',exact:true}).click();
+ assert.equal(await page.locator('#sheet .field.sel').evaluate(el=>parseFloat(el.style.left)),originalLeft+1.5);
+ await page.getByRole('button',{name:'Влево',exact:true}).click();
+ await page.getByRole('tab',{name:'Параметры',exact:true}).click();assert.equal(await page.locator('[data-prop="label"]').isVisible(),true);assert.equal(await page.locator('[data-prop="fontFamily"]').isVisible(),false);
+ await page.getByRole('tab',{name:'Оформление',exact:true}).click();
+ for(const align of ['left','center','right']){await page.locator('[data-prop="align"]').selectOption(align);assert.equal(await page.locator('#sheet .field.sel').evaluate(el=>el.style.textAlign),align)}
+ await page.locator('[data-prop="align"]').selectOption('center');
+ assert.equal(await page.locator('[data-prop="fontFamily"]').inputValue(),'Arial');
+ await page.locator('[data-prop="fontFamily"]').selectOption('Times New Roman');
+ await page.locator('[data-prop="italic"]').check();
+ assert.match(await page.locator('#sheet [data-field]').first().getAttribute('style'),/font-family:Times New Roman, serif.*font-style:italic/);
+ await page.locator('#field-toolbar [data-action="field-close"]').click();await page.locator('[data-action="font-all"]').click();
+ await page.locator('#font-form [name="fontFamily"]').selectOption('Courier New');
+ await page.locator('#font-form [name="size"]').fill('14');
+ await page.locator('#font-form [name="bold"]').check();
+ await page.locator('#font-form [name="italic"]').check();
+ await page.locator('#font-form [type="submit"]').click();
+ await page.waitForFunction(()=>!document.querySelector('#modal').open);
+ const allStyles=await page.locator('#sheet [data-field]').evaluateAll(els=>els.map(el=>({family:el.style.fontFamily,weight:el.style.fontWeight,italic:el.style.fontStyle})));
+ assert.ok(allStyles.length>1&&allStyles.every(s=>s.family.includes('Courier New')&&s.weight==='700'&&s.italic==='italic'));
+ await page.locator('[data-action="field-add"]').click();
+ await page.locator('[data-prop="label"]').fill('Прораб');await page.locator('[data-prop="label"]').dispatchEvent('change');
+ await page.getByRole('tab',{name:'Оформление',exact:true}).click();
+ assert.equal(await page.locator('[data-prop="fontFamily"]').inputValue(),'Courier New');
+ assert.equal(await page.locator('[data-prop="size"]').inputValue(),'14');
+ await page.locator('[data-prop="fontFamily"]').selectOption('Times New Roman');
+ await page.locator('[data-prop="size"]').fill('16');await page.locator('[data-prop="size"]').dispatchEvent('change');
+ await page.locator('[data-prop="bold"]').uncheck();
+ for(const align of ['left','center','right']){await page.locator('[data-prop="align"]').selectOption(align);assert.equal(await page.locator('#sheet .field.sel').evaluate(el=>el.style.textAlign),align)}
+ await page.evaluate(()=>__fontsTest.flush());
+ await page.reload();await page.locator('[data-action="truck-add"]').first().click();
+ await page.locator('[name="plate"]').fill('А123АА178');await page.locator('#truck-form [type="submit"]').click();
+ await page.locator('summary').click();await page.getByLabel('Прораб',{exact:true}).fill('Петров');
+ await page.locator('[data-truck]').check();await page.locator('[data-action="prepare"]').click();
+ const span=page.locator('.preview-page span').filter({hasText:'Петров'});
+ await span.waitFor();
+ const expectedAligns=await page.evaluate(()=>__fontsTest.job.template.fields.map(f=>f.align));
+ assert.deepEqual(await page.locator('.preview-page span').evaluateAll(els=>els.map(el=>el.style.textAlign)),expectedAligns);
+ assert.equal(await span.evaluate(el=>el.style.textAlign),'right');
+ assert.equal(await page.locator('.preview-page span').first().evaluate(el=>el.style.textAlign),'center');
+ const previewStyle=await span.evaluate(el=>({family:el.style.fontFamily,weight:el.style.fontWeight,italic:el.style.fontStyle}));
+ assert.ok(previewStyle.family.includes('Times New Roman'));assert.equal(previewStyle.weight,'400');assert.equal(previewStyle.italic,'italic');
+ const rasterFonts=await page.evaluate(()=>{const proto=CanvasRenderingContext2D.prototype,original=proto.fillText,fonts=[];proto.fillText=function(text,...args){fonts.push({text,font:this.font,align:this.textAlign,x:args[0]});return original.call(this,text,...args)};try{__fontsTest.rasterPage(__fontsTest.job,0)}finally{proto.fillText=original}return fonts});
+ assert.ok(rasterFonts.some(x=>x.text==='Петров'&&x.font.includes('Times New Roman')&&x.font.includes('italic')&&x.font.includes('40px')));
+ const rasterExpected=await page.evaluate(()=>{const j=__fontsTest.job,t=j.template;return ['date','plate','trip'].map(source=>{const f=t.fields.find(f=>f.source===source),text=source==='date'?j.date.split('-').reverse().join('.'):source==='plate'?'А123АА178':'Петров';return {text,align:f.align,x:(f.x+t.offsetX+(f.align==='center'?f.w/2:f.align==='right'?f.w:0))*180/25.4}})});
+ assert.deepEqual(rasterExpected.map(f=>f.align),['center','left','right']);
+ for(const expected of rasterExpected){const actual=rasterFonts.find(f=>f.text===expected.text);assert.ok(actual,expected.text);assert.equal(actual.align,expected.align);assert.ok(Math.abs(actual.x-expected.x)<1e-9)}
+
+ const printStyle=await page.evaluate(async()=>{const append=document.body.append;document.body.append=function(...els){append.apply(this,els);for(const el of els)if(el.tagName==='IFRAME')el.contentWindow.print=()=>{}};try{await __fontsTest.systemPrint()}finally{document.body.append=append}const fields=[...document.querySelector('#print-frame').contentDocument.querySelectorAll('.field')],el=fields.find(el=>el.textContent==='Петров');return {family:el.style.fontFamily,size:el.style.fontSize,weight:el.style.fontWeight,italic:el.style.fontStyle,aligns:fields.map(f=>f.style.textAlign)}});
+ assert.deepEqual(printStyle.aligns,expectedAligns);
+ assert.ok(printStyle.family.includes('Times New Roman'));assert.equal(printStyle.size,'16pt');assert.equal(printStyle.weight,'400');assert.equal(printStyle.italic,'italic');
+ await page.locator('#modal [data-action="close"]').click();await page.locator('[data-action="editor"]').click();
+ await page.locator('#props [data-action="field-select"]').last().click();await page.locator('[data-action="field-edit"]').click();await page.locator('[data-prop="align"]').selectOption('left');
+ await page.locator('#field-toolbar [data-action="field-close"]').click();await page.locator('[data-action="font-all"]').click();await page.locator('#font-form [name="fontFamily"]').selectOption('Arial');await page.locator('#font-form [name="italic"]').uncheck();await page.locator('#font-form [type="submit"]').click();
+ await page.waitForFunction(()=>!document.querySelector('#modal').open);
+ await page.locator('.bottomnav [data-id="history"]').click();await page.locator('[data-action="job-open"]').first().click();
+ assert.match(await page.locator('.preview-page span').filter({hasText:'Петров'}).getAttribute('style'),/font-family:Times New Roman, serif.*font-style:italic/);
+ assert.deepEqual(await page.locator('.preview-page span').evaluateAll(els=>els.map(el=>el.style.textAlign)),expectedAligns);
+ await mkdir(path.join(root,'test-artifacts'),{recursive:true});await page.screenshot({path:path.join(root,'test-artifacts','fonts-mobile.png'),fullPage:true});
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({fieldEditorCompactToolbar:true,fieldEditorTabs:true,lockedNudges:true,existingFieldFonts:true,allFieldsAndNewDefaults:true,perFieldOverride:true,persistedAfterReload:true,previewRasterAndSystemPrint:true,historyFontSnapshot:true,existingAndNewFieldAlignment:true,threeAlignmentsAcrossRenderers:true,historyAlignmentSnapshot:true,pageErrors:errors}));
+}finally{await browser.close();await new Promise(r=>server.close(r))}
+

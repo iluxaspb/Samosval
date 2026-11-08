@@ -1,0 +1,57 @@
+name: Wincor printer tests
+
+on:
+  pull_request:
+    paths:
+      - 'wincor-android-printer/**'
+      - '.github/workflows/wincor-printer-tests.yml'
+  push:
+    branches:
+      - root
+      - feature/wincor-print-0.1.1
+    paths:
+      - 'wincor-android-printer/**'
+      - '.github/workflows/wincor-printer-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  printer-tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: wincor-android-printer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test dependency
+        run: npm install --no-save --package-lock=false playwright@1.56.1
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Unit and isolation tests
+        run: npm test
+      - name: Mobile browser and USB mock regression
+        run: node tests/usb.browser.mjs
+      - name: Font editor and print rendering regression
+        if: ${{ !cancelled() }}
+        run: node tests/fonts.browser.mjs
+      - name: Blank truck print regression
+        if: ${{ !cancelled() }}
+        run: node tests/blank-truck.browser.mjs
+      - name: Compact editor and JPEG import regression
+        if: ${{ !cancelled() }}
+        run: node tests/editor-import.browser.mjs
+      - name: Upload synthetic-data browser screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wincor-browser-evidence
+          path: wincor-android-printer/test-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+
+
