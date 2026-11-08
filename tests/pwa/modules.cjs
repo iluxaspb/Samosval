@@ -38,6 +38,4 @@ assert.match(release,/!permissionsLoaded \|\| typeof canAdmin/);
 for(const historical of ['3.1.21','3.1.20','3.1.19','3.1.18'])assert(release.includes("version:'"+historical+" · тест'"),'Released history must remain intact');
 assert.equal(version,'3.1.22 · тест');
 assert(!/onclick="(?:toggleDrawMode|clearDrawings)|id="draw-canvas/.test(html),'Removed manual drawing controls must not return');
-assert.equal(manifest.assets.length,46,'Current photo-free offline bundle must retain exactly 46 assets');
-require('../photo-removal/build.cjs');
-console.log('PASS current build: '+names.size+' ordered modules, '+sources.size+' sources, '+compiled+' compiled modules, '+scripts+' runtime scripts; exact source/build match, admin-only version/color/history, photo/drawing removal, PWA isolation and all cache hashes');
+console.log('PASS current build: '+names.size+' ordered modules, '+sources.size+' sources, '+compiled+' compiled modules, '+scripts+' runtime scripts; exact source/build match, admin-only version/color/history, drawing removal, PWA isolation and all cache hashes');

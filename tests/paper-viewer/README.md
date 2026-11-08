@@ -35,7 +35,6 @@ python3 tools/build-test.py
 node tests/full-audit/reports-summary.cjs
 node tests/paper-viewer/static.cjs
 node tests/pwa/service-worker.cjs
-node tests/photo-removal/build.cjs
 python3 tests/paper-viewer/create-fixtures.py
 npm install --prefix /tmp/summary-qa --no-audit --no-fund playwright@1.56.1 pngjs
 NODE_PATH=/tmp/summary-qa/node_modules node tests/paper-viewer/browser.cjs

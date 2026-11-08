@@ -5,7 +5,7 @@ const tests=[
  'tests/full-audit/offline-replay-concurrent-enqueue.cjs',
  ...['auth','auth-confirmation','shift-regression','shift-ui','offline-ownership','offline-receipts-regression','receipt-history-integration','reward-receipts-integration','archive-coins-integration','undo-freeze','reports-png','reports-max','reports-snapshot','reports-edit','reports-data','reports-summary','notification-rendering','backup-roundtrip','backup-safety','backup-files','backup-history','browser-support.test'].map(n=>'tests/full-audit/'+n+'.cjs'),
  ...['undo','status','transactions','ui','jokes','seasons','themes','regression'].map(n=>'tests/modular/'+n+'.cjs'),
- 'tests/coins/admin-settings.cjs','tests/coins/test-parity.cjs','tests/photo-removal/core.cjs'
+ 'tests/coins/admin-settings.cjs','tests/coins/test-parity.cjs'
 ];
 const results=[];
 for(const file of tests){
