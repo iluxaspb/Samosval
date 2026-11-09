@@ -314,3 +314,21 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
   assert.strictEqual(settle.player.unlocked, 2, 'уровень открывает следующий');
   console.log('Марио 4.2.13: блоки, враги, монеты и бонус флажка — проверено');
 }
+
+// ---------- Часть E: Марио 4.2.14 — длинный прыжок достаёт монеты и блоки ----------
+{
+  const C = global.RoadArcadeCore;
+  const run = C.createRun(1); run.lives = 99; run.map.enemies.forEach(e => e.alive = false);
+  let peak = 0;
+  for (let i = 0; i < 180; i++) { C.advanceRun(run, { axis: 0, jump: (i % 45) < 30 }, 1 / 60, () => {}); peak = Math.max(peak, run.maxJumpHeight); }
+  assert(peak >= 190, 'длинный прыжок поднимает выше 190 px, получено ' + Math.round(peak));
+  const air = C.createRun(1).map.coins.filter(c => c.y < 300);
+  assert(air.length > 0, 'в уровне есть монеты, висящие в воздухе');
+  assert(peak >= 440 - air[0].y - 36 + 10, 'длинный прыжок дотягивается до верхних монет (нужно ' + Math.round(440 - air[0].y - 36 + 10) + ' px, есть ' + Math.round(peak) + ')');
+  const run2 = C.createRun(1); run2.lives = 99; run2.map.enemies.forEach(e => e.alive = false);
+  const coin = run2.map.coins.find(c => c.y < 300); run2.player.x = coin.x - 14; run2.player.y = 404;
+  let got = null;
+  for (let i = 0; i < 70 && !got; i++) C.advanceRun(run2, { axis: 0, jump: (i % 40) < 16 }, 1 / 60, e => { if (e.type === 'coin') got = e; });
+  assert(got, 'верхняя монета реально собирается прыжком');
+  console.log('Марио 4.2.14: длинный прыжок и верхние монеты — проверено');
+}

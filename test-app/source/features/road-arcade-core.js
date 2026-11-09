@@ -70,12 +70,12 @@ function advanceRun(run,input,dt,onEvent=()=>{}){
  if(run.paused||run.done)return;const step=Math.max(0,Math.min(.04,dt)),p=run.player,m=run.map;run.time+=step;
  p.vx=Math.max(-1,Math.min(1,input.axis||0))*230;
  const wanted=!!input.jump;
- if(wanted&&!run.jumpHeld&&p.grounded){p.vy=-600;p.grounded=false;onEvent({type:'jump'});}
+ if(wanted&&!run.jumpHeld&&p.grounded){p.vy=-760;p.grounded=false;onEvent({type:'jump'});}
  // Отпущенная рано кнопка прыжка даёт низкий прыжок — как в оригинале.
- if(!wanted&&run.jumpHeld&&p.vy<-220)p.vy*=.45;
+ if(!wanted&&run.jumpHeld&&p.vy<-260)p.vy*=.42;
  run.jumpHeld=wanted;
  const oldX=p.x,oldY=p.y;
- p.vy=Math.min(900,p.vy+1450*step);
+ p.vy=Math.min(900,p.vy+1400*step);
  p.x=Math.max(0,Math.min(m.width-p.w,p.x+p.vx*step));
  for(const q of m.pipes)if(intersects(p,q)&&oldY+p.h>q.y+6){p.x=oldX;break;}
  p.y+=p.vy*step;p.grounded=false;

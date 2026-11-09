@@ -40,7 +40,13 @@ function tone(kind){if(!audioReady())return;
 }
 function speak(text){if(!sound||appConfig?.testReviewFlags?.game_sound===false||!audio||audio.state!=='running'||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;try{const u=new SpeechSynthesisUtterance(text);u.lang='ru-RU';u.rate=1.05;u.volume=.55;window.speechSynthesis.speak(u);}catch(e){}}
 function speechSynthesisSafeCancel(){try{window.speechSynthesis?.cancel();}catch(e){}}
-function stopRun(){if(raf)cancelAnimationFrame(raf);raf=0;lastFrame=0;keys.clear();pointers.clear();if(run)run.paused=true;}
+// Фоновая восьмибитная музыка уровня: собственная тема в духе классических платформеров.
+const MUSIC_LEAD=[523,659,784,659,523,587,659,523,440,523,587,659,523,659,523,392];
+const MUSIC_BASS=[131,131,175,196];
+let musicTimer=0,musicStep=0;
+function musicStart(){if(musicTimer||!audio||audio.state!=='running'||!run||run.paused||run.done)return;musicStep=0;const step=()=>{if(!run||run.paused||run.done||view!=='mario'||!dialog.open){musicStop();return;}const t=audio.currentTime+.02,i=musicStep++;const lead=MUSIC_LEAD[i%MUSIC_LEAD.length];if(lead)audioBeep(lead,t,.13,{type:'square',peak:.019});if(i%4===0)audioBeep(MUSIC_BASS[Math.floor(i/4)%MUSIC_BASS.length],t,.3,{type:'triangle',peak:.026});if(i%2===0)audioNoise(t,.02,{peak:.007,hp:3200});};step();musicTimer=setInterval(step,190);}
+function musicStop(){if(musicTimer)clearInterval(musicTimer);musicTimer=0;}
+function stopRun(){musicStop();if(raf)cancelAnimationFrame(raf);raf=0;lastFrame=0;keys.clear();pointers.clear();if(run)run.paused=true;}
 function close(){stopRun();clearInterval(slotTimer);slotTimer=null;stopMatrixIdle();speechSynthesisSafeCancel();hideJackpot();if(dialog.open)dialog.close();}
 dialog.addEventListener('close',()=>{stopRun();clearInterval(slotTimer);slotTimer=null;stopMatrixIdle();speechSynthesisSafeCancel();});
 function open(next='home'){if(!A.visible())return;unlockSound();hideInvite();if(next==='mario'&&!A.available('mario')||next==='slot'&&!A.available('slot'))next='home';if(view!==next)stopRun();view=next;viewStamp='';dialogOwner=currentUid;if(!dialog.open)dialog.showModal();render(true);}
@@ -189,8 +195,8 @@ function renderMario(host){
  if(!run)drawWelcome();else drawMario();
 }
 function startLevel(level){if(!A.available('mario')||level>unlocked())return;stopRun();unlockSound();run=C.createRun(level);notice='';levelBusy=false;finishSummary=null;coinFx.length=0;render(true);speak('Уровень '+level);startLoop();}
-function startLoop(){if(!raf&&dialog.open&&view==='mario'&&run&&!run.paused&&!run.done)raf=requestAnimationFrame(tickMario);}
-function tickMario(now){raf=0;if(!run||!dialog.open||view!=='mario'||!A.available('mario'))return;if(document.hidden){run.paused=true;keys.clear();pointers.clear();drawMario();return;}if(!lastFrame)lastFrame=now;const dt=(now-lastFrame)/1000;const input=new Set([...keys,...pointers.values()]);C.advanceRun(run,{axis:(input.has('right')?1:0)-(input.has('left')?1:0),jump:input.has('jump')},dt,event=>onMario(event,run));for(const fx of coinFx){fx.t+=dt;fx.y+=fx.vy*dt;fx.vy+=900*dt;}if(coinFx.length)coinFx=coinFx.filter(fx=>fx.t<fx.life);lastFrame=now;drawMario();updateNumbers();startLoop();}
+function startLoop(){if(!raf&&dialog.open&&view==='mario'&&run&&!run.paused&&!run.done)raf=requestAnimationFrame(tickMario);if(run&&!run.paused&&!run.done)musicStart();else musicStop();}
+function tickMario(now){raf=0;if(!run||!dialog.open||view!=='mario'||!A.available('mario'))return;if(document.hidden){run.paused=true;keys.clear();pointers.clear();musicStop();drawMario();return;}if(!lastFrame)lastFrame=now;const dt=(now-lastFrame)/1000;const input=new Set([...keys,...pointers.values()]);C.advanceRun(run,{axis:(input.has('right')?1:0)-(input.has('left')?1:0),jump:input.has('jump')},dt,event=>onMario(event,run));for(const fx of coinFx){fx.t+=dt;fx.y+=fx.vy*dt;fx.vy+=900*dt;}if(coinFx.length)coinFx=coinFx.filter(fx=>fx.t<fx.life);lastFrame=now;drawMario();updateNumbers();startLoop();}
 async function onMario(event,session){
  if(event.type==='jump'){tone('jump');return;}
  if(event.type==='bump'){tone('block');return;}
