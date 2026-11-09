@@ -52,7 +52,9 @@
     document.getElementById('modalArchiveTitle').textContent = s.date;
     let e = hasPermission('archive_edit');
     document.getElementById('archiveRestoreBtn').style.display = e?'':'none';
-    document.getElementById('archiveDeleteBtn').style.display = hasPermission('archive_delete')?'':'none';
+    // На пустом (уже удалённом) листе ГАИ удалять нечего — кнопка скрыта.
+    const canDeleteArchive = hasPermission('archive_delete') && !(viewingArchiveGAITable && !gaiLogs.length);
+    document.getElementById('archiveDeleteBtn').style.display = canDeleteArchive?'':'none';
     // Подпись кнопки объясняет, что именно удалится: весь архив или только лист ГАИ.
     const delBtn = document.getElementById('archiveDeleteBtn');
     if (delBtn) delBtn.textContent = viewingArchiveGAITable ? '🗑 Удалить лист ГАИ' : '🗑 Удалить архив';
@@ -70,6 +72,10 @@
           else cells += '<td></td>';
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">${sm} м³</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
       html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectTitle(s.objectId,s.objectName))}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Объем: <b>${tV} м³</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
+    } else if (!gaiLogs.length) {
+      // Лист ГАИ удалён: остаётся пустой листик — без пометки «ГАИ» и без
+      // списка самосвалов, которые были только на этом листе.
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectTitle(s.objectId,s.objectName))}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th></tr></thead><tbody></tbody></table></div></div></div>`;
     } else {
       let aIds = activeLineIds.filter(id => { let t = findTruck(id); return t && t.isGAI; });
       let tIds = new Set(aIds); gaiLogs.forEach(l=>tIds.add(l.truckId));

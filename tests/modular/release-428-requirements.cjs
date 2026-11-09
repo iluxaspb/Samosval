@@ -46,11 +46,13 @@ const ok = m => console.log('ok  ' + m);
 
   const archive = {
     id: 'arch_1', date: '28.10.2026', objectName: 'Объект', totalVolume: 60, totalTrips: 4,
+    activeLineIds: ['truck_a', 'truck_g', 'truck_b', 'truck_plain'],
+    ttnStatus: { truck_a: true, truck_g: true, truck_b: 'pending', truck_plain: false },
     logs: [
-      { id: 'l1', isGAI: false, volume: 20 },
-      { id: 'l2', isGAI: true, volume: 15 },
-      { id: 'l3', isGAI: false, volume: 40 },
-      { id: 'l4', isGAI: true, volume: 5 },
+      { id: 'l1', truckId: 'truck_a', isGAI: false, volume: 20 },
+      { id: 'l2', truckId: 'truck_g', isGAI: true, volume: 15 },
+      { id: 'l3', truckId: 'truck_a', isGAI: false, volume: 40 },
+      { id: 'l4', truckId: 'truck_b', isGAI: true, volume: 5 },
     ],
   };
   const { payload, removed } = gaiDeletedPayload(archive, { display_name: 'Админ' }, 111);
@@ -61,6 +63,8 @@ const ok = m => console.log('ok  ' + m);
   assert.strictEqual(payload.date, '28.10.2026', 'остальные данные архива не изменены');
   assert.strictEqual(payload.objectName, 'Объект');
   assert.strictEqual(payload.gaiDeletedBy, 'Админ');
+  assert.deepStrictEqual(payload.activeLineIds, ['truck_a', 'truck_plain'], 'самосвалы только с листа ГАИ уходят из списка техники');
+  assert.deepStrictEqual(Object.keys(payload.ttnStatus).sort(), ['truck_a', 'truck_plain'], 'отметки ТТН удалённых машин убраны');
   assert.throws(() => gaiDeletedPayload({ logs: [{ isGAI: false }] }, { display_name: 'A' }, 1), /archive-has-no-gai-trips/);
   ok('3) листочек ГАИ удаляется отдельно, остальной архив не меняется');
 })().catch(e => { console.error('3) FAIL', e.message); process.exitCode = 1; });
