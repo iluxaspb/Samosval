@@ -426,7 +426,22 @@ async function responsiveCase(mobile) {
     // treat it as the second press and verify the cancellation path instead.
     try { await page.locator('#closeShiftBtn').dblclick({timeout:5000}); }
     catch (error) { if (!/intercepts pointer events|Timeout \d+ms exceeded/.test(error.message)) throw error; }
-    await cancelRepeatedPrompts(/^(?:Перед закрытием смены создать резервную копию|Закрыть смену)\?$/);
+    // A real browser may keep delivering the rapid presses while earlier prompts
+    // are being cancelled, so each cancelled dialog can be followed by another
+    // one a moment later. Drain every prompt and only continue after 1.5 s
+    // without any confirmation, otherwise the next click hits an open overlay.
+    const rapidPrompt=/^(?:Перед закрытием смены создать резервную копию|Закрыть смену)\?$/;
+    let quietSince=Date.now();
+    const drainDeadline=Date.now()+8000;
+    while(Date.now()<drainDeadline){
+      if(await page.locator('.pcm-overlay.pcm-open').count()){
+        await cancelRepeatedPrompts(rapidPrompt);
+        quietSince=Date.now();
+      } else if(Date.now()-quietSince>=1500) break;
+      await page.waitForTimeout(100);
+    }
+    assert.equal(await page.locator('.pcm-overlay.pcm-open:visible').count(),0,
+      'Rapid opener must not leave a confirmation open');
     await wait(()=>!closeShiftInFlight);
     assert.equal(await page.evaluate(()=>state.shift?.isActive),true,'Rapid opener/cancellation must not close');
     assert.equal((await readRows('archive')).length,0);
