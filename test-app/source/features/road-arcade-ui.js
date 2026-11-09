@@ -13,15 +13,33 @@ function loadPrefs(){try{const p=JSON.parse(localStorage.getItem(prefKey())||'{}
 function savePrefs(){try{localStorage.setItem(prefKey(),JSON.stringify({sound,invites}));}catch(e){}if(!sound){speechSynthesisSafeCancel();}updateSettings();}
 function unlocked(){return Math.min(20,A.me().unlocked||1);}
 function unlockSound(){if(!sound||appConfig?.testReviewFlags?.game_sound===false)return;try{const Audio=window.AudioContext||window.webkitAudioContext;if(Audio){audio=audio||new Audio();if(audio.state==='suspended')audio.resume().catch(()=>{});}}catch(e){}}
-function tone(kind){if(!sound||appConfig?.testReviewFlags?.game_sound===false||audio?.state!=='running')return;
- const notes=kind==='jump'?[420,760]:kind==='coin'?[1318,1976]:kind==='hurt'?[220,110]:kind==='win'?[523,659,784,1046]:kind==='jackpot'?[523,659,784,1046,1318,1568]:kind==='finish'?[659,784,1046]:kind==='spin'?[160]:[330];
- try{notes.forEach((frequency,i)=>{const o=audio.createOscillator(),g=audio.createGain(),t=audio.currentTime+i*.095;o.type=kind==='spin'?'triangle':'sine';o.frequency.setValueAtTime(frequency,t);g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.04,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+.18);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+.2);o.onended=()=>{o.disconnect();g.disconnect();};});}catch(e){}
+function audioReady(){return sound&&appConfig?.testReviewFlags?.game_sound!==false&&audio?.state==='running';}
+// Звуки 90-х синтезируются здесь же: щелчок барабана, механический «клак»
+// остановки, звон монет, сирена и фанфары джекпота. Никаких внешних сэмплов,
+// поэтому игра звучит и без сети и не тянет чужие лицензии.
+function audioEnv(gain,t,peak,dur,attack){gain.gain.setValueAtTime(.0001,t);gain.gain.linearRampToValueAtTime(peak,t+(attack||.006));gain.gain.exponentialRampToValueAtTime(.0001,t+dur);}
+function audioBeep(freq,t,dur,opt){opt=opt||{};const o=audio.createOscillator(),g=audio.createGain();o.type=opt.type||'sine';o.frequency.setValueAtTime(freq,t);if(opt.to)o.frequency.exponentialRampToValueAtTime(Math.max(40,opt.to),t+dur);audioEnv(g,t,opt.peak||.045,dur,opt.attack);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+dur+.02);o.onended=()=>{o.disconnect();g.disconnect();};}
+function audioNoise(t,dur,opt){opt=opt||{};const len=Math.max(1,Math.floor(audio.sampleRate*dur)),buf=audio.createBuffer(1,len,audio.sampleRate),data=buf.getChannelData(0);for(let i=0;i<len;i++)data[i]=(Math.random()*2-1)*(1-i/len);const src=audio.createBufferSource(),flt=audio.createBiquadFilter(),g=audio.createGain();src.buffer=buf;flt.type='highpass';flt.frequency.value=opt.hp||900;src.connect(flt);flt.connect(g);g.connect(audio.destination);audioEnv(g,t,opt.peak||.05,dur);src.start(t);src.stop(t+dur);src.onended=()=>{src.disconnect();flt.disconnect();g.disconnect();};}
+function coinDing(t,peak,base){peak=peak||.05;base=base||2093;audioBeep(base,t,.16,{peak:peak});audioBeep(base*1.26,t+.028,.2,{peak:peak*.7});audioBeep(base*1.5,t+.06,.14,{peak:peak*.45});}
+function tone(kind){if(!audioReady())return;
+ try{const t=audio.currentTime;
+  if(kind==='spin'){audioNoise(t,.03,{peak:.02,hp:2000});audioBeep(2300,t,.022,{type:'square',peak:.011});}
+  else if(kind==='lever'){[0,.055,.11].forEach((d,i)=>{audioNoise(t+d,.035,{peak:.03-i*.006,hp:1100});audioBeep(140-i*12,t+d,.025,{type:'triangle',peak:.02});});audioBeep(92,t+.18,.12,{type:'triangle',peak:.045,to:60});}
+  else if(kind==='reelstop'){audioNoise(t,.045,{peak:.05,hp:350});audioBeep(150,t,.09,{type:'triangle',peak:.05,to:95});}
+  else if(kind==='coin')coinDing(t);
+  else if(kind==='win'){[523,659,784,1046].forEach((n,i)=>audioBeep(n,t+i*.11,.22,{type:'square',peak:.035}));coinDing(t+.5,.04);}
+  else if(kind==='jackpot'){for(let i=0;i<6;i++){const up=i%2===0;audioBeep(up?640:1180,t+i*.16,.15,{type:'sawtooth',peak:.028,to:up?1180:640});}[523,659,784,1046,1318,1568].forEach((n,i)=>audioBeep(n,t+1.02+i*.1,.26,{type:'square',peak:.04}));for(let i=0;i<14;i++)coinDing(t+1.2+i*.07,.032,1800+(i%3)*220);}
+  else if(kind==='jump')audioBeep(430,t,.14,{peak:.04,to:820});
+  else if(kind==='finish'){[659,784,1046,1318].forEach((n,i)=>audioBeep(n,t+i*.1,.22,{type:'triangle',peak:.04}));}
+  else if(kind==='hurt')audioBeep(230,t,.28,{type:'sawtooth',peak:.04,to:95});
+  else audioBeep(330,t,.12,{peak:.03});
+ }catch(e){}
 }
 function speak(text){if(!sound||appConfig?.testReviewFlags?.game_sound===false||!audio||audio.state!=='running'||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;try{const u=new SpeechSynthesisUtterance(text);u.lang='ru-RU';u.rate=1.05;u.volume=.55;window.speechSynthesis.speak(u);}catch(e){}}
 function speechSynthesisSafeCancel(){try{window.speechSynthesis?.cancel();}catch(e){}}
 function stopRun(){if(raf)cancelAnimationFrame(raf);raf=0;lastFrame=0;keys.clear();pointers.clear();if(run)run.paused=true;}
-function close(){stopRun();clearInterval(slotTimer);slotTimer=null;speechSynthesisSafeCancel();if(dialog.open)dialog.close();}
-dialog.addEventListener('close',()=>{stopRun();clearInterval(slotTimer);slotTimer=null;speechSynthesisSafeCancel();});
+function close(){stopRun();clearInterval(slotTimer);slotTimer=null;stopMatrixIdle();speechSynthesisSafeCancel();hideJackpot();if(dialog.open)dialog.close();}
+dialog.addEventListener('close',()=>{stopRun();clearInterval(slotTimer);slotTimer=null;stopMatrixIdle();speechSynthesisSafeCancel();});
 function open(next='home'){if(!A.visible())return;unlockSound();hideInvite();if(next==='mario'&&!A.available('mario')||next==='slot'&&!A.available('slot'))next='home';if(view!==next)stopRun();view=next;viewStamp='';dialogOwner=currentUid;if(!dialog.open)dialog.showModal();render(true);}
 entry.onclick=()=>open();
 function render(force=false){
@@ -53,8 +71,29 @@ function updateNumbers(){
 // Настоящие барабаны: полоса символов прокручивается вертикально с размытием
 // на скорости и поочерёдной остановкой с отскоком (ease-out-back).
 const REEL_ICONS=['🍒','⭐','💎','🚧','👑','🔔','🍋','7️⃣'];
-let reelAnim=null;
+let reelAnim=null,matrixTimer=null,matrixPhase=0,matrixText='JACKPOT',matrixTint='#ffd166',matrixFlashTimer=0;
 function reelCellHeight(){const s=dialog.querySelector('.slot-strip span');return s?s.getBoundingClientRect().height||105:105;}
+const bulbs=count=>{let out='';for(let i=0;i<count;i++)out+='<i style="animation-delay:'+(i*.075).toFixed(2)+'s"></i>';return out;};
+// Точечное табло в стиле 90-х: буквы «набираются» круглыми лампочками.
+function paintDotMatrix(canvas,text,color,phase){if(!canvas||typeof canvas.getContext!=='function')return;const g=canvas.getContext('2d');if(!g||typeof g.getImageData!=='function')return;const W=canvas.width||360,H=canvas.height||84;g.clearRect(0,0,W,H);
+ try{
+ const off=document.createElement('canvas');off.width=W;off.height=H;const og=off.getContext&&off.getContext('2d');if(!og||typeof og.measureText!=='function')return;og.fillStyle='#fff';og.textAlign='center';og.textBaseline='middle';
+ let size=Math.round(H*.62);const font=()=>'900 '+size+'px Arial,Helvetica,sans-serif';og.font=font();
+ while(size>8&&og.measureText(text).width>W*.9){size-=2;og.font=font();}
+ og.fillText(text,W/2,H/2+1);
+ const img=og.getImageData(0,0,W,H);if(!img||!img.data)return;const data=img.data,step=5,r=1.85;
+ for(let y=3;y<H;y+=step)for(let x=3;x<W;x+=step){const a=data[(y*W+x)*4+3];g.beginPath();g.arc(x,y,a>110?r:r*.62,0,Math.PI*2);
+  if(a>110){g.fillStyle=color;g.globalAlpha=.55+.4*(.5+.5*Math.sin(x*.35+y*.5+phase));}else{g.fillStyle='#241019';g.globalAlpha=.5;}g.fill();}
+ g.globalAlpha=1;
+ }catch(e){}}
+function paintMatrix(){paintDotMatrix(dialog.querySelector('#slot-matrix'),matrixText,matrixTint,matrixPhase);}
+function startMatrixIdle(){stopMatrixIdle();const c=dialog.querySelector('#slot-matrix');if(!c)return;matrixText='JACKPOT';matrixTint='#ffd166';paintMatrix();matrixTimer=setInterval(()=>{matrixPhase+=.55;paintMatrix();},110);}
+function stopMatrixIdle(){if(matrixTimer)clearInterval(matrixTimer);matrixTimer=null;clearTimeout(matrixFlashTimer);}
+function matrixFlash(text,color,ms){if(!dialog.querySelector('#slot-matrix'))return;matrixText=text;matrixTint=color||'#8ef2a8';paintMatrix();clearTimeout(matrixFlashTimer);matrixFlashTimer=setTimeout(()=>{matrixText='JACKPOT';matrixTint='#ffd166';paintMatrix();},ms||2600);}
+function coinRain(host){let out='';for(let i=0;i<26;i++){out+='<i style="left:'+Math.round(Math.random()*100)+'%;animation-delay:'+(Math.random()*1.2).toFixed(2)+'s;animation-duration:'+(1.1+Math.random()*1.1).toFixed(2)+'s;font-size:'+(12+Math.round(Math.random()*12))+'px">🪙</i>';}host.innerHTML=out;}
+let jackpotTimer=0;
+function showJackpot(payout){if(!dialog.open)return;const el=dialog.querySelector('#slot-jackpot');if(!el)return;const sum=el.querySelector('[data-jackpot-sum]');if(sum)sum.textContent=f(payout);const rain=el.querySelector('.slot-coin-rain');if(rain)coinRain(rain);el.hidden=false;el.classList.add('show');const m=el.querySelector('#slot-jackpot-matrix');let phase=0;paintDotMatrix(m,'JACKPOT','#ffe08a',0);clearInterval(jackpotTimer);jackpotTimer=setInterval(()=>{phase+=.8;paintDotMatrix(m,'JACKPOT','#ffe08a',phase);},110);clearTimeout(el._hideTimer);el._hideTimer=setTimeout(()=>hideJackpot(),9000);}
+function hideJackpot(){const el=dialog.querySelector('#slot-jackpot');if(!el)return;el.hidden=true;el.classList.remove('show');clearInterval(jackpotTimer);jackpotTimer=0;clearTimeout(el._hideTimer);dialog.querySelector('.slot-shell')?.classList.remove('jackpot');}
 function applyReelTransforms(){if(!reelAnim)return;const n=REEL_ICONS.length,cell=reelCellHeight();dialog.querySelectorAll('.slot-reel').forEach((reel,i)=>{const st=reelAnim.reels[i];if(!st)return;const pmod=((st.p%n)+n)%n;const strip=reel.querySelector('.slot-strip');if(strip)strip.style.transform='translateY('+(-(3*n+pmod)*cell)+'px)';});}
 // Тик анимации: requestAnimationFrame, а если он не тикает (скрытая вкладка,
 // headless), через 150 мс подключается setInterval-тик — тогда spin() никогда
@@ -62,14 +101,14 @@ function applyReelTransforms(){if(!reelAnim)return;const n=REEL_ICONS.length,cel
 function startReelSpin(){
  if(matchMedia('(prefers-reduced-motion: reduce)').matches)return null;
  const t0=performance.now();let last=t0,lastTick=0,rafId=0,intervalId=0,rafSeen=0;
- const anim={active:true,p:0,reels:[0,1,2].map(()=>({p:0,landing:false,landT:0,land0:0,landD:0})),symbols:null,targets:null,resolve:null,cancel(){this.active=false;clearInterval(intervalId);}};
+ const anim={active:true,p:0,reels:[0,1,2].map(()=>({p:0,landing:false,stopped:false,landT:0,land0:0,landD:0})),symbols:null,targets:null,resolve:null,cancel(){this.active=false;clearInterval(intervalId);}};
  const done=new Promise(r=>anim.resolve=r);
  const step=now=>{
   if(!anim.active){cancelAnimationFrame(rafId);return;}
   rafSeen++;
   const dt=Math.min(.05,((now||performance.now())-last)/1000);last=now||performance.now();const t=(now||performance.now())-t0;let allDone=true,expired=t>8000;
   dialog.querySelectorAll('.slot-reel').forEach((reel,i)=>{const st=anim.reels[i];const prev=st.p;
-   if(st.landing){const u=Math.min(1,(t-st.landT)/650),k=1.3,e=1+(k+1)*Math.pow(u-1,3)+k*Math.pow(u-1,2);st.p=st.land0+st.landD*e;reel.classList.toggle('blur',u<.55);if(u>=1){st.p=st.land0+st.landD;reel.classList.remove('blur');}else allDone=false;}
+   if(st.landing){const u=Math.min(1,(t-st.landT)/650),k=1.3,e=1+(k+1)*Math.pow(u-1,3)+k*Math.pow(u-1,2);st.p=st.land0+st.landD*e;reel.classList.toggle('blur',u<.55);if(u>=1){st.p=st.land0+st.landD;reel.classList.remove('blur');if(!st.stopped){st.stopped=true;tone('reelstop');}}else allDone=false;}
    else{st.p+=20*dt;reel.classList.add('blur');allDone=false;
     if(anim.targets&&t>=950+i*480){const n=REEL_ICONS.length,target=anim.targets[i]||0;const cur=((st.p%n)+n)%n;st.landing=true;st.landT=t;st.land0=st.p;st.landD=((target-cur)%n+n)%n+n;}}
    if(t-lastTick>85&&Math.floor(st.p)!==Math.floor(prev)){lastTick=t;tone('spin');}
@@ -85,8 +124,15 @@ function renderSlot(host){const strip=icons=>{let cells='';for(let r=0;r<5;r++)f
  // Окошко (.slot-reel) — фиксированная высота и overflow:hidden: длинная полоса
  // барабана крутится внутри корпуса, снаружи виден только средний символ.
  const reel=(sym,i)=>'<div class="slot-reel" data-reel="'+i+'"'+(slotBusy?'':' data-final="'+E(sym)+'"')+'><div class="slot-strip">'+(slotBusy?strip(REEL_ICONS):'<span>'+E(sym)+'</span>')+'</div></div>';
- host.innerHTML='<section class="slot-shell '+(slotBusy?'spinning':'')+'"><div class="slot-pot">ОБЩИЙ ДЖЕКПОТ<strong><span data-slot-bank>'+f(A.head().bank)+'</span> 🪙</strong></div>'+mascot()+'<div class="slot-reels" aria-label="Результат барабанов">'+slotSymbols.map((s,i)=>reel(s,i)).join('')+'</div><div class="slot-result" id="slot-result" role="status">'+E(slotMessage||'Стартовый банк — 1 000 монет. Испытаем удачу?')+'</div><button class="slot-spin" id="slot-spin">'+(slotBusy?'Барабаны вращаются…':A.readSpin()?'Проверить незавершённое вращение':'Вращать · 10 🪙')+'</button><div class="slot-bank-details"><span>Внесено игроками: <b data-slot-stakes>'+f(A.head().totalStakes)+'</b></span><span>Выплачено: <b data-slot-payouts>'+f(A.head().totalPayouts)+'</b></span></div></section><details class="arcade-rules"><summary>Честные правила и шансы</summary><p>Каждое вращение независимо. 35% — выплата 12 монет, 10% — 20 монет, 0,99% — 100 монет, 0,01% (1 из 10 000) — весь текущий банк. В остальных 54% выплата равна нулю. Ставка — 10 монет. Выплата ограничена деньгами в банке после добавления ставки.</p><p>Банк общий: 1 000 стартовых монет + все ставки − все выплаты. Он не пополняется заново при обновлении страницы. Уменьшение кошелька и итог игры видны отдельно. Реальных денег и вывода средств нет.</p></details>';
+ host.innerHTML='<section class="slot-shell '+(slotBusy?'spinning':'')+'"><div class="slot-bulbs slot-bulbs-top" aria-hidden="true">'+bulbs(14)+'</div>'
+  +'<div class="slot-pot"><canvas id="slot-matrix" width="360" height="84" aria-label="Табло джекпота"></canvas><span class="slot-pot-label">ОБЩИЙ ДЖЕКПОТ</span><strong><span data-slot-bank>'+f(A.head().bank)+'</span> 🪙</strong></div>'
+  +mascot()+'<div class="slot-reels" aria-label="Результат барабанов">'+slotSymbols.map((s,i)=>reel(s,i)).join('')+'</div><div class="slot-result" id="slot-result" role="status">'+E(slotMessage||'Стартовый банк — 1 000 монет. Испытаем удачу?')+'</div><button class="slot-spin" id="slot-spin">'+(slotBusy?'Барабаны вращаются…':A.readSpin()?'Проверить незавершённое вращение':'Вращать · 10 🪙')+'</button><div class="slot-bank-details"><span>Внесено игроками: <b data-slot-stakes>'+f(A.head().totalStakes)+'</b></span><span>Выплачено: <b data-slot-payouts>'+f(A.head().totalPayouts)+'</b></span></div>'
+  +'<div class="slot-bulbs slot-bulbs-bottom" aria-hidden="true">'+bulbs(14)+'</div>'
+  +'<div class="slot-jackpot" id="slot-jackpot" hidden><div class="slot-jackpot-inner"><canvas id="slot-jackpot-matrix" width="420" height="120" aria-label="Джекпот"></canvas><p class="slot-jackpot-sum">+<b data-jackpot-sum>0</b> 🪙</p><p class="slot-jackpot-note">Общий банк автомата теперь ваш. Поздравляем!</p><button type="button" id="slot-jackpot-close">Забрать выигрыш</button><div class="slot-coin-rain" aria-hidden="true"></div></div></div>'
+  +'</section><details class="arcade-rules"><summary>Честные правила и шансы</summary><p>Каждое вращение независимо. 34% — выплата 15 монет, 8% — 30 монет, 1,49% — 150 монет, 0,01% (1 из 10 000) — весь текущий банк. В остальных 56,5% выплата равна нулю. Ставка — 10 монет. Выплата ограничена деньгами в банке после добавления ставки.</p><p>Банк общий: 1 000 стартовых монет + все ставки − все выплаты. Он не пополняется заново при обновлении страницы. Уменьшение кошелька и итог игры видны отдельно. Реальных денег и вывода средств нет.</p></details>';
  host.querySelector('#slot-spin').onclick=spin;
+ host.querySelector('#slot-jackpot-close')?.addEventListener('click',hideJackpot);
+ startMatrixIdle();
 }
 async function spin(){
  if(slotBusy)return;unlockSound();const user=currentUid,token=dialogOwner;let operation=A.readSpin();
@@ -96,28 +142,36 @@ async function spin(){
  if(!operation&&A.balance()<C.BET){setStatus('Для вращения нужно 10 монет. Их можно собрать в Марио.');return;}
  try{if(!operation){operation=A.newSpin();A.storeSpin(operation);}}catch(e){slotMessage=e.message;render(true);return;}
  slotBusy=true;slotMessage='Проверяем ставку и вращаем барабаны…';render(true);const started=performance.now();
- const spinDonePromise=startReelSpin();
- let lastFlip=0;if(!spinDonePromise)tone('spin');
- try{
-  const result=await A.transact(operation);if(currentUid!==user)return;A.storeSpin(null);if(!result.replayed&&result.payout>=result.cost)window.__gameMoneyFlow?.(-result.cost);
-  slotSymbols=result.result?.symbols||['🚧','🍒','⭐'];
-  if(reelAnim&&reelAnim.active){
-   reelAnim.symbols=slotSymbols.slice();
-   // Целевая позиция каждого барабана — индекс выпавшего символа в REEL_ICONS.
-   reelAnim.targets=slotSymbols.map(s=>{let best=0,bd=1e9;REEL_ICONS.forEach((icon,idx)=>{const d=icon===s?0:(icon.replace('️','')===s.replace('️','')?1:1e9);if(d<bd){bd=d;best=idx;}});return best;});
-   // Не короче 1.7 с от нажатия, но дожидаемся полной остановки всех барабанов.
-   // Страховка 6.5 с: в скрытой вкладке requestAnimationFrame не тикает, и без
-   // таймаута кнопка осталась бы в «Барабаны вращаются…» навсегда.
-   const minDelay=new Promise(r=>setTimeout(r,Math.max(0,1700-(performance.now()-started))));
-   await Promise.race([Promise.all([spinDonePromise,minDelay]),new Promise(r=>setTimeout(r,6500))]);
-  }else await new Promise(resolve=>setTimeout(resolve,Math.max(0,1700-(performance.now()-started))));
-  if(currentUid!==user)return;
-  const profit=result.payout-result.cost;
-  slotMessage=result.result?.type==='jackpot'?'ДЖЕКПОТ! Выплата '+f(result.payout)+' 🪙 · итог +'+f(profit):profit>0?'Выплата '+f(result.payout)+' 🪙 · выигрыш за вычетом ставки +'+f(profit):profit===0?'Вернулась ставка: '+f(result.payout)+' 🪙. Итог 0.':'Выплата '+f(result.payout)+' 🪙 · итог −'+f(-profit);
-  if(dialog.open&&view==='slot'&&token===dialogOwner){if(profit>0){tone(result.result?.type==='jackpot'?'jackpot':'win');speak(result.result?.type==='jackpot'?'Джекпот! Поздравляем!':'Выигрыш '+profit+' монет.');}else tone('hurt');}
- }catch(e){if(currentUid===user){slotMessage=(e.message||'Нет связи')+' Если ставка уже принята, повторная проверка не спишет монеты ещё раз.';}}
- finally{if(reelAnim){reelAnim.cancel();reelAnim=null;}clearInterval(slotTimer);slotTimer=null;slotBusy=false;if(currentUid===user&&dialog.open&&view==='slot'){render(true);if(slotMessage.includes('выигрыш')||slotMessage.includes('ДЖЕКПОТ'))dialog.querySelector('.slot-shell')?.classList.add('winner');}}
-}
+   tone('lever');
+   const spinDonePromise=startReelSpin();
+   let lastFlip=0;if(!spinDonePromise)tone('spin');
+   let outcomeType='',outcomePayout=0,outcomeCost=C.BET,outcomeProfit=0;
+   try{
+    const result=await A.transact(operation);if(currentUid!==user)return;A.storeSpin(null);if(!result.replayed&&result.payout>=result.cost)window.__gameMoneyFlow?.(-result.cost);
+    slotSymbols=result.result?.symbols||['🚧','🍒','⭐'];
+    outcomeType=result.result?.type||'';outcomePayout=Number(result.payout)||0;outcomeCost=Number(result.cost)||C.BET;outcomeProfit=outcomePayout-outcomeCost;
+    if(reelAnim&&reelAnim.active){
+     reelAnim.symbols=slotSymbols.slice();
+     // Целевая позиция каждого барабана — индекс выпавшего символа в REEL_ICONS.
+     reelAnim.targets=slotSymbols.map(s=>{let best=0,bd=1e9;REEL_ICONS.forEach((icon,idx)=>{const d=icon===s?0:(icon.replace('️','')===s.replace('️','')?1:1e9);if(d<bd){bd=d;best=idx;}});return best;});
+     // Не короче 1.7 с от нажатия, но дожидаемся полной остановки всех барабанов.
+     // Страховка 6.5 с: в скрытой вкладке requestAnimationFrame не тикает, и без
+     // таймаута кнопка осталась бы в «Барабаны вращаются…» навсегда.
+     const minDelay=new Promise(r=>setTimeout(r,Math.max(0,1700-(performance.now()-started))));
+     await Promise.race([Promise.all([spinDonePromise,minDelay]),new Promise(r=>setTimeout(r,6500))]);
+    }else await new Promise(resolve=>setTimeout(resolve,Math.max(0,1700-(performance.now()-started))));
+    if(currentUid!==user)return;
+    const profit=outcomeProfit;
+    slotMessage=outcomeType==='jackpot'?'ДЖЕКПОТ! Выплата '+f(outcomePayout)+' 🪙 · общий банк ваш':profit>0?'Выплата '+f(outcomePayout)+' 🪙 · выигрыш за вычетом ставки +'+f(profit):profit===0?'Вернулась ставка: '+f(outcomePayout)+' 🪙. Итог 0.':'Выплата '+f(outcomePayout)+' 🪙 · итог −'+f(-profit);
+   }catch(e){if(currentUid===user){outcomeType='';slotMessage=(e.message||'Нет связи')+' Если ставка уже принята, повторная проверка не спишет монеты ещё раз.';}}
+   finally{if(reelAnim){reelAnim.cancel();reelAnim=null;}clearInterval(slotTimer);slotTimer=null;slotBusy=false;
+    if(currentUid===user&&dialog.open&&view==='slot'){
+     render(true);const shell=dialog.querySelector('.slot-shell');
+     if(outcomeType==='jackpot'){shell?.classList.add('winner','jackpot');showJackpot(outcomePayout);tone('jackpot');speak('Джекпот! Поздравляем!');}
+     else if(outcomeProfit>0){shell?.classList.add('winner');matrixFlash(outcomeType==='big'?'КРУПНЫЙ ВЫИГРЫШ':'ВЫИГРЫШ',outcomeType==='big'?'#9be7ff':'#8ef2a8');tone(outcomeType==='big'?'win':'coin');speak('Выигрыш '+outcomeProfit+' монет.');}
+     else if(outcomeType)tone('hurt');
+    }}
+  }
 function renderRanking(host){
  const rows=C.leaderboard(A.players(),rankMode),mine=currentUid;
  host.innerHTML='<div class="arcade-tools"><button data-rank="slot">🎰 Автомат</button><button data-rank="mario">🍄 Марио</button></div><h3>'+ (rankMode==='slot'?'Рейтинг выплат автомата':'Рейтинг собранных монет Марио')+'</h3><p class="arcade-note">'+(rankMode==='slot'?'Сортировка по общей сумме выплат за всё время. Итог = выплаты минус ставки; он может быть отрицательным.':'Все монеты, полученные в Марио за всё время. Не влияет на рабочий рейтинг.')+'</p><div style="overflow-x:auto"><table class="arcade-ranking"><thead><tr><th>Игрок</th><th>'+ (rankMode==='slot'?'Выплаты':'Монеты')+'</th>'+(rankMode==='slot'?'<th>Ставки</th><th>Итог</th><th>Джекпоты</th>':'')+'</tr></thead><tbody>'+rows.map((p,i)=>'<tr class="'+(p.uid===mine?'me':'')+'"><td>'+(['🥇','🥈','🥉'][i]||i+1)+' '+E(resolveUserDisplayName(p.email,p.name))+(p.uid===mine?' · вы':'')+'</td><td>'+f(rankMode==='slot'?p.payouts:p.marioCoins)+'</td>'+(rankMode==='slot'?'<td>'+f(p.stakes)+'</td><td>'+(p.payouts-p.stakes>0?'+':'')+f(p.payouts-p.stakes)+'</td><td>'+p.jackpots+'</td>':'')+'</tr>').join('')+'</tbody></table></div>'+(!rows.length?'<p class="arcade-note">Пока никто не сыграл. Здесь появятся результаты участников.</p>':'')+'<div class="arcade-recent"><h3>Последние выигрыши</h3><p class="arcade-note">Последние 20 выигрышей всех игроков. Суммарный рейтинг включает всю историю.</p>'+A.recent().map(r=>'<div class="arcade-recent-row"><span>'+E(resolveUserDisplayName(r.userEmail,r.userName))+(r.result?.type==='jackpot'?' 👑 Джекпот':'')+'<small>'+E(new Date(r.timestamp).toLocaleString('ru-RU'))+'</small></span><b>+'+f(r.payout-r.cost)+' 🪙</b></div>').join('')+(!A.recent().length?'<p class="arcade-note">Выигрышей в последних событиях пока нет.</p>':'')+'</div>';

@@ -8,8 +8,10 @@ const initialHead=()=>({gameRound:0,bank:1000,totalStakes:0,totalPayouts:0,actor
 const initialPlayer=(uid,email,name)=>({uid,email,name,net:0,payouts:0,stakes:0,spins:0,jackpots:0,marioCoins:0,unlocked:1,daily:{day:'',claims:[]}});
 function slotOutcome(roll,bank){
  if(!Number.isInteger(roll)||roll<0||roll>=10000)throw Error('Неверный результат барабанов');
- const type=roll===0?'jackpot':roll<100?'big':roll<1100?'medium':roll<4600?'small':'loss';
- const requested=type==='jackpot'?bank+BET:type==='big'?100:type==='medium'?20:type==='small'?12:0;
+ // Выплаты 4.2.9: чаще и заметнее, чем прежние 12/20/100. Суммарная отдача
+ // около 98% ставки, поэтому банк автомата не «съедается» за десяток вращений.
+ const type=roll===0?'jackpot':roll<150?'big':roll<950?'medium':roll<4350?'small':'loss';
+ const requested=type==='jackpot'?bank+BET:type==='big'?150:type==='medium'?30:type==='small'?15:0;
  return {type,payout:Math.min(bank+BET,requested),symbols:type==='jackpot'?['👑','👑','👑']:type==='big'?['💎','💎','💎']:type==='medium'?['⭐','⭐','⭐']:type==='small'?['🍒','🍒','🍒']:['🚧','🍒','⭐']};
 }
 function settle(head,player,action,available,day){

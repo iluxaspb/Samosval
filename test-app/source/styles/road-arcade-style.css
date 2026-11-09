@@ -8,3 +8,31 @@
 @media(max-width:580px){#arcade-dialog{padding:12px}.arcade-hub{grid-template-columns:1fr}.slot-shell{padding:12px}.slot-reel{height:85px;font-size:38px}.slot-strip span{height:85px;line-height:85px}.arcade-head h2{font-size:17px}.arcade-ranking{font-size:11px}.arcade-ranking th,.arcade-ranking td{padding:9px 4px}}
 @media(prefers-reduced-motion:reduce){.slot-mascot,.slot-shell.spinning .slot-reel,.slot-shell.winner,.arcade-debit-label{animation:none}}
 
+
+/* 4.2.9: лампочки по корпусу, точечное табло и экран джекпота */
+.slot-shell{position:relative}
+.slot-bulbs{position:absolute;left:12px;right:12px;display:flex;justify-content:space-between;pointer-events:none;z-index:5}
+.slot-bulbs-top{top:-7px}.slot-bulbs-bottom{bottom:-7px}
+.slot-bulbs i{width:9px;height:9px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff8d5,#ffcf5c 45%,#b45309);box-shadow:0 0 7px #ffb34755,inset 0 -1px 2px #7c2d12;animation:slotBulbChase 1.5s linear infinite;opacity:.45}
+.slot-shell.spinning .slot-bulbs i{animation-duration:.32s;opacity:.9}
+.slot-shell.winner .slot-bulbs i{animation:slotBulbBlink .46s steps(2,end) infinite;opacity:1}
+.slot-shell.jackpot .slot-bulbs i{animation:slotBulbStrobe .16s linear infinite;opacity:1}
+#slot-matrix{display:block;width:100%;max-width:330px;height:auto;margin:0 auto 4px;border:2px solid #6b3a22;border-radius:10px;background:radial-gradient(circle at 50% 35%,#2c1019,#100a0d 75%);box-shadow:inset 0 0 20px #000b,0 0 16px #ffb3471f}
+.slot-pot-label{display:block;font-size:10px;letter-spacing:.2em;color:#f0c274;opacity:.85;margin-top:2px}
+.slot-pot strong{font-size:30px;text-shadow:0 0 12px #ffb34755}
+.slot-shell.jackpot{animation:slotJackpotPulse .5s ease-in-out infinite;border-color:#ffd166}
+.slot-jackpot{position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;border-radius:26px;overflow:hidden;background:radial-gradient(circle at 50% 40%,#3b1220f2,#0d0409fa);padding:16px}
+.slot-jackpot.show{display:flex}
+.slot-jackpot-inner{position:relative;z-index:2;text-align:center;width:100%;max-width:430px}
+#slot-jackpot-matrix{display:block;width:100%;max-width:420px;height:auto;margin:0 auto;border:2px solid #8a4a1f;border-radius:12px;background:#120a0d;box-shadow:0 0 26px #ffb34744}
+.slot-jackpot-sum{font-size:34px;font-weight:900;color:#ffe08a;margin:10px 0 2px;text-shadow:0 0 18px #ffb34788}
+.slot-jackpot-note{font-size:12px;color:#f6dfc0;margin:0 0 12px}
+#slot-jackpot-close{min-height:44px;padding:0 22px;border:1px solid #ffe39b;border-radius:12px;background:#b56b18;color:#fffaf0;font-weight:800;font-size:15px}
+.slot-coin-rain{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1}
+.slot-coin-rain i{position:absolute;top:-14%;animation-name:slotCoinFall;animation-timing-function:linear;animation-iteration-count:infinite;opacity:.95}
+@keyframes slotBulbChase{0%,100%{opacity:.2;box-shadow:0 0 3px #ffb34733}50%{opacity:1;box-shadow:0 0 10px #ffd166}}
+@keyframes slotBulbBlink{0%{opacity:.25}100%{opacity:1}}
+@keyframes slotBulbStrobe{0%{filter:hue-rotate(0);transform:scale(1)}50%{filter:hue-rotate(70deg);transform:scale(1.25)}100%{filter:hue-rotate(0);transform:scale(1)}}
+@keyframes slotJackpotPulse{0%,100%{box-shadow:0 0 18px #ffd16655}50%{box-shadow:0 0 46px #ffd166cc}}
+@keyframes slotCoinFall{0%{transform:translateY(0) rotate(0)}100%{transform:translateY(560px) rotate(320deg)}}
+@media(prefers-reduced-motion:reduce){.slot-bulbs i,.slot-shell.jackpot,.slot-coin-rain i{animation:none}}

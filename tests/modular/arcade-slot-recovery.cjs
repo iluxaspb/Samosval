@@ -263,3 +263,18 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
   assert.strictEqual(ready(), false, 'без активной сессии ставки запрещены');
   console.log('E) applyNasSession подтверждает активную сессию и снимает подтверждение у неактивной — ok');
 }
+
+// ---------- Часть C: щедрые выплаты 4.2.9 ----------
+{
+  const C = global.RoadArcadeCore, bank = 1000;
+  const types = [0, 1, 900, 2000, 9000].map(roll => C.slotOutcome(roll, bank).type);
+  assert.deepStrictEqual(types, ['jackpot', 'big', 'medium', 'small', 'loss'], 'пороги выплат сдвинулись');
+  assert.strictEqual(C.slotOutcome(1, bank).payout, 150, 'крупный выигрыш — 150');
+  assert.strictEqual(C.slotOutcome(900, bank).payout, 30, 'средний выигрыш — 30');
+  assert.strictEqual(C.slotOutcome(2000, bank).payout, 15, 'частый выигрыш — 15');
+  assert.strictEqual(C.slotOutcome(0, bank).payout, bank + C.BET, 'джекпот забирает банк и ставку');
+  assert.strictEqual(C.slotOutcome(9000, bank).payout, 0, 'проигрыш без выплаты');
+  const expected = (3400 * 15 + 800 * 30 + 149 * 150) / 10000;
+  assert(expected > 9.6 && expected < 10.2, 'отдача ставки ушла из разумных пределов: ' + expected);
+  console.log('Автомат 4.2.9: выплаты 15/30/150 и джекпот, отдача ставки ~' + (expected * 10).toFixed(1) + '%');
+}
