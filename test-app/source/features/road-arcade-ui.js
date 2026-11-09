@@ -45,14 +45,20 @@ function updateNumbers(){
  const p=A.me(),today=p.daily?.day===C.dayKey()?p.daily.claims.length:0;
  dialog.querySelectorAll('[data-arcade-balance]').forEach(e=>e.textContent=f(A.balance()));dialog.querySelectorAll('[data-mario-daily]').forEach(e=>e.textContent=today);
  dialog.querySelectorAll('[data-slot-bank]').forEach(e=>e.textContent=f(A.head().bank));dialog.querySelectorAll('[data-slot-stakes]').forEach(e=>e.textContent=f(A.head().totalStakes));dialog.querySelectorAll('[data-slot-payouts]').forEach(e=>e.textContent=f(A.head().totalPayouts));
- const spin=dialog.querySelector('#slot-spin');if(spin)spin.disabled=slotBusy||!A.status().ready||(!A.readSpin()&&A.balance()<C.BET);
+ // Кнопка не должна молча не реагировать: блокируем её только на время вращения,
+ // а любую причину отказа объясняем текстом в spin().
+ const spin=dialog.querySelector('#slot-spin');if(spin)spin.disabled=slotBusy;
  if(view==='mario'&&run){const el=dialog.querySelector('[data-mario-lives]');if(el)el.textContent='♥'.repeat(Math.max(0,run.lives));const level=dialog.querySelector('[data-mario-level]');if(level)level.textContent=run.map.level;}
 }
 function renderSlot(host){host.innerHTML='<section class="slot-shell '+(slotBusy?'spinning':'')+'"><div class="slot-pot">ОБЩИЙ ДЖЕКПОТ<strong><span data-slot-bank>'+f(A.head().bank)+'</span> 🪙</strong></div>'+mascot()+'<div class="slot-reels" aria-label="Результат барабанов">'+slotSymbols.map(s=>'<div class="slot-reel">'+s+'</div>').join('')+'</div><div class="slot-result" id="slot-result" role="status">'+E(slotMessage||'Стартовый банк — 1 000 монет. Испытаем удачу?')+'</div><button class="slot-spin" id="slot-spin">'+(slotBusy?'Барабаны вращаются…':A.readSpin()?'Проверить незавершённое вращение':'Вращать · 10 🪙')+'</button><div class="slot-bank-details"><span>Внесено игроками: <b data-slot-stakes>'+f(A.head().totalStakes)+'</b></span><span>Выплачено: <b data-slot-payouts>'+f(A.head().totalPayouts)+'</b></span></div></section><details class="arcade-rules"><summary>Честные правила и шансы</summary><p>Каждое вращение независимо. 35% — выплата 12 монет, 10% — 20 монет, 0,99% — 100 монет, 0,01% (1 из 10 000) — весь текущий банк. В остальных 54% выплата равна нулю. Ставка — 10 монет. Выплата ограничена деньгами в банке после добавления ставки.</p><p>Банк общий: 1 000 стартовых монет + все ставки − все выплаты. Он не пополняется заново при обновлении страницы. Уменьшение кошелька и итог игры видны отдельно. Реальных денег и вывода средств нет.</p></details>';
  host.querySelector('#slot-spin').onclick=spin;
 }
 async function spin(){
- if(slotBusy||!A.available('slot'))return;unlockSound();const user=currentUid,token=dialogOwner;let operation=A.readSpin();
+ if(slotBusy)return;unlockSound();const user=currentUid,token=dialogOwner;let operation=A.readSpin();
+ // Незавершённое вращение проверяем всегда: это возврат долга, а не новая ставка.
+ if(!operation&&!A.available('slot')){setStatus('Автомат открывается, когда на линии начата смена. Незавершённое вращение проверится автоматически.');return;}
+ if(!operation&&!A.status().ready){setStatus('Игровой банк ещё синхронизируется. Незавершённое вращение проверится автоматически.');return;}
+ if(!operation&&A.balance()<C.BET){setStatus('Для вращения нужно 10 монет. Их можно собрать в Марио.');return;}
  try{if(!operation){operation=A.newSpin();A.storeSpin(operation);}}catch(e){slotMessage=e.message;render(true);return;}
  slotBusy=true;slotMessage='Проверяем ставку и вращаем барабаны…';render(true);const started=performance.now();let flips=0;
  if(matchMedia('(prefers-reduced-motion: reduce)').matches)tone('spin');else slotTimer=setInterval(()=>{if(!dialog.open||view!=='slot')return;const icons=['🍒','⭐','💎','🚧','👑'];dialog.querySelectorAll('.slot-reel').forEach((e,i)=>e.textContent=icons[(flips+i*2)%icons.length]);flips++;if(flips%2===0)tone('spin');},130);

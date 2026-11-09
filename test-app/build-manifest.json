@@ -1,11 +1,11 @@
 {
-  "version": "0d3057312bd2116a",
-  "channel": "test-4.2.5-modular-plus-timesheet",
+  "version": "5df174dc5f764aaa",
+  "channel": "test-4.2.6-modular-plus-timesheet",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index-test.html",
-      "sha256": "856e57135fb4d1a402ac33bc05fd4403f7fa76570f86570bc9d35a30d83aca40"
+      "sha256": "b243ffe0809f2e9262f0b2767b33e022475975f2bbe0933c8851d32ca999d9d4"
     },
     {
       "url": "./test-app/icons/icon-test-red-192.png",
@@ -220,107 +220,107 @@
       "sha256": "1c285052f338454790eef4621cd13b0e5fc4216df72a76f39ff4569ce77502f6"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/auto-backup.js",
+      "url": "./test-app/build/5df174dc5f764aaa/auto-backup.js",
       "sha256": "dce8b37674dba5f6d40db3369d47476cf349e44e95214584c595a574f89e58c7"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/built-in-patches.js",
+      "url": "./test-app/build/5df174dc5f764aaa/built-in-patches.js",
       "sha256": "3b111d03aca21f92cb767b466525f28e750b0d43ff5460d7b3a42a022ee7d483"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/closed-shift-duplicates.js",
+      "url": "./test-app/build/5df174dc5f764aaa/closed-shift-duplicates.js",
       "sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/confirm-bridge.js",
+      "url": "./test-app/build/5df174dc5f764aaa/confirm-bridge.js",
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/core.js",
-      "sha256": "826f7a09b7a231d90f9050c929ffe81a782bb2c95fe84cc717f811e30d61049a"
+      "url": "./test-app/build/5df174dc5f764aaa/core.js",
+      "sha256": "dd989fbe80a3d1713c8576b4c3a9a930721f104c35e10ce3e915f72f5767746c"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/firebase-traffic-dashboard.js",
+      "url": "./test-app/build/5df174dc5f764aaa/firebase-traffic-dashboard.js",
       "sha256": "2fbbe5a7eaee83d4921fc2873d769866ca2a5d2d3762d3a662ae1bf86ce8a2d7"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/firebase-traffic-hook.js",
+      "url": "./test-app/build/5df174dc5f764aaa/firebase-traffic-hook.js",
       "sha256": "3fef9e5baa93925de8d60286b90840f1057aedf8633d6e92041717d480c33129"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/firebase-traffic-inference.js",
+      "url": "./test-app/build/5df174dc5f764aaa/firebase-traffic-inference.js",
       "sha256": "65093633cd300a9e7c2a9da78142049ef544392f71b835297b007b852247f13e"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/gai-report-toggle.js",
+      "url": "./test-app/build/5df174dc5f764aaa/gai-report-toggle.js",
       "sha256": "584a1b9bfb8c3edd8229fe73be5db55788dc251c182b545c27a4cac1b9c1455a"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/game-coins-v2.js",
+      "url": "./test-app/build/5df174dc5f764aaa/game-coins-v2.js",
       "sha256": "2b55cf86421038c8e87cd6ae4027c881b0aed20a779783a4e3e36cf1f3ca8bb6"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/global-interface-haptics.js",
+      "url": "./test-app/build/5df174dc5f764aaa/global-interface-haptics.js",
       "sha256": "cb9695c568c866a5403268629d6b07629b0a2444de1ced98b088e027963b0d7f"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/history-recorder.js",
+      "url": "./test-app/build/5df174dc5f764aaa/history-recorder.js",
       "sha256": "251adb91bf8643af8835eb7a88659af5fc006e52841f7c06fa8f5ec21503198a"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/line-card-layers.js",
+      "url": "./test-app/build/5df174dc5f764aaa/line-card-layers.js",
       "sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/offline-feedback.js",
+      "url": "./test-app/build/5df174dc5f764aaa/offline-feedback.js",
       "sha256": "94b6082bc2d2939da2214787ad258b870c426ef0475220b7dd364d3959498db7"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/paper-viewer.js",
+      "url": "./test-app/build/5df174dc5f764aaa/paper-viewer.js",
       "sha256": "3571dd11c6c0e4559a3a56fe1282bc8b250d08a825b3cdb47c513b86b20fcdd2"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/release-history.js",
-      "sha256": "5f6dee17d4d2beed034e8dae1be7c8743550de5e52a9e93e99ec1b99095affb6"
+      "url": "./test-app/build/5df174dc5f764aaa/release-history.js",
+      "sha256": "4ff4d13890223e893ee6fa1482b5f5aa32b4e16576e7fab73898849c38555b41"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/reset-settings.js",
+      "url": "./test-app/build/5df174dc5f764aaa/reset-settings.js",
       "sha256": "416078dbe3a699fe4d25a3eedc5a97edabe705732715aac90bfb13b09f5af335"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/road-arcade-core.js",
+      "url": "./test-app/build/5df174dc5f764aaa/road-arcade-core.js",
       "sha256": "10da96381e9f6662cf571a05a08839a9cc369440a289de656ba4ce1e1bfaee3f"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/road-arcade-runtime.js",
-      "sha256": "ae3d05c325137e5fe655def018ea6ad767401872123c0ac036ee9fecb3edd1ae"
+      "url": "./test-app/build/5df174dc5f764aaa/road-arcade-runtime.js",
+      "sha256": "7c919d26f4b246e2dd937525f33f29c159eb82d30786c7ccc1618cf20f7905ba"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/road-arcade-ui.js",
-      "sha256": "06b5cf847bf0032d5fbc93046519fd5770dee06cddccbf5e4856f33964b46009"
+      "url": "./test-app/build/5df174dc5f764aaa/road-arcade-ui.js",
+      "sha256": "b6df333f13edc3d8fe1f84a9ea81305aa20c961ac76a4afde0d927a22b76856d"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/road-jokes-v1.js",
+      "url": "./test-app/build/5df174dc5f764aaa/road-jokes-v1.js",
       "sha256": "8034c5a9d0f83742e7007c57e9ed2cc6927054f4666bb5daef88f1fdf0b506ea"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/road-season-effects-v1.js",
+      "url": "./test-app/build/5df174dc5f764aaa/road-season-effects-v1.js",
       "sha256": "84b2611e7e5555ea586558632f04e813633317041237b906fd439ee8274034ee"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/road-shop-v1.js",
+      "url": "./test-app/build/5df174dc5f764aaa/road-shop-v1.js",
       "sha256": "6331cb853a83b2a025650ce9272e20f46cc796a4c4ce17b100b1a7b652a94ff2"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/settings-hub.js",
+      "url": "./test-app/build/5df174dc5f764aaa/settings-hub.js",
       "sha256": "23ed7100ec57cb522adaf9839fb39ceb73ba3cdb711dd44aad9ef4cff0561438"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/test-release.js",
-      "sha256": "07424cc80c19504841e956d2c635d4caa7aeb338131fe04c184cf85b191b54d4"
+      "url": "./test-app/build/5df174dc5f764aaa/test-release.js",
+      "sha256": "f07282512fbc44414989c091dded408de035422c6c37454269f2e5a452da7de2"
     },
     {
-      "url": "./test-app/build/0d3057312bd2116a/trip-analytics.js",
+      "url": "./test-app/build/5df174dc5f764aaa/trip-analytics.js",
       "sha256": "1782f14ac8deb2a5794574e9ce56bc51aacbf8ab48050a114b4e63ab3c745dc1"
     },
     {

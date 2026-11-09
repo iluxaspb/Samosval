@@ -29,7 +29,7 @@ function sync(){
  const next=active()?currentUid:'';if(next!==owner){unsub?.();winsUnsub?.();unsub=null;winsUnsub=null;ownPending=null;owner=next;generation++;head=C.initialHead();players={};recent=[];ready=false;error='';fetching.clear();emit();}
  if(isNasRuntime()){
   if(owner&&nasGameReady&&nasGameSnapshot){head=nasGameSnapshot.head;players=nasGameSnapshot.players;recent=nasGameSnapshot.records.filter(r=>r.eventType==='game_arcade'&&r.kind==='slot'&&r.payout>r.cost).sort((a,b)=>b.gameRound-a.gameRound).slice(0,20);ready=true;error='';}
-  else{ready=false;error=owner?'Нет связи с игровым банком Synology.':'';}emit();return;
+  else{ready=false;error=owner?'Нет связи с игровым банком Ubuntu.':'';}emit();return;
  }
  if(owner&&!unsub){const token=generation;unsub=refs.audit.orderBy('gameRound','desc').limit(80).onSnapshot({includeMetadataChanges:true},snap=>{
   if(token!==generation)return;const rows=snap.docs.filter(d=>!d.metadata.hasPendingWrites).map(d=>({id:d.id,...d.data()})).filter(validRound).sort((a,b)=>b.gameRound-a.gameRound);
@@ -40,12 +40,29 @@ function sync(){
 }
 function balance(){const s=window.__gameEconomy?.snapshot();return s&&window.RoadShop?window.RoadShop.available(s.earned,window.RoadShop.spent(s.records,currentUid),currentUserRole,currentUserStatus):0;}
 function pendingKey(){return isNasRuntime()?'samosval-nas-arcade-spin-v1:'+nasStorageScope():'samosval-arcade-spin-v1:'+firebaseConfig.projectId+':'+WORKSPACE_ID+':'+currentUid;}
-function readSpin(){try{const v=JSON.parse(localStorage.getItem(pendingKey())||'null');return v?.kind==='slot'&&typeof v.id==='string'&&Number.isInteger(v.roll)&&v.roll>=0&&v.roll<10000?v:null;}catch(e){return ownPending;}}
+// Незавершённое вращение можно безопасно повторить: сервер узнаёт операцию по id
+// и не списывает ставку дважды. Но запись не должна запирать автомат навсегда,
+// поэтому устаревшая (или сохранённая старой сборкой без отметки времени) запись
+// снимается — итог уже принятого вращения всё равно остаётся в журнале сервера.
+const SPIN_MAX_AGE=30*60*1000;
+function readSpin(){
+ try{
+  const v=JSON.parse(localStorage.getItem(pendingKey())||'null');
+  const valid=v?.kind==='slot'&&typeof v.id==='string'&&Number.isInteger(v.roll)&&v.roll>=0&&v.roll<10000;
+  if(!valid)return null;
+  const created=Number(v.createdAt);
+  if(!Number.isSafeInteger(created)||created<=0||Date.now()-created>SPIN_MAX_AGE){try{localStorage.removeItem(pendingKey());}catch(e){}ownPending=null;return null;}
+  return v;
+ }catch(e){return ownPending;}
+}
 function storeSpin(op){ownPending=op;try{if(op)localStorage.setItem(pendingKey(),JSON.stringify(op));else localStorage.removeItem(pendingKey());}catch(e){if(op)throw Error('Браузер не разрешил сохранить вращение. Разрешите локальное хранилище.');}}
 async function transact(action){
  const user=currentUid,email=currentEmail,name=getUserName(),economy=window.__gameEconomy?.snapshot();
  const sessionGeneration=authSessionGeneration;
- if(!active()||!navigator.onLine||!ready||!economy?.ready||!isAuthSessionReady(sessionGeneration))throw Error('Дождитесь связи и синхронизации кошелька.');
+ // Повтор незавершённого вращения — возврат долга: в режиме Ubuntu разрешаем его
+ // даже до синхронизации банка, сервер сам пересчитает и подтвердит результат.
+ const replayingSlot=action.kind==='slot'&&(ownPending?.id===action.id||readSpin()?.id===action.id);
+ if(!active()||!navigator.onLine||!economy?.ready||!(replayingSlot&&isNasRuntime())&&!ready||!isAuthSessionReady(sessionGeneration))throw Error('Дождитесь связи и синхронизации кошелька.');
  if(action.kind!=='purchase'&&!available(action.kind==='finish'?'mario':action.kind))throw Error('Эта мини-игра выключена администратором.');
  if(isNasRuntime())return nasGameAction(action);
  const operation={...action,id:action.id||uid()},receipt=refs.audit.doc(receiptId(user,operation.id)),baseRound=head.gameRound;
@@ -84,7 +101,7 @@ async function transact(action){
  if(currentUid===user&&result.confirmedHead){const d=result.confirmedHead;if(d.gameRound>=head.gameRound)head=d;acceptPlayer(d);if(d.kind==='slot'&&d.payout>d.cost)recent=[d,...recent.filter(r=>r.id!==d.id)].slice(0,20);emit();}
  return result;
 }
-window.RoadArcade={visible,available,delta:id=>players[id]?.net||0,balance,me,head:()=>head,players:()=>players,recent:()=>recent,status:()=>({ready,error,hydrated:ready&&(!head.actors[currentUid]||players[currentUid]?._round>=head.actors[currentUid])}),subscribe:fn=>{callbacks.add(fn);return ()=>callbacks.delete(fn);},transact,readSpin,storeSpin,newSpin:()=>({id:uid(),kind:'slot',roll:roll()}),buyTheme:item=>transact({kind:'purchase',itemId:item.id}),sync};
+window.RoadArcade={visible,available,delta:id=>players[id]?.net||0,balance,me,head:()=>head,players:()=>players,recent:()=>recent,status:()=>({ready,error,hydrated:ready&&(!head.actors[currentUid]||players[currentUid]?._round>=head.actors[currentUid])}),subscribe:fn=>{callbacks.add(fn);return ()=>callbacks.delete(fn);},transact,readSpin,storeSpin,newSpin:()=>({id:uid(),kind:'slot',roll:roll(),createdAt:Date.now()}),buyTheme:item=>transact({kind:'purchase',itemId:item.id}),sync};
 window.addEventListener('review-flags-changed',()=>{sync();emit();});setInterval(sync,1000);sync();
 })();
 

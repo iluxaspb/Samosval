@@ -18,12 +18,11 @@
   function isNasRuntime() { return nasProvider() !== 'firebase'; }
   function nasApiBase() { return UBUNTU_API_BASE; }
   function nasStorageScope() { const base=nasApiBase();let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval_nas_dataset_epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify([nasProvider(),base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
-  let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0;
+  let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0, nasPresenceTimer=null, nasGamesTimer=null;
   // Single-writer authority as announced by the server. The phone never decides
   // this on its own: it mirrors the server and stops writing when it is not the
   // declared authority.
   let nasAuthority = { provider: 'ubuntu', generation: 0 };
-  let nasPresenceTimer = null;
   const nasReceiptFloors = new Map();
   const nasPresenceLeavers=new Set();
   let nasAdministration=null,nasAdminRead=null,nasCatalogRead=null,nasCatalogSnapshot=null;
@@ -35,6 +34,7 @@
   function stopNasRuntime() {
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
     if(nasPresenceTimer&&typeof clearInterval==='function'){clearInterval(nasPresenceTimer);nasPresenceTimer=null;}
+    if(nasGamesTimer&&typeof clearInterval==='function'){clearInterval(nasGamesTimer);nasGamesTimer=null;}
     nasRuntimeStop?.(); nasRuntimeStop = null;
     nasRuntimeClient?.stop(); nasRuntimeClient = null;
     nasReceiptFloors.clear();
@@ -131,6 +131,10 @@
         onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal();},
         onError:error=>{if(epoch!==nasRuntimeEpoch)return;reportSyncError('nas',error);}
       });};nasResumePolling();
+      // Если игровая книга не загрузилась при входе (сбой сети), без повтора
+      // кнопки игр оставались вечно неактивными. Пробуем снова каждые 30 секунд.
+      if(nasGamesTimer&&typeof clearInterval==='function')clearInterval(nasGamesTimer);
+      nasGamesTimer=typeof setInterval==='function'?setInterval(()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||nasGameReady)return;void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch)nasGameReadError(error);});},30000):null;
     }catch(error){if(epoch===nasRuntimeEpoch)reportSyncError('nas',error);}
   }
   function loadNasTabelRemote(){return import(new URL('./test-app/synology/tabel-remote.mjs',document.baseURI).href);}

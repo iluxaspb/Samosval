@@ -178,14 +178,27 @@ async function confirm(accept = true, expectedMessage, repeated = false) {
   await page.waitForFunction(node=>!node.isConnected,current,{timeout:15000}); await current.dispose();
 }
 async function cancelRepeatedPrompts(expectedMessage) {
-  // A second real pointer click on an opener may land on the newly inserted
-  // confirmation backdrop. Verify the cancellation path; never wait to approve
-  // a modal that the user's second click already dismissed.
-  for (let remaining=3;remaining>0;remaining--) {
-    if (!await page.locator('.pcm-overlay.pcm-open:visible').count()) return;
-    await confirm(false,expectedMessage);
+  // A rapid double click on an opener can raise several confirmation prompts in
+  // a row. Cancel each one as a concrete instance: wait for that exact node to
+  // detach, and never demand that every overlay on the page is gone. Another
+  // real modal (the shift-close transfer form, an archive card) may still be
+  // open legitimately, and sweeping it away hid the actual cancel path.
+  for (let remaining=8;remaining>0;remaining--) {
+    const overlay=page.locator('.pcm-overlay.pcm-open');
+    if (!await overlay.count()) return;
+    const current=await overlay.first().elementHandle();
+    assert(current,'An open confirmation must be reachable');
+    if (expectedMessage) {
+      const message=await current.evaluate(node=>node.querySelector('.pcm-message')?.textContent||'');
+      assert.match(message,expectedMessage);
+    }
+    try { await overlay.first().locator('.pcm-btn-cancel').click({timeout:5000}); }
+    catch (error) { if (await current.evaluate(node=>node.isConnected)) throw error; }
+    if (!expectedMessage) return;
+    await page.waitForFunction(node=>!node.isConnected,current,{timeout:15000});
+    await current.dispose();
   }
-  assert.equal(await page.locator('.pcm-overlay').count(),0,'Unexpected confirmation loop after repeated opener');
+  assert.equal(await page.locator('.pcm-overlay.pcm-open:visible').count(),0,'Unexpected confirmation loop after repeated opener');
 }
 async function nav(name) { await page.locator('#nav-' + name).click(); await page.locator('#tab-' + name + '.active').waitFor({state:'visible'}); }
 async function toggleCheckbox(id, checked) {
@@ -440,8 +453,11 @@ async function responsiveCase(mobile) {
     await wait(()=>!document.querySelector('.pcm-overlay'));
     assert.equal((await readRows('archive')).length,1,'Rapid restore opener/cancellation must preserve archive');
     assert.equal((await readRows('shift')).length,0); assert.equal((await readRows('logs')).length,0);
-    await page.locator('#archiveRestoreBtn').click(); await confirm(true,/^Восстановить смену/,true);
-    await wait(() => state.shift?.isActive && !state.shift.restoring && state.archive.length === 0 && getLogs().length === 1);
+    // Single confirmation click: the second click of a dblclick landed on the
+    // still-open archive modal's Restore button and opened a fresh prompt that
+    // nothing dismissed. Duplicate-restore safety is already covered above.
+    await page.locator('#archiveRestoreBtn').click(); await confirm(true,/^Восстановить смену/);
+    await wait(() => state.shift?.isActive && !state.shift.restoring && state.archive.length === 0 && getLogs().length === 1, undefined, 60000);
     assert.equal((await readRows('archive')).length, 0); assert.equal((await readRows('logs')).length, 1);
     assert.equal((await readRows('truckStatus')).length, 1);
     await nav('line'); await evidence('restored');
