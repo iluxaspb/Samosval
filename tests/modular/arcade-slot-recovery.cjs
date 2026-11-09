@@ -216,3 +216,50 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
   console.log('D) NAS-сессия подтверждает профиль и права, Firebase-путь не задет — ok');
   console.log('Автомат: подтверждение сессии и ставка — регрессия пройдена');
 })().catch(e => { console.error(e); process.exitCode = 1; });
+
+// ---------- Часть E: поведение applyNasSession на настоящем исходнике ----------
+// Выполняем реальную функцию из 21-nas-runtime.js и проверяем, что серверная
+// сессия делает isAuthSessionReady() истинным, а неактивная — ложным.
+{
+  const nas = read('test-app/source/core/21-nas-runtime.js');
+  const start = nas.indexOf('function applyNasSession(session)');
+  assert.ok(start > 0, 'applyNasSession не найден');
+  let depth = 0, end = -1;
+  for (let i = nas.indexOf('{', start); i < nas.length; i++) {
+    if (nas[i] === '{') depth++;
+    else if (nas[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  assert.ok(end > start, 'не удалось выделить тело applyNasSession');
+  const fnSource = nas.slice(start, end);
+
+  const node = () => ({ style: {}, classList: { add() {}, remove() {} }, textContent: '' });
+  const ctx = {
+    currentUid: 'u1', currentEmail: 'u1@x', currentUserRole: null, currentUserStatus: null, currentUserNickname: '',
+    permissionsConfig: {}, permissionsLoaded: false, profileServerConfirmed: false, permissionsServerConfirmed: false,
+    nasAuthority: { provider: 'ubuntu', generation: 0 }, nasReadGeneration: 0, state: {}, appConfig: {},
+    nasSettingsSnapshot: null, nasGameSnapshot: null, nasGameReady: true, nasGameReceiptFloor: 0,
+    sanitizeName: () => 'User', markSync: () => {}, updateUserBadge: () => {}, updateNavUI: () => {},
+    applyRoleUI: () => {}, renderAll: () => {}, cancelHold: () => {},
+    document: { getElementById: () => node(), querySelector: () => node(), querySelectorAll: () => [], body: { setAttribute() {}, removeAttribute() {} } },
+    window: { dispatchEvent: () => {}, __gameAccessChanged: null },
+    CustomEvent: class { constructor(t, o) { this.type = t; this.detail = o?.detail; } },
+    console, JSON
+  };
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext('var __f = ' + fnSource.replace(/^function applyNasSession/, 'function') + ';', ctx);
+
+  const session = { identityReady: true, profile: { status: 'active', deleted: false, role: 'admin', nickname: 'Админ' },
+    permissions: { tabs: ['line', 'timesheet'], actions: [] }, authority: { provider: 'ubuntu', generation: 3 } };
+  ctx.__f(session);
+  assert.strictEqual(ctx.profileServerConfirmed, true, 'активная NAS-сессия обязана подтвердить профиль');
+  assert.strictEqual(ctx.permissionsServerConfirmed, true, 'активная NAS-сессия обязана подтвердить права');
+  assert.strictEqual(ctx.permissionsLoaded, true, 'права должны считаться загруженными');
+  const ready = () => ctx.currentUserStatus === 'active' && !!ctx.currentUid && ctx.profileServerConfirmed && ctx.permissionsServerConfirmed;
+  assert.strictEqual(ready(), true, 'серверная сессия должна открывать ставки (isAuthSessionReady)');
+
+  ctx.__f({ identityReady: true, profile: { status: 'pending', deleted: false, role: 'viewer' }, permissions: { tabs: [], actions: [] } });
+  assert.strictEqual(ctx.profileServerConfirmed, false, 'неактивная учётная запись не подтверждается');
+  assert.strictEqual(ready(), false, 'без активной сессии ставки запрещены');
+  console.log('E) applyNasSession подтверждает активную сессию и снимает подтверждение у неактивной — ok');
+}
