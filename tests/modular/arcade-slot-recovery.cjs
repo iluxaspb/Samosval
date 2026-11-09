@@ -293,7 +293,7 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
   assert.strictEqual(run.coins, blockCoin.coins, 'монета из блока сразу попадает в счётчик');
 
   run = C.createRun(1); run.lives = 99;
-  const enemy = run.map.enemies[0];
+  const enemy = run.map.enemies[0]; enemy.left = 0; enemy.right = run.map.width;
   run.player.x = enemy.x + 2; run.player.y = enemy.y - 40; run.player.vy = 200; run.player.grounded = false;
   let stomp = null;
   for (let i = 0; i < 30 && !stomp; i++) C.advanceRun(run, { axis: 0, jump: false }, 1 / 60, e => { if (e.type === 'stomp') stomp = e; });
@@ -331,4 +331,52 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
   for (let i = 0; i < 70 && !got; i++) C.advanceRun(run2, { axis: 0, jump: (i % 40) < 16 }, 1 / 60, e => { if (e.type === 'coin') got = e; });
   assert(got, 'верхняя монета реально собирается прыжком');
   console.log('Марио 4.2.14: длинный прыжок и верхние монеты — проверено');
+}
+
+// ---------- Часть F: сердца, неуязвимость и экран «Игра окончена» ----------
+{
+  const C = global.RoadArcadeCore;
+  const run = C.createRun(1);
+  assert.strictEqual(run.lives, 3, 'на старте три сердца');
+  run.map.enemies.forEach(e => e.alive = false);
+  run.map.enemies[0].alive = true;
+  const enemy = run.map.enemies[0]; enemy.left = 0; enemy.right = run.map.width;
+  const hits = [];
+  for (let hit = 0; hit < 4; hit++) {
+    enemy.alive = true;
+    enemy.x = run.player.x; enemy.y = run.player.y + 20; run.player.vy = 0;
+    C.advanceRun(run, { axis: 0, jump: false }, 1 / 60, e => hits.push(e.type));
+    enemy.alive = false; // пока действует неуязвимость, враг не мешает
+    for (let i = 0; i < 120; i++) C.advanceRun(run, { axis: 0, jump: false }, 1 / 60, () => {});
+    if (run.over) break;
+  }
+  const hurtEvents = hits.filter(t => t === 'hurt');
+  assert(hits.includes('hurt'), 'столкновение с врагом отнимает сердце');
+  assert.strictEqual(hurtEvents.length, 2, 'третье столкновение — это уже gameover, а не hurt');
+  assert.strictEqual(run.lives, 0, 'после трёх столкновений сердец нет');
+  assert.strictEqual(run.over, true, 'игра переходит в состояние «окончена»');
+  assert.strictEqual(run.paused, true, 'после поражения игра остановлена');
+  assert(hits.includes('gameover'), 'отправляется событие gameover для мелодии поражения');
+
+  const again = C.createRun(1);
+  assert.strictEqual(again.lives, 3, 'перезапуск возвращает три сердца');
+  assert.strictEqual(again.over, false, 'перезапуск снимает состояние поражения');
+
+  // Неуязвимость: сразу после удара второе столкновение не отнимает сердце.
+  const r2 = C.createRun(1); r2.map.enemies.forEach(e => e.alive = false);
+  const e2 = r2.map.enemies[0]; e2.alive = true; e2.left = 0; e2.right = r2.map.width;
+  e2.x = r2.player.x; e2.y = r2.player.y + 20; r2.player.vy = 0;
+  C.advanceRun(r2, { axis: 0, jump: false }, 1 / 60, () => {});
+  const afterFirst = r2.lives;
+  e2.x = r2.player.x;
+  C.advanceRun(r2, { axis: 0, jump: false }, 1 / 60, () => {});
+  assert.strictEqual(r2.lives, afterFirst, 'во время неуязвимости сердце не теряется повторно');
+  assert(r2.invuln > 0, 'после удара включается неуязвимость');
+
+  // Длинный прыжок не изменился: та же высота, что и в 4.2.14.
+  const jumpRun = C.createRun(1); jumpRun.lives = 99; jumpRun.map.enemies.forEach(e => e.alive = false);
+  let peak = 0;
+  for (let i = 0; i < 180; i++) { C.advanceRun(jumpRun, { axis: 0, jump: (i % 45) < 30 }, 1 / 60, () => {}); peak = Math.max(peak, jumpRun.maxJumpHeight); }
+  assert(peak >= 190, 'прыжок остался длинным');
+  console.log('Марио 4.2.15: сердца, неуязвимость и поражение — проверено');
 }

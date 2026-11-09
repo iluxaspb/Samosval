@@ -65,9 +65,10 @@ function createLevel(level){
  return {level,width:x,height:540,groundY,platforms,blocks,coins,enemies,pipes,checkpoints,flag:x-80};
 }
 function intersects(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
-function createRun(level){return {map:createLevel(level),player:{x:36,y:400,w:28,h:36,vx:0,vy:0,grounded:false},lives:3,camera:0,time:0,checkpoint:{x:36,y:400},collected:new Set(),pending:new Set(),done:false,paused:false,jumpHeld:false,coins:0,score:0,stomps:0,maxJumpHeight:0};}
+function createRun(level){return {map:createLevel(level),player:{x:36,y:400,w:28,h:36,vx:0,vy:0,grounded:false},lives:3,invuln:0,over:false,camera:0,time:0,checkpoint:{x:36,y:400},collected:new Set(),pending:new Set(),done:false,paused:false,jumpHeld:false,coins:0,score:0,stomps:0,maxJumpHeight:0};}
 function advanceRun(run,input,dt,onEvent=()=>{}){
- if(run.paused||run.done)return;const step=Math.max(0,Math.min(.04,dt)),p=run.player,m=run.map;run.time+=step;
+ if(run.paused||run.done||run.over)return;const step=Math.max(0,Math.min(.04,dt)),p=run.player,m=run.map;run.time+=step;
+ if(run.invuln>0)run.invuln=Math.max(0,run.invuln-step);
  p.vx=Math.max(-1,Math.min(1,input.axis||0))*230;
  const wanted=!!input.jump;
  if(wanted&&!run.jumpHeld&&p.grounded){p.vy=-760;p.grounded=false;onEvent({type:'jump'});}
@@ -78,7 +79,7 @@ function advanceRun(run,input,dt,onEvent=()=>{}){
  p.vy=Math.min(900,p.vy+1400*step);
  p.x=Math.max(0,Math.min(m.width-p.w,p.x+p.vx*step));
  for(const q of m.pipes)if(intersects(p,q)&&oldY+p.h>q.y+6){p.x=oldX;break;}
- p.y+=p.vy*step;p.grounded=false;
+ const wasAir=!p.grounded,impact=p.vy;p.y+=p.vy*step;p.grounded=false;
  for(const q of m.platforms)if(p.vy>=0&&p.x+p.w>q.x&&p.x<q.x+q.w&&oldY+p.h<=q.y+2&&p.y+p.h>=q.y){p.y=q.y-p.h;p.vy=0;p.grounded=true;}
  for(const q of m.pipes)if(p.vy>=0&&p.x+p.w>q.x&&p.x<q.x+q.w&&oldY+p.h<=q.y+2&&p.y+p.h>=q.y){p.y=q.y-p.h;p.vy=0;p.grounded=true;}
  for(const b of m.blocks){
@@ -90,10 +91,11 @@ function advanceRun(run,input,dt,onEvent=()=>{}){
    else onEvent({type:'bump',block:b});
   }
  }
+ if(wasAir&&p.grounded&&impact>240)onEvent({type:'land',impact:Math.round(impact),x:p.x,y:p.y});
  if(!p.grounded)run.maxJumpHeight=Math.max(run.maxJumpHeight,Math.max(0,m.groundY-(p.y+p.h)));
  for(const e of m.enemies){if(!e.alive)continue;e.x+=e.vx*step;if(e.x<e.left){e.x=e.left;e.vx=Math.abs(e.vx);}if(e.x>e.right){e.x=e.right;e.vx=-Math.abs(e.vx);}if(intersects(p,e)){if(p.vy>0&&oldY+p.h<=e.y+10){e.alive=false;run.coins+=1;run.stomps+=1;run.score+=200;p.vy=-390;p.grounded=false;onEvent({type:'stomp',x:e.x+e.w/2,y:e.y});}else{hurt(run,onEvent);break;}}}
  if(p.y>650)hurt(run,onEvent);
- for(const c of m.checkpoints)if(p.grounded&&p.x>=c.x&&c.x>run.checkpoint.x)run.checkpoint=c;
+ for(const c of m.checkpoints)if(p.grounded&&p.x>=c.x&&c.x>run.checkpoint.x){run.checkpoint=c;onEvent({type:'checkpoint',x:c.x});}
  for(const c of m.coins)if(!run.collected.has(c.id)&&intersects(p,{x:c.x-10,y:c.y-12,w:20,h:24})){run.collected.add(c.id);run.coins+=1;run.score+=100;onEvent({type:'coin',coin:c.id,x:c.x,y:c.y});}
  if(p.x>=m.flag&&!run.done){
   run.done=true;
@@ -104,7 +106,14 @@ function advanceRun(run,input,dt,onEvent=()=>{}){
  }
  run.camera=Math.max(0,Math.min(m.width-960,p.x-260));
 }
-function hurt(run,onEvent){run.lives--;run.player.x=run.checkpoint.x;run.player.y=run.checkpoint.y;run.player.vx=0;run.player.vy=0;run.player.grounded=false;run.maxJumpHeight=0;run.paused=run.lives<=0;onEvent({type:'hurt',over:run.paused});}
+function hurt(run,onEvent){
+ if(run.over||run.invuln>0)return;
+ const p=run.player;run.lives=Math.max(0,run.lives-1);run.invuln=1.7;
+ if(p.y>650){p.x=run.checkpoint.x;p.y=run.checkpoint.y;p.vy=0;}else{p.x=Math.max(0,p.x-44);p.vy=-320;}
+ p.vx=0;p.grounded=false;run.maxJumpHeight=0;
+ if(run.lives<=0){run.over=true;run.paused=true;run.done=false;onEvent({type:'gameover',lives:0,coins:run.coins,score:run.score});}
+ else onEvent({type:'hurt',lives:run.lives,invuln:run.invuln});
+}
 root.RoadArcadeCore={LIMIT,BET,LEVELS,COINS_PER_LEVEL,dayKey,roundId,initialHead,initialPlayer,slotOutcome,settle,leaderboard,createLevel,createRun,advanceRun};
 })(typeof window!=='undefined'?window:globalThis);
 

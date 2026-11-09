@@ -2,18 +2,20 @@
 (function(){
 'use strict';
 const A=window.RoadArcade,C=window.RoadArcadeCore,E=escapeHtml;
-let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,invites=true,seenOwner='',notice='',levelBusy=false,lastDay=C.dayKey(),coinFx=[],finishSummary=null;
+let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,musicOn=true,invites=true,seenOwner='',notice='',levelBusy=false,lastDay=C.dayKey(),coinFx=[],finishSummary=null;
 const keys=new Set(),pointers=new Map(),f=n=>Number(n||0).toLocaleString('ru-RU');
 const dialog=document.createElement('dialog');dialog.id='arcade-dialog';dialog.setAttribute('aria-labelledby','arcade-title');document.body.append(dialog);
 const entry=document.createElement('button');entry.id='arcade-entry';entry.type='button';entry.title='Мини-игры и рейтинг выигрышей';entry.setAttribute('aria-label','Мини-игры и рейтинг выигрышей');entry.textContent='🎮';document.querySelector('#mainHeader .top-row')?.insertBefore(entry,document.querySelector('#mainHeader .gear-btn'));
 const mascot=()=>'<div class="slot-mascot" aria-hidden="true"><div class="eyes"><i class="eye"></i><i class="eye"></i></div><div class="smirk"></div><div class="belly">🍒 ⭐</div><i class="lever"></i></div>';
+dialog.addEventListener('click',e=>{const b=e.target.closest?.('button');if(b&&!b.closest('#mario-controls'))tone('click');});
 const prefKey=()=>['samosval-arcade-prefs-v1',firebaseConfig.projectId,WORKSPACE_ID,currentUid].join(':');
 const inviteKey=()=>prefKey()+':invitations';
-function loadPrefs(){try{const p=JSON.parse(localStorage.getItem(prefKey())||'{}');sound=p.sound!==false;invites=p.invites!==false;}catch(e){sound=true;invites=true;}}
-function savePrefs(){try{localStorage.setItem(prefKey(),JSON.stringify({sound,invites}));}catch(e){}if(!sound){speechSynthesisSafeCancel();}updateSettings();}
+function loadPrefs(){try{const p=JSON.parse(localStorage.getItem(prefKey())||'{}');sound=p.sound!==false;musicOn=p.music!==false;invites=p.invites!==false;}catch(e){sound=true;musicOn=true;invites=true;}}
+function savePrefs(){try{localStorage.setItem(prefKey(),JSON.stringify({sound,music:musicOn,invites}));}catch(e){}if(!sound){speechSynthesisSafeCancel();}if(!musicOn)musicStop();updateSettings();}
 function unlocked(){return Math.min(20,A.me().unlocked||1);}
-function unlockSound(){if(!sound||appConfig?.testReviewFlags?.game_sound===false)return;try{const Audio=window.AudioContext||window.webkitAudioContext;if(Audio){audio=audio||new Audio();if(audio.state==='suspended')audio.resume().catch(()=>{});}}catch(e){}}
+function unlockSound(){if((!sound&&!musicOn)||appConfig?.testReviewFlags?.game_sound===false)return;try{const Audio=window.AudioContext||window.webkitAudioContext;if(Audio){audio=audio||new Audio();if(audio.state==='suspended')audio.resume().catch(()=>{});}}catch(e){}}
 function audioReady(){return sound&&appConfig?.testReviewFlags?.game_sound!==false&&audio?.state==='running';}
+function musicReady(){return musicOn&&appConfig?.testReviewFlags?.game_sound!==false&&audio?.state==='running';}
 // Звуки 90-х синтезируются здесь же: щелчок барабана, механический «клак»
 // остановки, звон монет, сирена и фанфары джекпота. Никаких внешних сэмплов,
 // поэтому игра звучит и без сети и не тянет чужие лицензии.
@@ -29,7 +31,16 @@ function tone(kind){if(!audioReady())return;
   else if(kind==='coin')coinDing(t);
   else if(kind==='win'){[523,659,784,1046].forEach((n,i)=>audioBeep(n,t+i*.11,.22,{type:'square',peak:.035}));coinDing(t+.5,.04);}
   else if(kind==='jackpot'){for(let i=0;i<6;i++){const up=i%2===0;audioBeep(up?640:1180,t+i*.16,.15,{type:'sawtooth',peak:.028,to:up?1180:640});}[523,659,784,1046,1318,1568].forEach((n,i)=>audioBeep(n,t+1.02+i*.1,.26,{type:'square',peak:.04}));for(let i=0;i<14;i++)coinDing(t+1.2+i*.07,.032,1800+(i%3)*220);}
-  else if(kind==='jump')audioBeep(360,t,.12,{type:'square',peak:.045,to:760});
+  else if(kind==='jump'){audioBeep(520,t,.075,{type:'square',peak:.05,to:1450});audioBeep(260,t,.05,{type:'triangle',peak:.03,to:760});}
+  else if(kind==='jumpRun'){audioBeep(620,t,.07,{type:'square',peak:.05,to:1650});audioBeep(310,t,.05,{type:'triangle',peak:.028,to:900});}
+  else if(kind==='jumpBounce'){audioBeep(720,t,.07,{type:'square',peak:.048,to:1800});audioBeep(360,t,.05,{type:'triangle',peak:.026,to:1000});}
+  else if(kind==='land'){audioNoise(t,.035,{peak:.024,hp:260});audioBeep(150,t,.055,{type:'triangle',peak:.03,to:80});}
+  else if(kind==='score'){[988,1319].forEach((n,i)=>audioBeep(n,t+i*.055,.08,{type:'square',peak:.03}));}
+  else if(kind==='click'){audioBeep(1180,t,.028,{type:'square',peak:.018,to:900});}
+  else if(kind==='checkpoint'){[659,988].forEach((n,i)=>audioBeep(n,t+i*.09,.11,{type:'square',peak:.032}));}
+  else if(kind==='record'){[784,988,1175,1568].forEach((n,i)=>audioBeep(n,t+i*.09,.14,{type:'square',peak:.036}));coinDing(t+.4,.035,1760);}
+  else if(kind==='hornHit'){[392,330,262].forEach((n,i)=>audioBeep(n,t+i*.12,.1,{type:'square',peak:.05}));[392,330,262].forEach((n,i)=>audioBeep(n,t+.42+i*.12,.1,{type:'square',peak:.05}));audioNoise(t+.8,.28,{peak:.075,hp:120});audioBeep(110,t+.8,.3,{type:'sine',peak:.07,to:40});}
+  else if(kind==='gameover'){[523,494,440,392,330,262,196].forEach((n,i)=>audioBeep(n,t+i*.19,.22,{type:'square',peak:.036}));audioBeep(98,t+1.35,.5,{type:'triangle',peak:.05,to:60});}
   else if(kind==='block'){audioNoise(t,.03,{peak:.03,hp:700});audioBeep(180,t,.07,{type:'square',peak:.04,to:120});}
   else if(kind==='stomp'){audioNoise(t,.04,{peak:.045,hp:400});audioBeep(220,t,.1,{type:'square',peak:.045,to:90});}
   else if(kind==='clear'){[523,659,784,1046,1318,1568,2093].forEach((n,i)=>audioBeep(n,t+i*.12,.2,{type:'square',peak:.04}));}
@@ -40,11 +51,40 @@ function tone(kind){if(!audioReady())return;
 }
 function speak(text){if(!sound||appConfig?.testReviewFlags?.game_sound===false||!audio||audio.state!=='running'||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;try{const u=new SpeechSynthesisUtterance(text);u.lang='ru-RU';u.rate=1.05;u.volume=.55;window.speechSynthesis.speak(u);}catch(e){}}
 function speechSynthesisSafeCancel(){try{window.speechSynthesis?.cancel();}catch(e){}}
-// Фоновая восьмибитная музыка уровня: собственная тема в духе классических платформеров.
-const MUSIC_LEAD=[523,659,784,659,523,587,659,523,440,523,587,659,523,659,523,392];
-const MUSIC_BASS=[131,131,175,196];
-let musicTimer=0,musicStep=0;
-function musicStart(){if(musicTimer||!audio||audio.state!=='running'||!run||run.paused||run.done)return;musicStep=0;const step=()=>{if(!run||run.paused||run.done||view!=='mario'||!dialog.open){musicStop();return;}const t=audio.currentTime+.02,i=musicStep++;const lead=MUSIC_LEAD[i%MUSIC_LEAD.length];if(lead)audioBeep(lead,t,.13,{type:'square',peak:.019});if(i%4===0)audioBeep(MUSIC_BASS[Math.floor(i/4)%MUSIC_BASS.length],t,.3,{type:'triangle',peak:.026});if(i%2===0)audioNoise(t,.02,{peak:.007,hp:3200});};step();musicTimer=setInterval(step,190);}
+// Фоновая восьмибитная музыка уровня: своя тема из восьми фраз, цикл ~54 секунды.
+// Планировщик ставит ноты заранее по audio.currentTime, поэтому нет рывков и обрыва на стыке.
+const MUSIC_STEP=.21;
+const MUSIC_ORDER=['A','B','A','C','A','B','C','D'];
+const MUSIC_LEAD={
+ A:[523,523,0,392,523,659,0,784, 659,0,587,523,0,440,392,0, 523,523,0,392,523,659,784,0, 880,784,659,523,587,0,523,0],
+ B:[659,0,659,784,880,0,784,659, 587,0,587,659,523,0,440,0, 659,0,659,784,880,988,880,784, 659,587,523,440,392,0,523,0],
+ C:[784,784,880,784,659,0,587,0, 523,587,659,784,880,0,0,0, 1046,880,784,659,587,0,523,0, 440,523,587,659,523,0,0,0],
+ D:[392,0,440,0,523,0,587,0, 659,0,784,0,659,0,523,0, 392,0,440,0,523,0,659,0, 784,0,880,0,1046,0,0,0]
+};
+const MUSIC_BASS={
+ A:[131,131,165,165,175,175,196,196],
+ B:[131,131,165,165,175,175,196,196],
+ C:[175,175,196,196,131,131,165,165],
+ D:[131,165,175,196,131,165,175,196]
+};
+let musicTimer=0,musicStep=0,musicNext=0;
+function musicScheduleStep(i,t){
+ const sec=MUSIC_ORDER[Math.floor(i/32)%MUSIC_ORDER.length],s=i%32,lead=MUSIC_LEAD[sec][s];
+ if(lead)audioBeep(lead,t,.17,{type:'square',peak:.02,attack:.012});
+ if(s%4===0){const bass=MUSIC_BASS[sec][Math.floor(s/4)];audioBeep(bass,t,.34,{type:'triangle',peak:.028});}
+ if(s%2===0)audioNoise(t,.02,{peak:.006,hp:4200});
+ if(s%8===0)audioBeep(120,t,.09,{type:'triangle',peak:.035,to:60});
+ if(s===8||s===24)audioNoise(t,.05,{peak:.016,hp:1500});
+}
+function musicStart(){
+ if(musicTimer||!musicReady())return;
+ musicStep=0;musicNext=audio.currentTime+.06;
+ const tick=()=>{
+  if(!musicReady()||!run||run.paused||run.done||run.over||view!=='mario'||!dialog.open){musicStop();return;}
+  while(musicNext<audio.currentTime+.35){musicScheduleStep(musicStep,musicNext);musicStep=(musicStep+1)%(32*MUSIC_ORDER.length);musicNext+=MUSIC_STEP;}
+ };
+ tick();musicTimer=setInterval(tick,60);
+}
 function musicStop(){if(musicTimer)clearInterval(musicTimer);musicTimer=0;}
 function stopRun(){musicStop();if(raf)cancelAnimationFrame(raf);raf=0;lastFrame=0;keys.clear();pointers.clear();if(run)run.paused=true;}
 function close(){stopRun();clearInterval(slotTimer);slotTimer=null;stopMatrixIdle();speechSynthesisSafeCancel();hideJackpot();if(dialog.open)dialog.close();}
@@ -75,7 +115,7 @@ function updateNumbers(){
  // Кнопка не должна молча не реагировать: блокируем её только на время вращения,
  // а любую причину отказа объясняем текстом в spin().
  const spin=dialog.querySelector('#slot-spin');if(spin)spin.disabled=slotBusy;
- if(view==='mario'&&run){const el=dialog.querySelector('[data-mario-lives]');if(el)el.textContent='♥'.repeat(Math.max(0,run.lives));const level=dialog.querySelector('[data-mario-level]');if(level)level.textContent=run.map.level;const coins=dialog.querySelector('[data-mario-coins]');if(coins)coins.textContent=run.coins;const score=dialog.querySelector('[data-mario-score]');if(score)score.textContent=run.score;}
+ if(view==='mario'&&run){const el=dialog.querySelector('[data-mario-lives]');if(el)el.innerHTML=hearts(run.lives);const level=dialog.querySelector('[data-mario-level]');if(level)level.textContent=run.map.level;const coins=dialog.querySelector('[data-mario-coins]');if(coins)coins.textContent=run.coins;const score=dialog.querySelector('[data-mario-score]');if(score)score.textContent=run.score;}
 }
 // Настоящие барабаны: полоса символов прокручивается вертикально с размытием
 // на скорости и поочерёдной остановкой с отскоком (ease-out-back).
@@ -186,11 +226,14 @@ function renderRanking(host){
  host.innerHTML='<div class="arcade-tools"><button data-rank="slot">🎰 Автомат</button><button data-rank="mario">🍄 Марио</button></div><h3>'+ (rankMode==='slot'?'Рейтинг выплат автомата':'Рейтинг собранных монет Марио')+'</h3><p class="arcade-note">'+(rankMode==='slot'?'Сортировка по общей сумме выплат за всё время. Итог = выплаты минус ставки; он может быть отрицательным.':'Все монеты, полученные в Марио за всё время. Не влияет на рабочий рейтинг.')+'</p><div style="overflow-x:auto"><table class="arcade-ranking"><thead><tr><th>Игрок</th><th>'+ (rankMode==='slot'?'Выплаты':'Монеты')+'</th>'+(rankMode==='slot'?'<th>Ставки</th><th>Итог</th><th>Джекпоты</th>':'')+'</tr></thead><tbody>'+rows.map((p,i)=>'<tr class="'+(p.uid===mine?'me':'')+'"><td>'+(['🥇','🥈','🥉'][i]||i+1)+' '+E(resolveUserDisplayName(p.email,p.name))+(p.uid===mine?' · вы':'')+'</td><td>'+f(rankMode==='slot'?p.payouts:p.marioCoins)+'</td>'+(rankMode==='slot'?'<td>'+f(p.stakes)+'</td><td>'+(p.payouts-p.stakes>0?'+':'')+f(p.payouts-p.stakes)+'</td><td>'+p.jackpots+'</td>':'')+'</tr>').join('')+'</tbody></table></div>'+(!rows.length?'<p class="arcade-note">Пока никто не сыграл. Здесь появятся результаты участников.</p>':'')+'<div class="arcade-recent"><h3>Последние выигрыши</h3><p class="arcade-note">Последние 20 выигрышей всех игроков. Суммарный рейтинг включает всю историю.</p>'+A.recent().map(r=>'<div class="arcade-recent-row"><span>'+E(resolveUserDisplayName(r.userEmail,r.userName))+(r.result?.type==='jackpot'?' 👑 Джекпот':'')+'<small>'+E(new Date(r.timestamp).toLocaleString('ru-RU'))+'</small></span><b>+'+f(r.payout-r.cost)+' 🪙</b></div>').join('')+(!A.recent().length?'<p class="arcade-note">Выигрышей в последних событиях пока нет.</p>':'')+'</div>';
  host.querySelectorAll('[data-rank]').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.rank===rankMode));b.onclick=()=>{rankMode=b.dataset.rank;render(true);};});
 }
+function hearts(n){n=Math.max(0,Math.min(3,Number(n)||0));return '❤️'.repeat(n)+'🖤'.repeat(3-n);}
 function renderMario(host){
- host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+'♥'.repeat(run?.lives||3)+'</b></span><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>Очки <b data-mario-score>'+(run?.score||0)+'</b></span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или экранной кнопкой"></canvas><div id="mario-controls"><div class="arrows"><button type="button" data-key="left" aria-label="Идти влево">←</button><button type="button" data-key="right" aria-label="Идти вправо">→</button></div><button type="button" class="jump" data-key="jump">Прыжок ↑</button></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень')+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">← → / A D — движение; пробел, W или ↑ — прыжок: держите дольше — прыжок выше. Прыгайте на врагов, бейте блоки «?» снизу и собирайте монеты. Чем выше прыжок у флажка, тем больше бонус. Все монеты в конце уровня перечисляются в кошелёк — дневного лимита нет.</p>';
+ host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+hearts(run?.lives??3)+'</b></span><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>Очки <b data-mario-score>'+(run?.score||0)+'</b></span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или экранной кнопкой"></canvas><div id="mario-controls"><div class="arrows"><button type="button" data-key="left" aria-label="Идти влево">←</button><button type="button" data-key="right" aria-label="Идти вправо">→</button></div><button type="button" class="jump" data-key="jump">Прыжок ↑</button></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run?.over?'Играть снова':(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень'))+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-sound" aria-pressed="'+sound+'" title="Звуковые эффекты">'+(sound?'🔔 Звуки вкл':'🔕 Звуки выкл')+'</button><button id="mario-music" aria-pressed="'+musicOn+'" title="Фоновая музыка">'+(musicOn?'🎵 Музыка вкл':'🚫 Музыка выкл')+'</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">← → / A D — движение; пробел, W или ↑ — прыжок: держите дольше — прыжок выше. Прыгайте на врагов, бейте блоки «?» снизу и собирайте монеты. Чем выше прыжок у флажка, тем больше бонус. Все монеты в конце уровня перечисляются в кошелёк — дневного лимита нет.</p>';
  host.querySelector('#mario-start').onclick=()=>{unlockSound();if(!run||run.done||run.lives<=0||run.map.level!==Number(host.querySelector('#mario-level').value))startLevel(Number(host.querySelector('#mario-level').value));else{run.paused=false;lastFrame=0;startLoop();}};
  host.querySelector('#mario-restart').onclick=()=>startLevel(Number(host.querySelector('#mario-level').value));host.querySelector('#mario-pause').onclick=()=>{if(!run)return;run.paused=!run.paused;keys.clear();pointers.clear();if(!run.paused)startLoop();drawMario();};
  host.querySelector('#mario-next').onclick=()=>{if(run?.done&&run.map.level<20&&run.map.level<unlocked())startLevel(run.map.level+1);};
+ host.querySelector('#mario-sound').onclick=()=>{sound=!sound;savePrefs();unlockSound();tone('click');render(true);};
+ host.querySelector('#mario-music').onclick=()=>{musicOn=!musicOn;savePrefs();unlockSound();tone('click');if(musicOn)musicStart();render(true);};
  host.querySelectorAll('[data-key]').forEach(b=>{b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture?.(e.pointerId);pointers.set(e.pointerId,b.dataset.key);b.setAttribute('aria-pressed','true');unlockSound();};const release=e=>{pointers.delete(e.pointerId);b.setAttribute('aria-pressed','false');};b.onpointerup=release;b.onpointercancel=release;b.onlostpointercapture=release;});
  if(!run)drawWelcome();else drawMario();
 }
@@ -198,14 +241,18 @@ function startLevel(level){if(!A.available('mario')||level>unlocked())return;sto
 function startLoop(){if(!raf&&dialog.open&&view==='mario'&&run&&!run.paused&&!run.done)raf=requestAnimationFrame(tickMario);if(run&&!run.paused&&!run.done)musicStart();else musicStop();}
 function tickMario(now){raf=0;if(!run||!dialog.open||view!=='mario'||!A.available('mario'))return;if(document.hidden){run.paused=true;keys.clear();pointers.clear();musicStop();drawMario();return;}if(!lastFrame)lastFrame=now;const dt=(now-lastFrame)/1000;const input=new Set([...keys,...pointers.values()]);C.advanceRun(run,{axis:(input.has('right')?1:0)-(input.has('left')?1:0),jump:input.has('jump')},dt,event=>onMario(event,run));for(const fx of coinFx){fx.t+=dt;fx.y+=fx.vy*dt;fx.vy+=900*dt;}if(coinFx.length)coinFx=coinFx.filter(fx=>fx.t<fx.life);lastFrame=now;drawMario();updateNumbers();startLoop();}
 async function onMario(event,session){
- if(event.type==='jump'){tone('jump');return;}
+ if(event.type==='jump'){tone(Math.abs(session.player.vx)>10?'jumpRun':'jump');return;}
+ if(event.type==='land'){tone('land');return;}
+ if(event.type==='checkpoint'){tone('checkpoint');return;}
  if(event.type==='bump'){tone('block');return;}
  if(event.type==='blockCoin'){tone('coin');for(let i=0;i<event.coins;i++)coinFx.push({x:event.x,y:event.y-12,vy:-260-i*45,t:0,life:.85});setStatus('+'+event.coins+' 🪙 из блока · всего '+session.coins);return;}
  if(event.type==='coin'){tone('coin');coinFx.push({x:event.x,y:event.y,vy:-230,t:0,life:.7});setStatus('+1 🪙 · всего '+session.coins);return;}
  if(event.type==='stomp'){tone('stomp');coinFx.push({x:event.x,y:event.y,vy:-250,t:0,life:.8});setStatus('+1 🪙 за врага · всего '+session.coins);return;}
- if(event.type==='hurt'){tone('hurt');if(event.over){notice='Жизни закончились. Нажмите «Заново».';setStatus(notice);}return;}
+ if(event.type==='hurt'){tone('hornHit');setStatus('Ой, рога! Осталось жизней: '+event.lives);speak('Ой! Осталось жизней '+event.lives);return;}
+ if(event.type==='gameover'){tone('gameover');musicStop();notice='Игра окончена. Нажмите «Играть снова».';setStatus(notice);speak('Игра окончена');if(run===session){finishSummary=null;render(true);}return;}
  if(event.type==='finish'&&!levelBusy){
-  levelBusy=true;tone('clear');finishSummary={coins:event.coins,bonus:event.bonus,score:event.score,credited:false};
+  levelBusy=true;const bestKey=prefKey()+':mario-best-'+session.map.level,prevBest=Number(localStorage.getItem(bestKey)||0),isRecord=event.score>prevBest;if(isRecord){try{localStorage.setItem(bestKey,String(event.score));}catch(e){}}
+  tone(isRecord?'record':'clear');finishSummary={coins:event.coins,bonus:event.bonus,score:event.score,record:isRecord,credited:false};
   const user=currentUid;
   try{
    const result=await A.transact({id:'mario_finish_'+session.map.level+'_'+Date.now(),kind:'finish',level:session.map.level,coins:event.coins,score:event.score,jumpBonus:event.bonus});
@@ -256,7 +303,7 @@ function drawMario(){
  for(const e of m.enemies){if(!e.alive||e.x+e.w<cam-40||e.x>cam+1000)continue;drawGoomba(g,e,run.time);}
  const fx=m.flag;g.fillStyle='#9bd0a0';g.fillRect(fx,150,6,290);g.fillStyle='#ffd700';g.beginPath();g.arc(fx+3,146,8,0,Math.PI*2);g.fill();g.fillStyle='#e52521';g.beginPath();g.moveTo(fx+6,160);g.lineTo(fx+6,215);g.lineTo(fx+64,187);g.closePath();g.fill();
  g.fillStyle='#7a4a00';g.fillRect(fx-16,436,44,8);
- drawPlayerSprite(g,p,run.time);
+ if(!(run.invuln>0&&Math.floor(run.time*14)%2))drawPlayerSprite(g,p,run.time);
  g.restore();
  for(const fx2 of coinFx){if(fx2.t<fx2.life)drawCoinSprite(g,fx2.x-cam,fx2.y,run.time,1-fx2.t/fx2.life*.4);}
  // Счётчик монет в углу — как в настоящей игре.
@@ -265,13 +312,13 @@ function drawMario(){
  if(run.paused||run.done){
   g.fillStyle='#06101de0';g.fillRect(0,0,960,540);
   g.textAlign='center';g.textBaseline='middle';g.fillStyle='#ffd230';g.font='900 34px Arial Black,Arial,sans-serif';
-  g.fillText(run.done?'УРОВЕНЬ ПРОЙДЕН!':run.lives<=0?'ИГРА ОКОНЧЕНА':'ПАУЗА',480,215);
+  g.fillText(run.over?'ИГРА ОКОНЧЕНА':run.done?'УРОВЕНЬ ПРОЙДЕН!':'ПАУЗА',480,215);
   g.font='bold 20px monospace';g.fillStyle='#fff';
   if(run.done&&finishSummary){
-   g.fillText('Монет за уровень: '+finishSummary.coins+'  ·  бонус за прыжок: +'+finishSummary.bonus,480,262);
+   g.fillText('Монет за уровень: '+finishSummary.coins+'  ·  бонус за прыжок: +'+finishSummary.bonus+(finishSummary.record?'  ·  НОВЫЙ РЕКОРД!':''),480,262);
    g.fillStyle=finishSummary.credited?'#8ef2a8':'#ffb86b';
    g.fillText(finishSummary.credited?'Перечислено в кошелёк: '+finishSummary.coins+' 🪙':'Сохраняем монеты…',480,296);
-  }else g.fillText(run.lives<=0?'Нажмите «Заново», чтобы попробовать снова':'Нажмите «Продолжить»',480,262);
+  }else g.fillText(run.over?'Нажмите «Играть снова» — вернутся все три сердца':run.done?'Нажмите «Следующий уровень»':'Нажмите «Продолжить»',480,262);
  }
 }
 const keyMap={ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',ArrowUp:'jump',KeyW:'jump',Space:'jump'};
