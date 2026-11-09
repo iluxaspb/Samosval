@@ -2,12 +2,12 @@
 (function(){
 'use strict';
 const A=window.RoadArcade,C=window.RoadArcadeCore,E=escapeHtml;
-let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,musicOn=true,invites=true,seenOwner='',notice='',levelBusy=false,lastDay=C.dayKey(),coinFx=[],finishSummary=null;
+let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,musicOn=true,invites=true,seenOwner='',lastShiftId='',notice='',levelBusy=false,lastDay=C.dayKey(),coinFx=[],finishSummary=null;
 const keys=new Set(),pointers=new Map(),f=n=>Number(n||0).toLocaleString('ru-RU');
 const dialog=document.createElement('dialog');dialog.id='arcade-dialog';dialog.setAttribute('aria-labelledby','arcade-title');document.body.append(dialog);
 const entry=document.createElement('button');entry.id='arcade-entry';entry.type='button';entry.title='Мини-игры и рейтинг выигрышей';entry.setAttribute('aria-label','Мини-игры и рейтинг выигрышей');entry.textContent='🎮';document.querySelector('#mainHeader .top-row')?.insertBefore(entry,document.querySelector('#mainHeader .gear-btn'));
 const mascot=()=>'<div class="slot-mascot" aria-hidden="true"><div class="eyes"><i class="eye"></i><i class="eye"></i></div><div class="smirk"></div><div class="belly">🍒 ⭐</div><i class="lever"></i></div>';
-dialog.addEventListener('click',e=>{const b=e.target.closest?.('button');if(b&&!b.closest('#mario-controls'))tone('click');});
+dialog.addEventListener('click',e=>{const b=e.target.closest?.('button');if(b&&!b.closest('#mario-pad'))tone('click');});
 const prefKey=()=>['samosval-arcade-prefs-v1',firebaseConfig.projectId,WORKSPACE_ID,currentUid].join(':');
 const inviteKey=()=>prefKey()+':invitations';
 function loadPrefs(){try{const p=JSON.parse(localStorage.getItem(prefKey())||'{}');sound=p.sound!==false;musicOn=p.music!==false;invites=p.invites!==false;}catch(e){sound=true;musicOn=true;invites=true;}}
@@ -51,9 +51,9 @@ function tone(kind){if(!audioReady())return;
 }
 function speak(text){if(!sound||appConfig?.testReviewFlags?.game_sound===false||!audio||audio.state!=='running'||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;try{const u=new SpeechSynthesisUtterance(text);u.lang='ru-RU';u.rate=1.05;u.volume=.55;window.speechSynthesis.speak(u);}catch(e){}}
 function speechSynthesisSafeCancel(){try{window.speechSynthesis?.cancel();}catch(e){}}
-// Фоновая восьмибитная музыка уровня: своя тема из восьми фраз, цикл ~54 секунды.
+// Фоновая восьмибитная музыка уровня: своя тема из восьми фраз, цикл ~49 секунд.
 // Планировщик ставит ноты заранее по audio.currentTime, поэтому нет рывков и обрыва на стыке.
-const MUSIC_STEP=.21;
+const MUSIC_STEP=.19;
 const MUSIC_ORDER=['A','B','A','C','A','B','C','D'];
 const MUSIC_LEAD={
  A:[523,523,0,392,523,659,0,784, 659,0,587,523,0,440,392,0, 523,523,0,392,523,659,784,0, 880,784,659,523,587,0,523,0],
@@ -67,11 +67,15 @@ const MUSIC_BASS={
  C:[175,175,196,196,131,131,165,165],
  D:[131,165,175,196,131,165,175,196]
 };
+const MUSIC_ARP={
+ A:[523,659,784,1046],B:[659,784,988,1175],C:[784,988,1175,1568],D:[523,659,784,988]
+};
 let musicTimer=0,musicStep=0,musicNext=0;
 function musicScheduleStep(i,t){
  const sec=MUSIC_ORDER[Math.floor(i/32)%MUSIC_ORDER.length],s=i%32,lead=MUSIC_LEAD[sec][s];
- if(lead)audioBeep(lead,t,.17,{type:'square',peak:.02,attack:.012});
- if(s%4===0){const bass=MUSIC_BASS[sec][Math.floor(s/4)];audioBeep(bass,t,.34,{type:'triangle',peak:.028});}
+ if(lead)audioBeep(lead,t,.15,{type:'square',peak:.02,attack:.012});
+ if(s%2===1){const arp=MUSIC_ARP[sec];audioBeep(arp[Math.floor(s/2)%arp.length],t,.08,{type:'triangle',peak:.008});}
+ if(s%4===0){const bass=MUSIC_BASS[sec][Math.floor(s/4)];audioBeep(bass,t,.3,{type:'triangle',peak:.028});}
  if(s%2===0)audioNoise(t,.02,{peak:.006,hp:4200});
  if(s%8===0)audioBeep(120,t,.09,{type:'triangle',peak:.035,to:60});
  if(s===8||s===24)audioNoise(t,.05,{peak:.016,hp:1500});
@@ -92,7 +96,7 @@ dialog.addEventListener('close',()=>{stopRun();clearInterval(slotTimer);slotTime
 function open(next='home'){if(!A.visible())return;unlockSound();hideInvite();if(next==='mario'&&!A.available('mario')||next==='slot'&&!A.available('slot'))next='home';if(view!==next)stopRun();view=next;viewStamp='';dialogOwner=currentUid;if(!dialog.open)dialog.showModal();render(true);}
 entry.onclick=()=>open();
 function render(force=false){
- if(!dialog.open)return;if(dialogOwner!==currentUid||!A.visible()||(view==='slot'&&!A.available('slot'))||(view==='mario'&&!A.available('mario'))){close();return;}
+ if(!dialog.open)return;if(dialogOwner!==currentUid||!A.visible()||!A.available()||(view==='slot'&&!A.available('slot'))||(view==='mario'&&!A.available('mario'))){close();return;}
  const status=A.status(),player=A.me(),today=player.daily?.day===C.dayKey()?player.daily.claims.length:0;
  const stamp=JSON.stringify([view,rankMode,sound,slotBusy,slotMessage,slotSymbols,status.ready,status.error,A.head().gameRound,unlocked(),view==='ranking'?Object.values(A.players()).map(p=>[p.uid,p._round]):null,view==='ranking'?A.recent().map(r=>r.id):null]);
  if(!force&&stamp===viewStamp){updateNumbers();return;}
@@ -228,13 +232,14 @@ function renderRanking(host){
 }
 function hearts(n){n=Math.max(0,Math.min(3,Number(n)||0));return '❤️'.repeat(n)+'🖤'.repeat(3-n);}
 function renderMario(host){
- host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+hearts(run?.lives??3)+'</b></span><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>Очки <b data-mario-score>'+(run?.score||0)+'</b></span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или экранной кнопкой"></canvas><div id="mario-controls"><div class="arrows"><button type="button" data-key="left" aria-label="Идти влево">←</button><button type="button" data-key="right" aria-label="Идти вправо">→</button></div><button type="button" class="jump" data-key="jump">Прыжок ↑</button></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run?.over?'Играть снова':(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень'))+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-sound" aria-pressed="'+sound+'" title="Звуковые эффекты">'+(sound?'🔔 Звуки вкл':'🔕 Звуки выкл')+'</button><button id="mario-music" aria-pressed="'+musicOn+'" title="Фоновая музыка">'+(musicOn?'🎵 Музыка вкл':'🚫 Музыка выкл')+'</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">← → / A D — движение; пробел, W или ↑ — прыжок: держите дольше — прыжок выше. Прыгайте на врагов, бейте блоки «?» снизу и собирайте монеты. Чем выше прыжок у флажка, тем больше бонус. Все монеты в конце уровня перечисляются в кошелёк — дневного лимита нет.</p>';
+ host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+hearts(run?.lives??3)+'</b></span><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>Очки <b data-mario-score>'+(run?.score||0)+'</b></span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или экранной кнопкой"></canvas><div id="mario-pad" class="nes-pad" role="group" aria-label="Пульт управления: крестовина и кнопки A и B"><div class="pad-top"><span class="pad-brand">8-BIT PAD</span><span class="pad-lines" aria-hidden="true"></span></div><div class="pad-main"><div class="pad-dpad" aria-label="Крестовина"><button type="button" class="dp up" data-key="jump" aria-label="Прыжок">▲</button><button type="button" class="dp left" data-key="left" aria-label="Идти влево">◀</button><span class="dp center" aria-hidden="true"></span><button type="button" class="dp right" data-key="right" aria-label="Идти вправо">▶</button><span class="dp down" aria-hidden="true">▼</span></div><div class="pad-middle"><button type="button" class="pad-pill" data-pad="select">SELECT</button><button type="button" class="pad-pill" data-pad="start">START</button></div><div class="pad-ab"><div class="pad-btn-wrap"><button type="button" class="pad-round b" data-key="jump" aria-label="Прыжок, кнопка B">B</button><span>B</span></div><div class="pad-btn-wrap"><button type="button" class="pad-round a" data-key="jump" aria-label="Прыжок, кнопка A">A</button><span>A</span></div></div></div></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run?.over?'Играть снова':(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень'))+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-sound" aria-pressed="'+sound+'" title="Звуковые эффекты">'+(sound?'🔔 Звуки вкл':'🔕 Звуки выкл')+'</button><button id="mario-music" aria-pressed="'+musicOn+'" title="Фоновая музыка">'+(musicOn?'🎵 Музыка вкл':'🚫 Музыка выкл')+'</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">Пульт: ◀ ▶ — движение, A/B или ▲ — прыжок (держите дольше — выше), START — пауза, SELECT — заново. Ещё работают стрелки, A и D, пробел, W и ↑. Прыгайте на врагов, бейте блоки «?» снизу и собирайте монеты. Чем выше прыжок у флажка, тем больше бонус. Все монеты в конце уровня перечисляются в кошелёк — дневного лимита нет.</p>';
  host.querySelector('#mario-start').onclick=()=>{unlockSound();if(!run||run.done||run.lives<=0||run.map.level!==Number(host.querySelector('#mario-level').value))startLevel(Number(host.querySelector('#mario-level').value));else{run.paused=false;lastFrame=0;startLoop();}};
  host.querySelector('#mario-restart').onclick=()=>startLevel(Number(host.querySelector('#mario-level').value));host.querySelector('#mario-pause').onclick=()=>{if(!run)return;run.paused=!run.paused;keys.clear();pointers.clear();if(!run.paused)startLoop();drawMario();};
  host.querySelector('#mario-next').onclick=()=>{if(run?.done&&run.map.level<20&&run.map.level<unlocked())startLevel(run.map.level+1);};
  host.querySelector('#mario-sound').onclick=()=>{sound=!sound;savePrefs();unlockSound();tone('click');render(true);};
  host.querySelector('#mario-music').onclick=()=>{musicOn=!musicOn;savePrefs();unlockSound();tone('click');if(musicOn)musicStart();render(true);};
  host.querySelectorAll('[data-key]').forEach(b=>{b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture?.(e.pointerId);pointers.set(e.pointerId,b.dataset.key);b.setAttribute('aria-pressed','true');unlockSound();};const release=e=>{pointers.delete(e.pointerId);b.setAttribute('aria-pressed','false');};b.onpointerup=release;b.onpointercancel=release;b.onlostpointercapture=release;});
+ host.querySelectorAll('[data-pad]').forEach(b=>{const act=e=>{e.preventDefault();tone('click');if(b.dataset.pad==='start'){if(!run)return;run.paused=!run.paused;keys.clear();pointers.clear();if(!run.paused)startLoop();drawMario();}else if(b.dataset.pad==='select'){startLevel(run?run.map.level:Number(host.querySelector('#mario-level').value));}};b.onpointerdown=act;b.onclick=e=>e.preventDefault();});
  if(!run)drawWelcome();else drawMario();
 }
 function startLevel(level){if(!A.available('mario')||level>unlocked())return;stopRun();unlockSound();run=C.createRun(level);notice='';levelBusy=false;finishSummary=null;coinFx.length=0;render(true);speak('Уровень '+level);startLoop();}
@@ -341,6 +346,7 @@ document.addEventListener('click',e=>{if(e.isTrusted&&!e.target.closest('#arcade
 function syncUI(){
  const today=C.dayKey();if(today!==lastDay){lastDay=today;if(run)run.collected.clear();}
  if(seenOwner!==currentUid){seenOwner=currentUid;loadPrefs();hideInvite();actionCount=0;lastInvite=Date.now();if(dialog.open)close();run=null;slotMessage='';}
+ const shiftId=state.shift?.id||'';if(lastShiftId&&shiftId!==lastShiftId&&dialog.open)close();lastShiftId=shiftId;
  entry.hidden=!A.visible();settings.hidden=!A.visible();admin.hidden=!canAdmin();admin.querySelectorAll('[data-arcade-flag]').forEach(input=>{const id=input.dataset.arcadeFlag;if(!savingFlags.has(id)){const recent=recentFlags.get(id);input.checked=recent!==undefined?recent:appConfig?.testReviewFlags?.[id]!==false;}input.disabled=!canAdmin()||savingFlags.has(id);});updateSettings();
  if(!A.available()||appConfig?.testReviewFlags?.arcade_invites===false||!invites)hideInvite();
  if(dialog.open)render();
