@@ -6,7 +6,12 @@ let owner='',unsub=null,winsUnsub=null,generation=0,head=C.initialHead(),players
 const callbacks=new Set(),format=n=>Number(n||0).toLocaleString('ru-RU');
 const active=()=>permissionsLoaded&&currentUserStatus==='active'&&!!currentUid;
 const flag=(name,policy=appConfig)=>policy?.testReviewFlags?.[name]!==false;
-const available=kind=>active()&&(!isNasRuntime()||state.shift?.isActive===true&&!state.shift?.closing)&&window.__gameEconomy?.snapshot().enabled===true&&flag('game_mode')&&flag('arcade_enabled')&&(!kind||flag('arcade_'+kind));
+// visible(): игры включены и доступны аккаунту — от этого зависит кнопка в шапке.
+// available(): можно играть прямо сейчас. В режиме Ubuntu игра требует открытой
+// смены, поэтому кнопку нельзя скрывать из-за отсутствия смены — иначе человек
+// думает, что игры пропали совсем.
+const visible=()=>active()&&window.__gameEconomy?.snapshot().enabled===true&&flag('game_mode')&&flag('arcade_enabled');
+const available=kind=>visible()&&(!isNasRuntime()||state.shift?.isActive===true&&!state.shift?.closing)&&(!kind||flag('arcade_'+kind));
 const me=()=>players[currentUid]||C.initialPlayer(currentUid,currentEmail,getUserName());
 const emit=()=>{for(const cb of callbacks)try{cb();}catch(e){console.warn('[arcade view]',e);}};
 const receiptId=(uid,id)=>'arcade_receipt_'+encodeURIComponent(uid)+'_'+id;
@@ -79,7 +84,7 @@ async function transact(action){
  if(currentUid===user&&result.confirmedHead){const d=result.confirmedHead;if(d.gameRound>=head.gameRound)head=d;acceptPlayer(d);if(d.kind==='slot'&&d.payout>d.cost)recent=[d,...recent.filter(r=>r.id!==d.id)].slice(0,20);emit();}
  return result;
 }
-window.RoadArcade={available,delta:id=>players[id]?.net||0,balance,me,head:()=>head,players:()=>players,recent:()=>recent,status:()=>({ready,error,hydrated:ready&&(!head.actors[currentUid]||players[currentUid]?._round>=head.actors[currentUid])}),subscribe:fn=>{callbacks.add(fn);return ()=>callbacks.delete(fn);},transact,readSpin,storeSpin,newSpin:()=>({id:uid(),kind:'slot',roll:roll()}),buyTheme:item=>transact({kind:'purchase',itemId:item.id}),sync};
+window.RoadArcade={visible,available,delta:id=>players[id]?.net||0,balance,me,head:()=>head,players:()=>players,recent:()=>recent,status:()=>({ready,error,hydrated:ready&&(!head.actors[currentUid]||players[currentUid]?._round>=head.actors[currentUid])}),subscribe:fn=>{callbacks.add(fn);return ()=>callbacks.delete(fn);},transact,readSpin,storeSpin,newSpin:()=>({id:uid(),kind:'slot',roll:roll()}),buyTheme:item=>transact({kind:'purchase',itemId:item.id}),sync};
 window.addEventListener('review-flags-changed',()=>{sync();emit();});setInterval(sync,1000);sync();
 })();
 

@@ -22,10 +22,10 @@ function speechSynthesisSafeCancel(){try{window.speechSynthesis?.cancel();}catch
 function stopRun(){if(raf)cancelAnimationFrame(raf);raf=0;lastFrame=0;keys.clear();pointers.clear();if(run)run.paused=true;}
 function close(){stopRun();clearInterval(slotTimer);slotTimer=null;speechSynthesisSafeCancel();if(dialog.open)dialog.close();}
 dialog.addEventListener('close',()=>{stopRun();clearInterval(slotTimer);slotTimer=null;speechSynthesisSafeCancel();});
-function open(next='home'){if(!A.available())return;unlockSound();hideInvite();if(next==='mario'&&!A.available('mario')||next==='slot'&&!A.available('slot'))next='home';if(view!==next)stopRun();view=next;viewStamp='';dialogOwner=currentUid;if(!dialog.open)dialog.showModal();render(true);}
+function open(next='home'){if(!A.visible())return;unlockSound();hideInvite();if(next==='mario'&&!A.available('mario')||next==='slot'&&!A.available('slot'))next='home';if(view!==next)stopRun();view=next;viewStamp='';dialogOwner=currentUid;if(!dialog.open)dialog.showModal();render(true);}
 entry.onclick=()=>open();
 function render(force=false){
- if(!dialog.open)return;if(dialogOwner!==currentUid||!A.available()||(view==='slot'&&!A.available('slot'))||(view==='mario'&&!A.available('mario'))){close();return;}
+ if(!dialog.open)return;if(dialogOwner!==currentUid||!A.visible()||(view==='slot'&&!A.available('slot'))||(view==='mario'&&!A.available('mario'))){close();return;}
  const status=A.status(),player=A.me(),today=player.daily?.day===C.dayKey()?player.daily.claims.length:0;
  const stamp=JSON.stringify([view,rankMode,sound,slotBusy,slotMessage,slotSymbols,status.ready,status.error,A.head().gameRound,unlocked(),view==='ranking'?Object.values(A.players()).map(p=>[p.uid,p._round]):null,view==='ranking'?A.recent().map(r=>r.id):null]);
  if(!force&&stamp===viewStamp){updateNumbers();return;}
@@ -36,7 +36,7 @@ function render(force=false){
  dialog.querySelector('.arcade-close').onclick=close;dialog.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>open(b.dataset.view));dialog.querySelector('#arcade-sound').onclick=()=>{sound=!sound;savePrefs();unlockSound();dialog.querySelector('#arcade-sound').textContent=sound?'🔊 Звук':'🔇 Без звука';dialog.querySelector('#arcade-sound').setAttribute('aria-pressed',String(sound));};
  const host=dialog.querySelector('#arcade-content');
  if(view==='home'){
-  host.innerHTML='<div class="arcade-hub">'+(A.available('mario')?'<section class="arcade-game-card"><div class="game-emoji">🍄 🚧</div><h3>Марио: дорожное приключение</h3><p class="arcade-note">20 уровней, препятствия и всего пять монет на уровень. Каждую можно получить один раз в день. Максимум 100 монет за день.</p><button class="arcade-start" data-launch="mario">Играть</button></section>':'')+(A.available('slot')?'<section class="arcade-game-card">'+mascot()+'<h3>Однорукий бандит</h3><p class="arcade-note">Ставка 10 монет. Частые небольшие выплаты и редкий общий джекпот. Выигрыш не гарантирован.</p><button class="arcade-start" data-launch="slot">К автомату</button></section>':'')+'</div>';
+  host.innerHTML='<div class="arcade-hub">'+(A.available()?'':'<section class="arcade-game-card"><div class="game-emoji">🎮</div><h3>Игры ждут смены</h3><p class="arcade-note">Мини-игры открываются, когда на линии начата смена: игра идёт во время рабочей смены. Начните смену — и кнопки Марио и автомата появятся здесь.</p></section>')+(A.available('mario')?'<section class="arcade-game-card"><div class="game-emoji">🍄 🚧</div><h3>Марио: дорожное приключение</h3><p class="arcade-note">20 уровней, препятствия и всего пять монет на уровень. Каждую можно получить один раз в день. Максимум 100 монет за день.</p><button class="arcade-start" data-launch="mario">Играть</button></section>':'')+(A.available('slot')?'<section class="arcade-game-card">'+mascot()+'<h3>Однорукий бандит</h3><p class="arcade-note">Ставка 10 монет. Частые небольшие выплаты и редкий общий джекпот. Выигрыш не гарантирован.</p><button class="arcade-start" data-launch="slot">К автомату</button></section>':'')+'</div>';
   host.querySelectorAll('[data-launch]').forEach(b=>b.onclick=()=>open(b.dataset.launch));
  }else if(view==='slot')renderSlot(host);else if(view==='ranking')renderRanking(host);else renderMario(host);
  updateNumbers();
@@ -125,7 +125,7 @@ document.addEventListener('click',e=>{if(e.isTrusted&&!e.target.closest('#arcade
 function syncUI(){
  const today=C.dayKey();if(today!==lastDay){lastDay=today;if(run)run.collected.clear();}
  if(seenOwner!==currentUid){seenOwner=currentUid;loadPrefs();hideInvite();actionCount=0;lastInvite=Date.now();if(dialog.open)close();run=null;slotMessage='';}
- entry.hidden=!A.available();settings.hidden=!A.available();admin.hidden=!canAdmin();admin.querySelectorAll('[data-arcade-flag]').forEach(input=>{const id=input.dataset.arcadeFlag;if(!savingFlags.has(id)){const recent=recentFlags.get(id);input.checked=recent!==undefined?recent:appConfig?.testReviewFlags?.[id]!==false;}input.disabled=!canAdmin()||savingFlags.has(id);});updateSettings();
+ entry.hidden=!A.visible();settings.hidden=!A.visible();admin.hidden=!canAdmin();admin.querySelectorAll('[data-arcade-flag]').forEach(input=>{const id=input.dataset.arcadeFlag;if(!savingFlags.has(id)){const recent=recentFlags.get(id);input.checked=recent!==undefined?recent:appConfig?.testReviewFlags?.[id]!==false;}input.disabled=!canAdmin()||savingFlags.has(id);});updateSettings();
  if(!A.available()||appConfig?.testReviewFlags?.arcade_invites===false||!invites)hideInvite();
  if(dialog.open)render();
 }

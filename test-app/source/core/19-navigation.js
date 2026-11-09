@@ -33,9 +33,23 @@
     if (tabelV2Opening) return;
     tabelV2Opening = true;
     try {
+      // В режиме Ubuntu табель строится по справочнику объектов. Если справочник
+      // ещё не пришёл, таблица открывается пустой — поэтому сначала дожидаемся его.
+      if (isNasRuntime() && !(state.objects && state.objects.length)) {
+        try {
+          await Promise.race([
+            refreshNasObjects(),
+            new Promise(resolve => setTimeout(resolve, 8000))
+          ]);
+        } catch (e) { console.warn('Табель: справочник объектов', e.message); }
+      }
+      if (isNasRuntime() && !(state.objects && state.objects.length)) {
+        showError('Справочник объектов ещё не загружен. Проверьте связь с сервером Ubuntu и откройте табель снова.');
+        return;
+      }
       const module = await import(new URL('./test-app/tabel-v2/entry.mjs', document.baseURI).href);
       await module.open(tabelV2Host(), settingsOnly, {requestFirst});
-    } catch (error) { showError(error.message); } finally { tabelV2Opening = false; }
+    } catch (error) { showError(error.message || 'Табель не открылся'); } finally { tabelV2Opening = false; }
   }
 
 

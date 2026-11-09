@@ -111,7 +111,15 @@ async function openInner(
       container.hidden = true;
     },
   };
-  const runtime=await mount({ledgerHost,refs:host.refs},container,{remoteEnabled:false});
+  let runtime;
+  try {
+    runtime = await mount({ledgerHost,refs:host.refs},container,{remoteEnabled:false});
+  } catch (error) {
+    // Пустая накладка не должна оставаться на экране: иначе табель выглядит
+    // как пустой белый экран и человек не понимает, что произошло.
+    container.remove();
+    throw error;
+  }
   let disposed=false;
   const connect=()=>{if(disposed)return;void connectTable(host,runtime,background,()=>disposed).catch(e=>{if(!disposed)runtime.notice('На устройстве · ошибка подключения сервера: '+e.message);});};
   connect();globalThis.addEventListener('online',connect);
