@@ -59,6 +59,10 @@
     currentUserRole=profile?.role||null;currentUserStatus=active?'active':profile?.status==='disabled'||profile?.deleted?'disabled':'pending';
     currentUserNickname=profile?.nickname||sanitizeName(currentEmail);
     permissionsConfig=active?{...(currentUserRole==='admin'?permissionsConfig:{}),[currentUserRole]:session.permissions}:{};permissionsLoaded=!!active;
+    // The NAS session arrives over authenticated HTTPS from the server, so it
+    // is the server confirmation for profile and permissions. Without this the
+    // game wallet reported "ready" while every action was refused as unsynced.
+    profileServerConfirmed=!!active;permissionsServerConfirmed=!!active;
     if(active)document.body.setAttribute('data-perms-ready','1');else document.body.removeAttribute('data-perms-ready');
     document.getElementById('pendingScreen').style.display=currentUserStatus==='pending'?'flex':'none';
     document.getElementById('disabledScreen').style.display=currentUserStatus==='disabled'?'flex':'none';
@@ -108,6 +112,8 @@
   }
   async function startNasRuntime(user) {
     const epoch=nasRuntimeEpoch;
+    // Nothing is server-confirmed until the first NAS session arrives.
+    profileServerConfirmed=false;permissionsServerConfirmed=false;
     try{
       const {createNasClient}=await loadNasSessionClient();
       if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid)return;

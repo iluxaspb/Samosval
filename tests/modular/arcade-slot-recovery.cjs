@@ -162,3 +162,57 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
   console.log('B) кнопка автомата: не блокируется, объясняет причину и проводит проверку вращения — ok');
   console.log('Автомат: регрессия незавершённого вращения пройдена');
 })().catch(e => { console.error(e); process.exitCode = 1; });
+// ---------- Часть C: ставка проходит только при подтверждённой серверной сессии ----------
+// Регрессия: в режиме Ubuntu (NAS) флаги profileServerConfirmed/permissionsServerConfirmed
+// не выставлялись, поэтому isAuthSessionReady() всегда был false и любая ставка
+// отклонялась сообщением «Дождитесь связи и синхронизации кошелька», хотя кошелёк
+// показывал готовность.
+(async () => {
+  const store = new Map();
+  let sessionReady = false, nasCalls = 0;
+  const head = { gameRound: 5, bank: 1000, totalStakes: 0, totalPayouts: 0, actors: {} };
+  const ctx = {
+    window: {
+      RoadArcadeCore: (() => { require('../../test-app/source/features/road-arcade-core.js'); return global.RoadArcadeCore; })(),
+      addEventListener: () => {}, __gameEconomy: { snapshot: () => ({ enabled: true, ready: true, earned: 100, records: [], adjustments: [] }) }
+    },
+    localStorage: { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) },
+    firebaseConfig: { projectId: 'p' }, WORKSPACE_ID: 'w', currentUid: 'u', currentEmail: 'u@x',
+    permissionsLoaded: true, currentUserStatus: 'active', currentUserRole: 'admin',
+    appConfig: { testReviewFlags: {} }, state: { shift: { id: 's', isActive: true } },
+    isNasRuntime: () => true, nasStorageScope: () => 'scope', nasGameReady: true,
+    nasGameSnapshot: { head, players: {}, records: [] },
+    isAuthSessionReady: () => sessionReady, authSessionGeneration: 1,
+    nasGameAction: async () => { nasCalls++; return { payout: 12, cost: 10, delta: 2, result: { type: 'small', symbols: ['🍒', '🍒', '🍒'] } }; },
+    getUserName: () => 'User', escapeHtml: String, navigator: { onLine: true },
+    crypto: { randomUUID: () => 'uuid', getRandomValues: a => a.fill(1) },
+    setInterval: () => 0, clearInterval: () => {}, console, Date, JSON, Number, Error, Promise
+  };
+  ctx.globalThis = ctx.window;
+  vm.createContext(ctx);
+  vm.runInContext(read('test-app/source/features/road-arcade-runtime.js'), ctx);
+  const A = ctx.window.RoadArcade;
+  assert.ok(A && typeof A.transact === 'function', 'runtime не отдал transact');
+
+  await assert.rejects(() => A.transact({ id: 'c1', kind: 'slot', roll: 1 }), /синхронизации кошелька/,
+    'без подтверждённой серверной сессии ставка обязана отклоняться');
+  assert.strictEqual(nasCalls, 0, 'до подтверждения сессии сервер не должен получать ставку');
+
+  sessionReady = true;
+  const result = await A.transact({ id: 'c2', kind: 'slot', roll: 1 });
+  assert.strictEqual(nasCalls, 1, 'при подтверждённой сессии ставка уходит на сервер');
+  assert.strictEqual(result.payout, 12, 'результат сервера возвращается как есть');
+  console.log('C) ставка проходит только при подтверждённой серверной сессии — ok');
+
+  // ---------- Часть D: контракт источника — сессия NAS подтверждает профиль и права ----------
+  const nas = read('test-app/source/core/21-nas-runtime.js');
+  assert.match(nas, /profileServerConfirmed=!!active;permissionsServerConfirmed=!!active;/,
+    'applyNasSession обязан подтверждать профиль и права серверной сессией');
+  assert.match(nas, /async function startNasRuntime\(user\) \{[\s\S]{0,300}?profileServerConfirmed=false;permissionsServerConfirmed=false;/,
+    'до первой серверной сессии подтверждения быть не должно');
+  const stopSync = read('test-app/source/core/03-formatting.js');
+  assert.doesNotMatch(stopSync, /stopNasRuntime\(\)[\s\S]{0,400}?profileServerConfirmed=false/,
+    'stopNasRuntime нельзя сбрасывать подтверждение: stopSync вызывается и в режиме Firebase');
+  console.log('D) NAS-сессия подтверждает профиль и права, Firebase-путь не задет — ok');
+  console.log('Автомат: подтверждение сессии и ставка — регрессия пройдена');
+})().catch(e => { console.error(e); process.exitCode = 1; });
