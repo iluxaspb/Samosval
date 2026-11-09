@@ -18,6 +18,32 @@
     } catch (_) { return 'ubuntu'; }
   }
 
+  // The device preference is only a request. The server decides who may write,
+  // and the decision is recorded once for the whole system.
+  async function pushAuthorityToServer(mode) {
+    if (mode === 'auto') return null;
+    const client = typeof nasRuntimeClient === 'undefined' ? null : nasRuntimeClient;
+    if (!client || typeof client.readAuthority !== 'function') return null;
+    try {
+      const state = await client.readAuthority();
+      const current = state.authority;
+      if (current.provider === mode) return current;
+      const result = await client.submitAuthority({
+        id: 'authority_' + crypto.randomUUID().replaceAll('-', ''),
+        provider: mode,
+        expectedGeneration: current.generation,
+        reason: 'Ручное переключение администратором'
+      });
+      showToastEl('Сервер данных: ' + TEST_BACKEND_MODE_LABELS[mode], false);
+      return result.authority;
+    } catch (error) {
+      showError(error.code === 'authority-generation-conflict'
+        ? 'Режим уже изменил другой администратор. Откройте админку заново.'
+        : 'Сервер не подтвердил переключение: ' + (error.message || error.code || 'ошибка'));
+      return null;
+    }
+  }
+
   function setTestBackendMode(mode) {
     const key = testBackendPreferenceKey();
     if (!key || !permissionsLoaded || !canAdmin()) {
@@ -41,7 +67,12 @@
     // listeners are created and preserves the durable offline journal.
     updateSyncUI();
     showToastEl('Режим: ' + TEST_BACKEND_MODE_LABELS[mode], false);
-    if (typeof location !== 'undefined' && typeof location.reload === 'function') location.reload();
+    // Ask the server to move the single-writer authority, then reload so the
+    // runtime restarts against the confirmed provider.
+    const switching = pushAuthorityToServer(mode);
+    if (typeof location !== 'undefined' && typeof location.reload === 'function') {
+      Promise.resolve(switching).catch(() => {}).then(() => setTimeout(() => location.reload(), 300));
+    }
     return true;
   }
 
@@ -114,10 +145,14 @@
     if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
     const note = document.getElementById('testBackendModeNote');
     const mode = getTestBackendMode();
-    if (note) note.textContent = mode === 'ubuntu'
+    const authority = typeof nasAuthority === 'undefined' ? null : nasAuthority;
+    const where = authority && authority.generation
+      ? ' Сервер объявил режим: ' + (authority.provider === 'ubuntu' ? 'Ubuntu' : 'резерв Firebase') + ' (поколение ' + authority.generation + ').'
+      : '';
+    if (note) note.textContent = (mode === 'ubuntu'
       ? 'Данные обслуживает Ubuntu.'
       : mode === 'auto'
-        ? 'Автоматически: основной сервер — Ubuntu, при недоступности действия сохраняются в локальную очередь. Резервный Firebase недоступен: база Firestore тестового проекта удалена.'
-        : 'Выбран Firebase. Внимание: база Firestore тестового проекта удалена, данные не загрузятся — верните режим «Только Ubuntu» или «Автоматически».';
+        ? 'Автоматически: основной сервер — Ubuntu, при недоступности действия сохраняются на телефоне и уходят на сервер, когда связь вернётся.'
+        : 'Выбран резерв Firebase. Запись принимает только тот сервер, который объявлен главным.') + where;
   }
 

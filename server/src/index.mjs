@@ -23,6 +23,7 @@ import {submitArchive} from './archive-store.mjs';
 import {readGames,submitGame} from './game-store.mjs';
 import {readAuxiliary,submitAuxiliary} from './auxiliary-store.mjs';
 import {handleHealthRequest} from './health.mjs';
+import {readAuthorityState,switchAuthority,assertWriteAuthority,touchPresence} from './authority.mjs';
 
 const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
@@ -62,9 +63,9 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
     res.setHeader('Access-Control-Allow-Origin',origin);
     res.setHeader('Vary','Origin');
     res.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, X-Samosval-Epoch, If-None-Match');
+    res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, X-Samosval-Epoch, X-Samosval-Generation, If-None-Match');
     res.setHeader('Access-Control-Max-Age','600');
-    res.setHeader('Access-Control-Expose-Headers','X-Samosval-Epoch, ETag');
+    res.setHeader('Access-Control-Expose-Headers','X-Samosval-Epoch, X-Samosval-Generation, ETag');
   }
   const requestUrl=new URL(req.url||'/', 'http://localhost');
   const path=requestUrl.pathname;
@@ -74,6 +75,28 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
   if(req.method==='GET' && path==='/health/ready'){
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
+  }
+  if(path==='/api/v1/authority'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='GET')return send(res,200,await readAuthorityState(pool,uid));
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await switchAuthority(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[authority-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'authority-unavailable':e.code||e.message});}
+  }
+  if(path==='/api/v1/presence'&&req.method==='POST'){
+    const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await touchPresence(pool,uid,await readJson(req)));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;return send(res,status,{error:status===500?'presence-unavailable':e.code||e.message});}
+  }
+  // Single-writer gate. Reads stay open; every authenticated application write
+  // is refused unless this server is the declared authority at the current
+  // generation. A phone that lags behind cannot write after a switch.
+  if(req.method==='POST'&&path.startsWith('/api/v1/')&&path!=='/api/v1/authority'&&path!=='/api/v1/presence'&&path!=='/api/v1/registration'){
+    try{await assertWriteAuthority(pool,req);}
+    catch(e){const status=[400,403,409].includes(e.status)?e.status:503;return send(res,status,{error:e.code||e.message});}
   }
   if(path==='/api/v1/admin/server'&&['GET','POST'].includes(req.method)){
     const uid=await verifyFirebaseUser(req);if(!uid)return send(res,401,{error:'unauthorized'});

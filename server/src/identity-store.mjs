@@ -17,8 +17,9 @@ export async function readSession(pool,uid){
     const row=await profile(client,uid);
     const rows=active(row)?(await client.query('SELECT action,allowed FROM role_permissions WHERE role=$1 AND allowed=true',[row.role])).rows:[];
     const ready=(await client.query('SELECT initialized FROM identity_state WHERE id=1')).rows[0]?.initialized===true;
+    const auth=(await client.query('SELECT provider,generation,updated_at FROM server_authority WHERE workspace_id=$1',[process.env.WORKSPACE_ID||'main_workspace'])).rows[0];
     await client.query('COMMIT');
-    return {format:'samosval-session',version:1,source:'ubuntu',workspaceId:process.env.WORKSPACE_ID||'main_workspace',identityReady:ready,profile:profileView(row),permissions:active(row)?roleView(row.role,rows):{tabs:[],actions:[]}};
+    return {format:'samosval-session',version:1,source:'ubuntu',workspaceId:process.env.WORKSPACE_ID||'main_workspace',identityReady:ready,profile:profileView(row),permissions:active(row)?roleView(row.role,rows):{tabs:[],actions:[]},authority:auth?{provider:auth.provider,generation:Number(auth.generation),updatedAt:auth.updated_at?new Date(auth.updated_at).getTime():null}:null};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }
 export async function registerPending(pool,identity,input){

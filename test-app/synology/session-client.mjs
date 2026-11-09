@@ -28,6 +28,9 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   const owner=getUser();
   if(!owner||typeof owner.uid!=='string'||!owner.uid||typeof owner.getIdToken!=='function')throw new NasClientError('authentication-required');
   const uid=owner.uid, controllers=new Set(), subscriptions=new Set(); let stopped=false;
+  // Generation of the single-writer authority, learned from every session read.
+  // A phone that lags behind is refused by the server instead of writing blind.
+  let authorityGeneration=0, authorityProvider='ubuntu';
   // Large historical snapshots share one lane. Line/session reads and writes
   // never queue behind this lane; a queued job's request timeout starts on dispatch.
   let backgroundTail=Promise.resolve();const backgroundReads=new Map(),readCache=new Map();
@@ -76,7 +79,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
         const previous=write?null:readCache.get(path);
         phase='response-headers';
         const response=await abortable(fetchImpl(base.origin+path,{method:write?'POST':'GET',
-          headers:write?{'X-Samosval-Epoch':String(datasetEpoch),Authorization:'Bearer '+token,'Content-Type':'application/json'}:{Authorization:'Bearer '+token,...(previous?{'If-None-Match':previous.etag}:{})},
+          headers:write?{'X-Samosval-Epoch':String(datasetEpoch),'X-Samosval-Generation':String(authorityGeneration),Authorization:'Bearer '+token,'Content-Type':'application/json'}:{Authorization:'Bearer '+token,...(previous?{'If-None-Match':previous.etag}:{})},
           ...(write?{body}:{}),signal:controller.signal,redirect:'error',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'}),controller.signal);
         guard();checkEpoch(response);httpStatus=response.status;
         if(response.status===401&&attempt===0)continue;
@@ -84,7 +87,16 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
           if(!previous||write)throw invalidResponse('unexpected-not-modified');
           return clone(previous.data);
         }
-        if(!response.ok){const retryable=[408,425,429].includes(response.status)||response.status>=500;
+        if(!response.ok){
+          // The single-writer refusal carries a stable code. It is a deliberate
+          // answer, not a transport failure: never retry it as if it were noise.
+          let code='';
+          try{const payload=await response.clone().json();code=typeof payload?.error==='string'?payload.error:'';}catch{}
+          if(code==='not-authoritative'||code==='authority-generation-mismatch'){
+            if(code==='authority-generation-mismatch')authorityGeneration=0;
+            throw new NasClientError(code,{status:response.status,retryable:false,uncertain:false});
+          }
+          const retryable=[408,425,429].includes(response.status)||response.status>=500;
           throw new NasClientError('api-http-'+response.status,{status:response.status,retryable,uncertain:write&&retryable});}
         const mime=String(response.headers?.get?.('Content-Type')||'').split(';')[0].trim().toLowerCase();
         responseType=['application/json','text/html','text/plain'].includes(mime)?mime:mime?'other':'';
@@ -108,9 +120,22 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
       failure.message+=': '+detail;throw failure;
     }finally{clearTimeout(timer);controllers.delete(controller);}
   }
-  const readSession=()=>request('/api/v1/session',{validate:x=>envelope(x,'samosval-session',workspaceId)&&typeof x.identityReady==='boolean'&&
-    (x.profile===null||record(x.profile)&&x.profile.uid===uid&&['pending','active','disabled'].includes(x.profile.status)&&typeof x.profile.role==='string'&&typeof x.profile.deleted==='boolean')&&
-    record(x.permissions)&&Array.isArray(x.permissions.tabs)&&x.permissions.tabs.every(t=>typeof t==='string')&&Array.isArray(x.permissions.actions)&&x.permissions.actions.every(a=>typeof a==='string')});
+  function applyAuthority(session){
+    const a=session?.authority;
+    if(a&&Number.isSafeInteger(a.generation)&&a.generation>0){authorityGeneration=a.generation;authorityProvider=a.provider==='firebase'?'firebase':'ubuntu';}
+  }
+  const readSession=async()=>{
+    const session=await request('/api/v1/session',{validate:x=>envelope(x,'samosval-session',workspaceId)&&typeof x.identityReady==='boolean'&&
+      (x.profile===null||record(x.profile)&&x.profile.uid===uid&&['pending','active','disabled'].includes(x.profile.status)&&typeof x.profile.role==='string'&&typeof x.profile.deleted==='boolean')&&
+      record(x.permissions)&&Array.isArray(x.permissions.tabs)&&x.permissions.tabs.every(t=>typeof t==='string')&&Array.isArray(x.permissions.actions)&&x.permissions.actions.every(a=>typeof a==='string')});
+    applyAuthority(session);return session;
+  };
+  const readAuthority=async()=>{const state=await request('/api/v1/authority',{validate:x=>record(x)&&x.format==='samosval-authority'&&x.version===1&&x.source==='ubuntu'&&record(x.authority)&&['ubuntu','firebase'].includes(x.authority.provider)&&Number.isSafeInteger(x.authority.generation)&&x.authority.generation>0&&record(x.presence)&&Array.isArray(x.events)});
+    applyAuthority({authority:state.authority});return state;};
+  async function submitAuthority(operation){const op=scopedOperation(operation,operation?.operationScope);const result=await request('/api/v1/authority',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&typeof x.changed==='boolean'&&record(x.authority)&&['ubuntu','firebase'].includes(x.authority.provider)&&Number.isSafeInteger(x.authority.generation)&&x.authority.generation>=1});
+    applyAuthority({authority:result.authority});return result;}
+  const writeAuthorityPresence=(input)=>request('/api/v1/presence',{operation:{provider:authorityProvider,generation:authorityGeneration,...(record(input)?input:{})},validate:x=>record(x)&&x.outcome==='confirmed'&&Number.isSafeInteger(x.phones)});
+  const authority=()=>({provider:authorityProvider,generation:authorityGeneration});
   const readLine=()=>request('/api/v1/line/snapshot',{validate:x=>envelope(x,'samosval-line-snapshot',workspaceId)&&ids(x.trucks)&&ids(x.statuses)&&ids(x.logs)&&
     Number.isInteger(x.cycleMinutes)&&x.cycleMinutes>=15&&x.cycleMinutes<=10080&&
     (x.shift===null?x.statuses.length===0&&x.logs.length===0:record(x.shift)&&typeof x.shift.id==='string'&&x.shift.id.length>0&&(x.shift.isActive===true||x.shift.isActive===false&&x.shift.closing===true)&&
@@ -208,5 +233,5 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     void tick();return close;
   }
   function stop(){stopped=true;readCache.clear();for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop});
+  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop,readAuthority,submitAuthority,writeAuthorityPresence,authority});
 }

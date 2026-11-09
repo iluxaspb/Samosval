@@ -16,6 +16,11 @@
   function nasApiBase() { return UBUNTU_API_BASE; }
   function nasStorageScope() { const base=nasApiBase();let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval_nas_dataset_epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify([nasProvider(),base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0;
+  // Single-writer authority as announced by the server. The phone never decides
+  // this on its own: it mirrors the server and stops writing when it is not the
+  // declared authority.
+  let nasAuthority = { provider: 'ubuntu', generation: 0 };
+  let nasPresenceTimer = null;
   const nasReceiptFloors = new Map();
   const nasPresenceLeavers=new Set();
   let nasAdministration=null,nasAdminRead=null,nasCatalogRead=null,nasCatalogSnapshot=null;
@@ -26,6 +31,7 @@
   const nasCommandFlights=new Map();
   function stopNasRuntime() {
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
+    if(nasPresenceTimer&&typeof clearInterval==='function'){clearInterval(nasPresenceTimer);nasPresenceTimer=null;}
     nasRuntimeStop?.(); nasRuntimeStop = null;
     nasRuntimeClient?.stop(); nasRuntimeClient = null;
     nasReceiptFloors.clear();
@@ -39,6 +45,13 @@
   function loadNasSessionClient() { return import(new URL('./test-app/synology/session-client.mjs',document.baseURI).href); }
   function applyNasSession(session) {
     const profile=session.profile, active=session.identityReady&&profile?.status==='active'&&!profile.deleted;
+    if(session.authority&&Number.isSafeInteger(session.authority.generation)&&session.authority.generation>0){
+      const next={provider:session.authority.provider==='firebase'?'firebase':'ubuntu',generation:session.authority.generation};
+      if(next.provider!==nasAuthority.provider||next.generation!==nasAuthority.generation){
+        const previous=nasAuthority;nasAuthority=next;
+        try{if(typeof CustomEvent==='function')window.dispatchEvent(new CustomEvent('samosval-authority-changed',{detail:{previous,current:next}}));}catch(_){}
+      }
+    }
     if(currentUserRole&&currentUserRole!==profile?.role){nasReadGeneration++;nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;window.__gameAccessChanged?.();}
     currentUserRole=profile?.role||null;currentUserStatus=active?'active':profile?.status==='disabled'||profile?.deleted?'disabled':'pending';
     currentUserNickname=profile?.nickname||sanitizeName(currentEmail);
@@ -96,6 +109,11 @@
       const {createNasClient}=await loadNasSessionClient();
       if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid)return;
       const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
+      // Pulse: proves this phone is alive and tells the servers how many phones
+      // still see the primary. Failover needs many phones, not one.
+      const pulse=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;if(typeof client.writeAuthorityPresence!=='function')return;try{client.writeAuthorityPresence({}).catch(()=>{});}catch(_){}};
+      if(nasPresenceTimer&&typeof clearInterval==='function')clearInterval(nasPresenceTimer);
+      nasPresenceTimer=typeof setInterval==='function'?setInterval(pulse,30000):null;pulse();
       for(const name of ['plugins','patches','audit','notifications'])refs[name]=nasAuxCollection(name,client,epoch);
       let registering=false;
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
@@ -335,6 +353,8 @@
   async function replayNasOfflineJournal() {
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
     if(!client||offlineReplayRunning||!navigator.onLine||!permissionsLoaded||currentUserStatus!=='active'||Date.now()<offlineServerRetryAt)return;
+    // Never replay into a server that is not the declared authority.
+    if(!nasCanWrite())return;
     const live=()=>epoch===nasRuntimeEpoch&&nasRuntimeClient===client&&client.uid===currentUid;
     offlineReplayRunning=true;
     try{
@@ -362,10 +382,13 @@
     }finally{offlineReplayRunning=false;if(live())updateSyncUI();}
   }
 
+  function nasCanWrite(){return nasAuthority.provider==='ubuntu';}
+  function nasAuthorityError(){return Error('Сейчас данные принимает резервный сервер. Запись на этом сервере закрыта — действия сохраняются на телефоне.');}
   // Persist the complete immutable intent before sending. Lost replies reuse IDs.
   async function nasBusinessCommand(channel,target,fields) {
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
     if(!client||currentUserStatus!=='active'||!navigator.onLine)throw Error('Нужно соединение с Ubuntu');
+    if(!nasCanWrite())throw nasAuthorityError();
     const captured=JSON.parse(JSON.stringify(fields));
     const key='samosval_nas_commands_v1:'+client.scope,slot=channel+':'+target;
     const {expectedRevision,expectedTtnRevision,expectedObjectId,expected,...desired}=captured,intent=JSON.stringify(desired);

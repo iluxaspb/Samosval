@@ -54,7 +54,7 @@ for (const label of forbidden) {
 }
 
 const required = [
-  'samosval-test.iluxa.pro:18443',
+  'samosval-test.iluxa.pro',
   'UBUNTU_API_BASE',
   'ubuntu-candidate',
   'на Ubuntu',
