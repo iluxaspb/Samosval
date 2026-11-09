@@ -2,14 +2,17 @@
   // tokens; application data and writes go through the Ubuntu API.
   const UBUNTU_API_BASE = 'https://samosval-test.iluxa.pro';
   function nasProvider() {
-    let pref = null;
-    try { pref = localStorage.getItem('dt_backend_mode_test:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + currentUid); } catch (_) {}
     const provider = document.querySelector('meta[name="test-data-provider"]')?.content;
     if (provider === 'ubuntu-candidate') {
-      // Ubuntu — основной источник данных. Явный выбор администратора «Только Firebase» уважается,
-      // «Автоматически» и «Только Ubuntu» работают через Ubuntu.
-      return pref === 'firebase' ? 'firebase' : 'ubuntu';
+      // The phone never picks the data provider on its own. The server owns the
+      // single-writer authority and the Ubuntu API is the only place that can
+      // report it, so the test build always starts against Ubuntu. If the
+      // server is not the authority it rejects writes and the phone keeps them
+      // locally — it must never silently land on a stale Firebase copy.
+      return 'ubuntu';
     }
+    let pref = null;
+    try { pref = localStorage.getItem('dt_backend_mode_test:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + currentUid); } catch (_) {}
     return pref === 'ubuntu' ? 'ubuntu' : 'firebase';
   }
   function isNasRuntime() { return nasProvider() !== 'firebase'; }

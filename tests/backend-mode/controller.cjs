@@ -25,7 +25,10 @@ for(const change of [{currentUserRole:'viewer'},{currentUserRole:'admin',current
  Object.assign(c,change);assert.equal(c.setTestBackendMode('firebase'),false);assert.deepEqual([...saved],before);assert.equal(nodes['admin-backend-settings'].hidden,true);
 }
 Object.assign(c,{permissionsLoaded:true,currentUserRole:'admin',currentUserStatus:'active'});
-c.currentUid='admin-b';assert.equal(c.getTestBackendMode(),'ubuntu');assert.equal(c.setTestBackendMode('firebase'),true);
+c.currentUid='admin-b';assert.equal(c.getTestBackendMode(),'ubuntu');
+// The Firebase reserve is not ready: the switch is refused and nothing is stored.
+assert.equal(c.setTestBackendMode('firebase'),false);assert.equal(c.getTestBackendMode(),'ubuntu');
+assert.match(h.errors.at(-1),/Резерв Firebase пока не готов/);
 c.currentUid='admin-a';assert.equal(c.getTestBackendMode(),'ubuntu');
 saved.set(c.testBackendPreferenceKey(),'synology');assert.equal(c.getTestBackendMode(),'ubuntu','unsupported stored selection falls back to Ubuntu');
 c.currentUid='';assert.equal(c.getTestBackendIndicator({state:'ok'}).letter,'…');assert.equal(c.setTestBackendMode('auto'),false);

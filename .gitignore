@@ -13,3 +13,5 @@ __pycache__/
 tests/full-audit/summary-visual.html
 test-results/
 .venv-playwright/
+
+releases/backups/

@@ -56,6 +56,15 @@
       showError('Неизвестный режим сервера.');
       return false;
     }
+    // The Firebase reserve has no working data plane yet. Declaring it
+    // authoritative would make every Ubuntu write fail and leave the phones
+    // with empty data, so the reserve stays closed until it is built and
+    // verified end to end. Nothing is written to the server in that case.
+    if (mode === 'firebase') {
+      renderTestBackendControls();
+      showError('Резерв Firebase пока не готов принимать данные. Работаем на Ubuntu.');
+      return false;
+    }
     try { localStorage.setItem(key, mode); }
     catch (_) {
       renderTestBackendControls();
