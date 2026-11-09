@@ -172,7 +172,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   }
   async function submitArchive(operation,{operationScope}={}){
     const op=scopedOperation(operation,operationScope);
-    return request('/api/v1/archive/operations',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&x.result?.id===op.recordId&&x.result.revision===op.expectedRevision+1&&x.result.location===({'archive.trash':'trash','archive.restore':'restored','trash.purge':'purged'}[op.type])});
+    return request('/api/v1/archive/operations',{operation:op,validate:x=>record(x)&&x.outcome==='confirmed'&&x.operationId===op.id&&x.type===op.type&&x.result?.id===op.recordId&&x.result.revision===op.expectedRevision+1&&x.result.location===({'archive.trash':'trash','archive.restore':'restored','trash.purge':'purged','archive.gai.delete':'archive'}[op.type])});
   }
   async function submitGame(operation,{operationScope}={}){
     const op=scopedOperation(operation,operationScope);

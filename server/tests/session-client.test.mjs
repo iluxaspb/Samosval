@@ -148,3 +148,13 @@ test('NAS start and close receipts reject other shifts and incomplete close phas
   response={outcome:'confirmed',phase:'awaiting-material',shift:{id:'shift_start',isActive:false}};
   await assert.rejects(client.closeShift({...close,type:'finish'},options),{code:'invalid-api-response'});
 });
+
+test('NAS GAI sheet delete accepts the archive location and keeps the revision',async()=>{
+  let body=null;
+  const {client}=fixture(async(_url,options)=>{body=JSON.parse(options.body);return reply({outcome:'confirmed',operationId:'cmd_gai',type:'archive.gai.delete',result:{id:'arch_1',location:'archive',revision:5}});});
+  const result=await client.submitArchive({id:'cmd_gai',type:'archive.gai.delete',recordId:'arch_1',expectedRevision:4},{operationScope:client.scope});
+  assert.equal(result.result.location,'archive','удаление листа ГАИ не должно считаться ошибкой протокола');
+  assert.equal(body.expectedRevision,4,'ревизия архива уходит на сервер');
+  const wrong=fixture(async()=>reply({outcome:'confirmed',operationId:'cmd_gai',type:'archive.gai.delete',result:{id:'arch_1',location:'trash',revision:5}}));
+  await assert.rejects(wrong.client.submitArchive({id:'cmd_gai',type:'archive.gai.delete',recordId:'arch_1',expectedRevision:4},{operationScope:wrong.client.scope}),{code:'invalid-api-response'});
+});
