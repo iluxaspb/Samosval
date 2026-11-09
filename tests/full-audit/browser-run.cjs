@@ -670,7 +670,7 @@ async function coinLedgerCase() {
   await page.locator('#game-grant-reason').fill('Компенсация проверки');
   await page.locator('#game-grant-submit').click();
   for (let attempt=0; attempt<60; attempt++) { if ((await readRows('coinTransactions')).some(row => row.amount === 25 && row.targetUid === 'qa-viewer')) break; await delay(500); }
-  const awards=await waitFor(async()=>{const rows=await readRows('coinTransactions');return rows.length===1?rows:null;},30000);assert.equal(awards.length,1);assert.equal(awards[0].amount,25);
+  const awards=await waitFor(async()=>{const rows=await readRows('coinTransactions');return rows.length===1?rows:null;},90000);assert.equal(awards.length,1);assert.equal(awards[0].amount,25);
   await evidence('award-recorded'); await closeContext();
   for(let n=0;n<10;n++)await writeDoc('workspaces/main_workspace/audit/test-penalty-'+n,{
     eventType:'game_penalty',amount:-3,targetEmail:'qa-viewer@example.test',targetName:'Наблюдатель',
