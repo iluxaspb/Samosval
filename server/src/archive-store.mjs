@@ -3,7 +3,7 @@ import {serviceActor,serviceCommand,validId} from './service-command.mjs';
 import {readArchiveEntries} from './archive-read.mjs';
 const WS=process.env.WORKSPACE_ID||'main_workspace';
 export function normalizeArchive(input){
-  if(!map(input)||!validId(input.id)||typeof input.recordId!=='string'||!input.recordId||input.recordId.length>200||input.recordId.includes('/')||!['archive.trash','archive.restore','trash.purge'].includes(input.type)||!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<1)throw fail('invalid-archive-operation');
+  if(!map(input)||!validId(input.id)||typeof input.recordId!=='string'||!input.recordId||input.recordId.length>200||input.recordId.includes('/')||!['archive.trash','archive.restore','trash.purge','archive.gai.delete'].includes(input.type)||!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<1)throw fail('invalid-archive-operation');
   return {id:input.id,type:input.type,recordId:input.recordId,expectedRevision:input.expectedRevision};
 }
 export function restoredLine(archive,op,actor,now){
@@ -23,6 +23,12 @@ export function restoredLine(archive,op,actor,now){
   });
   return {shift:{id:shiftId,objectId:archive.objectId,objectName:archive.objectName||'',startDate:archive.date,startedAt:now,startedBy:actor.display_name,startedByUid:actor.uid,isActive:true,restoredFrom:op.recordId},logs,statuses};
 }
+export function gaiDeletedPayload(archive,actor,now){
+  const logs=Array.isArray(archive?.logs)?archive.logs:[];
+  const kept=logs.filter(log=>!log.isGAI),removed=logs.length-kept.length;
+  if(!removed)throw fail('archive-has-no-gai-trips',409);
+  return {payload:{...archive,logs:kept,totalVolume:kept.reduce((total,log)=>total+Number(log.volume||0),0),totalTrips:kept.length,gaiDeletedAt:now,gaiDeletedBy:actor.display_name},removed};
+}
 export function submitArchive(pool,uid,input,ws=WS){
   const op=normalizeArchive(input),permission=op.type==='archive.restore'?'archive_edit':'archive_delete';
   return serviceCommand(pool,uid,op,ws,(client,user)=>serviceActor(client,user,permission),async(client,actor)=>{
@@ -31,6 +37,12 @@ export function submitArchive(pool,uid,input,ws=WS){
     let location,payload,result;
     if(op.type==='archive.trash'){
       location='trash';payload={shift:before,deletedAt:Date.now(),deletedBy:actor.display_name,deletedByUid:uid};result={id:op.recordId,location,revision:op.expectedRevision+1};
+    }else if(op.type==='archive.gai.delete'){
+      // Удаление только листочка ГАИ: обычные рейсы, объёмы и весь остальной
+      // архив остаются как были. Операция идёт с проверкой ревизии.
+      const {payload:next,removed}=gaiDeletedPayload(before,actor,Date.now());
+      location='archive';payload=next;
+      result={id:op.recordId,location,revision:op.expectedRevision+1,removedGaiTrips:removed};
     }else if(op.type==='trash.purge'){
       location='purged';payload=before;result={id:op.recordId,location,revision:op.expectedRevision+1};
     }else{

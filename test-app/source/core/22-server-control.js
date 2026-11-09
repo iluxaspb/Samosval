@@ -78,6 +78,19 @@ async function serverControlAction(type){
  finally{serverControlBusy=false;if(client===nasRuntimeClient&&epoch===nasRuntimeEpoch)await openServerControl();}
 }
 window.addEventListener('DOMContentLoaded',()=>{
- const style=document.createElement('style');style.textContent='.sc-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.sc-heading h3{margin:0 0 5px}.sc-channel{color:#f59e0b;font-size:11px;font-weight:800}.sc-nav{display:flex;gap:6px;overflow-x:auto;margin:12px 0;padding-bottom:4px}.sc-nav button{font:inherit;white-space:nowrap;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);padding:9px 12px;font-size:12px}.sc-nav [aria-pressed=true]{border-color:#22c55e;color:#22c55e}.sc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.sc-card{display:flex;flex-direction:column;gap:7px;padding:13px;border:1px solid var(--border);background:var(--card);border-radius:12px;min-width:0}.sc-card>span,.sc-note,.sc-card small{font-size:11px;color:var(--muted);line-height:1.5}.sc-card strong{font-size:17px;overflow-wrap:anywhere}.sc-actions{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0}.sc-list{list-style:none;padding:0}.sc-list li{display:flex;flex-direction:column;gap:5px;padding:11px 0;border-bottom:1px solid var(--border);font-size:12px;overflow-wrap:anywhere}.sc-list span{color:var(--muted)}.sc-status,.sc-progress{font-size:12px;line-height:1.5}.sc-progress{padding:12px;border:1px solid #f59e0b;border-radius:10px}@media(min-width:800px){.sc-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}';document.head.append(style);
+ const style=document.createElement('style');
+ // Внутренняя навигация центра управления: полоса закреплена над основной нижней
+ // панелью (56px) и повторяет оформление вкладок табеля, чтобы кнопки не
+ // накладывались друг на друга и на панель приложения.
+ style.textContent=`.sc-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.sc-heading h3{margin:0 0 5px}.sc-channel{color:#f59e0b;font-size:11px;font-weight:800}
+ .sc-nav{display:flex;gap:4px;overflow-x:auto;margin:12px 0 0;padding:4px 6px;position:fixed;left:6px;right:6px;bottom:60px;z-index:10059;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 14px #0006;scrollbar-width:none;flex-shrink:0}
+ .sc-nav::-webkit-scrollbar{display:none}
+ .sc-nav button{font:inherit;white-space:nowrap;flex:0 0 auto;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);padding:6px 10px;font-size:11px;font-weight:600;line-height:1.2}
+ .sc-nav button:active{transform:scale(.96)}
+ .sc-nav [aria-pressed=true]{border-color:var(--primary);color:var(--primary);font-weight:800}
+ .sc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.sc-card{display:flex;flex-direction:column;gap:7px;padding:13px;border:1px solid var(--border);background:var(--card);border-radius:12px;min-width:0}.sc-card>span,.sc-note,.sc-card small{font-size:11px;color:var(--muted);line-height:1.5}.sc-card strong{font-size:17px;overflow-wrap:anywhere}.sc-actions{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0}.sc-list{list-style:none;padding:0}.sc-list li{display:flex;flex-direction:column;gap:5px;padding:11px 0;border-bottom:1px solid var(--border);font-size:12px;overflow-wrap:anywhere}.sc-list span{color:var(--muted)}.sc-status,.sc-progress{font-size:12px;line-height:1.5}.sc-progress{padding:12px;border:1px solid #f59e0b;border-radius:10px}
+ #server-control-root{padding-bottom:58px}
+ @media(min-width:800px){.sc-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}`;
+ document.head.append(style);
  setInterval(()=>{if(!scAllowed()){serverControlSnapshot=null;serverControlFlight=null;if(scVisible())renderServerControl();}else if(scVisible())void openServerControl();},15000);
 });

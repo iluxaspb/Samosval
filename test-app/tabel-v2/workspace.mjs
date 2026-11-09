@@ -500,6 +500,28 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       if (id && s.object?.id !== id) await s.select(id);
       return s.openSettings();
     },
+    // Автоматическое открытие смены в табеле по старту смены на линии.
+    // Идемпотентно: повторный вызов на ту же дату не создаёт дубликат, а
+    // существующая смена (в том числе с введёнными данными) не перезаписывается.
+    // Состав техники берётся из предыдущего рабочего дня, как при ручном создании.
+    async ensureDay({ objectId, date, kind = "day" } = {}) {
+      if (!objectId || !date) throw Error("Нужны объект и дата смены");
+      if (objectId !== s.object?.id) {
+        const known = (host.data().objects || []).find((o) => o.id === objectId);
+        if (!known) throw Error("Объект не найден в табеле");
+        await s.select(objectId);
+      }
+      const day = D.date(date);
+      const key = s.key(D.dayKey(day, kind));
+      await s.store.pull(key);
+      const base = s.store.get(key);
+      if (base.data && !base.data.deleted) return { key, created: false };
+      const created = D.createDay(s.config(), day, kind, D.previousDay(s.days(), day, kind));
+      await s.save(key, created, base, "Смена открыта с линии: " + day);
+      s.day = day;
+      s.shift = kind;
+      return { key, created: true };
+    },
     refresh() {
       s.incoming = true;
       return refreshIncoming();
@@ -579,7 +601,7 @@ async function render(s) {
   s.root.classList.toggle("tn-table", s.view === "table");
   s.root.dataset.view = s.view;
   s.root.dataset.shiftContext = s.view === "shift" ? shiftContext : "";
-  s.root.innerHTML = `<header class="tn-header">${btn("×", "exit", 'class="tn-exit" aria-label="Закрыть табель"')}<select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.object ? [s.object] : []), ...(s.host.data().objects || [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
+  s.root.innerHTML = `<header class="tn-header"><select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.object ? [s.object] : []), ...(s.host.data().objects || [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
     ["request", "Заявки"],
     ["shift", "Смена"],
     ["table", "Таблица"],
@@ -593,7 +615,10 @@ async function render(s) {
       "",
     )}</nav><p role="alert"></p><main></main><footer class="tn-status"><span data-status></span>${btn("↻", "sync", 'aria-label="Синхронизировать"')}${btn("Конфликты", "conflicts")}</footer>`;
   s.root.querySelector(".tn-status").before(s.root.querySelector("nav"));
-  s.root.querySelector("[data-action=exit]").onclick = () => {
+  // Кнопка «Закрыть табель» убрана из шапки: выход — через нижнюю панель приложения.
+  // Если кнопка когда-нибудь вернётся, обработчик не должен падать.
+  const exitBtn = s.root.querySelector("[data-action=exit]");
+  if (exitBtn) exitBtn.onclick = () => {
     s.foreignWriteConsents.clear();
     s.root.hidden = true;
     s.host.leave();

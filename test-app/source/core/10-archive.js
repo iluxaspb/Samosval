@@ -53,6 +53,9 @@
     let e = hasPermission('archive_edit');
     document.getElementById('archiveRestoreBtn').style.display = e?'':'none';
     document.getElementById('archiveDeleteBtn').style.display = hasPermission('archive_delete')?'':'none';
+    // Подпись кнопки объясняет, что именно удалится: весь архив или только лист ГАИ.
+    const delBtn = document.getElementById('archiveDeleteBtn');
+    if (delBtn) delBtn.textContent = viewingArchiveGAITable ? '🗑 Удалить лист ГАИ' : '🗑 Удалить архив';
     let toggleBtnHtml = `<div class="archive-view-switch"><button type="button" class="archive-toggle-icon" aria-label="${viewingArchiveGAITable ? 'Обычный лист' : 'Лист ГАИ'}" title="${viewingArchiveGAITable ? 'Обычный лист' : 'Лист ГАИ'}" onclick="toggleArchiveReportType()">📄</button></div>`;
     let activeLineIds = s.activeLineIds || []; let ttnStatus = s.ttnStatus || {}; let html = '';
     if (!viewingArchiveGAITable) {
@@ -121,6 +124,43 @@
       closeArchiveModal(); showToastEl('✅ Смена восстановлена', false);
     } catch(e) { showError('Ошибка восстановления: ' + e.message); }
   }
-  async function deleteArchiveShift() { if(!requireEdit('archive_delete') || !viewingArchiveId || !(await appConfirm('В корзину?'))) return; let s = state.archive.find(x=>x.id===viewingArchiveId); try { if(isNasRuntime()){await nasArchiveAction('archive.trash',viewingArchiveId);closeArchiveModal();return;}await tfAwait(refs.trash.doc().set({ shift: s, deletedAt: Date.now(), deletedBy: getUserName() })); await tfAwait(refs.archive.doc(viewingArchiveId).delete()); closeArchiveModal(); } catch(e){ showError(e.message); } }
+  // «Удалить» зависит от открытого листочка: обычный лист — весь архив в корзину,
+  // лист ГАИ — только рейсы ГАИ этого архива, остальные данные не меняются.
+  async function deleteArchiveShift() {
+    if(!requireEdit('archive_delete') || !viewingArchiveId) return;
+    const s = state.archive.find(x=>x.id===viewingArchiveId); if(!s) return;
+    const gaiMode = viewingArchiveGAITable === true;
+    const dateText = s.date || '';
+    const gaiTrips = (s.logs||[]).filter(l=>l.isGAI).length;
+    try {
+      if (gaiMode) {
+        if (!gaiTrips) { showError('В этом архиве нет рейсов ГАИ.'); return; }
+        if (!(await appConfirm(`Вы действительно хотите удалить листочек ГАИ за ${dateText}? Обычный лист и остальные данные архива останутся без изменений.`))) return;
+        if (isNasRuntime()) {
+          await nasArchiveAction('archive.gai.delete', viewingArchiveId);
+        } else {
+          const logs = (s.logs||[]).filter(l=>!l.isGAI);
+          await tfAwait(refs.archive.doc(viewingArchiveId).update({
+            logs,
+            totalVolume: logs.reduce((total,l)=>total+Number(l.volume||0),0),
+            totalTrips: logs.length,
+            gaiDeletedAt: Date.now(),
+            gaiDeletedBy: getUserName(),
+          }));
+        }
+        addAudit(`🗑 Удалён листочек ГАИ за ${dateText}`).catch(()=>{});
+        showToastEl('Листочек ГАИ удалён. Остальной архив сохранён.', false);
+        viewingArchiveGAITable = false;
+        const fresh = state.archive.find(x=>x.id===viewingArchiveId);
+        if (fresh) renderArchiveModalContent(fresh); else closeArchiveModal();
+        return;
+      }
+      if (!(await appConfirm(`Удалить весь архив за ${dateText}? Смена уйдёт в корзину, обычный лист и лист ГАИ.`))) return;
+      if (isNasRuntime()) { await nasArchiveAction('archive.trash', viewingArchiveId); closeArchiveModal(); return; }
+      await tfAwait(refs.trash.doc().set({ shift: s, deletedAt: Date.now(), deletedBy: getUserName() }));
+      await tfAwait(refs.archive.doc(viewingArchiveId).delete());
+      closeArchiveModal();
+    } catch(e){ showError(e.message); }
+  }
 
   // === СЕЛЕКТОР ===

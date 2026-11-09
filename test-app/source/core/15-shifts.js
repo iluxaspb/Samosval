@@ -5,15 +5,33 @@
     if(state.shift?.isActive)return;
     startShiftInFlight=true;
     try {
-      if(isNasRuntime()){await nasBusinessCommand('start','current',{objectId:objId});await nasRefreshLine();closeStartShiftModal();showToastEl('Смена начата',false);return;}
+      if(isNasRuntime()){await nasBusinessCommand('start','current',{objectId:objId});await nasRefreshLine();closeStartShiftModal();showToastEl('Смена начата',false);openTabelShiftForLine(objName,objId);return;}
       await cleanupOldShiftData(); await clearAllNotifications();
       let sid = 'shift_' + Date.now();
       await tfAwait(refs.shift.set({ id: sid, objectName: objName, objectId: objId||'', startDate: nowDateStr(), startedAt: Date.now(), startedBy: getUserName(), isActive: true }));
       if (appConfig.maxEnabled && appConfig.notifyStart) enqueueMax(`🚀 Смена начата\n🏢 ${objName}\n📅 ${nowDateStr()}\n👤 ${getUserName()}`);
       addAudit(`🚀 Начата смена на объекте: ${objName}`).catch(()=>{});
       closeStartShiftModal(); showToastEl('Смена начата', false);
+      openTabelShiftForLine(objName, objId);
     } catch(e){ showError(e.message); }
     finally{startShiftInFlight=false;}
+  }
+  // Смена на линии открыта → та же смена открывается в табеле (та же дата, тот же
+  // объект). Табель сам подставит технику прошлого рабочего дня и не создаст
+  // дубликат, если смена за эту дату уже есть. Ошибка табеля не отменяет
+  // открытие смены на линии — только сообщает о ней.
+  async function openTabelShiftForLine(objName, objId){
+    if(!objId||!permissionsLoaded||currentUserStatus!=='active'||!hasTabAccess('timesheet'))return;
+    try{
+      const module=await import(new URL('./test-app/tabel-v2/entry.mjs',document.baseURI).href);
+      const result=await module.ensureDay(tabelV2Host(),{objectId:objId,date:lineDateIso(nowDateStr()),kind:'day'});
+      if(result?.created)showToastEl('Смена открыта и в табеле · ' + objName,false);
+    }catch(error){console.warn('[tabel] Автооткрытие смены:',error.message);}
+  }
+  // Линия хранит дату как ДД.ММ.ГГГГ, табель — как ГГГГ-ММ-ДД.
+  function lineDateIso(value){
+    const ru=/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value||'').trim());
+    return ru?`${ru[3]}-${ru[2].padStart(2,'0')}-${ru[1].padStart(2,'0')}`:String(value||'');
   }
   async function cleanupOldShiftData(shiftId){
     const chunkSize=currentUserRole==='admin'?20:4;

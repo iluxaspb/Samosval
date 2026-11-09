@@ -194,6 +194,30 @@ try { (function(){
     return Array.from(new Uint8Array(await window.crypto.subtle.digest('SHA-256', bytes))).map(b => b.toString(16).padStart(2, '0')).join('');
   }
   async function createBackup(type, description) {
+    // В режиме Ubuntu (тестовая версия) данные живут в PostgreSQL на сервере,
+    // Firestore здесь только для входа. Копию делает сервер: он читает базу
+    // целиком и подтверждает результат. Без этой ветки резервная копия падала
+    // и закрытие смены отменялось сообщением «Защитная копия не создана».
+    if (typeof isNasRuntime === 'function' && isNasRuntime()) {
+      if (typeof nasBackupCommand !== 'function') {
+        if (typeof showError === 'function') showError('Серверная копия недоступна: сеанс Ubuntu не загружен');
+        return null;
+      }
+      try {
+        const response = await nasBackupCommand('create:' + type + ':' + Date.now(),
+          { type: 'backup.create', backupType: type, description: description || '' });
+        const meta = response?.result?.meta || null;
+        if (!meta) throw new Error('Сервер не подтвердил копию');
+        if (type === 'auto') try { localStorage.setItem('dt_backup_last_auto', String(Date.now())); } catch(e) {}
+        if (typeof showToastEl === 'function') showToastEl('✅ Копия создана на Ubuntu (' + sizeLabel(meta.sizeBytes) + ')', false);
+        try { renderBackupUI(); } catch(e) {}
+        return meta;
+      } catch(e) {
+        console.error('[backup] Server create error:', e);
+        if (typeof showError === 'function') showError('Бэкап НЕ создан: ' + (e.message || 'сервер не ответил'));
+        return null;
+      }
+    }
     if (backupInProgress || (restoreInProgress && type !== 'before_restore')) {
       if (typeof showError === 'function') showError('Другая операция резервного копирования уже выполняется');
       return null;
@@ -274,6 +298,11 @@ try { (function(){
 
   // ===== Список бэкапов =====
   async function listBackups() {
+    if (typeof isNasRuntime === 'function' && isNasRuntime()) {
+      // Серверная ветка: копии принадлежат PostgreSQL, а не Firestore.
+      const snapshot = await nasBackupRead();
+      return (snapshot?.items || []).slice().sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+    }
     try {
       const snap = await BACKUPS_COLL.orderBy('createdAt', 'desc').limit(50).get({ source: 'server' });
       return snap.docs.map(d => d.data());
@@ -286,6 +315,11 @@ try { (function(){
   // ===== Чтение бэкапа =====
   async function readBackupData(id, allowLegacy) {
     if (!validId(id)) throw new Error('Неверный ID копии');
+    if (typeof isNasRuntime === 'function' && isNasRuntime()) {
+      const response = await nasBackupRead(id);
+      if (!response?.payload) throw new Error('Копия не найдена');
+      return response.payload;
+    }
     const metaDoc = serverSnapshot(await BACKUPS_COLL.doc(id).get({ source: 'server' }));
     if (!metaDoc.exists) throw new Error('Бэкап не найден');
     const meta = metaDoc.data();
@@ -314,6 +348,12 @@ try { (function(){
   async function deleteBackup(id) {
     if (!(await appConfirm('Удалить этот бэкап? Восстановить из него будет невозможно.'))) return;
     try {
+      if (typeof isNasRuntime === 'function' && isNasRuntime()) {
+        await nasBackupCommand(id, { type: 'backup.delete', backupId: id });
+        if (typeof showToastEl === 'function') showToastEl('🗑 Копия убрана из списка на Ubuntu', false);
+        renderBackupUI();
+        return;
+      }
       const chunksSnap = await BACKUPS_COLL.doc(id).collection('chunks').get({ source: 'server' });
       for (const ch of chunksSnap.docs) await ch.ref.delete();
       await BACKUPS_COLL.doc(id).delete();
@@ -423,6 +463,20 @@ try { (function(){
   }
   async function restoreBackup(id, sections) {
     if (restoreInProgress || backupInProgress) { showError('Другая операция уже выполняется'); return false; }
+    if (typeof isNasRuntime === 'function' && isNasRuntime()) {
+      // Восстановление в режиме Ubuntu выполняет сервер в одной транзакции,
+      // предварительно создавая собственную защитную копию.
+      if (!(await appConfirm('Восстановить данные из выбранной копии на Ubuntu? Текущие данные будут заменены в выбранных разделах.'))) return false;
+      try {
+        await nasBackupCommand(id, { type: 'backup.restore', backupId: id, sections });
+        if (typeof showToastEl === 'function') showToastEl('✅ Восстановлено на Ubuntu. Перезагрузка…', false);
+        setTimeout(() => location.reload(), 1500);
+        return true;
+      } catch(e) {
+        if (typeof showError === 'function') showError('Восстановление не выполнено: ' + (e.message || 'сервер не ответил'));
+        return false;
+      }
+    }
     restoreInProgress = true;
     let safety, commitAttempted = false;
     try {

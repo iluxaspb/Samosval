@@ -51,6 +51,10 @@
       }
       const module = await import(new URL('./test-app/tabel-v2/entry.mjs', document.baseURI).href);
       await module.open(tabelV2Host(), settingsOnly, {requestFirst});
+      // Табель — отдельный экран поверх приложения: активные вкладки (включая
+      // «Админ → Сервер» с его внутренними кнопками) должны быть погашены,
+      // иначе под табелем остаются чужие навигационные панели.
+      document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
       // Табель подсвечивается в нижней панели, остальные вкладки гаснут.
       document.querySelectorAll('.nav-btn').forEach(e=>e.classList.remove('active'));
       const nb = document.getElementById('nav-tabel-v2'); if (nb) nb.classList.add('active');

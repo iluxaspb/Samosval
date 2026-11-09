@@ -128,6 +128,7 @@ async function openInner(
     uid:initial.uid,scope:storageScope(initial),runtimeId:initial.runtimeId,
     prepareUpdate:()=>runtime.prepareUpdate(),
     async show(settings=false){container.hidden=false;await runtime.show();if(settings)await runtime.settings(host.session().objectId);},
+    ensureDay: (request) => runtime.ensureDay(request),
     hide(){container.hidden=true;},
     async dispose() {
       disposed=true;globalThis.removeEventListener("online",connect);
@@ -151,6 +152,16 @@ async function openInner(
 
 // Start the same durable queue even when the user stays on the Line after a reload.
 export async function background(host){if(opened?.scope===storageScope(host.session())&&opened?.runtimeId===host.session().runtimeId)return;await open(host,false,{backgroundMode:true});}
+
+// Смена на линии открыта — открываем смену в табеле на ту же дату и объект.
+// Табель монтируется в фоне, поэтому это работает и без открытой вкладки табеля.
+export async function ensureDay(host, request = {}) {
+  const initial = host.session();
+  let instance = opened;
+  if (!instance || instance.scope !== storageScope(initial) || instance.runtimeId !== initial.runtimeId)
+    instance = await open(host, false, { backgroundMode: true });
+  return instance.ensureDay(request);
+}
 
 async function pickRequestObject(host) {
   return new Promise((resolve) => {
