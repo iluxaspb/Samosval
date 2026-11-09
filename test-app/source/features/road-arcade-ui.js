@@ -248,8 +248,8 @@ async function onMario(event,session){
  if(event.type==='blockCoin'){tone('coin');for(let i=0;i<event.coins;i++)coinFx.push({x:event.x,y:event.y-12,vy:-260-i*45,t:0,life:.85});setStatus('+'+event.coins+' 🪙 из блока · всего '+session.coins);return;}
  if(event.type==='coin'){tone('coin');coinFx.push({x:event.x,y:event.y,vy:-230,t:0,life:.7});setStatus('+1 🪙 · всего '+session.coins);return;}
  if(event.type==='stomp'){tone('stomp');coinFx.push({x:event.x,y:event.y,vy:-250,t:0,life:.8});setStatus('+1 🪙 за врага · всего '+session.coins);return;}
- if(event.type==='hurt'){tone('hornHit');setStatus('Ой, рога! Осталось жизней: '+event.lives);speak('Ой! Осталось жизней '+event.lives);return;}
- if(event.type==='gameover'){tone('gameover');musicStop();notice='Игра окончена. Нажмите «Играть снова».';setStatus(notice);speak('Игра окончена');if(run===session){finishSummary=null;render(true);}return;}
+ if(event.type==='hurt'){tone('hornHit');setStatus('Ой, рога! Осталось жизней: '+event.lives);return;}
+ if(event.type==='gameover'){tone('gameover');musicStop();notice='Игра окончена. Нажмите «Играть снова».';setStatus(notice);if(run===session){finishSummary=null;render(true);}return;}
  if(event.type==='finish'&&!levelBusy){
   levelBusy=true;const bestKey=prefKey()+':mario-best-'+session.map.level,prevBest=Number(localStorage.getItem(bestKey)||0),isRecord=event.score>prevBest;if(isRecord){try{localStorage.setItem(bestKey,String(event.score));}catch(e){}}
   tone(isRecord?'record':'clear');finishSummary={coins:event.coins,bonus:event.bonus,score:event.score,record:isRecord,credited:false};
