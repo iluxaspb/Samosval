@@ -55,7 +55,7 @@ function updateNumbers(){
 const REEL_ICONS=['🍒','⭐','💎','🚧','👑','🔔','🍋','7️⃣'];
 let reelAnim=null;
 function reelCellHeight(){const s=dialog.querySelector('.slot-strip span');return s?s.getBoundingClientRect().height||105:105;}
-function applyReelTransforms(){if(!reelAnim)return;const n=REEL_ICONS.length,cell=reelCellHeight();dialog.querySelectorAll('.slot-reel').forEach((reel,i)=>{const st=reelAnim.reels[i];if(!st)return;const pmod=((st.p%n)+n)%n;const strip=reel.querySelector('.slot-strip');if(strip)strip.style.transform='translateY('+(-(3*n-3-pmod)*cell)+'px)';});}
+function applyReelTransforms(){if(!reelAnim)return;const n=REEL_ICONS.length,cell=reelCellHeight();dialog.querySelectorAll('.slot-reel').forEach((reel,i)=>{const st=reelAnim.reels[i];if(!st)return;const pmod=((st.p%n)+n)%n;const strip=reel.querySelector('.slot-strip');if(strip)strip.style.transform='translateY('+(-(3*n+pmod)*cell)+'px)';});}
 // Тик анимации: requestAnimationFrame, а если он не тикает (скрытая вкладка,
 // headless), через 150 мс подключается setInterval-тик — тогда spin() никогда
 // не зависает и барабаны всё равно доигрывают до остановки.
@@ -81,7 +81,9 @@ function startReelSpin(){
  intervalId=setInterval(()=>{if(anim.active&&rafSeen<2)step(0);else{clearInterval(intervalId);intervalId=0;}},33);
  reelAnim=anim;return done;
 }
-function renderSlot(host){const strip=icons=>{const n=REEL_ICONS.length;let cells='';for(let r=0;r<5;r++)for(const s of icons)cells+='<span>'+s+'</span>';return cells;};
+function renderSlot(host){const strip=icons=>{let cells='';for(let r=0;r<5;r++)for(const s of icons)cells+='<span>'+s+'</span>';return cells;};
+ // Окошко (.slot-reel) — фиксированная высота и overflow:hidden: длинная полоса
+ // барабана крутится внутри корпуса, снаружи виден только средний символ.
  const reel=(sym,i)=>'<div class="slot-reel" data-reel="'+i+'"'+(slotBusy?'':' data-final="'+E(sym)+'"')+'><div class="slot-strip">'+(slotBusy?strip(REEL_ICONS):'<span>'+E(sym)+'</span>')+'</div></div>';
  host.innerHTML='<section class="slot-shell '+(slotBusy?'spinning':'')+'"><div class="slot-pot">ОБЩИЙ ДЖЕКПОТ<strong><span data-slot-bank>'+f(A.head().bank)+'</span> 🪙</strong></div>'+mascot()+'<div class="slot-reels" aria-label="Результат барабанов">'+slotSymbols.map((s,i)=>reel(s,i)).join('')+'</div><div class="slot-result" id="slot-result" role="status">'+E(slotMessage||'Стартовый банк — 1 000 монет. Испытаем удачу?')+'</div><button class="slot-spin" id="slot-spin">'+(slotBusy?'Барабаны вращаются…':A.readSpin()?'Проверить незавершённое вращение':'Вращать · 10 🪙')+'</button><div class="slot-bank-details"><span>Внесено игроками: <b data-slot-stakes>'+f(A.head().totalStakes)+'</b></span><span>Выплачено: <b data-slot-payouts>'+f(A.head().totalPayouts)+'</b></span></div></section><details class="arcade-rules"><summary>Честные правила и шансы</summary><p>Каждое вращение независимо. 35% — выплата 12 монет, 10% — 20 монет, 0,99% — 100 монет, 0,01% (1 из 10 000) — весь текущий банк. В остальных 54% выплата равна нулю. Ставка — 10 монет. Выплата ограничена деньгами в банке после добавления ставки.</p><p>Банк общий: 1 000 стартовых монет + все ставки − все выплаты. Он не пополняется заново при обновлении страницы. Уменьшение кошелька и итог игры видны отдельно. Реальных денег и вывода средств нет.</p></details>';
  host.querySelector('#slot-spin').onclick=spin;
