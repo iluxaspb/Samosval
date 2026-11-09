@@ -132,6 +132,7 @@ async function openInner(
     async dispose() {
       disposed=true;globalThis.removeEventListener("online",connect);
       clearInterval(timer);
+      if (globalThis.__tabelV2Instance === opened) globalThis.__tabelV2Instance = null;
       await runtime.dispose();
       container.remove();
     },
@@ -143,6 +144,7 @@ async function openInner(
       opened = null;
     }
   }, 500);
+  globalThis.__tabelV2Instance = opened;
   if (settingsOnly) runtime.settings();
   return opened;
 }

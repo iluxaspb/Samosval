@@ -7,6 +7,8 @@
     }
     document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(e=>e.classList.remove('active'));
+    // Табель — обычная вкладка: при уходе на другую кнопку панели он закрывается.
+    if (name !== 'tabel-v2' && globalThis.__tabelV2Instance) { try { globalThis.__tabelV2Instance.hide(); } catch(e){} }
     let t = document.getElementById('tab-'+name); if(t) t.classList.add('active');
     if(btn) btn.classList.add('active');
     window.scrollTo(0,0);
@@ -49,6 +51,9 @@
       }
       const module = await import(new URL('./test-app/tabel-v2/entry.mjs', document.baseURI).href);
       await module.open(tabelV2Host(), settingsOnly, {requestFirst});
+      // Табель подсвечивается в нижней панели, остальные вкладки гаснут.
+      document.querySelectorAll('.nav-btn').forEach(e=>e.classList.remove('active'));
+      const nb = document.getElementById('nav-tabel-v2'); if (nb) nb.classList.add('active');
     } catch (error) { showError(error.message || 'Табель не открылся'); } finally { tabelV2Opening = false; }
   }
 
