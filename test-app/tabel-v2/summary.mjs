@@ -2,7 +2,7 @@ import { sheetVisible } from "./sheet-access.mjs";
 import { lineCalendarDate } from "./domain.mjs";
 import { arrivals } from "./line.mjs";
 import { equipmentCount, linkedFormulaDays } from "./table-domain.mjs";
-import {storageScope,sameTableSession} from './backend.mjs';
+import {storageScope,sameTableSession,isNasProvider} from './backend.mjs';
 let generation = 0;
 async function readRecords(session) {
   const name = "samosval_tabel_v2_v1_" + storageScope(session);
@@ -61,7 +61,7 @@ export async function updateHeader(host, element) {
     }
     let equipment = days.flatMap((d) => d.equipment),
       people = days.flatMap((d) => d.people);
-    if (!days.length && session.provider!=='synology') {
+    if (!days.length && !isNasProvider(session.provider)) {
       const raw = localStorage.getItem(
         JSON.stringify([
           "tabel-v2-draft",

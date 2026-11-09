@@ -1,7 +1,7 @@
 import * as D from './table-domain.mjs';
 import {lineCalendarDate} from './domain.mjs';
 import {Store,firestoreRemote} from './store.mjs';
-import {storageScope,tableRemote,sameTableSession} from './backend.mjs';
+import {storageScope,tableRemote,sameTableSession,isNasProvider} from './backend.mjs';
 import {migrate,normalizedObject} from './migration.mjs';
 import {dialog,field,input} from './messages.mjs';
 
@@ -63,7 +63,7 @@ export async function transferClosedLine(host,shift,archive) {
   if(!object) throw Error('Не найден объект смены для переноса материала');
   const period=sourcePeriod(shift);
   let remote=null;
-  if(initial.provider==='synology')remote=await tableRemote(host,guard);
+  if(isNasProvider(initial.provider))remote=await tableRemote(host,guard);
   else if(host.transaction) {
     const policy=await host.workspace.collection('tabelNextMeta').doc('config').get();
     if(policy.exists && policy.data().enabled===true && policy.data().schema===1)
@@ -78,7 +78,7 @@ export async function transferClosedLine(host,shift,archive) {
   try {
     await store.prepareSync();
     await store.pullObject(object.id);
-    if(initial.provider!=='synology')await migrate(host,store,normalizedObject(object),{equipment:[],people:[]});
+    if(!isNasProvider(initial.provider))await migrate(host,store,normalizedObject(object),{equipment:[],people:[]});
     await store.prepareSync();
     const configKey=object.id+'/config',base=store.get(configKey),c=base.data || D.config(normalizedObject(object));
     const dayKey=object.id+'/'+D.dayKey(period.date,period.shift);

@@ -1,4 +1,4 @@
-import {storageScope,sameTableSession,connectTable} from "./backend.mjs";
+import {storageScope,sameTableSession,connectTable,isNasProvider} from "./backend.mjs";
 import { onlinePolicy } from "./online-policy.mjs";
 import { mount } from "./workspace.mjs";
 import { normalizedObject, migrate } from "./migration.mjs";
@@ -53,13 +53,13 @@ async function openInner(
       return [];
     }
   };
-  const cacheKey=initial.provider==='synology'?JSON.stringify(['tabel-v2-catalog',storageScope(initial)]):JSON.stringify(['tabel-v2-catalog',initial.projectId,initial.workspaceId,initial.uid]);
+  const cacheKey=isNasProvider(initial.provider)?JSON.stringify(['tabel-v2-catalog',storageScope(initial)]):JSON.stringify(['tabel-v2-catalog',initial.projectId,initial.workspaceId,initial.uid]);
   let cached={equipment:[],people:[]};try{cached=JSON.parse(localStorage.getItem(cacheKey))||cached;}catch{}
   const catalog={equipment:cached.equipment||[],people:cached.people||[]};
   const background=async()=>{
-    if(initial.provider==='synology'){
+    if(isNasProvider(initial.provider)){
       if(!sameTableSession(initial,host.session()))throw Error('Сеанс табеля изменился');
-      if(typeof host.readCatalog!=='function')throw Error('Справочник Synology не подключён');
+      if(typeof host.readCatalog!=='function')throw Error('Справочник Ubuntu не подключён');
       const value=await host.readCatalog();
       if(!sameTableSession(initial,host.session()))throw Error('Сеанс табеля изменился');
       catalog.equipment=value.equipment;catalog.people=value.people;
@@ -105,7 +105,7 @@ async function openInner(
     transaction: host.transaction,
     documentId: host.documentId,
     errors,
-    prepare: (store, object) => initial.provider==='synology'?undefined:migrate(host, store, object, catalog),
+    prepare: (store, object) => isNasProvider(initial.provider)?undefined:migrate(host, store, object, catalog),
     createObject: host.createObject,
     leave: () => {
       container.hidden = true;

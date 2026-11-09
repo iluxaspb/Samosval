@@ -4,7 +4,7 @@ import * as R from "./request-domain.mjs";
 import { arrivals } from "./line.mjs";
 import * as D from "./table-domain.mjs";
 import { Store } from "./store.mjs";
-import {storageScope,tableRemote,sameTableSession} from "./backend.mjs";
+import {storageScope,tableRemote,sameTableSession,isNasProvider,providerLabel} from "./backend.mjs";
 import { esc, btn, input, field, dialog, message, error } from "./messages.mjs";
 import { sheetVisible, sheetManager } from "./sheet-access.mjs";
 import { autoConflicts } from "./conflict-view.mjs";
@@ -322,7 +322,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     session.projectId,
     session.workspaceId,
     session.uid,
-    ...(session.provider==='synology'?[storageScope(session)]:[]),
+    ...(isNasProvider(session.provider)?[storageScope(session)]:[]),
   ]);
   let lastObject = null, lastClosed = null;
   try {
@@ -352,7 +352,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     const target = root.querySelector("[data-status]");
     if (!target) return;
     const jobs = s.store.state.jobs;
-    const provider = session.provider === "synology" ? "Synology" : "Firebase";
+    const provider = providerLabel(session.provider);
     target.textContent =
       (s.remote
         ? navigator.onLine

@@ -2,6 +2,9 @@ import { readFlight } from "./read-flight.mjs";
 import {sheetManager,sheetVisible} from './sheet-access.mjs';
 import { copy, uid } from "./table-domain.mjs";
 import {mergeRecord} from "./merge-record.mjs";
+// Server label for user-facing messages. Ubuntu is the current NAS host;
+// Synology is kept for older stored sessions.
+const remoteLabel=p=>p==='ubuntu'?'Ubuntu':p==='synology'?'Synology':'Firebase';
 // All local snapshots and pending operations are committed in one IndexedDB transaction.
 export class Store {
   constructor(name, remote, actor) {
@@ -290,7 +293,7 @@ export class Store {
             this.remote.commit(job),
             new Promise((_,reject) => {
               timer = setTimeout(() =>
-                reject(Error("Нет подтверждения "+(this.remote.provider==='synology'?'Synology':'Firebase')+" за 25 секунд. Повтор будет с тем же ID операции.")), 25000);
+                reject(Error("Нет подтверждения "+remoteLabel(this.remote.provider)+" за 25 секунд. Повтор будет с тем же ID операции.")), 25000);
             })
           ]).finally(() => clearTimeout(timer));
           await this.serialize(async () => {
@@ -337,7 +340,7 @@ export class Store {
           this.uploadError = failure;
           this.error = failure;
           blocked.add(job.key);
-          console.error(this.remote.provider==='synology'?"[Табель Synology]":"[Табель Firebase]", failure);
+          console.error("["+remoteLabel(this.remote.provider)+" табель]", failure);
           this.emit();
         } finally {
           this.uploading = null;
