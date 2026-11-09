@@ -50,7 +50,40 @@ function updateNumbers(){
  const spin=dialog.querySelector('#slot-spin');if(spin)spin.disabled=slotBusy;
  if(view==='mario'&&run){const el=dialog.querySelector('[data-mario-lives]');if(el)el.textContent='♥'.repeat(Math.max(0,run.lives));const level=dialog.querySelector('[data-mario-level]');if(level)level.textContent=run.map.level;}
 }
-function renderSlot(host){host.innerHTML='<section class="slot-shell '+(slotBusy?'spinning':'')+'"><div class="slot-pot">ОБЩИЙ ДЖЕКПОТ<strong><span data-slot-bank>'+f(A.head().bank)+'</span> 🪙</strong></div>'+mascot()+'<div class="slot-reels" aria-label="Результат барабанов">'+slotSymbols.map(s=>'<div class="slot-reel">'+s+'</div>').join('')+'</div><div class="slot-result" id="slot-result" role="status">'+E(slotMessage||'Стартовый банк — 1 000 монет. Испытаем удачу?')+'</div><button class="slot-spin" id="slot-spin">'+(slotBusy?'Барабаны вращаются…':A.readSpin()?'Проверить незавершённое вращение':'Вращать · 10 🪙')+'</button><div class="slot-bank-details"><span>Внесено игроками: <b data-slot-stakes>'+f(A.head().totalStakes)+'</b></span><span>Выплачено: <b data-slot-payouts>'+f(A.head().totalPayouts)+'</b></span></div></section><details class="arcade-rules"><summary>Честные правила и шансы</summary><p>Каждое вращение независимо. 35% — выплата 12 монет, 10% — 20 монет, 0,99% — 100 монет, 0,01% (1 из 10 000) — весь текущий банк. В остальных 54% выплата равна нулю. Ставка — 10 монет. Выплата ограничена деньгами в банке после добавления ставки.</p><p>Банк общий: 1 000 стартовых монет + все ставки − все выплаты. Он не пополняется заново при обновлении страницы. Уменьшение кошелька и итог игры видны отдельно. Реальных денег и вывода средств нет.</p></details>';
+// Настоящие барабаны: полоса символов прокручивается вертикально с размытием
+// на скорости и поочерёдной остановкой с отскоком (ease-out-back).
+const REEL_ICONS=['🍒','⭐','💎','🚧','👑','🔔','🍋','7️⃣'];
+let reelAnim=null;
+function reelCellHeight(){const s=dialog.querySelector('.slot-strip span');return s?s.getBoundingClientRect().height||105:105;}
+function applyReelTransforms(){if(!reelAnim)return;const n=REEL_ICONS.length,cell=reelCellHeight();dialog.querySelectorAll('.slot-reel').forEach((reel,i)=>{const st=reelAnim.reels[i];if(!st)return;const pmod=((st.p%n)+n)%n;const strip=reel.querySelector('.slot-strip');if(strip)strip.style.transform='translateY('+(-(3*n-3-pmod)*cell)+'px)';});}
+// Тик анимации: requestAnimationFrame, а если он не тикает (скрытая вкладка,
+// headless), через 150 мс подключается setInterval-тик — тогда spin() никогда
+// не зависает и барабаны всё равно доигрывают до остановки.
+function startReelSpin(){
+ if(matchMedia('(prefers-reduced-motion: reduce)').matches)return null;
+ const t0=performance.now();let last=t0,lastTick=0,rafId=0,intervalId=0,rafSeen=0;
+ const anim={active:true,p:0,reels:[0,1,2].map(()=>({p:0,landing:false,landT:0,land0:0,landD:0})),symbols:null,targets:null,resolve:null,cancel(){this.active=false;clearInterval(intervalId);}};
+ const done=new Promise(r=>anim.resolve=r);
+ const step=now=>{
+  if(!anim.active){cancelAnimationFrame(rafId);return;}
+  rafSeen++;
+  const dt=Math.min(.05,((now||performance.now())-last)/1000);last=now||performance.now();const t=(now||performance.now())-t0;let allDone=true,expired=t>8000;
+  dialog.querySelectorAll('.slot-reel').forEach((reel,i)=>{const st=anim.reels[i];const prev=st.p;
+   if(st.landing){const u=Math.min(1,(t-st.landT)/650),k=1.3,e=1+(k+1)*Math.pow(u-1,3)+k*Math.pow(u-1,2);st.p=st.land0+st.landD*e;reel.classList.toggle('blur',u<.55);if(u>=1){st.p=st.land0+st.landD;reel.classList.remove('blur');}else allDone=false;}
+   else{st.p+=20*dt;reel.classList.add('blur');allDone=false;
+    if(anim.targets&&t>=950+i*480){const n=REEL_ICONS.length,target=anim.targets[i]||0;const cur=((st.p%n)+n)%n;st.landing=true;st.landT=t;st.land0=st.p;st.landD=((target-cur)%n+n)%n+n;}}
+   if(t-lastTick>85&&Math.floor(st.p)!==Math.floor(prev)){lastTick=t;tone('spin');}
+  });
+  applyReelTransforms();
+  if(allDone||expired){anim.active=false;clearInterval(intervalId);if(anim.symbols)slotSymbols=anim.symbols.slice();anim.resolve();return;}
+  rafId=requestAnimationFrame(step);};
+ rafId=requestAnimationFrame(step);
+ intervalId=setInterval(()=>{if(anim.active&&rafSeen<2)step(0);else{clearInterval(intervalId);intervalId=0;}},33);
+ reelAnim=anim;return done;
+}
+function renderSlot(host){const strip=icons=>{const n=REEL_ICONS.length;let cells='';for(let r=0;r<5;r++)for(const s of icons)cells+='<span>'+s+'</span>';return cells;};
+ const reel=(sym,i)=>'<div class="slot-reel" data-reel="'+i+'"'+(slotBusy?'':' data-final="'+E(sym)+'"')+'><div class="slot-strip">'+(slotBusy?strip(REEL_ICONS):'<span>'+E(sym)+'</span>')+'</div></div>';
+ host.innerHTML='<section class="slot-shell '+(slotBusy?'spinning':'')+'"><div class="slot-pot">ОБЩИЙ ДЖЕКПОТ<strong><span data-slot-bank>'+f(A.head().bank)+'</span> 🪙</strong></div>'+mascot()+'<div class="slot-reels" aria-label="Результат барабанов">'+slotSymbols.map((s,i)=>reel(s,i)).join('')+'</div><div class="slot-result" id="slot-result" role="status">'+E(slotMessage||'Стартовый банк — 1 000 монет. Испытаем удачу?')+'</div><button class="slot-spin" id="slot-spin">'+(slotBusy?'Барабаны вращаются…':A.readSpin()?'Проверить незавершённое вращение':'Вращать · 10 🪙')+'</button><div class="slot-bank-details"><span>Внесено игроками: <b data-slot-stakes>'+f(A.head().totalStakes)+'</b></span><span>Выплачено: <b data-slot-payouts>'+f(A.head().totalPayouts)+'</b></span></div></section><details class="arcade-rules"><summary>Честные правила и шансы</summary><p>Каждое вращение независимо. 35% — выплата 12 монет, 10% — 20 монет, 0,99% — 100 монет, 0,01% (1 из 10 000) — весь текущий банк. В остальных 54% выплата равна нулю. Ставка — 10 монет. Выплата ограничена деньгами в банке после добавления ставки.</p><p>Банк общий: 1 000 стартовых монет + все ставки − все выплаты. Он не пополняется заново при обновлении страницы. Уменьшение кошелька и итог игры видны отдельно. Реальных денег и вывода средств нет.</p></details>';
  host.querySelector('#slot-spin').onclick=spin;
 }
 async function spin(){
@@ -60,16 +93,28 @@ async function spin(){
  if(!operation&&!A.status().ready){setStatus('Игровой банк ещё синхронизируется. Незавершённое вращение проверится автоматически.');return;}
  if(!operation&&A.balance()<C.BET){setStatus('Для вращения нужно 10 монет. Их можно собрать в Марио.');return;}
  try{if(!operation){operation=A.newSpin();A.storeSpin(operation);}}catch(e){slotMessage=e.message;render(true);return;}
- slotBusy=true;slotMessage='Проверяем ставку и вращаем барабаны…';render(true);const started=performance.now();let flips=0;
- if(matchMedia('(prefers-reduced-motion: reduce)').matches)tone('spin');else slotTimer=setInterval(()=>{if(!dialog.open||view!=='slot')return;const icons=['🍒','⭐','💎','🚧','👑'];dialog.querySelectorAll('.slot-reel').forEach((e,i)=>e.textContent=icons[(flips+i*2)%icons.length]);flips++;if(flips%2===0)tone('spin');},130);
+ slotBusy=true;slotMessage='Проверяем ставку и вращаем барабаны…';render(true);const started=performance.now();
+ const spinDonePromise=startReelSpin();
+ let lastFlip=0;if(!spinDonePromise)tone('spin');
  try{
   const result=await A.transact(operation);if(currentUid!==user)return;A.storeSpin(null);if(!result.replayed&&result.payout>=result.cost)window.__gameMoneyFlow?.(-result.cost);
-  await new Promise(resolve=>setTimeout(resolve,Math.max(0,1700-(performance.now()-started))));if(currentUid!==user)return;
-  slotSymbols=result.result?.symbols||['🚧','🍒','⭐'];const profit=result.payout-result.cost;
+  slotSymbols=result.result?.symbols||['🚧','🍒','⭐'];
+  if(reelAnim&&reelAnim.active){
+   reelAnim.symbols=slotSymbols.slice();
+   // Целевая позиция каждого барабана — индекс выпавшего символа в REEL_ICONS.
+   reelAnim.targets=slotSymbols.map(s=>{let best=0,bd=1e9;REEL_ICONS.forEach((icon,idx)=>{const d=icon===s?0:(icon.replace('️','')===s.replace('️','')?1:1e9);if(d<bd){bd=d;best=idx;}});return best;});
+   // Не короче 1.7 с от нажатия, но дожидаемся полной остановки всех барабанов.
+   // Страховка 6.5 с: в скрытой вкладке requestAnimationFrame не тикает, и без
+   // таймаута кнопка осталась бы в «Барабаны вращаются…» навсегда.
+   const minDelay=new Promise(r=>setTimeout(r,Math.max(0,1700-(performance.now()-started))));
+   await Promise.race([Promise.all([spinDonePromise,minDelay]),new Promise(r=>setTimeout(r,6500))]);
+  }else await new Promise(resolve=>setTimeout(resolve,Math.max(0,1700-(performance.now()-started))));
+  if(currentUid!==user)return;
+  const profit=result.payout-result.cost;
   slotMessage=result.result?.type==='jackpot'?'ДЖЕКПОТ! Выплата '+f(result.payout)+' 🪙 · итог +'+f(profit):profit>0?'Выплата '+f(result.payout)+' 🪙 · выигрыш за вычетом ставки +'+f(profit):profit===0?'Вернулась ставка: '+f(result.payout)+' 🪙. Итог 0.':'Выплата '+f(result.payout)+' 🪙 · итог −'+f(-profit);
   if(dialog.open&&view==='slot'&&token===dialogOwner){if(profit>0){tone(result.result?.type==='jackpot'?'jackpot':'win');speak(result.result?.type==='jackpot'?'Джекпот! Поздравляем!':'Выигрыш '+profit+' монет.');}else tone('hurt');}
  }catch(e){if(currentUid===user){slotMessage=(e.message||'Нет связи')+' Если ставка уже принята, повторная проверка не спишет монеты ещё раз.';}}
- finally{clearInterval(slotTimer);slotTimer=null;slotBusy=false;if(currentUid===user&&dialog.open&&view==='slot'){render(true);if(slotMessage.includes('выигрыш')||slotMessage.includes('ДЖЕКПОТ'))dialog.querySelector('.slot-shell')?.classList.add('winner');}}
+ finally{if(reelAnim){reelAnim.cancel();reelAnim=null;}clearInterval(slotTimer);slotTimer=null;slotBusy=false;if(currentUid===user&&dialog.open&&view==='slot'){render(true);if(slotMessage.includes('выигрыш')||slotMessage.includes('ДЖЕКПОТ'))dialog.querySelector('.slot-shell')?.classList.add('winner');}}
 }
 function renderRanking(host){
  const rows=C.leaderboard(A.players(),rankMode),mine=currentUid;
