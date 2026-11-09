@@ -7,8 +7,8 @@ const initialHead=()=>({gameRound:0,bank:1000,totalStakes:0,totalPayouts:0,actor
 const initialPlayer=(uid,email,name)=>({uid,email,name,net:0,payouts:0,stakes:0,spins:0,jackpots:0,marioCoins:0,unlocked:1,daily:{day:'',claims:[]}});
 function slotOutcome(roll,bank){
  if(!Number.isInteger(roll)||roll<0||roll>=10000)throw Error('Неверный результат барабанов');
- const type=roll===0?'jackpot':roll<100?'big':roll<1100?'medium':roll<4600?'small':'loss';
- const requested=type==='jackpot'?bank+BET:type==='big'?100:type==='medium'?20:type==='small'?12:0;
+ const type=roll===0?'jackpot':roll<150?'big':roll<950?'medium':roll<4350?'small':'loss';
+ const requested=type==='jackpot'?bank+BET:type==='big'?150:type==='medium'?30:type==='small'?15:0;
  return {type,payout:Math.min(bank+BET,requested),symbols:type==='jackpot'?['👑','👑','👑']:type==='big'?['💎','💎','💎']:type==='medium'?['⭐','⭐','⭐']:type==='small'?['🍒','🍒','🍒']:['🚧','🍒','⭐']};
 }
 function settle(head,player,action,available,day){
@@ -26,8 +26,10 @@ function settle(head,player,action,available,day){
   p.daily.claims.push(id);p.marioCoins++;p.net++;delta=1;payout=1;
  }else if(action.kind==='finish'){
   if(!Number.isInteger(action.level)||action.level<1||action.level>p.unlocked||action.level>LEVELS)throw Error('Этот уровень пока закрыт.');
-  if(p.unlocked>action.level||action.level===LEVELS)return {head:h,player:p,delta:0,noop:true,reason:'completed'};
-  p.unlocked=action.level+1;
+  const coins=Number.isInteger(action.coins)?Math.max(0,Math.min(99,action.coins)):0;
+  p.marioCoins+=coins;p.net+=coins;delta=coins;payout=coins;
+  if(p.unlocked<=action.level&&action.level<LEVELS)p.unlocked=action.level+1;
+  result={type:'mario_finish',coins,score:Number.isInteger(action.score)?action.score:0,bonus:Number.isInteger(action.jumpBonus)?action.jumpBonus:0,unlocked:p.unlocked};
  }else if(action.kind==='purchase'){
   if(!Number.isInteger(action.price)||action.price<0||available<action.price)throw Error('Монет пока недостаточно.');cost=action.price;
  }else throw Error('Неизвестное игровое действие');

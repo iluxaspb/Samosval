@@ -20,6 +20,13 @@ export function normalizeGame(input){
   if(['mario','finish'].includes(a.kind)){
     if(!Number.isInteger(a.level)||a.level<1||a.level>20)throw fail('invalid-game-level');action.level=a.level;
   }
+  if(a.kind==='finish'){
+    // Итог уровня: монеты за блоки, врагов и прыжок на флаге.
+    if(a.coins!==undefined&&(!Number.isInteger(a.coins)||a.coins<0||a.coins>99))throw fail('invalid-game-coins');
+    if(a.score!==undefined&&(!Number.isInteger(a.score)||a.score<0||a.score>999999))throw fail('invalid-game-score');
+    if(a.jumpBonus!==undefined&&(!Number.isInteger(a.jumpBonus)||a.jumpBonus<0||a.jumpBonus>10))throw fail('invalid-game-bonus');
+    action.coins=a.coins||0;action.score=a.score||0;action.jumpBonus=a.jumpBonus||0;
+  }
   if(a.kind==='mario'){
     if(!Number.isInteger(a.coin)||a.coin<0||a.coin>4||typeof a.day!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(a.day))throw fail('invalid-game-coin');action.coin=a.coin;action.day=a.day;
   }

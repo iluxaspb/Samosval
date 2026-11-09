@@ -117,3 +117,18 @@ try {
 } catch (e) { console.error('static FAIL', e.message); process.exitCode = 1; }
 
 console.log('Правки 4.2.8: регрессии пройдены');
+
+// ---------- 4. Серверные правила совпадают с новыми выплатами и Марио ----------
+(async () => {
+  const srv = await import(path.join(root, 'server/src/arcade-rules.mjs'));
+  const head = srv.initialHead(), player = srv.initialPlayer('u', 'u@x', 'U'), day = srv.dayKey();
+  const small = srv.settle(head, player, { kind: 'slot', roll: 2000 }, 100, day);
+  const big = srv.settle(head, player, { kind: 'slot', roll: 100 }, 100, day);
+  assert.strictEqual(small.payout, 15, 'сервер платит 15 за частый выигрыш');
+  assert.strictEqual(big.payout, 150, 'сервер платит 150 за крупный выигрыш');
+  const fin = srv.settle(head, player, { kind: 'finish', level: 1, coins: 25, score: 500, jumpBonus: 5 }, 100, day);
+  assert.strictEqual(fin.delta, 25, 'сервер зачисляет монеты Марио одной операцией');
+  assert.strictEqual(fin.player.marioCoins, 25);
+  assert.strictEqual(fin.player.unlocked, 2);
+  ok('4) серверные выплаты автомата и Марио совпадают с приложением');
+})().catch(e => { console.error('4) FAIL', e.message); process.exitCode = 1; });

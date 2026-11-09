@@ -2,7 +2,7 @@
 (function(){
 'use strict';
 const A=window.RoadArcade,C=window.RoadArcadeCore,E=escapeHtml;
-let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,invites=true,seenOwner='',notice='',levelBusy=false,lastDay=C.dayKey();
+let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,invites=true,seenOwner='',notice='',levelBusy=false,lastDay=C.dayKey(),coinFx=[],finishSummary=null;
 const keys=new Set(),pointers=new Map(),f=n=>Number(n||0).toLocaleString('ru-RU');
 const dialog=document.createElement('dialog');dialog.id='arcade-dialog';dialog.setAttribute('aria-labelledby','arcade-title');document.body.append(dialog);
 const entry=document.createElement('button');entry.id='arcade-entry';entry.type='button';entry.title='Мини-игры и рейтинг выигрышей';entry.setAttribute('aria-label','Мини-игры и рейтинг выигрышей');entry.textContent='🎮';document.querySelector('#mainHeader .top-row')?.insertBefore(entry,document.querySelector('#mainHeader .gear-btn'));
@@ -29,7 +29,10 @@ function tone(kind){if(!audioReady())return;
   else if(kind==='coin')coinDing(t);
   else if(kind==='win'){[523,659,784,1046].forEach((n,i)=>audioBeep(n,t+i*.11,.22,{type:'square',peak:.035}));coinDing(t+.5,.04);}
   else if(kind==='jackpot'){for(let i=0;i<6;i++){const up=i%2===0;audioBeep(up?640:1180,t+i*.16,.15,{type:'sawtooth',peak:.028,to:up?1180:640});}[523,659,784,1046,1318,1568].forEach((n,i)=>audioBeep(n,t+1.02+i*.1,.26,{type:'square',peak:.04}));for(let i=0;i<14;i++)coinDing(t+1.2+i*.07,.032,1800+(i%3)*220);}
-  else if(kind==='jump')audioBeep(430,t,.14,{peak:.04,to:820});
+  else if(kind==='jump')audioBeep(360,t,.12,{type:'square',peak:.045,to:760});
+  else if(kind==='block'){audioNoise(t,.03,{peak:.03,hp:700});audioBeep(180,t,.07,{type:'square',peak:.04,to:120});}
+  else if(kind==='stomp'){audioNoise(t,.04,{peak:.045,hp:400});audioBeep(220,t,.1,{type:'square',peak:.045,to:90});}
+  else if(kind==='clear'){[523,659,784,1046,1318,1568,2093].forEach((n,i)=>audioBeep(n,t+i*.12,.2,{type:'square',peak:.04}));}
   else if(kind==='finish'){[659,784,1046,1318].forEach((n,i)=>audioBeep(n,t+i*.1,.22,{type:'triangle',peak:.04}));}
   else if(kind==='hurt')audioBeep(230,t,.28,{type:'sawtooth',peak:.04,to:95});
   else audioBeep(330,t,.12,{peak:.03});
@@ -50,11 +53,11 @@ function render(force=false){
  if(view==='mario'&&run&&!force&&dialog.querySelector('#mario-canvas')){updateNumbers();return;}viewStamp=stamp;
  dialog.innerHTML='<div class="arcade-head"><h2 id="arcade-title">🎮 Дорожная аркада</h2><button class="arcade-close" aria-label="Закрыть мини-игры">×</button></div>'
  +'<div class="arcade-tabs"><button data-view="home" aria-pressed="'+(view==='home')+'">Игры</button>'+(A.available('mario')?'<button data-view="mario" aria-pressed="'+(view==='mario')+'">🍄 Марио</button>':'')+(A.available('slot')?'<button data-view="slot" aria-pressed="'+(view==='slot')+'">🎰 Автомат</button>':'')+'<button data-view="ranking" aria-pressed="'+(view==='ranking')+'">🏆 Выигрыши</button><button id="arcade-sound" aria-pressed="'+sound+'">'+(sound?'🔊 Звук':'🔇 Без звука')+'</button></div>'
- +'<div class="arcade-balance"><span>Кошелёк <b data-arcade-balance>'+f(A.balance())+'</b> 🪙</span><span>Марио сегодня <b data-mario-daily>'+today+'</b> / 100</span></div><p class="arcade-note">Только виртуальные монеты приложения. Игры не меняют рабочий рейтинг. Дневной лимит обновляется в 00:00 по Москве.</p><div class="arcade-status" id="arcade-status" role="status">'+E(status.error||(!status.ready?'Синхронизируем игровой банк…':notice))+'</div><div id="arcade-content"></div>';
+ +'<div class="arcade-balance"><span>Кошелёк <b data-arcade-balance>'+f(A.balance())+'</b> 🪙</span><span>Монеты Марио — в кошелёк в конце уровня</span></div><p class="arcade-note">Только виртуальные монеты приложения. Игры не меняют рабочий рейтинг.</p><div class="arcade-status" id="arcade-status" role="status">'+E(status.error||(!status.ready?'Синхронизируем игровой банк…':notice))+'</div><div id="arcade-content"></div>';
  dialog.querySelector('.arcade-close').onclick=close;dialog.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>open(b.dataset.view));dialog.querySelector('#arcade-sound').onclick=()=>{sound=!sound;savePrefs();unlockSound();dialog.querySelector('#arcade-sound').textContent=sound?'🔊 Звук':'🔇 Без звука';dialog.querySelector('#arcade-sound').setAttribute('aria-pressed',String(sound));};
  const host=dialog.querySelector('#arcade-content');
  if(view==='home'){
-  host.innerHTML='<div class="arcade-hub">'+(A.available()?'':'<section class="arcade-game-card"><div class="game-emoji">🎮</div><h3>Игры ждут смены</h3><p class="arcade-note">Мини-игры открываются, когда на линии начата смена: игра идёт во время рабочей смены. Начните смену — и кнопки Марио и автомата появятся здесь.</p></section>')+(A.available('mario')?'<section class="arcade-game-card"><div class="game-emoji">🍄 🚧</div><h3>Марио: дорожное приключение</h3><p class="arcade-note">20 уровней, препятствия и всего пять монет на уровень. Каждую можно получить один раз в день. Максимум 100 монет за день.</p><button class="arcade-start" data-launch="mario">Играть</button></section>':'')+(A.available('slot')?'<section class="arcade-game-card">'+mascot()+'<h3>Однорукий бандит</h3><p class="arcade-note">Ставка 10 монет. Частые небольшие выплаты и редкий общий джекпот. Выигрыш не гарантирован.</p><button class="arcade-start" data-launch="slot">К автомату</button></section>':'')+'</div>';
+  host.innerHTML='<div class="arcade-hub">'+(A.available()?'':'<section class="arcade-game-card"><div class="game-emoji">🎮</div><h3>Игры ждут смены</h3><p class="arcade-note">Мини-игры открываются, когда на линии начата смена: игра идёт во время рабочей смены. Начните смену — и кнопки Марио и автомата появятся здесь.</p></section>')+(A.available('mario')?'<section class="arcade-game-card"><div class="game-emoji">🍄 🚧</div><h3>Марио: дорожное приключение</h3><p class="arcade-note">20 уровней: блоки «?» с монетами, враги, трубы и флажок. Каждый враг и монета — в кошелёк, в конце уровня ещё бонус за высоту прыжка. Дневного лимита нет.</p><button class="arcade-start" data-launch="mario">Играть</button></section>':'')+(A.available('slot')?'<section class="arcade-game-card">'+mascot()+'<h3>Однорукий бандит</h3><p class="arcade-note">Ставка 10 монет. Частые небольшие выплаты и редкий общий джекпот. Выигрыш не гарантирован.</p><button class="arcade-start" data-launch="slot">К автомату</button></section>':'')+'</div>';
   host.querySelectorAll('[data-launch]').forEach(b=>b.onclick=()=>open(b.dataset.launch));
  }else if(view==='slot')renderSlot(host);else if(view==='ranking')renderRanking(host);else renderMario(host);
  updateNumbers();
@@ -66,7 +69,7 @@ function updateNumbers(){
  // Кнопка не должна молча не реагировать: блокируем её только на время вращения,
  // а любую причину отказа объясняем текстом в spin().
  const spin=dialog.querySelector('#slot-spin');if(spin)spin.disabled=slotBusy;
- if(view==='mario'&&run){const el=dialog.querySelector('[data-mario-lives]');if(el)el.textContent='♥'.repeat(Math.max(0,run.lives));const level=dialog.querySelector('[data-mario-level]');if(level)level.textContent=run.map.level;}
+ if(view==='mario'&&run){const el=dialog.querySelector('[data-mario-lives]');if(el)el.textContent='♥'.repeat(Math.max(0,run.lives));const level=dialog.querySelector('[data-mario-level]');if(level)level.textContent=run.map.level;const coins=dialog.querySelector('[data-mario-coins]');if(coins)coins.textContent=run.coins;const score=dialog.querySelector('[data-mario-score]');if(score)score.textContent=run.score;}
 }
 // Настоящие барабаны: полоса символов прокручивается вертикально с размытием
 // на скорости и поочерёдной остановкой с отскоком (ease-out-back).
@@ -178,39 +181,92 @@ function renderRanking(host){
  host.querySelectorAll('[data-rank]').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.rank===rankMode));b.onclick=()=>{rankMode=b.dataset.rank;render(true);};});
 }
 function renderMario(host){
- host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+'♥'.repeat(run?.lives||3)+'</b></span><span>Редких монет: 5 на уровень</span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или экранной кнопкой"></canvas><div id="mario-controls"><div class="arrows"><button type="button" data-key="left" aria-label="Идти влево">←</button><button type="button" data-key="right" aria-label="Идти вправо">→</button></div><button type="button" class="jump" data-key="jump">Прыжок ↑</button></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень')+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">← → / A D — движение; пробел, W или ↑ — прыжок. На врагов можно прыгать сверху. Монеты спрятаны на высоких площадках. Уже полученные сегодня монеты не начисляются повторно. Открытые уровни и дневной лимит сохраняются в аккаунте. Для начисления нужна связь.</p>';
+ host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+'♥'.repeat(run?.lives||3)+'</b></span><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>Очки <b data-mario-score>'+(run?.score||0)+'</b></span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или экранной кнопкой"></canvas><div id="mario-controls"><div class="arrows"><button type="button" data-key="left" aria-label="Идти влево">←</button><button type="button" data-key="right" aria-label="Идти вправо">→</button></div><button type="button" class="jump" data-key="jump">Прыжок ↑</button></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень')+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">← → / A D — движение; пробел, W или ↑ — прыжок: держите дольше — прыжок выше. Прыгайте на врагов, бейте блоки «?» снизу и собирайте монеты. Чем выше прыжок у флажка, тем больше бонус. Все монеты в конце уровня перечисляются в кошелёк — дневного лимита нет.</p>';
  host.querySelector('#mario-start').onclick=()=>{unlockSound();if(!run||run.done||run.lives<=0||run.map.level!==Number(host.querySelector('#mario-level').value))startLevel(Number(host.querySelector('#mario-level').value));else{run.paused=false;lastFrame=0;startLoop();}};
  host.querySelector('#mario-restart').onclick=()=>startLevel(Number(host.querySelector('#mario-level').value));host.querySelector('#mario-pause').onclick=()=>{if(!run)return;run.paused=!run.paused;keys.clear();pointers.clear();if(!run.paused)startLoop();drawMario();};
  host.querySelector('#mario-next').onclick=()=>{if(run?.done&&run.map.level<20&&run.map.level<unlocked())startLevel(run.map.level+1);};
  host.querySelectorAll('[data-key]').forEach(b=>{b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture?.(e.pointerId);pointers.set(e.pointerId,b.dataset.key);b.setAttribute('aria-pressed','true');unlockSound();};const release=e=>{pointers.delete(e.pointerId);b.setAttribute('aria-pressed','false');};b.onpointerup=release;b.onpointercancel=release;b.onlostpointercapture=release;});
  if(!run)drawWelcome();else drawMario();
 }
-function startLevel(level){if(!A.available('mario')||level>unlocked())return;stopRun();unlockSound();run=C.createRun(level);notice='';levelBusy=false;const p=A.me();if(p.daily?.day===C.dayKey())for(const key of p.daily.claims){const [l,c]=key.split(':').map(Number);if(l===level)run.collected.add(c);}render(true);speak('Уровень '+level);startLoop();}
+function startLevel(level){if(!A.available('mario')||level>unlocked())return;stopRun();unlockSound();run=C.createRun(level);notice='';levelBusy=false;finishSummary=null;coinFx.length=0;render(true);speak('Уровень '+level);startLoop();}
 function startLoop(){if(!raf&&dialog.open&&view==='mario'&&run&&!run.paused&&!run.done)raf=requestAnimationFrame(tickMario);}
-function tickMario(now){raf=0;if(!run||!dialog.open||view!=='mario'||!A.available('mario'))return;if(document.hidden){run.paused=true;keys.clear();pointers.clear();drawMario();return;}if(!lastFrame)lastFrame=now;const input=new Set([...keys,...pointers.values()]);C.advanceRun(run,{axis:(input.has('right')?1:0)-(input.has('left')?1:0),jump:input.has('jump')},(now-lastFrame)/1000,event=>onMario(event,run));lastFrame=now;drawMario();updateNumbers();startLoop();}
+function tickMario(now){raf=0;if(!run||!dialog.open||view!=='mario'||!A.available('mario'))return;if(document.hidden){run.paused=true;keys.clear();pointers.clear();drawMario();return;}if(!lastFrame)lastFrame=now;const dt=(now-lastFrame)/1000;const input=new Set([...keys,...pointers.values()]);C.advanceRun(run,{axis:(input.has('right')?1:0)-(input.has('left')?1:0),jump:input.has('jump')},dt,event=>onMario(event,run));for(const fx of coinFx){fx.t+=dt;fx.y+=fx.vy*dt;fx.vy+=900*dt;}if(coinFx.length)coinFx=coinFx.filter(fx=>fx.t<fx.life);lastFrame=now;drawMario();updateNumbers();startLoop();}
 async function onMario(event,session){
- if(event.type==='jump'||event.type==='hurt'||event.type==='stomp'){tone(event.type==='stomp'?'coin':event.type);if(event.over){notice='Жизни закончились. Нажмите «Заново» — заработанные монеты сохранятся.';setStatus(notice);}return;}
- const user=currentUid;
- if(event.type==='coin'){
-  const day=C.dayKey();try{const result=await A.transact({id:'mario_'+day+'_'+session.map.level+'_'+event.coin,kind:'mario',day,level:session.map.level,coin:event.coin});if(currentUid!==user)return;session.pending.delete(event.coin);session.collected.add(event.coin);if(result.delta>0&&!result.replayed){tone('coin');setStatus('+1 🪙 · Сегодня '+(A.me().daily?.claims.length||0)+' / 100');}else setStatus(result.reason==='limit'?'Дневной лимит 100 монет достигнут. Можно играть дальше без начислений.':'Эта монетка уже получена сегодня.');}catch(e){session.pending.delete(event.coin);setStatus(e.message||'Монета не сохранилась. Попробуйте ещё раз после подключения.');session.paused=true;}return;
+ if(event.type==='jump'){tone('jump');return;}
+ if(event.type==='bump'){tone('block');return;}
+ if(event.type==='blockCoin'){tone('coin');for(let i=0;i<event.coins;i++)coinFx.push({x:event.x,y:event.y-12,vy:-260-i*45,t:0,life:.85});setStatus('+'+event.coins+' 🪙 из блока · всего '+session.coins);return;}
+ if(event.type==='coin'){tone('coin');coinFx.push({x:event.x,y:event.y,vy:-230,t:0,life:.7});setStatus('+1 🪙 · всего '+session.coins);return;}
+ if(event.type==='stomp'){tone('stomp');coinFx.push({x:event.x,y:event.y,vy:-250,t:0,life:.8});setStatus('+1 🪙 за врага · всего '+session.coins);return;}
+ if(event.type==='hurt'){tone('hurt');if(event.over){notice='Жизни закончились. Нажмите «Заново».';setStatus(notice);}return;}
+ if(event.type==='finish'&&!levelBusy){
+  levelBusy=true;tone('clear');finishSummary={coins:event.coins,bonus:event.bonus,score:event.score,credited:false};
+  const user=currentUid;
+  try{
+   const result=await A.transact({id:'mario_finish_'+session.map.level+'_'+Date.now(),kind:'finish',level:session.map.level,coins:event.coins,score:event.score,jumpBonus:event.bonus});
+   if(currentUid!==user)return;finishSummary.credited=true;finishSummary.creditedCoins=Number(result.payout)||event.coins;
+   setStatus('Уровень пройден: '+event.coins+' 🪙 перечислены в кошелёк');
+   speak('Уровень пройден! '+event.coins+' монет в кошельке.');
+   if(run===session){render(true);const next=dialog.querySelector('#mario-next');if(next){next.hidden=session.map.level>=20;next.disabled=false;}}
+  }catch(e){finishSummary.credited=false;setStatus('Монеты пока не перечислены: '+e.message);}
+  finally{levelBusy=false;}
  }
- if(event.type==='finish'&&!levelBusy){levelBusy=true;tone('finish');try{await A.transact({id:'mario_finish_'+session.map.level,kind:'finish',level:session.map.level});if(currentUid!==user)return;setStatus(session.map.level===20?'Все 20 уровней пройдены! Отличная работа.':'Уровень пройден! Следующий открыт.');speak('Уровень пройден!');if(run===session){render(true);const next=dialog.querySelector('#mario-next');if(next){next.hidden=session.map.level>=20;next.disabled=false;}}}catch(e){setStatus('Финиш пока не сохранён: '+e.message);session.done=false;session.paused=true;}finally{levelBusy=false;}}
 }
 function setStatus(text){notice=text;const el=dialog.querySelector('#arcade-status');if(el)el.textContent=text;}
-function drawWelcome(){const canvas=dialog.querySelector('#mario-canvas');if(!canvas)return;const g=canvas.getContext('2d');if(!g)return;g.fillStyle='#9bd8ef';g.fillRect(0,0,960,540);g.fillStyle='#18445c';g.font='bold 35px sans-serif';g.textAlign='center';g.fillText('Марио: дорожное приключение',480,215);g.font='20px sans-serif';g.fillText('20 уровней · редкие монеты · максимум 100 за день',480,260);g.fillText('Нажмите «Начать уровень»',480,320);}
+function drawWelcome(){const canvas=dialog.querySelector('#mario-canvas');if(!canvas)return;const g=canvas.getContext('2d');if(!g)return;
+ g.fillStyle='#5c94fc';g.fillRect(0,0,960,540);
+ g.fillStyle='#3fa63f';for(let i=-1;i<5;i++){g.beginPath();g.arc(i*260+120,440,110,Math.PI,0);g.fill();}
+ g.fillStyle='#c84c0c';g.fillRect(0,440,960,100);g.fillStyle='#4caf50';g.fillRect(0,440,960,12);
+ g.fillStyle='#fff';g.font='900 46px Arial Black,Arial,sans-serif';g.textAlign='center';g.fillText('САМОСВАЛ · МАРИО',480,200);
+ g.font='bold 20px monospace';g.fillText('20 уровней · монеты из блоков, за врагов и за прыжок на флаге',480,248);
+ g.fillText('Все монеты в конце уровня уходят в кошелёк',480,278);
+ g.fillStyle='#ffe066';g.fillText('Нажмите «Начать уровень»',480,340);
+}
+function drawCloud(g,x,y){g.fillStyle='#ffffff';g.beginPath();g.arc(x,y,22,0,Math.PI*2);g.arc(x+24,y-8,26,0,Math.PI*2);g.arc(x+52,y,22,0,Math.PI*2);g.fill();}
+function drawCoinSprite(g,x,y,t,scale){const w=Math.max(.25,Math.abs(Math.cos(t*4+x*.02)));g.save();g.translate(x,y);g.scale(w*(scale||1),scale||1);g.fillStyle='#ffd230';g.beginPath();g.arc(0,0,9,0,Math.PI*2);g.fill();g.strokeStyle='#b37b00';g.lineWidth=2;g.stroke();g.fillStyle='#fff2a8';g.fillRect(-2,-5,3,10);g.restore();}
+function drawGoomba(g,e,t){const x=e.x,y=e.y;g.fillStyle='#8a4b17';g.beginPath();g.ellipse(x+e.w/2,y+e.h*.55,e.w*.5,e.h*.55,0,0,Math.PI*2);g.fill();g.fillStyle='#f2d3a6';g.fillRect(x+5,y+e.h*.45,e.w-10,6);g.fillStyle='#fff';g.beginPath();g.arc(x+9,y+9,4,0,Math.PI*2);g.arc(x+e.w-9,y+9,4,0,Math.PI*2);g.fill();g.fillStyle='#231f20';g.beginPath();g.arc(x+9,y+9,2,0,Math.PI*2);g.arc(x+e.w-9,y+9,2,0,Math.PI*2);g.fill();g.fillStyle='#3b2410';g.fillRect(x+2,y+e.h-4,9,4);g.fillRect(x+e.w-11,y+e.h-4,9,4);}
+function drawPlayerSprite(g,p,t){const x=Math.round(p.x),y=Math.round(p.y),walk=p.grounded&&Math.abs(p.vx)>.1,stride=walk?Math.sin(t*20)*2:0;
+ g.fillStyle='#e52521';g.fillRect(x+3,y,22,7);g.fillRect(x,y+6,28,4);
+ g.fillStyle='#fdc38a';g.fillRect(x+6,y+10,18,10);g.fillStyle='#6b3410';g.fillRect(x+4,y+9,5,8);g.fillRect(x+17,y+9,3,3);g.fillRect(x+21,y+12,6,4);g.fillStyle='#2b1b10';g.fillRect(x+19,y+11,4,4);
+ g.fillStyle='#e52521';g.fillRect(x+3,y+20,22,10);g.fillStyle='#2a5bb7';g.fillRect(x+8,y+22,12,12);g.fillRect(x+6,y+20,4,8);g.fillRect(x+19,y+20,4,8);
+ g.fillStyle='#ffd230';g.fillRect(x+10,y+24,2,2);g.fillRect(x+17,y+24,2,2);
+ g.fillStyle='#6b3410';g.fillRect(x+4,y+33+stride,10,4);g.fillRect(x+17,y+33-stride,10,4);
+}
 function drawMario(){
- const canvas=dialog.querySelector('#mario-canvas');if(!canvas||!run)return;const g=canvas.getContext('2d');if(!g)return;const m=run.map,p=run.player,camera=run.camera,night=m.level%4===0;
- g.fillStyle=night?'#142b4d':m.level%4===2?'#ead3ad':'#9edcf2';g.fillRect(0,0,960,540);g.fillStyle=night?'#243e5c':'#8cb8a3';for(let i=-1;i<6;i++){const x=i*260-(camera*.2)%260;g.beginPath();g.moveTo(x,440);g.lineTo(x+150,190);g.lineTo(x+310,440);g.fill();}
- g.fillStyle=night?'#eee6c4':'#ffffffbb';for(let i=0;i<5;i++){const x=i*270+90-(camera*.12)%270;g.beginPath();g.ellipse(x,80+(i%2)*45,55,16,0,0,Math.PI*2);g.fill();}
- g.save();g.translate(-camera,0);
- for(const q of m.platforms){if(q.x+q.w<camera||q.x>camera+960)continue;g.fillStyle=q.ground?'#805c3a':'#be803c';g.fillRect(q.x,q.y,q.w,q.h);g.fillStyle=q.ground?'#46515b':'#e9bf69';g.fillRect(q.x,q.y,q.w,12);if(q.ground){g.fillStyle='#e5d5a0';for(let x=q.x+20;x<q.x+q.w-15;x+=50)g.fillRect(x,q.y+4,24,3);}else{g.strokeStyle='#80552b';g.strokeRect(q.x,q.y,q.w,q.h);}}
- for(const coin of m.coins){if(coin.x<camera-20||coin.x>camera+980)continue;const claimed=run.collected.has(coin.id),pending=run.pending.has(coin.id);g.globalAlpha=claimed?.2:pending?.45:1;g.fillStyle='#ffd454';g.beginPath();g.ellipse(coin.x,coin.y+Math.sin(run.time*3+coin.id)*3,8,11,0,0,Math.PI*2);g.fill();g.strokeStyle='#b3760b';g.lineWidth=2;g.stroke();g.fillStyle='#fff0b3';g.fillRect(coin.x-1,coin.y-6,2,11);g.globalAlpha=1;}
- for(const e of m.enemies){if(!e.alive||e.x<camera-40||e.x>camera+980)continue;g.fillStyle='#a76d36';g.beginPath();g.ellipse(e.x+14,e.y+10,16,12,0,0,Math.PI*2);g.fill();g.fillStyle='#fff';g.fillRect(e.x+5,e.y+3,7,8);g.fillRect(e.x+17,e.y+3,7,8);g.fillStyle='#252224';g.fillRect(e.x+8,e.y+6,3,5);g.fillRect(e.x+18,e.y+6,3,5);g.fillRect(e.x-1,e.y+19,12,5);g.fillRect(e.x+18,e.y+19,12,5);}
- g.fillStyle='#e1e6eb';g.fillRect(m.flag,260,4,180);g.fillStyle='#55b972';g.beginPath();g.moveTo(m.flag+4,260);g.lineTo(m.flag+68,279);g.lineTo(m.flag+4,298);g.fill();
- // Small original canvas sprite: red cap, moustache, blue overalls.
- const x=Math.round(p.x),y=Math.round(p.y),stride=p.grounded&&p.vx?Math.sin(run.time*18)*2:0;
- g.fillStyle='#dc3438';g.fillRect(x+4,y,18,6);g.fillRect(x+1,y+5,26,4);g.fillStyle='#f4c58e';g.fillRect(x+6,y+9,17,11);g.fillRect(x+21,y+12,5,5);g.fillStyle='#5e3927';g.fillRect(x+5,y+9,5,9);g.fillRect(x+13,y+17,12,3);g.fillStyle='#202023';g.fillRect(x+18,y+10,3,4);g.fillStyle='#d83938';g.fillRect(x+3,y+20,22,9);g.fillStyle='#2e62ad';g.fillRect(x+7,y+20,4,9);g.fillRect(x+19,y+20,4,9);g.fillRect(x+7,y+25,16,7);g.fillStyle='#f5ce52';g.fillRect(x+9,y+24,2,2);g.fillRect(x+19,y+24,2,2);g.fillStyle='#6b422d';g.fillRect(x+4,y+30+stride,10,5);g.fillRect(x+17,y+30-stride,10,5);g.restore();
- if(run.paused||run.done){g.fillStyle='#082033aa';g.fillRect(0,0,960,540);g.fillStyle='#fff';g.textAlign='center';g.font='bold 30px sans-serif';g.fillText(run.done?'Уровень пройден!':run.lives<=0?'Попробуем ещё раз?':'Пауза',480,250);g.font='18px sans-serif';g.fillText(run.done?'Следующий уровень — кнопкой под игрой':run.lives<=0?'Нажмите «Заново»':'Нажмите «Продолжить»',480,290);}
+ const canvas=dialog.querySelector('#mario-canvas');if(!canvas||!run)return;const g=canvas.getContext('2d');if(!g)return;
+ const m=run.map,p=run.player,cam=run.camera,night=m.level%4===0;
+ g.fillStyle=night?'#0b1a33':'#5c94fc';g.fillRect(0,0,960,540);
+ g.fillStyle=night?'#17304f':'#3fa63f';for(let i=-1;i<7;i++){const x=i*300-(cam*.22)%300;g.beginPath();g.arc(x+120,440,110,Math.PI,0);g.fill();}
+ for(let i=0;i<6;i++)drawCloud(g,i*250+70-(cam*.12)%250,70+(i%2)*40);
+ g.save();g.translate(-cam,0);
+ for(const q of m.platforms){if(q.x+q.w<cam-40||q.x>cam+1000)continue;
+  g.fillStyle='#c84c0c';g.fillRect(q.x,q.y,q.w,q.h);g.fillStyle='#e45c10';for(let tx=q.x;tx<q.x+q.w-4;tx+=32)for(let ty=q.y+14;ty<q.y+q.h-4;ty+=32)g.fillRect(tx+2,ty+2,28,28);
+  g.fillStyle='#4caf50';g.fillRect(q.x,q.y,q.w,12);g.fillStyle='#6ee06e';g.fillRect(q.x,q.y,q.w,4);}
+ for(const q of m.pipes){if(q.x+q.w<cam-40||q.x>cam+1000)continue;g.fillStyle='#00a800';g.fillRect(q.x+6,q.y+16,q.w-12,q.h-16);g.fillStyle='#00d800';g.fillRect(q.x,q.y,q.w,18);g.fillStyle='#007000';g.fillRect(q.x+q.w-10,q.y+20,8,q.h-20);g.strokeStyle='#005000';g.lineWidth=2;g.strokeRect(q.x+6,q.y+16,q.w-12,q.h-16);}
+ for(const b of m.blocks){if(b.x+b.w<cam-40||b.x>cam+1000)continue;
+  if(b.kind==='question'&&!b.used){g.fillStyle='#c27c00';g.fillRect(b.x,b.y,b.w,b.h);g.fillStyle='#fbc02d';g.fillRect(b.x+3,b.y+3,b.w-6,b.h-6);g.fillStyle='#7a4a00';g.font='900 28px monospace';g.textAlign='center';g.textBaseline='middle';g.fillText('?',b.x+b.w/2,b.y+b.h/2+2);}
+  else{g.fillStyle='#9c4a00';g.fillRect(b.x,b.y,b.w,b.h);g.fillStyle='#c86a1a';for(let ry=0;ry<2;ry++)for(let rx=0;rx<2;rx++)g.fillRect(b.x+3+rx*19,b.y+3+ry*19,18,18);g.fillStyle='#5c2c00';g.fillRect(b.x,b.y+b.h-4,b.w,4);}
+ }
+ for(const c of m.coins){if(run.collected.has(c.id)||c.x<cam-30||c.x>cam+990)continue;drawCoinSprite(g,c.x,c.y,run.time,1);}
+ for(const e of m.enemies){if(!e.alive||e.x+e.w<cam-40||e.x>cam+1000)continue;drawGoomba(g,e,run.time);}
+ const fx=m.flag;g.fillStyle='#9bd0a0';g.fillRect(fx,150,6,290);g.fillStyle='#ffd700';g.beginPath();g.arc(fx+3,146,8,0,Math.PI*2);g.fill();g.fillStyle='#e52521';g.beginPath();g.moveTo(fx+6,160);g.lineTo(fx+6,215);g.lineTo(fx+64,187);g.closePath();g.fill();
+ g.fillStyle='#7a4a00';g.fillRect(fx-16,436,44,8);
+ drawPlayerSprite(g,p,run.time);
+ g.restore();
+ for(const fx2 of coinFx){if(fx2.t<fx2.life)drawCoinSprite(g,fx2.x-cam,fx2.y,run.time,1-fx2.t/fx2.life*.4);}
+ // Счётчик монет в углу — как в настоящей игре.
+ g.fillStyle='#00000088';g.fillRect(12,10,170,38);g.fillStyle='#ffd230';g.font='bold 24px monospace';g.textAlign='left';g.textBaseline='top';g.fillText('🪙 × '+run.coins,22,17);
+ g.fillStyle='#ffffff';g.font='bold 15px monospace';g.fillText('УРОВЕНЬ '+m.level,205,18);g.fillText('ОЧКИ '+run.score,205,36);
+ if(run.paused||run.done){
+  g.fillStyle='#06101de0';g.fillRect(0,0,960,540);
+  g.textAlign='center';g.textBaseline='middle';g.fillStyle='#ffd230';g.font='900 34px Arial Black,Arial,sans-serif';
+  g.fillText(run.done?'УРОВЕНЬ ПРОЙДЕН!':run.lives<=0?'ИГРА ОКОНЧЕНА':'ПАУЗА',480,215);
+  g.font='bold 20px monospace';g.fillStyle='#fff';
+  if(run.done&&finishSummary){
+   g.fillText('Монет за уровень: '+finishSummary.coins+'  ·  бонус за прыжок: +'+finishSummary.bonus,480,262);
+   g.fillStyle=finishSummary.credited?'#8ef2a8':'#ffb86b';
+   g.fillText(finishSummary.credited?'Перечислено в кошелёк: '+finishSummary.coins+' 🪙':'Сохраняем монеты…',480,296);
+  }else g.fillText(run.lives<=0?'Нажмите «Заново», чтобы попробовать снова':'Нажмите «Продолжить»',480,262);
+ }
 }
 const keyMap={ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',ArrowUp:'jump',KeyW:'jump',Space:'jump'};
 document.addEventListener('keydown',e=>{if(!dialog.open||view!=='mario'||/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;const k=keyMap[e.code];if(k){e.preventDefault();keys.add(k);unlockSound();}});

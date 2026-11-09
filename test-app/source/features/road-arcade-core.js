@@ -29,8 +29,12 @@ function settle(head,player,action,available,day){
   p.daily.claims.push(id);p.marioCoins++;p.net++;delta=1;payout=1;
  }else if(action.kind==='finish'){
   if(!Number.isInteger(action.level)||action.level<1||action.level>p.unlocked||action.level>LEVELS)throw Error('Этот уровень пока закрыт.');
-  if(p.unlocked>action.level||action.level===LEVELS)return {head:h,player:p,delta:0,noop:true,reason:'completed'};
-  p.unlocked=action.level+1;
+  // В конце уровня все собранные монеты перечисляются в кошелёк. Дневного
+  // лимита нет; сервер ограничивает только разумный размер одной выплаты.
+  const coins=Number.isInteger(action.coins)?Math.max(0,Math.min(99,action.coins)):0;
+  p.marioCoins+=coins;p.net+=coins;delta=coins;payout=coins;
+  if(p.unlocked<=action.level&&action.level<LEVELS)p.unlocked=action.level+1;
+  result={type:'mario_finish',coins,score:Number.isInteger(action.score)?action.score:0,bonus:Number.isInteger(action.jumpBonus)?action.jumpBonus:0,unlocked:p.unlocked};
  }else if(action.kind==='purchase'){
   if(!Number.isInteger(action.price)||action.price<0||available<action.price)throw Error('Монет пока недостаточно.');cost=action.price;
  }else throw Error('Неизвестное игровое действие');
@@ -41,32 +45,66 @@ function leaderboard(players,mode='slot'){
 }
 function randomFor(seed){let value=seed>>>0;return ()=>{value^=value<<13;value^=value>>>17;value^=value<<5;return (value>>>0)/4294967296;};}
 function createLevel(level){
- const random=randomFor(9731+level*4051),platforms=[],enemies=[],coins=[],checkpoints=[];let x=0;
- for(let i=0;i<24;i++){
-  const width=250+Math.floor(random()*55),gap=i===23?0:60+Math.floor(random()*Math.min(65,25+level*2));
-  platforms.push({x,y:440,w:width,h:110,ground:true});if(i%6===0)checkpoints.push({x:x+20,y:400});
-  if([4,8,12,16,20].includes(i)){const px=x+width*.5;platforms.push({x:px-48,y:340,w:96,h:18,ground:false});coins.push({id:coins.length,x:px,y:315});}
-  if(i>1&&i%3===0)enemies.push({x:x+width*.35,y:418,w:28,h:22,left:x+24,right:x+width-40,vx:30+level*1.4,alive:true});
+ const random=randomFor(9731+level*4051),platforms=[],blocks=[],coins=[],enemies=[],pipes=[],checkpoints=[];let x=0;
+ const groundY=440,segments=26;
+ for(let i=0;i<segments;i++){
+  const width=260+Math.floor(random()*60),gap=i===segments-1?0:70+Math.floor(random()*Math.min(70,30+level*2));
+  platforms.push({x,y:groundY,w:width,h:110,ground:true});
+  if(i%6===0)checkpoints.push({x:x+20,y:400});
+  // Кирпичи и блоки с вопросом: из блока выскакивает монетка.
+  if(i>1&&i%2===0){
+   const count=3+Math.floor(random()*3),bx=x+60;
+   for(let b=0;b<count;b++)blocks.push({id:blocks.length,x:bx+b*46,y:300,w:44,h:44,kind:(b===1||(b===3&&random()<.5))?'question':'brick',used:false,coins:1+(random()<.3?2:0)});
+  }
+  if(i>3&&i%3===1)blocks.push({id:blocks.length,x:x+width*.55,y:236,w:44,h:44,kind:'brick',used:false,coins:0});
+  if(i>2&&i%4===2)pipes.push({x:x+width*.45,y:groundY-96,w:64,h:96});
+  if(i>2&&i%2===1){const n=3+Math.floor(random()*3);for(let c=0;c<n;c++)coins.push({id:coins.length,x:x+width*.35+c*34,y:262});}
+  if(i>4&&i<segments-2&&i%3===1){const left=x+40,right=x+width-40;enemies.push({x:left+random()*(right-left),y:groundY-26,w:30,h:26,left,right,vx:(random()<.5?-1:1)*(28+level*1.4),alive:true});}
   x+=width+gap;
  }
- return {level,width:x,height:540,platforms,enemies,coins,checkpoints,flag:x-90};
+ return {level,width:x,height:540,groundY,platforms,blocks,coins,enemies,pipes,checkpoints,flag:x-80};
 }
 function intersects(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
-function createRun(level){return {map:createLevel(level),player:{x:35,y:400,w:26,h:34,vx:0,vy:0,grounded:false},lives:3,camera:0,time:0,checkpoint:{x:35,y:400},collected:new Set(),pending:new Set(),done:false,paused:false,jumpHeld:false};}
+function createRun(level){return {map:createLevel(level),player:{x:36,y:400,w:28,h:36,vx:0,vy:0,grounded:false},lives:3,camera:0,time:0,checkpoint:{x:36,y:400},collected:new Set(),pending:new Set(),done:false,paused:false,jumpHeld:false,coins:0,score:0,stomps:0,maxJumpHeight:0};}
 function advanceRun(run,input,dt,onEvent=()=>{}){
- if(run.paused||run.done)return;const step=Math.max(0,Math.min(.04,dt)),p=run.player,oldY=p.y;run.time+=step;
- p.vx=Math.max(-1,Math.min(1,input.axis||0))*225;
- if(input.jump&&!run.jumpHeld&&p.grounded){p.vy=-560;p.grounded=false;onEvent({type:'jump'});}run.jumpHeld=!!input.jump;
- p.vy=Math.min(850,p.vy+1400*step);p.x=Math.max(0,Math.min(run.map.width-p.w,p.x+p.vx*step));p.y+=p.vy*step;p.grounded=false;
- for(const q of run.map.platforms)if(p.vy>=0&&p.x+p.w>q.x&&p.x<q.x+q.w&&oldY+p.h<=q.y+2&&p.y+p.h>=q.y){p.y=q.y-p.h;p.vy=0;p.grounded=true;}
- for(const e of run.map.enemies){if(!e.alive)continue;e.x+=e.vx*step;if(e.x<e.left){e.x=e.left;e.vx=Math.abs(e.vx);}if(e.x>e.right){e.x=e.right;e.vx=-Math.abs(e.vx);}if(intersects(p,e)){if(p.vy>=0&&oldY+p.h<=e.y+9){e.alive=false;p.vy=-330;onEvent({type:'stomp'});}else{hurt(run,onEvent);break;}}}
+ if(run.paused||run.done)return;const step=Math.max(0,Math.min(.04,dt)),p=run.player,m=run.map;run.time+=step;
+ p.vx=Math.max(-1,Math.min(1,input.axis||0))*230;
+ const wanted=!!input.jump;
+ if(wanted&&!run.jumpHeld&&p.grounded){p.vy=-600;p.grounded=false;onEvent({type:'jump'});}
+ // Отпущенная рано кнопка прыжка даёт низкий прыжок — как в оригинале.
+ if(!wanted&&run.jumpHeld&&p.vy<-220)p.vy*=.45;
+ run.jumpHeld=wanted;
+ const oldX=p.x,oldY=p.y;
+ p.vy=Math.min(900,p.vy+1450*step);
+ p.x=Math.max(0,Math.min(m.width-p.w,p.x+p.vx*step));
+ for(const q of m.pipes)if(intersects(p,q)&&oldY+p.h>q.y+6){p.x=oldX;break;}
+ p.y+=p.vy*step;p.grounded=false;
+ for(const q of m.platforms)if(p.vy>=0&&p.x+p.w>q.x&&p.x<q.x+q.w&&oldY+p.h<=q.y+2&&p.y+p.h>=q.y){p.y=q.y-p.h;p.vy=0;p.grounded=true;}
+ for(const q of m.pipes)if(p.vy>=0&&p.x+p.w>q.x&&p.x<q.x+q.w&&oldY+p.h<=q.y+2&&p.y+p.h>=q.y){p.y=q.y-p.h;p.vy=0;p.grounded=true;}
+ for(const b of m.blocks){
+  const hitX=p.x+p.w>b.x+2&&p.x<b.x+b.w-2;if(!hitX)continue;
+  if(p.vy>=0&&oldY+p.h<=b.y+2&&p.y+p.h>=b.y&&p.y+p.h<=b.y+b.h){p.y=b.y-p.h;p.vy=0;p.grounded=true;}
+  else if(p.vy<0&&oldY>=b.y+b.h-2&&p.y<=b.y+b.h&&p.y+p.h>b.y+b.h-4){
+   p.y=b.y+b.h;p.vy=0;
+   if(b.kind==='question'&&!b.used){b.used=true;const gain=b.coins||1;run.coins+=gain;run.score+=100*gain;onEvent({type:'blockCoin',block:b,coins:gain,x:b.x+b.w/2,y:b.y});}
+   else onEvent({type:'bump',block:b});
+  }
+ }
+ if(!p.grounded)run.maxJumpHeight=Math.max(run.maxJumpHeight,Math.max(0,m.groundY-(p.y+p.h)));
+ for(const e of m.enemies){if(!e.alive)continue;e.x+=e.vx*step;if(e.x<e.left){e.x=e.left;e.vx=Math.abs(e.vx);}if(e.x>e.right){e.x=e.right;e.vx=-Math.abs(e.vx);}if(intersects(p,e)){if(p.vy>0&&oldY+p.h<=e.y+10){e.alive=false;run.coins+=1;run.stomps+=1;run.score+=200;p.vy=-390;p.grounded=false;onEvent({type:'stomp',x:e.x+e.w/2,y:e.y});}else{hurt(run,onEvent);break;}}}
  if(p.y>650)hurt(run,onEvent);
- for(const c of run.map.checkpoints)if(p.grounded&&p.x>=c.x&&c.x>run.checkpoint.x)run.checkpoint=c;
- for(const c of run.map.coins)if(!run.collected.has(c.id)&&!run.pending.has(c.id)&&intersects(p,{x:c.x-10,y:c.y-10,w:20,h:20})){run.pending.add(c.id);onEvent({type:'coin',coin:c.id});}
- if(p.x>=run.map.flag&&!run.done){run.done=true;onEvent({type:'finish'});}
- run.camera=Math.max(0,Math.min(run.map.width-960,p.x-260));
+ for(const c of m.checkpoints)if(p.grounded&&p.x>=c.x&&c.x>run.checkpoint.x)run.checkpoint=c;
+ for(const c of m.coins)if(!run.collected.has(c.id)&&intersects(p,{x:c.x-10,y:c.y-12,w:20,h:24})){run.collected.add(c.id);run.coins+=1;run.score+=100;onEvent({type:'coin',coin:c.id,x:c.x,y:c.y});}
+ if(p.x>=m.flag&&!run.done){
+  run.done=true;
+  const height=Math.max(0,run.maxJumpHeight);
+  const bonus=Math.max(1,Math.min(10,1+Math.floor(Math.max(0,height-24)/9)));
+  run.coins+=bonus;run.score+=bonus*100;
+  onEvent({type:'finish',bonus,height,coins:run.coins,score:run.score,stomps:run.stomps});
+ }
+ run.camera=Math.max(0,Math.min(m.width-960,p.x-260));
 }
-function hurt(run,onEvent){run.lives--;run.player.x=run.checkpoint.x;run.player.y=run.checkpoint.y;run.player.vx=0;run.player.vy=0;run.player.grounded=false;run.paused=run.lives<=0;onEvent({type:'hurt',over:run.paused});}
+function hurt(run,onEvent){run.lives--;run.player.x=run.checkpoint.x;run.player.y=run.checkpoint.y;run.player.vx=0;run.player.vy=0;run.player.grounded=false;run.maxJumpHeight=0;run.paused=run.lives<=0;onEvent({type:'hurt',over:run.paused});}
 root.RoadArcadeCore={LIMIT,BET,LEVELS,COINS_PER_LEVEL,dayKey,roundId,initialHead,initialPlayer,slotOutcome,settle,leaderboard,createLevel,createRun,advanceRun};
 })(typeof window!=='undefined'?window:globalThis);
 

@@ -278,3 +278,39 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
   assert(expected > 9.6 && expected < 10.2, 'отдача ставки ушла из разумных пределов: ' + expected);
   console.log('Автомат 4.2.9: выплаты 15/30/150 и джекпот, отдача ставки ~' + (expected * 10).toFixed(1) + '%');
 }
+
+// ---------- Часть D: Марио 4.2.13 — монеты из блоков, врагов и финиш ----------
+{
+  const C = global.RoadArcadeCore;
+  let run = C.createRun(1);
+  assert(run.map.blocks.some(b => b.kind === 'question'), 'в уровне есть блоки с вопросом');
+  assert(run.map.coins.length >= 20 && run.map.enemies.length >= 3 && run.map.pipes.length >= 1, 'уровень содержит монеты, врагов и трубы');
+  const qb = run.map.blocks.find(b => b.kind === 'question' && !b.used);
+  run.lives = 99; run.player.x = qb.x + 8; run.player.y = qb.y + qb.h + 2; run.player.vy = -600; run.player.grounded = false;
+  let blockCoin = null;
+  for (let i = 0; i < 30 && !blockCoin; i++) C.advanceRun(run, { axis: 0, jump: false }, 1 / 60, e => { if (e.type === 'blockCoin') blockCoin = e; });
+  assert(blockCoin && blockCoin.coins >= 1, 'удар по блоку «?» даёт монету');
+  assert.strictEqual(run.coins, blockCoin.coins, 'монета из блока сразу попадает в счётчик');
+
+  run = C.createRun(1); run.lives = 99;
+  const enemy = run.map.enemies[0];
+  run.player.x = enemy.x + 2; run.player.y = enemy.y - 40; run.player.vy = 200; run.player.grounded = false;
+  let stomp = null;
+  for (let i = 0; i < 30 && !stomp; i++) C.advanceRun(run, { axis: 0, jump: false }, 1 / 60, e => { if (e.type === 'stomp') stomp = e; });
+  assert(stomp && !enemy.alive, 'прыжок на врага убивает его');
+  assert.strictEqual(run.coins, 1, 'за убитого врага начисляется монета');
+
+  run = C.createRun(1); run.lives = 99; run.map.enemies.forEach(e => e.alive = false);
+  run.player.x = run.map.flag - 20; run.player.y = 380; run.maxJumpHeight = 110;
+  let fin = null;
+  for (let i = 0; i < 30 && !fin; i++) C.advanceRun(run, { axis: 1, jump: false }, 1 / 60, e => { if (e.type === 'finish') fin = e; });
+  assert(fin, 'финиш у флажка срабатывает');
+  assert.strictEqual(fin.bonus, 10, 'высокий прыжок даёт максимальный бонус');
+  assert(fin.coins >= 10, 'бонус входит в итоговые монеты уровня');
+
+  const settle = C.settle(C.initialHead(), C.initialPlayer('u', 'u@x', 'U'), { kind: 'finish', level: 1, coins: 25, score: 500, jumpBonus: 5 }, 100, C.dayKey());
+  assert.strictEqual(settle.delta, 25, 'монеты уровня зачисляются в кошелёк одной операцией');
+  assert.strictEqual(settle.player.marioCoins, 25);
+  assert.strictEqual(settle.player.unlocked, 2, 'уровень открывает следующий');
+  console.log('Марио 4.2.13: блоки, враги, монеты и бонус флажка — проверено');
+}
