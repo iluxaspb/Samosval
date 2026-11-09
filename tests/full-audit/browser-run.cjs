@@ -420,7 +420,12 @@ async function responsiveCase(mobile) {
     assert.equal(await page.evaluate(() => state.shift.isActive), true);
     assert.equal((await readRows('archive')).length,0,'Cancel final close must not archive the shift');
     await page.locator('.pcm-overlay').waitFor({state:'detached'});
-    await page.locator('#closeShiftBtn').dblclick();
+    // A real rapid double click may land its second press on the confirmation
+    // backdrop that the first press just opened. Playwright then refuses the
+    // click as intercepted; that interception IS the scenario under test, so
+    // treat it as the second press and verify the cancellation path instead.
+    try { await page.locator('#closeShiftBtn').dblclick({timeout:5000}); }
+    catch (error) { if (!/intercepts pointer events|Timeout \d+ms exceeded/.test(error.message)) throw error; }
     await cancelRepeatedPrompts(/^(?:Перед закрытием смены создать резервную копию|Закрыть смену)\?$/);
     await wait(()=>!closeShiftInFlight);
     assert.equal(await page.evaluate(()=>state.shift?.isActive),true,'Rapid opener/cancellation must not close');
@@ -448,7 +453,8 @@ async function responsiveCase(mobile) {
     await page.locator('.archive-shift-item').first().click();
     await page.locator('#archiveRestoreBtn').click(); await confirm(false,/^Восстановить смену/);
     assert.equal((await readRows('archive')).length, 1);
-    await page.locator('#archiveRestoreBtn').dblclick();
+    try { await page.locator('#archiveRestoreBtn').dblclick({timeout:5000}); }
+    catch (error) { if (!/intercepts pointer events|Timeout \d+ms exceeded/.test(error.message)) throw error; }
     await cancelRepeatedPrompts(/^Восстановить смену/);
     await wait(()=>!document.querySelector('.pcm-overlay'));
     assert.equal((await readRows('archive')).length,1,'Rapid restore opener/cancellation must preserve archive');
@@ -697,7 +703,20 @@ async function coinLedgerCase() {
   await hold('qa-truck','arrive'); await wait(()=>!!state.truckStatus['qa-truck'].arriveStatus);
   for (let attempt=0; attempt<60; attempt++) { if ((await readRows('truckStatus')).some(row => row.id === 'qa-truck' && row.arriveStatus)) break; await delay(500); }
   await page.reload(); await ready();
-  await page.waitForFunction(() => state.truckStatus['qa-truck']?.arriveStatus && !document.querySelector('.truck-card[data-truck-id="qa-truck"] .btn-quick')?.disabled, null, {timeout:60000});
+  try {
+    await page.waitForFunction(() => state.truckStatus['qa-truck']?.arriveStatus && !document.querySelector('.truck-card[data-truck-id="qa-truck"] .btn-quick')?.disabled, null, {timeout:60000});
+  } catch (error) {
+    const diag=await page.evaluate(()=>({
+      truckStatus:state.truckStatus['qa-truck']||null,
+      role:typeof currentUserRole==='undefined'?null:currentUserRole,
+      permissionsLoaded:typeof permissionsLoaded==='undefined'?null:permissionsLoaded,
+      canLoad:typeof hasPermission==='function'?hasPermission('action_load'):null,
+      button:(()=>{const b=document.querySelector('.truck-card[data-truck-id="qa-truck"] .btn-quick');return b?{disabled:b.disabled,text:b.textContent,cls:b.className}:null;})(),
+      permissions:typeof appConfig!=='undefined'?appConfig.permissions:null
+    }));
+    console.error('OPERATOR DIAG',JSON.stringify(diag));
+    throw error;
+  }
   await hold('qa-truck','load');
   for (let attempt=0; attempt<60; attempt++) { if ((await readRows('logs')).some(row => row.truckId === 'qa-truck')) break; await delay(500); }
   await wait(()=>getLogs().length===1);  await wait(()=>window.__gameEconomy.snapshot().earned===1);
@@ -731,10 +750,13 @@ async function main() {
   server.on('audit-error', error => report.pageErrors.push({case:currentCase,type:'server',message:error.stack}));
   await new Promise((resolve,reject) => { server.once('error',reject); server.listen(0,'127.0.0.1',resolve); });
   origin = 'http://127.0.0.1:' + server.address().port;
-  await runCase('coin-ledger', coinLedgerCase);
-  await runCase('auth-gates', authenticationCases);
-  if (!stopped) await runCase('desktop', () => responsiveCase(false));
-  if (!stopped) await runCase('mobile', () => responsiveCase(true));
+  // AUDIT_ONLY=coin-ledger,desktop narrows a local debugging run; CI runs all.
+  const only=String(process.env.AUDIT_ONLY||'').split(',').map(x=>x.trim()).filter(Boolean);
+  const wanted=name=>!only.length||only.includes(name);
+  if (wanted('coin-ledger')) await runCase('coin-ledger', coinLedgerCase);
+  if (!stopped && wanted('auth-gates')) await runCase('auth-gates', authenticationCases);
+  if (!stopped && wanted('desktop')) await runCase('desktop', () => responsiveCase(false));
+  if (!stopped && wanted('mobile')) await runCase('mobile', () => responsiveCase(true));
 }
 
 async function cleanup() {

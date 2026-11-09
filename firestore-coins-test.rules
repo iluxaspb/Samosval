@@ -257,9 +257,12 @@ service cloud.firestore {
       }
 
       match /logs/{id} {
-        allow create: if (
-          loadingAllowed() && ownNewRecord() && validLoadCreate(id)
-        ) || can('archive_edit');
+        // Privileged restore/create first: validLoadCreate() reads the truck
+        // status document, and a restore creates that document in the same
+        // batch. Evaluating the loading branch first therefore raised a rules
+        // evaluation error (missing get()) even though archive_edit grants it.
+        allow create: if can('archive_edit')
+          || (loadingAllowed() && ownNewRecord() && validLoadCreate(id));
 
         allow update: if can('edit_logs');
         allow delete: if can('edit_logs') || can('close_shift')
