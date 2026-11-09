@@ -6,6 +6,7 @@
   /><title>Табель 2 · проверка интерфейса</title>
   <body>
     <button id="open">Открыть табель без смены</button>
+    <button id="close">Закрыть табель</button>
     <div id="header-counts"></div>
     <script>
       // Браузеры без crypto.randomUUID всё равно должны создавать UUID для mock host.
@@ -120,7 +121,11 @@
           return o;
         },
       };
-      window.openTabel = () => entry.open(host);
+      window.openTabel = () => (window.tabelOpening = entry.open(host));
+      // Выход из табеля в приложении — нижняя панель; в harness её нет, поэтому
+      // проверка закрывает табель тем же способом, что и панель: instance.hide().
+      window.closeTabel = async () => { const instance = await window.tabelOpening; instance?.hide(); };
+      document.querySelector("#close").onclick = window.closeTabel;
       document.querySelector("#open").onclick = openTabel;
       window.seedLegacy = () => {
         const settings = {

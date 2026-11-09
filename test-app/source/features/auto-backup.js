@@ -844,11 +844,19 @@ try { (function(){
 
   // ===== Хук: перед закрытием смены =====
   const origCloseShift = window.closeShift;
+  let closeShiftPromptOpen = false;
   if (origCloseShift) {
     window.closeShift = async function() {
+      // Быстрый повторный клик (двойной тап) не должен открывать второй диалог
+      // копии: иначе на экране остаётся лишнее подтверждение и перекрывает
+      // кнопку закрытия смены. Первый диалог решает, второй клик игнорируется.
+      if (closeShiftPromptOpen) return;
       // Проверяем — смена активна и админ
       if (state.shift && state.shift.isActive && typeof currentUserRole !== 'undefined' && currentUserRole === 'admin') {
-        const ok = (await appConfirm('Перед закрытием смены создать резервную копию?'));
+        closeShiftPromptOpen = true;
+        let ok = false;
+        try { ok = (await appConfirm('Перед закрытием смены создать резервную копию?')); }
+        finally { closeShiftPromptOpen = false; }
         if (ok) {
           const saved = await createBackup('before_close', 'Перед закрытием смены ' + (state.shift.objectName || ''));
           if (!saved) { showError('Закрытие отменено: запрошенная защитная копия не создана'); return; }

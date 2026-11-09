@@ -67,7 +67,7 @@ def main():
                 save_mode()
                 page.wait_for_timeout(250)
                 assert warning.count() == 0, "Consent should avoid repeated warnings"
-                page.locator('.tn-app [data-action="exit"]').click()
+                page.evaluate("() => window.closeTabel()")
 
                 # Re-enter the table: return to active Line object and reset consent.
                 page.locator("#open").click()
@@ -78,7 +78,7 @@ def main():
                 warning.wait_for()
                 warning.locator('footer [data-action="close"]').click()
                 page.locator('dialog.tn[open] [data-action="close"]').first.click()
-                page.locator('.tn-app [data-action="exit"]').click()
+                page.evaluate("() => window.closeTabel()")
 
                 # With no active shift, choose the latest closed shift from archive.
                 page.evaluate("""() => {
@@ -89,7 +89,7 @@ def main():
                 page.locator("#open").click()
                 selector.wait_for()
                 assert selector.input_value() == "site-a", "Last archive must become default"
-                page.locator('.tn-app [data-action="exit"]').click()
+                page.evaluate("() => window.closeTabel()")
 
                 # Closing a zero-trip shift stores the newer address locally.
                 page.evaluate("""() => {

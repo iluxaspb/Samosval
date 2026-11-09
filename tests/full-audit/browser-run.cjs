@@ -561,7 +561,8 @@ async function responsiveCase(mobile) {
     await tabel.locator('[data-view="shift"]').click();
     await tabel.locator('.tn-shift-tabs').waitFor({state:'visible',timeout:15000});
     await evidence('timesheet');
-    await tabel.locator('[data-action="exit"]').click();
+    // Кнопка «Закрыть табель» убрана из шапки: выход — через нижнюю панель.
+    await page.locator('#nav-line').click();
     await tabel.waitFor({state:'hidden'});
   });
   await step('archive-fullwidth-genuine-png-and-overlay', async () => {
