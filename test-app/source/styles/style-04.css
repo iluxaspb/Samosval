@@ -252,12 +252,12 @@
     .trash-item .info { flex: 1; font-size: 12px; color: var(--muted); }
     .trash-item .info b { color: var(--text); }
 
-    nav { position: fixed; bottom: 0; left: 0; right: 0; height: 64px; background: var(--card); border-top: 1px solid var(--border); display: flex; overflow-x: auto; z-index: 50; scrollbar-width: none; }
+    nav { position: fixed; bottom: 0; left: 0; right: 0; height: 56px; background: var(--card); border-top: 1px solid var(--border); display: flex; overflow-x: auto; z-index: 10060; scrollbar-width: none; }
     nav::-webkit-scrollbar { display: none; }
-    .nav-btn { background: none; border: none; color: var(--muted); padding: 6px 12px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: color 0.2s ease, background 0.2s ease, transform 0.15s ease; flex: 1; min-width: 60px; position: relative; }
+    .nav-btn { background: none; border: none; color: var(--muted); padding: 4px 10px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; transition: color 0.2s ease, background 0.2s ease, transform 0.15s ease; flex: 1; min-width: 54px; position: relative; }
     .nav-btn:active { transform: scale(0.94); }
     .nav-btn.hidden { display: none; }
-    .nav-icon { font-size: 20px; line-height: 1; transition: transform 0.2s ease; }
+    .nav-icon { font-size: 17px; line-height: 1; transition: transform 0.2s ease; }
     .nav-btn.active .nav-icon { transform: scale(1.1); }
     .nav-text { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; }
     .nav-btn.active { color: var(--primary); background: rgba(59, 130, 246, 0.1); }
