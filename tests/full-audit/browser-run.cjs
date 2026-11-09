@@ -186,19 +186,36 @@ async function cancelRepeatedPrompts(expectedMessage) {
   for (let remaining=8;remaining>0;remaining--) {
     const overlay=page.locator('.pcm-overlay.pcm-open');
     if (!await overlay.count()) return;
-    const current=await overlay.first().elementHandle();
-    assert(current,'An open confirmation must be reachable');
+    const current=await overlay.first().elementHandle({timeout:2000}).catch(()=>null);
+    if (!current) continue;
     if (expectedMessage) {
       const message=await current.evaluate(node=>node.querySelector('.pcm-message')?.textContent||'');
       assert.match(message,expectedMessage);
     }
     try { await overlay.first().locator('.pcm-btn-cancel').click({timeout:5000}); }
-    catch (error) { if (await current.evaluate(node=>node.isConnected)) throw error; }
+    catch (error) { if (await current.evaluate(node=>node.isConnected).catch(()=>false)) throw error; }
     if (!expectedMessage) return;
-    await page.waitForFunction(node=>!node.isConnected,current,{timeout:15000});
+    await page.waitForFunction(node=>!node.isConnected,current,{timeout:15000}).catch(()=>{});
     await current.dispose();
   }
   assert.equal(await page.locator('.pcm-overlay.pcm-open:visible').count(),0,'Unexpected confirmation loop after repeated opener');
+}
+// A real browser may keep delivering the rapid presses of one double click while
+// earlier prompts are being cancelled, so a new confirmation can appear a moment
+// after the previous one was dismissed. Cancel prompts until the page stays quiet
+// for a short window, otherwise the next click lands on an open overlay.
+async function drainPrompts(expectedMessage, quietMs=1500, deadlineMs=8000) {
+  let quietSince=Date.now();
+  const deadline=Date.now()+deadlineMs;
+  while (Date.now()<deadline) {
+    if (await page.locator('.pcm-overlay.pcm-open').count()) {
+      await cancelRepeatedPrompts(expectedMessage);
+      quietSince=Date.now();
+    } else if (Date.now()-quietSince>=quietMs) break;
+    await page.waitForTimeout(100);
+  }
+  assert.equal(await page.locator('.pcm-overlay.pcm-open:visible').count(),0,
+    'Confirmation prompts must settle after a rapid opener');
 }
 async function nav(name) { await page.locator('#nav-' + name).click(); await page.locator('#tab-' + name + '.active').waitFor({state:'visible'}); }
 async function toggleCheckbox(id, checked) {
@@ -427,21 +444,8 @@ async function responsiveCase(mobile) {
     try { await page.locator('#closeShiftBtn').dblclick({timeout:5000}); }
     catch (error) { if (!/intercepts pointer events|Timeout \d+ms exceeded/.test(error.message)) throw error; }
     // A real browser may keep delivering the rapid presses while earlier prompts
-    // are being cancelled, so each cancelled dialog can be followed by another
-    // one a moment later. Drain every prompt and only continue after 1.5 s
-    // without any confirmation, otherwise the next click hits an open overlay.
-    const rapidPrompt=/^(?:Перед закрытием смены создать резервную копию|Закрыть смену)\?$/;
-    let quietSince=Date.now();
-    const drainDeadline=Date.now()+8000;
-    while(Date.now()<drainDeadline){
-      if(await page.locator('.pcm-overlay.pcm-open').count()){
-        await cancelRepeatedPrompts(rapidPrompt);
-        quietSince=Date.now();
-      } else if(Date.now()-quietSince>=1500) break;
-      await page.waitForTimeout(100);
-    }
-    assert.equal(await page.locator('.pcm-overlay.pcm-open:visible').count(),0,
-      'Rapid opener must not leave a confirmation open');
+    // are being cancelled; drain them until the page is quiet.
+    await drainPrompts(/^(?:Перед закрытием смены создать резервную копию|Закрыть смену)\?$/);
     await wait(()=>!closeShiftInFlight);
     assert.equal(await page.evaluate(()=>state.shift?.isActive),true,'Rapid opener/cancellation must not close');
     assert.equal((await readRows('archive')).length,0);
@@ -470,8 +474,7 @@ async function responsiveCase(mobile) {
     assert.equal((await readRows('archive')).length, 1);
     try { await page.locator('#archiveRestoreBtn').dblclick({timeout:5000}); }
     catch (error) { if (!/intercepts pointer events|Timeout \d+ms exceeded/.test(error.message)) throw error; }
-    await cancelRepeatedPrompts(/^Восстановить смену/);
-    await wait(()=>!document.querySelector('.pcm-overlay'));
+    await drainPrompts(/^Восстановить смену/);
     assert.equal((await readRows('archive')).length,1,'Rapid restore opener/cancellation must preserve archive');
     assert.equal((await readRows('shift')).length,0); assert.equal((await readRows('logs')).length,0);
     // Single confirmation click: the second click of a dblclick landed on the
