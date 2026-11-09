@@ -27,7 +27,15 @@ export function gaiDeletedPayload(archive,actor,now){
   const logs=Array.isArray(archive?.logs)?archive.logs:[];
   const kept=logs.filter(log=>!log.isGAI),removed=logs.length-kept.length;
   if(!removed)throw fail('archive-has-no-gai-trips',409);
-  return {payload:{...archive,logs:kept,totalVolume:kept.reduce((total,log)=>total+Number(log.volume||0),0),totalTrips:kept.length,gaiDeletedAt:now,gaiDeletedBy:actor.display_name},removed};
+  // Лист ГАИ должен остаться пустым листом: самосвалы, которые были только на
+  // нём, уходят и из списка техники архива. Машины с обычными рейсами остаются.
+  const keptTruckIds=new Set(kept.map(log=>log.truckId));
+  const gaiTruckIds=new Set(logs.filter(log=>log.isGAI).map(log=>log.truckId));
+  const activeLineIds=(Array.isArray(archive.activeLineIds)?archive.activeLineIds:[])
+    .filter(id=>!(gaiTruckIds.has(id)&&!keptTruckIds.has(id)));
+  const ttnStatus={...(archive.ttnStatus||{})};
+  for(const id of gaiTruckIds)if(!keptTruckIds.has(id))delete ttnStatus[id];
+  return {payload:{...archive,logs:kept,activeLineIds,ttnStatus,totalVolume:kept.reduce((total,log)=>total+Number(log.volume||0),0),totalTrips:kept.length,gaiDeletedAt:now,gaiDeletedBy:actor.display_name},removed};
 }
 export function submitArchive(pool,uid,input,ws=WS){
   const op=normalizeArchive(input),permission=op.type==='archive.restore'?'archive_edit':'archive_delete';
