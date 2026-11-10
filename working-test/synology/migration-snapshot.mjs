@@ -9,7 +9,7 @@ export function stableSnapshot(value){
 }
 
 export function validateMigrationSnapshot(payload){
-  if(payload?.format!=='samosval-test-migration'||payload.version!==1||payload.firebaseProjectId!=='samosval-offline'||payload.workspaceId!=='main_workspace')throw new Error('Неверный формат или источник тестовых данных');
+  if(payload?.format!=='samosval-test-migration'||payload.version!==1||payload.firebaseProjectId!=='samosval-test'||payload.workspaceId!=='main_workspace')throw new Error('Неверный формат или источник тестовых данных');
   const data=payload.data;
   if(!data||!Array.isArray(data.shift)||data.shift.length!==1||data.shift[0].id!=='current'||typeof data.shift[0].data?.id!=='string'||!data.shift[0].data.id)throw new Error('Текущая смена отсутствует или повреждена');
   if(!Array.isArray(data.permissions)||data.permissions.length!==1||data.permissions[0].id!=='permissions')throw new Error('Права доступа не попали в копию');

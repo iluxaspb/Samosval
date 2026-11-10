@@ -10,7 +10,7 @@ export async function seedIdentity(pool,{sha256,ownerUid}={}){
     await client.query('LOCK TABLE registration_requests,identity_receipts,identity_audit IN EXCLUSIVE MODE');
     for(const table of ['registration_requests','identity_receipts','identity_audit'])if((await client.query(`SELECT 1 FROM ${table} LIMIT 1`)).rowCount)throw fail('identity-target-not-empty',409);
     const source=(await client.query('SELECT workspace_id,source_project,counts FROM migration_imports WHERE sha256=$1',[sha256])).rows[0];
-    if(!source||source.workspace_id!=='main_workspace'||source.source_project!=='samosval-offline'||!Number.isSafeInteger(source.counts?.users)||source.counts.users<1)throw fail('wrong-import-source');
+    if(!source||source.workspace_id!=='main_workspace'||!['samosval-offline','samosval-test'].includes(source.source_project)||!Number.isSafeInteger(source.counts?.users)||source.counts.users<1)throw fail('wrong-import-source');
     const rows=(await client.query("SELECT document_path,payload FROM migration_documents WHERE import_sha256=$1 AND document_path LIKE 'users/%' ORDER BY document_path",[sha256])).rows;
     const users=(await client.query('SELECT uid,email,display_name,role,status,revision,profile,protected FROM app_users ORDER BY uid FOR UPDATE')).rows;
     if(rows.length!==source.counts.users||users.length!==rows.length)throw fail('identity-count-mismatch');

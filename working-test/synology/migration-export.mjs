@@ -2,7 +2,7 @@ import { createLineTransport } from './line-transport.mjs?v=20261030.6';
 import { firebaseTestConfig } from './firebase-test-config.mjs';
 import { validateMigrationSnapshot, stableSnapshot } from './migration-snapshot.mjs?v=20261030.5';
 
-const EXPECTED_PROJECT='samosval-offline', WORKSPACE='main_workspace';
+const EXPECTED_PROJECT='samosval-test', WORKSPACE='main_workspace';
 if(firebaseTestConfig.projectId!==EXPECTED_PROJECT)throw new Error('Неверный Firebase-проект');
 const app=firebase.initializeApp(firebaseTestConfig), auth=app.auth(), db=app.firestore();
 const $=id=>document.getElementById(id), exportButton=$('export');
