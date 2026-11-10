@@ -144,7 +144,16 @@
       saveStacks();refreshUI();
     }catch(e){console.warn('Журнал:',e.message);}finally{cloudHistoryLoading=false;}
   }
-  function saveStacks(){try{localStorage.setItem(stackKey(),JSON.stringify({undo:undoStack,redo:redoStack}));}catch(e){showError('Не удалось сохранить историю на устройстве');}}
+  function saveStacks(){
+    const write=(u,r)=>{try{localStorage.setItem(stackKey(),JSON.stringify({undo:u,redo:r}));return true;}catch(e){return false;}};
+    if(write(undoStack,redoStack))return;
+    // Место на устройстве кончилось: сохраняем усечённую историю вместо
+    // того, чтобы показывать ошибку при каждой загрузке страницы.
+    if(write(undoStack.slice(-30),redoStack.slice(-30)))return;
+    if(write(undoStack.slice(-5),redoStack.slice(-5)))return;
+    try{localStorage.removeItem(stackKey());}catch(e){}
+    console.warn('История действий не поместилась в память устройства');
+  }
   window.__historyAcceptAudit=function(entries){
     if(!currentUid||!canUndo())return;
     const merged=new Map([...undoStack,...redoStack].map(a=>[a.id,a]));

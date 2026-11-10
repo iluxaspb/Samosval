@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { fail, map } from './tabel-access.mjs';
 import { serviceActor } from './service-command.mjs';
 import { readAuthority } from './authority.mjs';
+import { applyReplicaDocument } from './replica-materialize.mjs';
 
 // Минутная репликация «основная Firebase -> резерв Ubuntu» и обратное чтение
 // журнала для восстановления. Журнал хранит только изменённые операции,
@@ -65,8 +66,11 @@ export async function appendReplicaBatch(pool, uid, input, ws = WS()) {
     }
     // Пропуск в последовательности блокирует применение до восстановления.
     if (seq !== baseSeq) throw fail('replica-sequence-gap', 409);
-    let applied = 0;
+    let applied = 0, materialized = 0;
     for (const operation of fresh) {
+      // Сначала данные, затем журнал: обе записи в одной транзакции, поэтому
+      // резерв не может подтвердить операцию, которую не применил.
+      if (await applyReplicaDocument(client, ws, operation)) materialized += 1;
       seq += 1;
       await client.query(
         'INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256) VALUES ($1,$2,$3,$4,$5,$6,$7)',

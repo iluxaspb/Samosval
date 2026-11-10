@@ -231,8 +231,43 @@ function renderRanking(host){
  host.querySelectorAll('[data-rank]').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.rank===rankMode));b.onclick=()=>{rankMode=b.dataset.rank;render(true);};});
 }
 function hearts(n){n=Math.max(0,Math.min(3,Number(n)||0));return '❤️'.repeat(n)+'🖤'.repeat(3-n);}
+function marioIsImmersive(){return dialog.classList.contains('mario-immersive');}
+async function enterMarioFullscreen(){
+  if(typeof dialog==='undefined'||!dialog)return;
+  try{if(typeof dialog.requestFullscreen==='function')await dialog.requestFullscreen({navigationUI:'hide'});}catch(e){}
+  try{if(screen.orientation&&typeof screen.orientation.lock==='function')await screen.orientation.lock('landscape');}catch(e){}
+  dialog.classList.add('mario-immersive');
+  // Экранные кнопки не должны тянуть игру в прокрутку страницы.
+  document.documentElement.style.overscrollBehavior='none';
+  setTimeout(()=>{if(run&&!run.done&&run.lives>0){run.paused=false;lastFrame=0;startLoop();}drawMario();},80);
+}
+async function exitMarioFullscreen(){
+  if(typeof dialog==='undefined'||!dialog)return;
+  dialog.classList.remove('mario-immersive');
+  document.documentElement.style.overscrollBehavior='';
+  try{if(screen.orientation&&typeof screen.orientation.unlock==='function')screen.orientation.unlock();}catch(e){}
+  try{if(document.fullscreenElement&&typeof document.exitFullscreen==='function')await document.exitFullscreen();}catch(e){}
+  setTimeout(()=>{drawMario();},80);
+}
+if(typeof document!=='undefined'){
+  document.addEventListener('fullscreenchange',()=>{
+    // Выход из системного полноэкранного режима должен возвращать обычный вид.
+    if(!document.fullscreenElement&&typeof dialog!=='undefined'&&dialog&&dialog.classList.contains('mario-immersive')){dialog.classList.remove('mario-immersive');drawMario();}
+  });
+  window.addEventListener('orientationchange',()=>setTimeout(()=>{if(typeof run!=='undefined'&&run&&marioIsImmersive())drawMario();},250));
+}
 function renderMario(host){
  host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+hearts(run?.lives??3)+'</b></span><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>Очки <b data-mario-score>'+(run?.score||0)+'</b></span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или экранной кнопкой"></canvas><div id="mario-pad" class="nes-pad" role="group" aria-label="Пульт управления: крестовина и кнопки A и B"><div class="pad-top"><span class="pad-brand">8-BIT PAD</span><span class="pad-lines" aria-hidden="true"></span></div><div class="pad-main"><div class="pad-dpad" aria-label="Крестовина"><button type="button" class="dp up" data-key="jump" aria-label="Прыжок">▲</button><button type="button" class="dp left" data-key="left" aria-label="Идти влево">◀</button><span class="dp center" aria-hidden="true"></span><button type="button" class="dp right" data-key="right" aria-label="Идти вправо">▶</button><span class="dp down" aria-hidden="true">▼</span></div><div class="pad-middle"><button type="button" class="pad-pill" disabled aria-disabled="true" title="Не используется">SELECT</button><button type="button" class="pad-pill" data-pad="start">START</button></div><div class="pad-ab"><div class="pad-btn-wrap"><button type="button" class="pad-round b" data-key="jump" aria-label="Прыжок, кнопка B">B</button><span>B</span></div><div class="pad-btn-wrap"><button type="button" class="pad-round a" data-key="jump" aria-label="Прыжок, кнопка A">A</button><span>A</span></div></div></div></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run?.over?'Играть снова':(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень'))+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-sound" aria-pressed="'+sound+'" title="Звуковые эффекты">'+(sound?'🔔 Звуки вкл':'🔕 Звуки выкл')+'</button><button id="mario-music" aria-pressed="'+musicOn+'" title="Фоновая музыка">'+(musicOn?'🎵 Музыка вкл':'🚫 Музыка выкл')+'</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">Пульт: ◀ ▶ — движение, A/B или ▲ — прыжок (держите дольше — выше), START — пауза, SELECT не используется. Ещё работают стрелки, A и D, пробел, W и ↑. Прыгайте на врагов, бейте блоки «?» снизу и собирайте монеты. Чем выше прыжок у флажка, тем больше бонус. Все монеты в конце уровня перечисляются в кошелёк — дневного лимита нет.</p>';
+ // Полноэкранный режим: отдельная кнопка и крупные кнопки управления.
+ const fsBtn=document.createElement('button');fsBtn.id='mario-fs';fsBtn.type='button';fsBtn.textContent='⛶ Во весь экран';fsBtn.title='Игра на весь экран, телефон можно повернуть горизонтально';
+ const toolsRow=host.querySelector('.arcade-tools');if(toolsRow){const next=toolsRow.querySelector('#mario-next');toolsRow.insertBefore(fsBtn,next||null);}
+ const fsPad=document.createElement('div');fsPad.id='mario-fs-controls';
+ fsPad.innerHTML='<div class="mic-hud"><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>❤ <b data-mario-lives>'+hearts(run?.lives??3)+'</b></span><span>Ур. <b data-mario-level>'+(run?.map.level||1)+'</b></span></div>'
+  +'<button type="button" class="mic-exit" id="mario-fs-exit" aria-label="Выйти из полноэкранного режима">✕</button>'
+  +'<div class="mic-group mic-move"><button type="button" class="mic-dir" data-key="left" aria-label="Вперёд, влево">◀</button><button type="button" class="mic-dir" data-key="right" aria-label="Вперёд, вправо">▶</button></div>'
+  +'<div class="mic-group mic-jump"><button type="button" class="mic-jump-btn" data-key="jump" aria-label="Прыжок">ПРЫЖОК</button></div>';
+ host.appendChild(fsPad);
+ fsBtn.onclick=()=>enterMarioFullscreen();host.querySelector('#mario-fs-exit').onclick=()=>exitMarioFullscreen();
  host.querySelector('#mario-start').onclick=()=>{unlockSound();if(!run||run.done||run.lives<=0||run.map.level!==Number(host.querySelector('#mario-level').value))startLevel(Number(host.querySelector('#mario-level').value));else{run.paused=false;lastFrame=0;startLoop();}};
  host.querySelector('#mario-restart').onclick=()=>startLevel(Number(host.querySelector('#mario-level').value));host.querySelector('#mario-pause').onclick=()=>{if(!run)return;run.paused=!run.paused;keys.clear();pointers.clear();if(!run.paused)startLoop();drawMario();};
  host.querySelector('#mario-next').onclick=()=>{if(run?.done&&run.map.level<20&&run.map.level<unlocked())startLevel(run.map.level+1);};

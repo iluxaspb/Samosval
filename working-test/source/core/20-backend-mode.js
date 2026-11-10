@@ -3,14 +3,62 @@
   const TEST_BACKEND_MODE_LABELS = Object.freeze({ firebase: 'Firebase — сервер данных', ubuntu: 'Ubuntu — сервер данных' });
   const WORKING_AUTHORITY_PATH = 'workspaces/main_workspace/settings/backendAuthority';
   window.WorkingTestAuthority = window.WorkingTestAuthority || { runtimeProvider: 'firebase', generation: null, stop: null };
+
+  // Единственный владелец записи объявлен сервером Ubuntu (таблица
+  // server_authority). Firebase-документ — только зеркало для тех клиентов,
+  // которые не могут прочитать сервер. Поэтому переключение всегда идёт
+  // через серверную процедуру, а не через локальную настройку браузера.
+  const WORKING_AUTHORITY_API = WORKING_TEST_UBUNTU_API_BASE + '/api/v1/authority';
+
+  async function workingAuthorityRequest(method, body) {
+    if (!auth.currentUser) throw Error('Нужен вход в приложение');
+    const token = await auth.currentUser.getIdToken();
+    const headers = { Authorization: 'Bearer ' + token };
+    if (body) headers['Content-Type'] = 'application/json';
+    const response = await fetch(WORKING_AUTHORITY_API, {
+      method,
+      headers,
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
+    let payload = null;
+    try { payload = await response.json(); } catch (_) {}
+    if (!response.ok) {
+      const error = Error((payload && (payload.error || payload.message)) || ('HTTP ' + response.status));
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  }
+
+  async function mirrorAuthorityToFirestore(authority) {
+    try {
+      await db.doc(WORKING_AUTHORITY_PATH).set({
+        provider: authority.provider,
+        generation: authority.generation,
+        updatedAt: Date.now(),
+        updatedBy: currentUid || null
+      });
+    } catch (_) { /* зеркало необязательно: истина на сервере */ }
+  }
+
   async function readWorkingAuthority() {
+    if (auth.currentUser) {
+      try {
+        const state = await workingAuthorityRequest('GET');
+        const a = state && state.authority;
+        if (a && ['firebase', 'ubuntu'].includes(a.provider) && Number.isInteger(a.generation) && a.generation > 0) {
+          void mirrorAuthorityToFirestore(a);
+          return { provider: a.provider, generation: a.generation };
+        }
+      } catch (_) { /* сервер недоступен — читаем зеркало */ }
+    }
     const ref = db.doc(WORKING_AUTHORITY_PATH);
     try {
-      const snap = await ref.get({source:'server'});
-      if (!snap.exists) return {provider:'firebase',generation:0};
+      const snap = await ref.get({ source: 'server' });
+      if (!snap.exists) return { provider: 'firebase', generation: 0 };
       const data = snap.data() || {};
-      if (!['firebase','ubuntu'].includes(data.provider) || !Number.isInteger(data.generation) || data.generation < 0) throw Error('Режим сервера повреждён');
-      return {provider:data.provider,generation:data.generation};
+      if (!['firebase', 'ubuntu'].includes(data.provider) || !Number.isInteger(data.generation) || data.generation < 0) throw Error('Режим сервера повреждён');
+      return { provider: data.provider, generation: data.generation };
     } catch (error) {
       if (error.code === 'permission-denied') throw error;
       throw Error('Не удалось подтвердить общий режим данных');
@@ -18,6 +66,9 @@
   }
   function watchWorkingAuthority() {
     if (window.WorkingTestAuthority.stop) window.WorkingTestAuthority.stop();
+    // До входа общий документ недоступен по правилам: не подписываемся и не
+    // пугаем пользователя отказом доступа на экране входа.
+    if (!auth.currentUser) return;
     window.WorkingTestAuthority.stop = db.doc(WORKING_AUTHORITY_PATH).onSnapshot({includeMetadataChanges:false}, snap => {
       const data=snap.exists?snap.data():{};
       if (!snap.exists) { window.WorkingTestAuthority.runtimeProvider='firebase'; window.WorkingTestAuthority.generation=0; return; }
@@ -25,7 +76,7 @@
       const changed=window.WorkingTestAuthority.generation!==null && window.WorkingTestAuthority.generation!==data.generation;
       window.WorkingTestAuthority.runtimeProvider=data.provider; window.WorkingTestAuthority.generation=data.generation; renderTestBackendControls();
       if (changed && location.reload) location.reload();
-    }, error => { if (error.code==='permission-denied') showError('Нет доступа к общему режиму сервера. Переключение остановлено.'); });
+    }, error => { if (error.code==='permission-denied' && currentUid) showError('Нет доступа к общему режиму сервера. Переключение остановлено.'); });
   }
   window.addEventListener('online', () => { readWorkingAuthority().then(a => { window.WorkingTestAuthority.runtimeProvider=a.provider; window.WorkingTestAuthority.generation=a.generation; }).catch(()=>{}); });
 
@@ -49,20 +100,39 @@
   // an admin to write workspaces/main_workspace/settings/*, so no rule or schema
   // change to the working database is required.
   async function writeAuthority(mode, expectedGeneration) {
-    return db.runTransaction(async tx => {
-      const ref = db.doc(WORKING_AUTHORITY_PATH);
-      const snap = await tx.get(ref);
-      const data = snap.exists ? (snap.data() || {}) : { provider: 'firebase', generation: 0 };
-      const generation = Number.isInteger(data.generation) ? data.generation : 0;
-      if (generation !== expectedGeneration) {
-        const conflict = Error('Режим уже изменил другой администратор. Откройте админку заново.');
-        conflict.code = 'authority-generation-conflict';
-        throw conflict;
-      }
-      const next = { provider: mode, generation: generation + 1, updatedAt: Date.now(), updatedBy: currentUid || null };
-      tx.set(ref, next);
-      return next;
+    // Одна транзакция на сервере: проверка поколения + смена владельца записи.
+    // Локальная настройка браузера владельцем не является.
+    const result = await workingAuthorityRequest('POST', {
+      provider: mode,
+      expectedGeneration,
+      reason: 'Ручное переключение администратором'
     });
+    const authority = result && result.authority;
+    if (!authority) throw Error('Сервер не подтвердил переключение');
+    await mirrorAuthorityToFirestore(authority);
+    return authority;
+  }
+
+  // Перед передачей права записи резерву проверяем, что резерв действительно
+  // готов: в нём есть наша учётная запись и рабочие данные. Иначе телефон
+  // переключился бы в пустую базу и потерял доступ.
+  async function checkReserveReadiness() {
+    const token = await auth.currentUser.getIdToken();
+    const session = await fetch(WORKING_TEST_UBUNTU_API_BASE + '/api/v1/session', {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (!session.ok) {
+      if (session.status === 403) throw Error('Резерв пока не содержит вашу учётную запись. Дождитесь репликации или проверьте права.');
+      throw Error('Резерв не ответил на проверку сеанса: HTTP ' + session.status);
+    }
+    const line = await fetch(WORKING_TEST_UBUNTU_API_BASE + '/api/v1/line/snapshot', {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (!line.ok) throw Error('Резерв не отдал данные линии: HTTP ' + line.status);
+    const snapshot = await line.json().catch(() => null);
+    const trucks = Array.isArray(snapshot?.trucks) ? snapshot.trucks.length : 0;
+    if (!trucks) throw Error('В резерве ещё нет данных линии. Дождитесь репликации, затем повторите.');
+    return trucks;
   }
 
   async function pushAuthorityToServer(mode) {
@@ -70,6 +140,7 @@
     try {
       const current = await readWorkingAuthority();
       if (current.provider === mode) return current;
+      if (mode === 'ubuntu') await checkReserveReadiness();
       const next = await writeAuthority(mode, current.generation);
       window.WorkingTestAuthority.runtimeProvider = next.provider;
       window.WorkingTestAuthority.generation = next.generation;
@@ -108,33 +179,43 @@
 
   function setTestBackendMode(mode) {
     const key = testBackendPreferenceKey();
-    if (!key || !permissionsLoaded || !canAdmin()) {
+    const policy = window.WorkingTestSwitchPolicy;
+    const pending = typeof offlinePendingOps === 'function' ? offlinePendingOps().length : 0;
+    const plan = policy.decideSwitchPlan({
+      target: mode,
+      authenticated: !!currentUid,
+      isAdmin: canAdmin(),
+      permissionsLoaded: permissionsLoaded,
+      pending: pending,
+      currentProvider: window.WorkingTestAuthority.runtimeProvider,
+      generation: window.WorkingTestAuthority.generation
+    });
+    if (!plan.ok) {
       renderTestBackendControls();
-      showError('Режим сервера может менять только активный администратор.');
+      showError(plan.error);
       return false;
     }
-    if (!Object.hasOwn(TEST_BACKEND_MODE_LABELS, mode)) {
+    if (plan.noop) {
       renderTestBackendControls();
-      showError('Неизвестный режим сервера.');
+      showToastEl('Сервер данных уже ' + TEST_BACKEND_MODE_LABELS[mode], false);
+      return true;
+    }
+    if (!key) {
+      renderTestBackendControls();
+      showError('Не удалось определить устройство для сохранения режима.');
       return false;
     }
-    if (typeof offlinePendingOps === 'function' && offlinePendingOps().length) { showError('Переключение запрещено: есть неотправленные действия.'); return false; }
-    try { localStorage.setItem(key, mode); }
-    catch (_) {
-      renderTestBackendControls();
-      showError('Не удалось сохранить режим сервера на этом устройстве.');
-      return false;
-    }
-    // The provider is selected before the next authenticated runtime starts.
-    // Reloading is deliberate: it closes Firebase listeners before Ubuntu data
-    // listeners are created and preserves the durable offline journal.
+    // Локальная отметка — только для показа на этом устройстве. Владельца
+    // записи меняет сервер, поэтому перезагрузка идёт лишь после подтверждения.
+    try { localStorage.setItem(key, mode); } catch (_) {}
     updateSyncUI();
-    showToastEl('Режим: ' + TEST_BACKEND_MODE_LABELS[mode], false);
-    // Ask the server to move the single-writer authority, then reload so the
-    // runtime restarts against the confirmed provider.
+    showToastEl('Переключаем сервер данных…', false);
     const switching = pushAuthorityToServer(mode);
     if (typeof location !== 'undefined' && typeof location.reload === 'function') {
-      Promise.resolve(switching).catch(() => {}).then(() => setTimeout(() => location.reload(), 300));
+      Promise.resolve(switching).then(next => {
+        if (!next) { renderTestBackendControls(); return; }
+        setTimeout(() => location.reload(), 500);
+      });
     }
     return true;
   }
@@ -203,19 +284,19 @@
     const select = document.getElementById('testBackendMode');
     if (select) {
       select.disabled = !allowed;
-      select.value = getTestBackendMode();
+      // Показываем фактический владелец записи, а не локальную настройку:
+      // иначе список говорит «Ubuntu», а приложение работает на Firebase.
+      select.value = window.WorkingTestAuthority.runtimeProvider === 'ubuntu' ? 'ubuntu' : 'firebase';
     }
     const actual = document.getElementById('testBackendActual');
     if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
     const note = document.getElementById('testBackendModeNote');
-    const mode = getTestBackendMode();
-    const authority = typeof nasAuthority === 'undefined' ? null : nasAuthority;
-    const where = authority && authority.generation
-      ? ' Сервер объявил режим: ' + (authority.provider === 'ubuntu' ? 'Ubuntu' : 'резерв Firebase') + ' (поколение ' + authority.generation + ').'
-      : '';
-    if (note) note.textContent = (mode === 'ubuntu'
-      ? 'Данные обслуживает Ubuntu.'
-      : mode === 'auto'
-        ? 'Автоматически: основной сервер — Ubuntu, при недоступности действия сохраняются на телефоне и уходят на сервер, когда связь вернётся.'
-        : 'Выбран резерв Firebase. Запись принимает только тот сервер, который объявлен главным.') + where;
+    const shared = window.WorkingTestAuthority;
+    const sharedText = shared.generation
+      ? ' Общий владелец записи: ' + (shared.runtimeProvider === 'ubuntu' ? 'Ubuntu' : 'Firebase')
+        + ' (поколение ' + shared.generation + ') — действует для всех устройств.'
+      : ' Общий владелец записи ещё не подтверждён сервером.';
+    if (note) note.textContent = (shared.runtimeProvider === 'ubuntu'
+      ? 'Данные обслуживает Ubuntu. Firebase остаётся только для входа пользователей.'
+      : 'Данные обслуживает Firebase. Ubuntu получает изменённые записи как резерв раз в минуту.') + sharedText;
   }

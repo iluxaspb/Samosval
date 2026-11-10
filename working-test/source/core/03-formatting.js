@@ -108,7 +108,8 @@
     dot.className = 'sync-dot ' + st.state;
     dot.textContent = backend.letter;
     dot.dataset.provider = backend.provider;
-    let tip = backend.label + ' · ' + TEST_BACKEND_MODE_LABELS[getTestBackendMode()] + ' · ' + st.text;
+    const runtimeLabel = TEST_BACKEND_MODE_LABELS[window.WorkingTestAuthority?.runtimeProvider === 'ubuntu' ? 'ubuntu' : 'firebase'];
+    let tip = backend.label + ' · ' + runtimeLabel + ' · ' + st.text;
     if (syncState.lastSuccessAt && (st.state === 'ok' || st.state === 'offline')) tip += ' · ' + formatTimeAgo(syncState.lastSuccessAt);
     dot.parentElement.title = tip;
     dot.parentElement.setAttribute('aria-label', tip);
@@ -117,7 +118,7 @@
   function showSyncDiagnostics() {
     const sources = ['trucks','objects','logs','status','shift','archive','trash','audit','notifications','plugins','patches','users','requests'];
     let lines = ['── ДИАГНОСТИКА ──', '', `Online: ${navigator.onLine ? 'да' : 'НЕТ'}`, `Пользователь: ${currentEmail || '—'}`, `Роль: ${ROLES[currentUserRole]?.label || currentUserRole || '—'}`, `Права загружены: ${permissionsLoaded ? 'да' : 'нет'}`, `Приехал: ${hasPermission('action_arrive') ? 'разрешено' : 'нет права'}`, `Погрузка: ${hasPermission('action_load') ? 'разрешено' : 'нет права'}`, `pendingOps: ${pendingOps}`, `Max: ${appConfig.maxEnabled ? 'вкл' : 'выкл'}`, `Патчей: ${state.patches.length}`, ''];
-    lines.push('Режим сервера: ' + TEST_BACKEND_MODE_LABELS[getTestBackendMode()], getTestBackendIndicator(getSyncStatus()).label);
+    lines.push('Режим сервера: ' + TEST_BACKEND_MODE_LABELS[window.WorkingTestAuthority?.runtimeProvider === 'ubuntu' ? 'ubuntu' : 'firebase'] + (window.WorkingTestAuthority?.generation ? ' (поколение ' + window.WorkingTestAuthority.generation + ')' : ''), getTestBackendIndicator(getSyncStatus()).label);
     lines.push('Страница: ' + location.pathname, 'База: ' + firebaseConfig.projectId, 'UID: ' + (currentUid || '—'));
     Object.entries(syncState.errors || {}).forEach(([source,error]) => lines.push('ОШИБКА ' + source + ': ' + error.code + ' · ' + error.message));
     sources.forEach(s => { lines.push(`${s.padEnd(11)} | ${syncState.pendingWrites[s]?'ДА':'—'} | ${syncState.docCount[s]||0}`); });

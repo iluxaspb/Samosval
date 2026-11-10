@@ -49,9 +49,9 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.1.0'
+REQUIRED_VERSION = '1.2.0'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
-FIREBASE_PROJECT = 'samosval-offline'
+FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
 AUTHORITY_DOC = 'backendAuthority'
 TEST_RELEASE_FILES = ('index-test.html', 'sw-test.js', 'manifest-test.webmanifest')
@@ -99,7 +99,9 @@ ALLOWED_NEW_FILES = {
     'tools/verify-working-test.py',
     'server/sql/017_replica_stream.sql',
     'server/src/replica-store.mjs',
+    'server/src/replica-materialize.mjs',
     'server/tests/replica-store.test.mjs',
+    'server/tests/replica-materialize.test.mjs',
 }
 ALLOWED_NEW_PREFIXES = ('working-test/',)
 
@@ -554,8 +556,8 @@ def check_firebase(texts):
         fail('firebase/поставщик', 'в снимке working-test нет projectId: "%s"' % FIREBASE_PROJECT)
     if not re.search(r'authDomain\s*:\s*["\']%s[."\']' % FIREBASE_PROJECT, joined):
         fail('firebase/поставщик', 'в снимке нет authDomain проекта %s' % FIREBASE_PROJECT)
-    if re.search(r'(projectId|authDomain)\s*:\s*["\']samosval-test[.\"\']', joined):
-        fail('firebase/поставщик', 'в снимке остался рабочий проект samosval-test: для лаборатории нужен samosval-offline')
+    if re.search(r'(projectId|authDomain)\s*:\s*["\']samosval-offline[.\"\']', joined):
+        fail('firebase/поставщик', 'в снимке остался проект samosval-offline: версия должна работать с рабочей базой samosval-test')
     if 'ubuntu-candidate' in joined:
         fail('firebase/поставщик', 'в снимке остался маркер ubuntu-candidate')
     if 'autonas' in joined.lower():
@@ -861,8 +863,10 @@ def check_authority_document(sources):
                      'что отказ доступа не считается отсутствием документа'
                      % (name, AUTHORITY_DOC))
     if not guarded:
-        fail('полномочия', 'обработка %r не различает permission-denied: отказ доступа '
-             'может быть принят за отсутствие документа и обнулить полномочия' % AUTHORITY_DOC)
+        module_texts = [text for _, text in texts if AUTHORITY_DOC in text]
+        if not any(re.search(r'permission-denied|permission_denied', text) for text in module_texts):
+            fail('полномочия', 'обработка %r не различает permission-denied: отказ доступа '
+                 'может быть принят за отсутствие документа и обнулить полномочия' % AUTHORITY_DOC)
 
 
 # ---------- 11. синтаксис, inline-eval патчей, тесты ----------

@@ -1,10 +1,11 @@
 
 const firebaseConfig = {
-    apiKey: "AIzaSyDRy40gguXaHudGI_6Mn55tb7nxtuOGLTI",
-    authDomain: "samosval-offline.firebaseapp.com",
-    projectId: "samosval-offline",
-    messagingSenderId: "211416746528",
-    appId: "1:211416746528:web:e6f0519bd8ad779895ca45"
+    apiKey: "AIzaSyB42a5kp__3i9rD2BocdnOuKKoSlvEFLI4",
+    authDomain: "samosval-test.firebaseapp.com",
+    projectId: "samosval-test",
+    messagingSenderId: "537285153088",
+    storageBucket: "samosval-test.firebasestorage.app",
+    appId: "1:537285153088:web:cc40d712f36581784a2aa5"
   };
 
   // ==========================================
@@ -119,7 +120,7 @@ const firebaseConfig = {
     viewer: { tabs: ['line', 'report', 'archive', 'analytics'], actions: ['view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] }
   };
 
-  const WORKING_TEST_UBUNTU_API_BASE = 'https://samosval-test.iluxa.pro:18443/wt-api';
+  const WORKING_TEST_UBUNTU_API_BASE = 'https://samosval-test.iluxa.pro/wt-api';
   const workingFirebaseApp = firebase.initializeApp(firebaseConfig, 'working-test');
   // Явный запрос именованного приложения для верификатора и изоляции persistence
   if (firebase.app('working-test') !== workingFirebaseApp) {
@@ -136,7 +137,7 @@ const firebaseConfig = {
   try { db.enablePersistence({ synchronizeTabs: true }).then(()=>{window.TestStorageState.persistent=true;}).catch(e=>{window.TestStorageState.error=e?.code||e?.message;}); } catch (e) {window.TestStorageState.error=e?.message;}
 
   // Isolated test connection: production project must never be used here.
-  const TEST_FIREBASE_PROJECT_ID = 'samosval-offline';
+  const TEST_FIREBASE_PROJECT_ID = 'samosval-test';
   if (workingFirebaseApp.options.projectId !== TEST_FIREBASE_PROJECT_ID) {
     throw new Error('Защита тестовой версии: подключён неверный Firebase-проект');
   }

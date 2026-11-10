@@ -6,6 +6,9 @@
   const REPLICA_INTERVAL_MS = 60000;
   const REPLICA_MAX_BATCH = 200;
   const REPLICA_COLLECTIONS = ['trucks','objects','logs','truckStatus','archive','trash','audit','notifications'];
+  // Порог локального хранения очереди: полный первый снимок рабочей базы не
+  // должен вытеснять историю и настройки из localStorage.
+  const REPLICA_MAX_PERSISTED = 400;
   const replicaQueueKey = () => 'samosval-wt-replica-queue:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + (currentUid || 'anon');
   const replicaCursorKey = () => 'samosval-wt-replica-cursor:' + firebaseConfig.projectId + ':' + WORKSPACE_ID + ':' + (currentUid || 'anon');
   let replicaQueue = [];
@@ -16,7 +19,11 @@
     try { replicaQueue = JSON.parse(localStorage.getItem(replicaQueueKey()) || '[]') || []; } catch (_) { replicaQueue = []; }
   }
   function replicaPersist() {
-    try { localStorage.setItem(replicaQueueKey(), JSON.stringify(replicaQueue.slice(-5000))); } catch (_) {}
+    try {
+      // В памяти держим всю очередь, на диск — только хвост: иначе полный
+      // первый снимок базы переполняет localStorage и ломает историю.
+      localStorage.setItem(replicaQueueKey(), JSON.stringify(replicaQueue.slice(-REPLICA_MAX_PERSISTED)));
+    } catch (_) {}
     window.WorkingTestReplica.pending = replicaQueue.length;
   }
   function replicaCursor() {
@@ -30,6 +37,11 @@
   }
   function replicaEnqueue(kind, payload) {
     if (!currentUid || replicaIsReserveMode()) return;
+    // Один очень большой документ (обычно запись журнала) не должен навсегда
+    // блокировать передачу остальных: сервер отклонил бы всю пачку.
+    let size = 0;
+    try { size = JSON.stringify(payload).length; } catch (_) { size = 0; }
+    if (size > 200000) { window.WorkingTestReplica.skipped = (window.WorkingTestReplica.skipped || 0) + 1; return; }
     replicaQueue.push({ id: 'rep_' + crypto.randomUUID().replaceAll('-', ''), kind, payload, at: Date.now() });
     replicaPersist();
     renderReplicaStatus();
@@ -40,7 +52,15 @@
   function replicaWatch() {
     if (replicaStarted || !currentUid) return;
     replicaStarted = true;
-    const collections = { ...refs, shift: wsRef.collection('shift') };
+    // Смена — коллекция, остальные — refs; пользователи и права тоже обязаны
+    // доехать до резерва, иначе вход в режиме Ubuntu невозможен.
+    const collections = {
+      ...refs,
+      shift: wsRef.collection('shift'),
+      users: db.collection('users'),
+      registration_requests: db.collection('registration_requests'),
+      settings: db.collection('settings')
+    };
     for (const [name, ref] of Object.entries(collections)) {
       if (!ref || typeof ref.onSnapshot !== 'function') continue;
       const unsub = ref.onSnapshot({ includeMetadataChanges: false }, snap => {
@@ -63,7 +83,18 @@
     replicaBusy = true;
     window.WorkingTestReplica.status = 'syncing';
     renderReplicaStatus();
-    const batch = replicaQueue.slice(0, REPLICA_MAX_BATCH);
+    // Пачку ограничиваем и по числу, и по объёму: резерв отвечает быстро и
+    // не упирается в предел размера запроса.
+    const batch = [];
+    let bytes = 0;
+    for (const operation of replicaQueue) {
+      if (batch.length >= REPLICA_MAX_BATCH) break;
+      const size = JSON.stringify(operation).length;
+      if (bytes + size > 2000000) break;
+      bytes += size;
+      batch.push(operation);
+    }
+    if (!batch.length) return;
     try {
       const token = await auth.currentUser.getIdToken();
       const response = await fetch(WORKING_TEST_UBUNTU_API_BASE + '/api/v1/replica/apply', {

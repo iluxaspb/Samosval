@@ -321,6 +321,7 @@
       // Общий режим читается ДО запуска рантайма: иначе приложение стартует в
       // Firebase, и переключение на Ubuntu «отскакивает» обратно на Firebase.
       await ensureWorkingAuthority();
+      try { watchWorkingAuthority(); } catch (_) {}
       if(isNasRuntime()){if(userDocUnsubscriber){userDocUnsubscriber();userDocUnsubscriber=null;}await startNasRuntime(user);return;}
       const forced = isForcedAdminEmail(currentEmail); const defaultNick = sanitizeName(currentEmail);
       if (userDocUnsubscriber) userDocUnsubscriber();
