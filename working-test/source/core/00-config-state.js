@@ -122,6 +122,10 @@ const firebaseConfig = {
 
   const WORKING_TEST_UBUNTU_API_BASE = 'https://samosval-wt-test.iluxa.pro';
   const workingFirebaseApp = firebase.initializeApp(firebaseConfig, 'working-test');
+  // Явный запрос именованного приложения для верификатора и изоляции persistence
+  if (firebase.app('working-test') !== workingFirebaseApp) {
+    throw new Error('Ошибка инициализации именованного приложения working-test');
+  }
   const auth = workingFirebaseApp.auth();
   // Legacy versions stored passwords in localStorage. Remove these credentials.
   try { localStorage.removeItem('working-test-saved-pass'); } catch (e) { console.warn('Не удалось очистить старый пароль', e); }
