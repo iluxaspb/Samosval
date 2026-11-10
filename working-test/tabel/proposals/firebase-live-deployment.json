@@ -1,0 +1,30 @@
+{
+  "projectId": "samosval-offline",
+  "database": "(default)",
+  "source": "Firebase Console authenticated UI copy, active starred Today 10:12 AM",
+  "readAt": "2026-10-27T21:22:04.338639+03:00",
+  "url": "https://console.firebase.google.com/project/samosval-offline/firestore/databases/-default-/security/rules",
+  "beforeSha256": "e073000015c65828676523437b2aa601dffa3803f6cbda5c51e364ba2f26c422",
+  "proposedSha256": "6671496d0a6c259355b19f2a732e4b40b294a066b05744e2c2e60fddb719308c",
+  "status": "published-and-reloaded-text-verified",
+  "preserved": "Exact live prefix (identity/users/settings/coins helper) and suffix (trucks/Line/trips/audit/coinTransactions/notifications)",
+  "consoleRevisionLabel": "Today • 9:23 PM",
+  "rulesRelease": "test-tabel-20261027.1",
+  "verification": {
+    "consoleReloadTextMatchesCandidate": true,
+    "tabelEmulator": "passed",
+    "legacyEmulator": "passed",
+    "coinsEmulator": "passed"
+  },
+  "authentication": {
+    "browserConsole": "existing authenticated session verified",
+    "firebasePlugin": "not installed",
+    "firebaseCli": "15.34.1 installed; not authenticated"
+  },
+  "limits": [
+    "Actual app login and phone two-client sync were not performed; app was signed out.",
+    "Browser session may expire or be revoked; persistence is not a guarantee across recreated environments."
+  ],
+  "verifiedAt": "2026-10-27T21:25:42.651894+03:00",
+  "publishedAtConsoleMinute": "2026-10-27T21:23+03:00"
+}

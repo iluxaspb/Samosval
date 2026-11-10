@@ -1,0 +1,45 @@
+TEST 3.4.16 / Табель 1.1.0-test.3
+Baseline: 0ee1bf919e6e3847e1c7961de16aefde5bfcb186
+A — добавлен, M — изменён. Опубликованные предыдущие build сохранены.
+
+M	index-test.html
+M	sw-test.js
+M	test-app/build-manifest.json
+A	test-app/build/45e428003253a236/built-in-patches.js
+A	test-app/build/45e428003253a236/closed-shift-duplicates.js
+A	test-app/build/45e428003253a236/confirm-bridge.js
+A	test-app/build/45e428003253a236/core.js
+A	test-app/build/45e428003253a236/gai-report-toggle.js
+A	test-app/build/45e428003253a236/game-coins-v2.js
+A	test-app/build/45e428003253a236/global-interface-haptics.js
+A	test-app/build/45e428003253a236/history-recorder.js
+A	test-app/build/45e428003253a236/line-card-layers.js
+A	test-app/build/45e428003253a236/offline-feedback.js
+A	test-app/build/45e428003253a236/paper-viewer.js
+A	test-app/build/45e428003253a236/release-history.js
+A	test-app/build/45e428003253a236/reset-settings.js
+A	test-app/build/45e428003253a236/road-arcade-core.js
+A	test-app/build/45e428003253a236/road-arcade-runtime.js
+A	test-app/build/45e428003253a236/road-arcade-ui.js
+A	test-app/build/45e428003253a236/road-jokes-v1.js
+A	test-app/build/45e428003253a236/road-season-effects-v1.js
+A	test-app/build/45e428003253a236/road-shop-v1.js
+A	test-app/build/45e428003253a236/test-release.js
+A	test-app/build/45e428003253a236/trip-analytics.js
+M	test-app/source/features/release-history.js
+M	test-app/source/features/test-release.js
+M	test-app/source/shell.html
+M	test-app/tabel/ACCEPTANCE.md
+M	test-app/tabel/CHANGELOG.md
+M	test-app/tabel/README.md
+M	test-app/tabel/app.mjs
+M	test-app/tabel/domain.mjs
+M	test-app/tabel/plugin.js
+A	test-app/tabel/releases/3.4.16.md
+M	test-app/tabel/test-results.json
+M	tests/tabel/browser.cjs
+A	tests/tabel/firebase-service.cjs
+M	tests/tabel/guard.py
+M	tests/tabel/run.cjs
+M	tools/verify-test-modules.py
+A	test-app/tabel/releases/3.4.16-files.txt
