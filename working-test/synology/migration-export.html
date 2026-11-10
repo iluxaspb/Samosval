@@ -6,7 +6,7 @@
 <main><p class="tag">ТОЛЬКО ТЕСТОВАЯ ВЕРСИЯ</p><h1>Подготовка данных для Synology</h1>
 <p>Создание проверенной копии данных. Экспорт читает Firebase с сервера и сохраняет файл на устройство. Он не изменяет записи и не переключает приложение на другой сервер.</p>
 <p id="account">Проверка входа…</p>
-<form id="login" hidden><label>Email<input id="email" type="email" autocomplete="username" required></label><label>Пароль<input id="password" type="password" autocomplete="current-password" required></label><button>Войти</button></form>
+<form id="login"><label>Email<input id="email" type="email" autocomplete="username" required></label><label>Пароль<input id="password" type="password" autocomplete="current-password" required></label><button>Войти</button></form>
 <button id="export" disabled>Проверить и скачать данные</button>
 <button id="check-api">Проверить Synology по HTTPS</button>
 <button id="probe">Проверить запись на тестовой машине NAS</button>
@@ -16,5 +16,5 @@
 <script src="../vendor/firebase-app-compat-10.8.0.js"></script>
 <script src="../vendor/firebase-auth-compat-10.8.0.js"></script>
 <script src="../vendor/firebase-firestore-compat-10.8.0.js"></script>
-<script type="module" src="./migration-export.mjs?v=20261030.6"></script>
+<script type="module" src="./migration-export.mjs?v=20261111.1"></script>
 </html>

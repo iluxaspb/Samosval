@@ -1,10 +1,18 @@
 import { createLineTransport } from './line-transport.mjs?v=20261030.6';
-import { firebaseTestConfig } from './firebase-test-config.mjs';
+// Рабочий конфиг Firebase зашит напрямую: перекрёстный импорт из кэша исключён.
+const firebaseMigrationConfig = {
+    apiKey: "AIzaSyB42a5kp__3i9rD2BocdnOuKKoSlvEFLI4",
+    authDomain: "samosval-test.firebaseapp.com",
+    projectId: "samosval-test",
+    storageBucket: "samosval-test.firebasestorage.app",
+    messagingSenderId: "537285153088",
+    appId: "1:537285153088:web:cc40d712f36581784a2aa5"
+  };
 import { validateMigrationSnapshot, stableSnapshot } from './migration-snapshot.mjs?v=20261030.5';
 
 const EXPECTED_PROJECT='samosval-test', WORKSPACE='main_workspace';
-if(firebaseTestConfig.projectId!==EXPECTED_PROJECT)throw new Error('Неверный Firebase-проект');
-const app=firebase.initializeApp(firebaseTestConfig), auth=app.auth(), db=app.firestore();
+if(firebaseMigrationConfig.projectId!==EXPECTED_PROJECT){document.getElementById('status').textContent='Неверный Firebase-проект: '+firebaseMigrationConfig.projectId;throw new Error('Неверный Firebase-проект');}
+const app=firebase.initializeApp(firebaseMigrationConfig), auth=app.auth(), db=app.firestore();
 const $=id=>document.getElementById(id), exportButton=$('export');
 const tell=text=>$('status').textContent=text;
 const collection=async path=>{
