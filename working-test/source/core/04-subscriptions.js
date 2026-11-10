@@ -370,7 +370,7 @@
         activeProfileKey = profileKey;
         startSync(sessionGeneration); startAdminSync(); startAppConfigSync(sessionGeneration); setTimeout(() => { if (sessionIsCurrent()) runMaxQueue(); }, 1200);
         // Минутная репликация изменений в резерв Ubuntu (только когда владелец — Firebase).
-        try { startReplica(); } catch (_) {}
+        startReplica();
         loadAndApplyPatches().catch(e => { if (sessionIsCurrent()) reportSyncError('patches', e); });
         } catch(e) { reportSyncError('profile', e); }
       }, e => {
