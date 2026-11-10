@@ -222,7 +222,7 @@
   watchWorkingAuthority();
 
   function getTestBackendIndicator(status) {
-    if(isNasRuntime())return {letter:status.state==='offline'?'О':'U',label:status.state==='offline'?'Ubuntu — локальная очередь':status.state==='ok'?'Ubuntu — сервер данных':'Ubuntu — '+status.text,provider:'ubuntu'};
+    if(isNasRuntime())return {letter:status.state==='offline'?'О':'S',label:status.state==='offline'?'Ubuntu — локальная очередь':status.state==='ok'?'Ubuntu — сервер данных':'Ubuntu — '+status.text,provider:'ubuntu'};
     if (status.state === 'offline') return {letter:'О', label:'Офлайн', provider:'firebase'};
     if (!currentUid || status.state === 'init') return {letter:'…', label:'Firebase — подключение ещё не подтверждено', provider:'firebase'};
     if (status.state === 'error') return {letter:'!', label:'Firebase — требуется проверка синхронизации', provider:'firebase'};

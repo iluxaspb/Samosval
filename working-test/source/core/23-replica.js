@@ -137,7 +137,8 @@
     }
     const status = window.WorkingTestReplica.status;
     const pending = replicaQueue.length;
-    badge.textContent = status === 'syncing' ? '⟳ Синхронизация'
+    badge.textContent = status === 'idle' && !pending ? 'Резерв: ожидание'
+      : status === 'syncing' ? '⟳ Синхронизация'
       : status === 'gap' ? '! Требуется сверка'
       : status === 'error' ? '! Резерв недоступен'
       : pending ? '→ ' + pending + ' к передаче'
