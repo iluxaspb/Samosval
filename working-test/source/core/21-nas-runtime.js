@@ -34,6 +34,31 @@
     nasGameRead=null;nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;
     nasAuxSnapshot=null;nasAuxRead=null;
   }
+  // Резерв может быть ещё не наполнен: администратору нужен выход обратно на
+  // Firebase прямо с экрана ожидания, иначе режим не вернуть из интерфейса.
+  function installNasReturnToFirebase(){
+    const card=document.querySelector('#pendingScreen .pending-card');
+    if(!card||document.getElementById('nasReturnFirebaseBtn'))return;
+    const btn=document.createElement('button');
+    btn.id='nasReturnFirebaseBtn';btn.className='btn btn-secondary';
+    btn.style.width='100%';btn.style.marginTop='10px';
+    btn.textContent='Вернуться на Firebase (администратор)';
+    btn.addEventListener('click',async()=>{
+      btn.disabled=true;
+      try{
+        const snap=await db.collection('users').doc(currentUid).get();
+        if(!snap.exists||snap.data().role!=='admin')throw Error('Вернуть режим может только администратор');
+        const current=await readWorkingAuthority();
+        await writeAuthority('firebase',current.generation);
+        showToastEl('Сервер данных: Firebase',false);
+        location.reload();
+      }catch(error){
+        btn.disabled=false;
+        showError(error.message||'Не удалось вернуть режим');
+      }
+    });
+    card.append(btn);
+  }
   function loadNasSessionClient() { return import(new URL('./working-test/synology/session-client.mjs',document.baseURI).href); }
   function applyNasSession(session) {
     const profile=session.profile, active=session.identityReady&&profile?.status==='active'&&!profile.deleted;
@@ -62,8 +87,11 @@
       state.trucks=[];state.logs=[];state.truckStatus={};state.shift=null;state.archive=[];state.trash=[];state.audit=[];state.users=[];
       offlineRemoteStatuses={};offlineRemoteLogs=[];initialized=false;cancelHold();
       document.querySelectorAll('dialog[open]').forEach(d=>d.close());
-      document.getElementById('registrationStatusText').textContent='Учётная запись ожидает допуска на сервере Ubuntu.';
+      document.getElementById('registrationStatusText').textContent = session.identityReady
+        ? 'Учётная запись ожидает допуска на сервере Ubuntu.'
+        : 'В Ubuntu-резерве нет вашей учётной записи: резерв ещё не наполнен рабочими данными. Вернитесь на Firebase, если вы администратор.';
       document.getElementById('disabledStatusText').textContent=profile?.rejectionReason||'Доступ ограничен администратором.';
+      installNasReturnToFirebase();
     }
     markSync('profile',false,false,profile?1:0);markSync('permissions',false,false,active?1:0);
     updateUserBadge();updateNavUI();applyRoleUI();renderAll();
