@@ -121,7 +121,11 @@
       render(); return false;
     }
     try {
-       registration = await navigator.serviceWorker.register('./sw-working-test.js',{scope:'./index-working-test.html',updateViaCache:'none'});
+       // На отдельном сайте (страница в корне) worker получает весь каталог, иначе
+      // офлайн-кэш не перехватывал бы подресурсы. В общем репозитории scope
+      // остаётся ограниченным одной страницей, чтобы не вытеснить прод-worker.
+      const swScope = location.pathname === '/index-working-test.html' ? './' : './index-working-test.html';
+      registration = await navigator.serviceWorker.register('./sw-working-test.js',{scope:swScope,updateViaCache:'none'});
       registrationError='';watch(registration.installing);
       registration.addEventListener('updatefound',()=>watch(registration.installing));
       await askStatus();if(registration.active?.state==='activated'&&activeVersion===buildVersion)registration.active.postMessage({type:'TEST_PWA_PRUNE'});render();return true;
