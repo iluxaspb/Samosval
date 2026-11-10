@@ -6,7 +6,9 @@ export const clean=row=>Object.fromEntries(Object.entries(row).filter(([k])=>!['
    This service has no host UI wrappers, Line timers or write access to host collections. */
 export async function createService(ctx){
   const initial=ctx.ledgerHost.session();
-  if(initial.projectId!=='samosval-offline'||!initial.uid||!initial.tabAccess)throw Error('Нет доступа к тестовому табелю');
+  // Проект Firebase больше не привязан жёстко: версия работает с рабочей базой,
+  // поэтому доступ определяется учётной записью и правами на табель, а не именем проекта.
+  if(!initial.uid||!initial.tabAccess)throw Error('Нет доступа к табелю');
   const user=initial.uid,cache=new Map(),subs=new Map(),listeners=new Set(),tasks=new Set();
   let dbLocal=null,jobs=[],disposed=false,busy=false,revision=0,timer=null;
   const hostData=ctx.ledgerHost.data();
