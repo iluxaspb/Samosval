@@ -33,9 +33,18 @@ export async function registerPending(pool,identity,input){
       await client.query('COMMIT');return {profile:profileView(row),created:false};
     }
     const now=Date.now(),created=!row;
+    // Первый пользователь в пустом резерве становится активным администратором:
+    // иначе после переключения на Ubuntu подтвердить учётные записи некому.
+    const empty = !row && !(await client.query('SELECT 1 FROM app_users LIMIT 1')).rowCount;
     if(!row){
-      await client.query("INSERT INTO app_users(uid,email,display_name,role,status,profile) VALUES ($1,$2,$3,'viewer','pending',$4)",[draft.uid,draft.email,draft.nickname,{createdAt:now}]);
+      await client.query("INSERT INTO app_users(uid,email,display_name,role,status,profile) VALUES ($1,$2,$3,$4,$5,$6)",
+        [draft.uid,draft.email,draft.nickname,empty?'admin':'viewer',empty?'active':'pending',{createdAt:now}]);
       row=await profile(client,draft.uid);
+    }
+    if(empty){
+      await recordAudit(client,{id:'register_'+createHash('sha256').update(draft.uid).digest('hex'),type:'registration.bootstrap-admin',uid:draft.uid},draft.uid,null,profileView(row));
+      await client.query('COMMIT');
+      return {profile:profileView(row),created:true,bootstrap:true};
     }
     const request={uid:row.uid,email:row.email,nickname:row.display_name,status:'pending',createdAt:row.profile.createdAt||now};
     await client.query('INSERT INTO registration_requests(uid,payload) VALUES ($1,$2) ON CONFLICT DO NOTHING',[row.uid,request]);

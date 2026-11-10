@@ -13,7 +13,7 @@
     if (!state.permissionsLoaded || !state.isAdmin) return { ok: false, error: 'Режим сервера может менять только активный администратор.' };
     if (Number(state.pending) > 0) return { ok: false, error: 'Переключение запрещено: есть неотправленные действия.' };
     if (state.currentProvider === target) return { ok: true, noop: true, expectedGeneration: state.generation };
-    if (!Number.isInteger(state.generation) || state.generation < 1) {
+    if (!Number.isInteger(state.generation) || state.generation < 0) {
       return { ok: false, error: 'Общий режим сервера ещё не подтверждён сервером.' };
     }
     return { ok: true, noop: false, expectedGeneration: state.generation };

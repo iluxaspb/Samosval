@@ -3338,7 +3338,7 @@ const firebaseConfig = {
     if (!state.permissionsLoaded || !state.isAdmin) return { ok: false, error: 'Режим сервера может менять только активный администратор.' };
     if (Number(state.pending) > 0) return { ok: false, error: 'Переключение запрещено: есть неотправленные действия.' };
     if (state.currentProvider === target) return { ok: true, noop: true, expectedGeneration: state.generation };
-    if (!Number.isInteger(state.generation) || state.generation < 1) {
+    if (!Number.isInteger(state.generation) || state.generation < 0) {
       return { ok: false, error: 'Общий режим сервера ещё не подтверждён сервером.' };
     }
     return { ok: true, noop: false, expectedGeneration: state.generation };
@@ -3544,8 +3544,12 @@ const firebaseConfig = {
   }
 
   function setTestBackendMode(mode) {
-    const key = testBackendPreferenceKey();
     const policy = window.WorkingTestSwitchPolicy;
+    return (async () => {
+    // Перед решением обязательно читаем общий режим: иначе поколение ещё
+    // неизвестно и переключение ошибочно объявляется неподтверждённым.
+    await ensureWorkingAuthority();
+    const key = testBackendPreferenceKey();
     const pending = typeof offlinePendingOps === 'function' ? offlinePendingOps().length : 0;
     const plan = policy.decideSwitchPlan({
       target: mode,
@@ -3584,6 +3588,7 @@ const firebaseConfig = {
       });
     }
     return true;
+    })();
   }
   watchWorkingAuthority();
 
@@ -3658,10 +3663,12 @@ const firebaseConfig = {
     if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
     const note = document.getElementById('testBackendModeNote');
     const shared = window.WorkingTestAuthority;
-    const sharedText = shared.generation
-      ? ' Общий владелец записи: ' + (shared.runtimeProvider === 'ubuntu' ? 'Ubuntu' : 'Firebase')
-        + ' (поколение ' + shared.generation + ') — действует для всех устройств.'
-      : ' Общий владелец записи ещё не подтверждён сервером.';
+    const sharedText = shared.generation === 0
+      ? ' Общий режим ещё не переключался: действует Firebase, его можно сменить.'
+      : shared.generation
+        ? ' Общий владелец записи: ' + (shared.runtimeProvider === 'ubuntu' ? 'Ubuntu' : 'Firebase')
+          + ' (поколение ' + shared.generation + ') — действует для всех устройств.'
+        : ' Общий владелец записи ещё не подтверждён сервером.';
     if (note) note.textContent = (shared.runtimeProvider === 'ubuntu'
       ? 'Данные обслуживает Ubuntu. Firebase остаётся только для входа пользователей.'
       : 'Данные обслуживает Firebase. Ubuntu получает изменённые записи как резерв раз в минуту.') + sharedText;

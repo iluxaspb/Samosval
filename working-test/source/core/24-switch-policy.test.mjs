@@ -48,8 +48,15 @@ test('повтор того же режима не трогает владель
   assert.equal(plan.noop, true);
 });
 
-test('без подтверждённого поколения переключение не начинается', () => {
+test('при отсутствии общего документа режим создаётся с первого переключения', () => {
   const plan = policy.decideSwitchPlan({ ...base, generation: 0 });
+  assert.equal(plan.ok, true);
+  assert.equal(plan.noop, false);
+  assert.equal(plan.expectedGeneration, 0);
+});
+
+test('без прочитанного поколения переключение не начинается', () => {
+  const plan = policy.decideSwitchPlan({ ...base, generation: null });
   assert.equal(plan.ok, false);
   assert.match(plan.error, /не подтверждён/);
 });

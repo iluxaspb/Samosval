@@ -82,7 +82,7 @@ OLD_STORAGE_KEYS = (
 # владельцем в переписке; это НЕ результаты текущей задачи и они не должны
 # попадать в git add/commit.
 BASELINE_CHANGES = {
-    'M': {'AGENTS.md', 'server/src/index.mjs'},
+    'M': {'AGENTS.md', 'server/src/index.mjs', 'server/src/identity-store.mjs'},
     '??': {
         'PROJECT_STATE.md',
         'dino',
