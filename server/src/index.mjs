@@ -40,7 +40,7 @@ const pool = new Pool({
 });
 installDatasetGuard(pool);
 const tabelPresence=createPresenceService({authorize:(uid,target)=>authorizeTabelPresence(pool,uid,target),workspaceId:process.env.WORKSPACE_ID||'main_workspace'});
-function readJson(req,limit=32768) {
+function readJson(req,limit=262144) {
   return new Promise((resolve,reject)=>{
     const chunks=[];let bytes=0,aborted=false;
     req.on('data',chunk=>{

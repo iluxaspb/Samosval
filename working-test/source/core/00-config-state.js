@@ -120,7 +120,11 @@ const firebaseConfig = {
     viewer: { tabs: ['line', 'report', 'archive', 'analytics'], actions: ['view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] }
   };
 
-  const WORKING_TEST_UBUNTU_API_BASE = 'https://samosval-test.iluxa.pro:18443';
+  // Если приложение открыто с домена Ubuntu — API по тому же origin:
+  // это убирает CORS, порты и внешние блокировки.
+  const WORKING_TEST_UBUNTU_API_BASE = (typeof location !== 'undefined' && location.hostname === 'samosval-test.iluxa.pro')
+    ? location.origin
+    : 'https://samosval-test.iluxa.pro:18443';
   const workingFirebaseApp = firebase.initializeApp(firebaseConfig, 'working-test');
   // Явный запрос именованного приложения для верификатора и изоляции persistence
   if (firebase.app('working-test') !== workingFirebaseApp) {
