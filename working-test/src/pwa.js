@@ -43,7 +43,7 @@
     if(!progressDialog.open)progressDialog.showModal();
   }
   navigator.serviceWorker?.addEventListener('message',event=>{
-    const data=event.data;if(!manualUpdateBusy||data?.type!=='TEST_PWA_PROGRESS'||data.version!==installTarget||!Number.isInteger(data.completed)||!Number.isInteger(data.total)||data.completed<0||data.completed>data.total)return;
+    const data=event.data;if(!manualUpdateBusy||data?.type!=='WORKING_TEST_PWA_PROGRESS'||data.version!==installTarget||!Number.isInteger(data.completed)||!Number.isInteger(data.total)||data.completed<0||data.completed>data.total)return;
     if(![registration?.installing,registration?.waiting,registration?.active].includes(event.source))return;
     updateProgress('download','Каждый файл проверяется по контрольной сумме.',data.completed,data.total);
   });
@@ -58,7 +58,7 @@
   function stateShift() { return typeof window.__testGetShift === 'function' ? window.__testGetShift() : null; }
   function render() {
     const s = state();
-    const hasUpdate=!!latestPublished&&latestPublished.version!==buildVersion;
+    const hasUpdate=(!!latestPublished&&latestPublished.version!==buildVersion)||s.updateReady;
     updateBanner.hidden=!hasUpdate;
     updateApply.disabled=manualUpdateBusy||!navigator.onLine;
     updateApply.textContent=manualUpdateBusy?'Устанавливаю…':'Установить';
@@ -89,8 +89,8 @@
       const channel = new MessageChannel();
       const finish = result => {clearTimeout(timer);channel.port1.close();channel.port2.close();resolve(result);};
       const timer = setTimeout(()=>finish(null),4000);
-      channel.port1.onmessage=e=>finish(e.data?.type==='TEST_PWA_STATUS'?e.data:null);
-      try {worker.postMessage({type:'TEST_PWA_STATUS'},[channel.port2]);} catch (_) {finish(null);}
+      channel.port1.onmessage=e=>finish(e.data?.type==='WORKING_TEST_PWA_STATUS'?e.data:null);
+      try {worker.postMessage({type:'WORKING_TEST_PWA_STATUS'},[channel.port2]);} catch (_) {finish(null);}
     });
   }
   async function askStatus() {
@@ -128,7 +128,7 @@
       registration = await navigator.serviceWorker.register('./sw-working-test.js',{scope:swScope,updateViaCache:'none'});
       registrationError='';watch(registration.installing);
       registration.addEventListener('updatefound',()=>watch(registration.installing));
-      await askStatus();if(registration.active?.state==='activated'&&activeVersion===buildVersion)registration.active.postMessage({type:'TEST_PWA_PRUNE'});render();return true;
+      await askStatus();if(registration.active?.state==='activated'&&activeVersion===buildVersion)registration.active.postMessage({type:'WORKING_TEST_PWA_PRUNE'});render();return true;
     } catch (error) {registrationError=error?.message || String(error);render();return false;}
   }
   function checkForUpdates() {
@@ -212,10 +212,10 @@
       const timer = setTimeout(() => finish(Error('Новая версия не подтвердила активацию.')),5000);
       channel.port1.onmessage = event => {
         const value = event.data;
-        if (value?.type === 'TEST_PWA_APPLY' && value.version === expected && value.accepted === true) finish(null,true);
+        if (value?.type === 'WORKING_TEST_PWA_APPLY' && value.version === expected && value.accepted === true) finish(null,true);
         else finish(Error('Новая версия не прошла проверку.'));
       };
-      try {worker.postMessage({type:'TEST_PWA_APPLY',version:expected},[channel.port2]);}
+      try {worker.postMessage({type:'WORKING_TEST_PWA_APPLY',version:expected},[channel.port2]);}
       catch(error) {finish(error);}
     });
   }
@@ -326,6 +326,34 @@
     doc.querySelectorAll('link[rel="manifest"],link[rel="apple-touch-icon"]').forEach(n=>n.remove());
     return '<!DOCTYPE html>\n'+doc.documentElement.outerHTML;
   }
-  window.TestPWA={snapshot:state,inlineHtml,checkForUpdates:discoverPublishedUpdate,installUpdate:installPublishedUpdate};
+  // Автоматическое обновление. Если новая сборка полностью скачана и проверена,
+  // а неотправленных действий нет, приложение само переходит на неё при запуске.
+  // Без этого телефон мог остаться на старой (сломанной) сборке навсегда.
+  let autoApplyStarted=false;
+  async function autoApplyWaiting(){
+    if(autoApplyStarted||manualUpdateBusy||!updateReady||!registration?.waiting||!navigator.onLine)return;
+    if(!waitingVersion||waitingVersion===buildVersion)return;
+    if(document.querySelector('dialog[open], input:focus, textarea:focus'))return;
+    const marker='wt_auto_update:'+waitingVersion;
+    try{if(sessionStorage.getItem(marker)==='1')return;sessionStorage.setItem(marker,'1');}catch(_){}
+    autoApplyStarted=true;
+    try{
+      await assertUpdateSafe();
+      const pending=typeof offlinePendingCount==='function'?Number(offlinePendingCount())||0:0;
+      if(pending){autoApplyStarted=false;return;}
+      manualUpdateBusy=true;
+      render();
+      updateProgress('install','Устанавливаю новую сборку. Данные и очередь действий сохраняются.');
+      await applyVerifiedBuild(registration.waiting,waitingVersion);
+      await waitForActivation(waitingVersion);
+      try{sessionStorage.removeItem(marker);}catch(_){}
+      location.replace('./index-working-test.html?update='+encodeURIComponent(waitingVersion));
+    }catch(error){
+      manualUpdateBusy=false;autoApplyStarted=false;render();
+    }
+  }
+  setTimeout(autoApplyWaiting,5000);
+  setInterval(autoApplyWaiting,60000);
+  window.TestPWA={snapshot:state,inlineHtml,checkForUpdates:discoverPublishedUpdate,installUpdate:installPublishedUpdate,applyWaiting:autoApplyWaiting};
   checkForUpdates();discoverPublishedUpdate();render();
 })();

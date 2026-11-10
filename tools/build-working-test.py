@@ -39,7 +39,7 @@ def build():
     assets += sorted(p for d in ('src','tabel-v2','tabel','synology','vendor','icons') if (APP/d).is_dir() for p in (APP/d).rglob('*') if p.is_file())
     assets += sorted(out.glob('*.js'))
     assets=list(dict.fromkeys(assets)); records=[{'url':'./'+str(p.relative_to(ROOT)),'sha256':sha(p.read_bytes())} for p in assets]
-    sw=(SOURCE/'service-worker.js').read_text(); sw=re.sub(r"const VERSION = '[^']+';","const VERSION = '"+build_id+"';",sw); sw=re.sub(r'^const PREFIX = .*;$',"const PREFIX = 'samosval-working-test-shell-';",sw,flags=re.M); sw=re.sub(r'^const RECORDS = .*;$',lambda m:'const RECORDS = '+json.dumps(records,separators=(',',':'))+';',sw,flags=re.M); sw=sw.replace('index-test.html','index-working-test.html').replace('TEST_PWA_','WORKING_TEST_PWA_')
+    sw=(SOURCE/'service-worker.js').read_text(); sw=re.sub(r"const VERSION = '[^']+';","const VERSION = '"+build_id+"';",sw); sw=re.sub(r'^const PREFIX = .*;$',"const PREFIX = 'samosval-working-test-shell-';",sw,flags=re.M); sw=re.sub(r'^const RECORDS = .*;$',lambda m:'const RECORDS = '+json.dumps(records,separators=(',',':'))+';',sw,flags=re.M); sw=sw.replace('index-test.html','index-working-test.html'); sw=re.sub(r'(?:WORKING_)?TEST_PWA_','WORKING_TEST_PWA_',sw)
     (ROOT/'sw-working-test.js').write_text(sw)
     (APP/'build-manifest.json').write_text(json.dumps({'version':build_id,'channel':'working-'+release,'baseline_commit':spec.get('baseline_commit'),'assets':records},indent=2)+'\n')
     print(json.dumps({'release':release,'build':build_id,'assets':len(records)}))
