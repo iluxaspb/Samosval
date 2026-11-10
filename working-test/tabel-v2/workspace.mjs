@@ -22,8 +22,8 @@ const areas = [
 export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   const host = ctx.ledgerHost,
     session = host.session();
-  if (session.projectId !== "samosval-offline")
-    throw Error("Только тестовая среда");
+  if (!session.projectId)
+    throw Error("Не определён проект базы");
   if (!document.querySelector("[data-tabel-v2-css]")) {
     const l = document.createElement("link");
     l.rel = "stylesheet";

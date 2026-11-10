@@ -12,7 +12,7 @@ async function openInner(
 ) {
   const initial = host.session();
   if (
-    initial.projectId !== "samosval-offline" ||
+    !initial.projectId ||
     !initial.uid ||
     !initial.active ||
     !initial.view

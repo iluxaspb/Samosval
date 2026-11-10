@@ -318,6 +318,9 @@
       document.getElementById('userBadgeLabel').textContent = '👤 Проверка учётной записи…';
       updateSyncUI();
       document.getElementById('authOverlay').style.display = 'none';
+      // Общий режим читается ДО запуска рантайма: иначе приложение стартует в
+      // Firebase, и переключение на Ubuntu «отскакивает» обратно на Firebase.
+      await ensureWorkingAuthority();
       if(isNasRuntime()){if(userDocUnsubscriber){userDocUnsubscriber();userDocUnsubscriber=null;}await startNasRuntime(user);return;}
       const forced = isForcedAdminEmail(currentEmail); const defaultNick = sanitizeName(currentEmail);
       if (userDocUnsubscriber) userDocUnsubscriber();

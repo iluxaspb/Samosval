@@ -43,30 +43,67 @@
     } catch (_) { return 'firebase'; }
   }
 
-  // The device preference is only a request. The server decides who may write,
-  // and the decision is recorded once for the whole system.
+  // The device preference is only a request. The single shared decision lives in
+  // one Firestore document and is written transactionally by an administrator —
+  // for BOTH directions. Existing rules already allow an active user to read and
+  // an admin to write workspaces/main_workspace/settings/*, so no rule or schema
+  // change to the working database is required.
+  async function writeAuthority(mode, expectedGeneration) {
+    return db.runTransaction(async tx => {
+      const ref = db.doc(WORKING_AUTHORITY_PATH);
+      const snap = await tx.get(ref);
+      const data = snap.exists ? (snap.data() || {}) : { provider: 'firebase', generation: 0 };
+      const generation = Number.isInteger(data.generation) ? data.generation : 0;
+      if (generation !== expectedGeneration) {
+        const conflict = Error('Режим уже изменил другой администратор. Откройте админку заново.');
+        conflict.code = 'authority-generation-conflict';
+        throw conflict;
+      }
+      const next = { provider: mode, generation: generation + 1, updatedAt: Date.now(), updatedBy: currentUid || null };
+      tx.set(ref, next);
+      return next;
+    });
+  }
+
   async function pushAuthorityToServer(mode) {
     if (mode !== 'ubuntu' && mode !== 'firebase') return null;
-    const client = typeof nasRuntimeClient === 'undefined' ? null : nasRuntimeClient;
-    if (mode !== 'firebase' && (!client || typeof client.readAuthority !== 'function')) return null;
     try {
       const current = await readWorkingAuthority();
       if (current.provider === mode) return current;
-      const result = await client?.submitAuthority?.({
-        id: 'authority_' + crypto.randomUUID().replaceAll('-', ''),
-        provider: mode,
-        expectedGeneration: current.generation,
-        reason: 'Ручное переключение администратором'
-      });
+      const next = await writeAuthority(mode, current.generation);
+      window.WorkingTestAuthority.runtimeProvider = next.provider;
+      window.WorkingTestAuthority.generation = next.generation;
       showToastEl('Сервер данных: ' + TEST_BACKEND_MODE_LABELS[mode], false);
-      if (mode === 'firebase') return (await db.runTransaction(async tx => { const snap=await tx.get(db.doc(WORKING_AUTHORITY_PATH)); const d=snap.exists?snap.data():{provider:'firebase',generation:0}; if (d.generation!==current.generation) throw Error('generation conflict'); tx.set(db.doc(WORKING_AUTHORITY_PATH),{provider:mode,generation:current.generation+1,updatedAt:Date.now()}); return {provider:mode,generation:current.generation+1}; }));
-      return result.authority;
+      return next;
     } catch (error) {
       showError(error.code === 'authority-generation-conflict'
-        ? 'Режим уже изменил другой администратор. Откройте админку заново.'
+        ? error.message
         : 'Сервер не подтвердил переключение: ' + (error.message || error.code || 'ошибка'));
       return null;
     }
+  }
+
+  // The provider has to be known BEFORE the authenticated runtime starts,
+  // otherwise the app boots into Firebase and the switch looks like it "jumps
+  // back". Called from the auth flow before isNasRuntime() is evaluated.
+  let workingAuthorityReady = null;
+  function ensureWorkingAuthority() {
+    if (window.WorkingTestAuthority.ready) return Promise.resolve(window.WorkingTestAuthority);
+    if (!workingAuthorityReady) {
+      workingAuthorityReady = readWorkingAuthority().then(a => {
+        window.WorkingTestAuthority.runtimeProvider = a.provider;
+        window.WorkingTestAuthority.generation = a.generation;
+        window.WorkingTestAuthority.ready = true;
+        return window.WorkingTestAuthority;
+      }).catch(error => {
+        workingAuthorityReady = null; // retry on the next login/reconnect
+        if (error && error.code === 'permission-denied') {
+          showError('Нет доступа к общему режиму сервера. Работаем на Firebase.');
+        }
+        return window.WorkingTestAuthority;
+      });
+    }
+    return workingAuthorityReady;
   }
 
   function setTestBackendMode(mode) {

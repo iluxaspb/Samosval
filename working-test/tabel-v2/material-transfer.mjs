@@ -55,7 +55,7 @@ export async function transferClosedLine(host,shift,archive) {
   const initial=host.session();
   const guard=()=>{
     const a=host.session();
-    if(a.projectId!=='samosval-offline' || !a.uid || !sameTableSession(a,initial) || !a.active || !a.edit) throw Error('Нет права переносить материалы в Табель 2');
+    if(!a.projectId || !a.uid || !sameTableSession(a,initial) || !a.active || !a.edit) throw Error('Нет права переносить материалы в Табель 2');
     return a;
   };
   guard();

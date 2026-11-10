@@ -23,7 +23,8 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   getUser,fetchImpl=globalThis.fetch,timeoutMs=20000}={}) {
   let base;
   try {base=new URL(baseUrl);}catch{throw TypeError('invalid-api-url');}
-  if(base.protocol!=='https:'||base.username||base.password||base.search||base.hash||base.pathname!=='/')throw TypeError('invalid-api-url');
+  if(base.protocol!=='https:'||base.username||base.password||base.search||base.hash)throw TypeError('invalid-api-url');
+  const apiRoot=base.href.replace(/\/$/,'');
   if(typeof getUser!=='function'||typeof fetchImpl!=='function'||typeof workspaceId!=='string'||!/^[\w-]{1,128}$/.test(workspaceId)||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw TypeError('invalid-client-options');
   const owner=getUser();
   if(!owner||typeof owner.uid!=='string'||!owner.uid||typeof owner.getIdToken!=='function')throw new NasClientError('authentication-required');
@@ -36,9 +37,9 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   let backgroundTail=Promise.resolve();const backgroundReads=new Map(),readCache=new Map();
   const clone=x=>typeof structuredClone==='function'?structuredClone(x):JSON.parse(JSON.stringify(x));
   // Origin, workspace and UID are inseparable from caches and outbox entries.
-  const epochKey='samosval_nas_dataset_epoch:'+JSON.stringify([base.origin,workspaceId,uid]);
+  const epochKey='samosval_nas_dataset_epoch:'+JSON.stringify([apiRoot,workspaceId,uid]);
   let datasetEpoch=0;try{datasetEpoch=Number(globalThis.localStorage?.getItem(epochKey)||0)||0;}catch{}
-  const scope=JSON.stringify(['ubuntu',base.origin,workspaceId,uid,...(datasetEpoch?[datasetEpoch]:[])]);
+  const scope=JSON.stringify(['ubuntu',apiRoot,workspaceId,uid,...(datasetEpoch?[datasetEpoch]:[])]);
   function checkEpoch(response){const raw=response.headers?.get?.('X-Samosval-Epoch');if(raw==null||!/^\d+$/.test(raw)||Number(raw)===datasetEpoch)return;
     try{globalThis.localStorage?.setItem(epochKey,raw);}catch{}
     stopped=true;for(const close of subscriptions)close();
@@ -78,7 +79,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
         if(typeof token!=='string'||!token)throw new NasClientError('authentication-required');
         const previous=write?null:readCache.get(path);
         phase='response-headers';
-        const response=await abortable(fetchImpl(base.origin+path,{method:write?'POST':'GET',
+        const response=await abortable(fetchImpl(apiRoot+path,{method:write?'POST':'GET',
           headers:write?{'X-Samosval-Epoch':String(datasetEpoch),'X-Samosval-Generation':String(authorityGeneration),Authorization:'Bearer '+token,'Content-Type':'application/json'}:{Authorization:'Bearer '+token,...(previous?{'If-None-Match':previous.etag}:{})},
           ...(write?{body}:{}),signal:controller.signal,redirect:'error',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'}),controller.signal);
         guard();checkEpoch(response);httpStatus=response.status;
