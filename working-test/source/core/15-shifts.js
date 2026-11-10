@@ -116,7 +116,7 @@
       // Even a shift with zero trips has a last-closed address on this device.
       // Archived shifts remain the cross-device source when they have records.
       try {
-        localStorage.setItem('working-test-tabel-v2-last-closed:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID,
+        localStorage.setItem('working-test-tabel-last-closed:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID,
           JSON.stringify({objectId: shift.objectId, closedAt: shift.closingStartedAt || Date.now()}));
       } catch (_) {}
       if(state.shift?.id===shiftId){state.shift=null;offlineProjectState();renderAll();}

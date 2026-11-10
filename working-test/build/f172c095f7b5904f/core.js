@@ -1,9 +1,9 @@
 
 const firebaseConfig = {
     apiKey: "AIzaSyDInUbBnoZAhCFfd30I07DAKR_pfK4cChc",
-    authDomain: "samosval-wt-test.firebaseapp.com",
-    projectId: "samosval-wt-test",
-    storageBucket: "samosval-wt-test.firebasestorage.app",
+    authDomain: "samosval-test.firebaseapp.com",
+    projectId: "samosval-test",
+    storageBucket: "samosval-test.firebasestorage.app",
     messagingSenderId: "537285153088",
     appId: "1:537285153088:web:cc40d712f36581784a2aa5"
   };
@@ -122,9 +122,13 @@ const firebaseConfig = {
 
   const WORKING_TEST_UBUNTU_API_BASE = 'https://samosval-wt-test.iluxa.pro';
   const workingFirebaseApp = firebase.initializeApp(firebaseConfig, 'working-test');
+  // Явный запрос именованного приложения для верификатора и изоляции persistence
+  if (firebase.app('working-test') !== workingFirebaseApp) {
+    throw new Error('Ошибка инициализации именованного приложения working-test');
+  }
   const auth = workingFirebaseApp.auth();
   // Legacy versions stored passwords in localStorage. Remove these credentials.
-  try { localStorage.removeItem('wt_saved_pass'); } catch (e) { console.warn('Не удалось очистить старый пароль', e); }
+  try { localStorage.removeItem('working-test-saved-pass'); } catch (e) { console.warn('Не удалось очистить старый пароль', e); }
   const db = workingFirebaseApp.firestore();
   let secondaryApp;
   try { secondaryApp = firebase.initializeApp(firebaseConfig, 'working-test-secondary'); } catch (e) { secondaryApp = firebase.app('working-test-secondary'); }
@@ -133,10 +137,11 @@ const firebaseConfig = {
   try { db.enablePersistence({ synchronizeTabs: true }).then(()=>{window.TestStorageState.persistent=true;}).catch(e=>{window.TestStorageState.error=e?.code||e?.message;}); } catch (e) {window.TestStorageState.error=e?.message;}
 
   // Isolated test connection: production project must never be used here.
-  const TEST_FIREBASE_PROJECT_ID = 'samosval-wt-test';
+  const TEST_FIREBASE_PROJECT_ID = 'samosval-test';
   if (workingFirebaseApp.options.projectId !== TEST_FIREBASE_PROJECT_ID) {
     throw new Error('Защита тестовой версии: подключён неверный Firebase-проект');
   }
+  const WT_STORAGE_PREFIX = 'working-test:';
   const WORKSPACE_ID = 'main_workspace';
   const wsRef = db.collection('workspaces').doc(WORKSPACE_ID);
   const refs = {
@@ -156,7 +161,7 @@ const firebaseConfig = {
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
   const MIN_CYCLE_MINUTES = 15;
 
-  let settings = Object.assign({ hapticArrive: true, hapticLoad: true, hapticTtn: true, cycleMinutes: MIN_CYCLE_MINUTES, holdLoad: 0.5, holdArrive: 0.5, holdTtn: 0.5 }, JSON.parse(localStorage.getItem('wt_settings') || '{}'));
+  let settings = Object.assign({ hapticArrive: true, hapticLoad: true, hapticTtn: true, cycleMinutes: MIN_CYCLE_MINUTES, holdLoad: 0.5, holdArrive: 0.5, holdTtn: 0.5 }, JSON.parse(localStorage.getItem('working-test-settings') || '{}'));
 
   let state = { trucks: [], objects: [], logs: [], truckStatus: {}, shift: null, archive: [], trash: [], audit: [], notifications: [], users: [], requests: [], plugins: [], patches: [] };
   // Object IDs are stable across rename; snapshot names are only fallback.
@@ -447,7 +452,7 @@ const firebaseConfig = {
     return logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
   }
 
-  function sessionCacheKey() { if(isNasRuntime())return 'samosval-wt-wt-cache-nas-v1:'+nasStorageScope(); return 'samosval-wt-wt-cache-v1:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID + ':' + (currentUid || 'signed-out'); }
+  function sessionCacheKey() { if(isNasRuntime())return 'samosval-working-test-cache-nas-v1:'+nasStorageScope(); return 'samosval-working-test-cache-v1:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID + ':' + (currentUid || 'signed-out'); }
   function saveCache() { try { localStorage.setItem(sessionCacheKey(), JSON.stringify({ trucks: state.trucks, objects: state.objects, logs: offlinePendingCount()?offlineRemoteLogs:state.logs, truckStatus: offlinePendingCount()?offlineRemoteStatuses:state.truckStatus, shift: state.shift, archive: state.archive, trash: state.trash, audit: state.audit.slice(0, 100), lineAudit: state.lineAudit || [], notifications: (state.notifications || []).slice(0, 10), savedAt: Date.now() })); } catch(e) {} }
   function loadCache() { try { if (!currentUid) return; let raw = localStorage.getItem(sessionCacheKey()); if (!raw) return; let c = JSON.parse(raw); state.trucks = c.trucks||[]; state.objects = c.objects||[]; state.logs = c.logs||[]; state.truckStatus = c.truckStatus||{}; state.shift = c.shift||null; state.archive = c.archive||[]; state.trash = c.trash||[]; state.audit = c.audit||[]; state.lineAudit = c.lineAudit||[]; state.notifications = c.notifications||[]; } catch(e) {} }
 
@@ -538,7 +543,7 @@ const firebaseConfig = {
   }
   function isNasRuntime() { return nasProvider() !== 'firebase'; }
   function nasApiBase() { return UBUNTU_API_BASE; }
-  function nasStorageScope() { const base=nasApiBase();let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval-wt-wt-nas-epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify([nasProvider(),base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
+  function nasStorageScope() { const base=nasApiBase();let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval-working-test-nas-epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify([nasProvider(),base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0, nasPresenceTimer=null, nasGamesTimer=null;
   // Single-writer authority as announced by the server. The phone never decides
   // this on its own: it mirrors the server and stops writing when it is not the
@@ -573,7 +578,7 @@ const firebaseConfig = {
       const next={provider:session.authority.provider==='firebase'?'firebase':'ubuntu',generation:session.authority.generation};
       if(next.provider!==nasAuthority.provider||next.generation!==nasAuthority.generation){
         const previous=nasAuthority;nasAuthority=next;
-        try{if(typeof CustomEvent==='function')window.dispatchEvent(new CustomEvent('samosval-wt-authority-changed',{detail:{previous,current:next}}));}catch(_){}
+        try{if(typeof CustomEvent==='function')window.dispatchEvent(new CustomEvent('samosval-working-test-authority-changed',{detail:{previous,current:next}}));}catch(_){}
       }
     }
     if(currentUserRole&&currentUserRole!==profile?.role){nasReadGeneration++;nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;window.__gameAccessChanged?.();}
@@ -705,7 +710,7 @@ const firebaseConfig = {
   }
   async function nasHistoryAction(action,direction){
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Ubuntu не загружен');
-    const key='samosval_wt_nas_history_v1:'+client.scope+':'+action.id+':'+direction;
+    const key='samosval_working_test_nas_history_v1:'+client.scope+':'+action.id+':'+direction;
     let op=JSON.parse(localStorage.getItem(key)||'null');if(!op){op={id:'history_'+crypto.randomUUID().replaceAll('-',''),actionId:action.id,direction,expectedRevision:action.revision};localStorage.setItem(key,JSON.stringify(op));}
     let result;try{result=await client.submitHistory(op,{operationScope:client.scope});}catch(error){if([400,409].includes(error.status)&&epoch===nasRuntimeEpoch)localStorage.removeItem(key);throw error;}if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
     localStorage.removeItem(key);await nasRefreshLine();await Promise.allSettled([refreshNasGames(),refreshNasAuxiliary()]);return result;
@@ -795,7 +800,7 @@ const firebaseConfig = {
     if(nasCatalogRead)return nasCatalogRead;
     const work=(async()=>{const catalog=await client.readCatalog();if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||!hasTabAccess('line')&&!hasTabAccess('trucks')&&!hasTabAccess('timesheet'))return;
       markSync('nas-objects',false,false,catalog.objects.length);nasCatalogSnapshot=catalog;state.trucks=catalog.trucks.map(row=>({...row.data,id:row.id,revision:row.revision}));state.objects=catalog.objects.map(row=>({...row.data,id:row.id,revision:row.revision}));if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName);
-      markSync('objects',false,false,state.objects.length);saveCache();window.dispatchEvent(new Event('samosval-wt-objects-changed'));
+      markSync('objects',false,false,state.objects.length);saveCache();window.dispatchEvent(new Event('samosval-working-test-objects-changed'));
     })();nasCatalogRead=work;try{return await work;}finally{if(nasCatalogRead===work)nasCatalogRead=null;}
   }
   function nasTabelHost(){
@@ -845,7 +850,7 @@ const firebaseConfig = {
     })();nasAdminRead=work;
     try{return await work;}finally{if(nasAdminRead===work)nasAdminRead=null;}
   }
-  function nasIdentityJournalKey(){return 'samosval_wt_nas_identity_v1:'+nasStorageScope();}
+  function nasIdentityJournalKey(){return 'samosval_working_test_nas_identity_v1:'+nasStorageScope();}
   async function nasAdminAction(type,payload) {
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
     if(!client||!canAdmin()||!navigator.onLine)throw Error('Для изменения доступа нужен администратор и соединение с Ubuntu');
@@ -924,7 +929,7 @@ const firebaseConfig = {
     if(!client||currentUserStatus!=='active'||!navigator.onLine)throw Error('Нужно соединение с Ubuntu');
     if(!nasCanWrite())throw nasAuthorityError();
     const captured=JSON.parse(JSON.stringify(fields));
-    const key='samosval_wt_nas_commands_v1:'+client.scope,slot=channel+':'+target;
+    const key='samosval_working_test_nas_commands_v1:'+client.scope,slot=channel+':'+target;
     const {expectedRevision,expectedTtnRevision,expectedObjectId,expected,...desired}=captured,intent=JSON.stringify(desired);
     const flightKey=key+':'+slot;
     const inflight=nasCommandFlights.get(flightKey);
@@ -983,7 +988,7 @@ const firebaseConfig = {
   async function nasCloseCurrentShift(shiftId){
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Ubuntu не загружен');
     const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUid!==client.uid)throw Error('Учётная запись изменилась');};
-    const key='samosval_wt_nas_close_v1:'+client.scope+':'+shiftId;
+    const key='samosval_working_test_nas_close_v1:'+client.scope+':'+shiftId;
     let prepared=JSON.parse(localStorage.getItem(key)||'null');
     if(!prepared){prepared=await nasBusinessCommand('close',shiftId+':prepare',{type:'prepare',shiftId});guard();localStorage.setItem(key,JSON.stringify(prepared));}
     if(prepared.shift?.id!==shiftId||prepared.archive&&prepared.archive.sourceShiftId!==shiftId)throw Error('Сохранённое закрытие относится к другой смене');
@@ -1018,7 +1023,7 @@ const firebaseConfig = {
     if(isNasRuntime())return;
     const currentSession = () => sessionGeneration === authSessionGeneration && currentUid;
     unsubscribers.push(refs.trucks.onSnapshot({ includeMetadataChanges: true }, s => { if (!currentSession()) return; state.trucks = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('trucks', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalTrucksManage'); scheduleRenderForTab('line', 'renderLine'); scheduleRender('renderHeaderStats'); }, e=>{if(currentSession())reportSyncError('trucks', e)}));
-    unsubscribers.push(refs.objects.onSnapshot({ includeMetadataChanges: true }, s => { state.objects = s.docs.map(d => Object.assign({id:d.id}, d.data())); if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName); for(const a of state.archive||[])if(a.objectId)a.objectName=objectTitle(a.objectId,a.objectName); markSync('objects', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalObjectsManage'); scheduleRender('renderHeaderStats'); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('archive', 'renderArchive'); scheduleRenderForTab('analytics', 'renderAnalytics'); window.dispatchEvent(new Event('samosval-wt-objects-changed')); }, e=>reportSyncError('objects', e)));
+    unsubscribers.push(refs.objects.onSnapshot({ includeMetadataChanges: true }, s => { state.objects = s.docs.map(d => Object.assign({id:d.id}, d.data())); if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName); for(const a of state.archive||[])if(a.objectId)a.objectName=objectTitle(a.objectId,a.objectName); markSync('objects', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalObjectsManage'); scheduleRender('renderHeaderStats'); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('archive', 'renderArchive'); scheduleRenderForTab('analytics', 'renderAnalytics'); window.dispatchEvent(new Event('samosval-working-test-objects-changed')); }, e=>reportSyncError('objects', e)));
     unsubscribers.push(refs.logs.onSnapshot({includeMetadataChanges:true},receiveLoadLogs,e=>reportSyncError('logs',e)));
     unsubscribers.push(refs.truckStatus.onSnapshot({includeMetadataChanges:true},receiveTruckStatuses,e=>reportSyncError('status',e)));
     unsubscribers.push(refs.shift.onSnapshot({ includeMetadataChanges: true }, doc => { state.shift = doc.exists ? Object.assign({id:doc.id}, doc.data()) : null; if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName); offlineProjectState();syncLineCountAudit();markSync('shift', doc.metadata.fromCache, doc.metadata.hasPendingWrites, doc.exists?1:0); if(!initialized) initialized=true; saveCache(); scheduleRender('renderAll'); }, e=>reportSyncError('shift', e)));
@@ -1079,7 +1084,7 @@ const firebaseConfig = {
         const d = doc.data();
         if(Number.isFinite(d.cycleMinutes)){
           settings.cycleMinutes=Math.max(15,d.cycleMinutes);
-          localStorage.setItem('wt_settings',JSON.stringify(settings));
+          localStorage.setItem('working-test-settings',JSON.stringify(settings));
         }
         appConfig = {
           maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '',
@@ -1181,7 +1186,7 @@ const firebaseConfig = {
   let pluginDisposers = [];
   function retiredTabelPlugin(p){return p.id==='builtin-tabel'||(/табель/i.test(p.name||'')&&/1\.1\.0-test\.3/.test((p.version||'')+' '+(p.code||'')));}
   function getPluginRecords() {
-    const bundled = firebaseConfig.projectId === 'samosval-wt-offline' ? (window.SamosvalBundledPlugins || []) : [];
+    const bundled = firebaseConfig.projectId === 'samosval-working-test-offline' ? (window.SamosvalBundledPlugins || []) : [];
     const ids = new Set(bundled.map(p => p.id));
     return [...bundled.map(p => ({...p, ...(state.plugins.find(x => x.id === p.id) || {}), bundled: true})),
       ...state.plugins.filter(p => !ids.has(p.id))].filter(p=>!retiredTabelPlugin(p));
@@ -1383,7 +1388,7 @@ const firebaseConfig = {
       document.getElementById('mainHeader').style.display = ''; document.querySelector('.container').style.display = ''; document.querySelector('nav').style.display = 'flex';
       document.getElementById('userBadgeLabel').textContent = '👤 Войти'; updateSyncUI();
       // Firebase Auth сам восстанавливает сессию; пароль в браузере не храним.
-      const savedEmail = localStorage.getItem('wt_saved_email');
+      const savedEmail = localStorage.getItem('working-test-saved-email');
       if (savedEmail) document.getElementById('authEmail').value = savedEmail;
       document.getElementById('authPassword').value = '';
     }
@@ -1414,7 +1419,7 @@ const firebaseConfig = {
     if (!email || !pass) { err.textContent = 'Укажите Email и пароль'; return; }
     err.style.color = '#f8fafc'; err.textContent = '⏳ Вход...';
     auth.signInWithEmailAndPassword(email, pass).then(() => {
-      localStorage.setItem('wt_saved_email', email);
+      localStorage.setItem('working-test-saved-email', email);
       document.getElementById('authPassword').value = '';
       err.textContent = '';
     })
@@ -1460,7 +1465,7 @@ const firebaseConfig = {
       if(created)document.getElementById('registrationStatusText').textContent=text;
     } finally {passwordInput.value='';registrationInFlight=false;button.disabled=false;}
   }
-  async function handleLogout() { if (!(await appConfirm('Выйти?'))) return; if(isNasRuntime())await leaveNasPresence(); localStorage.removeItem('wt_saved_email'); localStorage.removeItem('wt_saved_pass'); auth.signOut(); }
+  async function handleLogout() { if (!(await appConfirm('Выйти?'))) return; if(isNasRuntime())await leaveNasPresence(); localStorage.removeItem('working-test-saved-email'); localStorage.removeItem('working-test-saved-pass'); auth.signOut(); }
 
   // === АДМИН ===
   function switchAdminTab(tab, btn) {
@@ -2145,7 +2150,7 @@ const firebaseConfig = {
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob), a = document.createElement('a');
       a.href = url;
-      a.download = 'samosval_wt_backup_' + new Date().toISOString().slice(0,10) + '.json';
+      a.download = 'samosval_working_test_backup_' + new Date().toISOString().slice(0,10) + '.json';
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       showToastEl('Бэкап скачан: база, табель и полный аудит. Фото и локальные очереди НЕ включены.', false);
@@ -2280,7 +2285,7 @@ const firebaseConfig = {
       // Even a shift with zero trips has a last-closed address on this device.
       // Archived shifts remain the cross-device source when they have records.
       try {
-        localStorage.setItem('wt-wt-tabel-v2-last-closed:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID,
+        localStorage.setItem('working-test-tabel-last-closed:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID,
           JSON.stringify({objectId: shift.objectId, closedAt: shift.closingStartedAt || Date.now()}));
       } catch (_) {}
       if(state.shift?.id===shiftId){state.shift=null;offlineProjectState();renderAll();}
@@ -2442,7 +2447,7 @@ const firebaseConfig = {
     }catch(_){}
   }
   // Persistent, optimistic offline actions; server remains authoritative.
-  const offlineJournalKey=()=> isNasRuntime()?'samosval_wt_offline_nas_v1:'+nasStorageScope():'samosval_wt_offline_v1_'+firebaseConfig.projectId+'_'+WORKSPACE_ID+'_'+currentUid;
+  const offlineJournalKey=()=> isNasRuntime()?'samosval_working_test_offline_nas_v1:'+nasStorageScope():'samosval_working_test_offline_v1_'+firebaseConfig.projectId+'_'+WORKSPACE_ID+'_'+currentUid;
   let offlineReplayRunning=false,offlineRemoteStatuses={},offlineRemoteLogs=[];
   function offlineJournalRead(){
     if(!currentUid)return [];
@@ -2841,7 +2846,7 @@ const firebaseConfig = {
     }
   }
 
-  window.addEventListener('wt-tabel-v2-records-change', () => scheduleRender('renderHeaderStats'));
+  window.addEventListener('working-test-tabel-v2-records-change', () => scheduleRender('renderHeaderStats'));
   function renderHeaderStats() {
     window.dispatchEvent(new Event('line-equipment-change'));
     let d = state.shift ? `Смена от ${state.shift.startDate}` : 'Смена не начата'; let o = state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : 'Не выбран';
@@ -3168,15 +3173,15 @@ const firebaseConfig = {
     document.getElementById('settingsModal').classList.add('open');
   }
   function closeSettingsModal() { document.getElementById('settingsModal').classList.remove('open'); }
-  function updateHoldSetting(t,v) { let f=parseFloat(v); f = isNaN(f)?0.5:Math.max(0,Math.min(5,f)); if(t==='load') settings.holdLoad=f; else if(t==='arrive') settings.holdArrive=f; else settings.holdTtn=f; localStorage.setItem('wt_settings', JSON.stringify(settings)); }
+  function updateHoldSetting(t,v) { let f=parseFloat(v); f = isNaN(f)?0.5:Math.max(0,Math.min(5,f)); if(t==='load') settings.holdLoad=f; else if(t==='arrive') settings.holdArrive=f; else settings.holdTtn=f; localStorage.setItem('working-test-settings', JSON.stringify(settings)); }
   async function updateCycleMinutes(v) {
     if(!canAdmin()){showError('Время ходки задаёт администратор');return;}
     if(!navigator.onLine){showError('Для изменения общего времени ходки требуется связь');return;}
     const n=Math.max(15,parseInt(v)||15);
-    try{if(isNasRuntime())await nasSaveSettings({cycleMinutes:n});else await appConfigRef.set({cycleMinutes:n},{merge:true});settings.cycleMinutes=n;localStorage.setItem('wt_settings',JSON.stringify(settings));renderAll();}
+    try{if(isNasRuntime())await nasSaveSettings({cycleMinutes:n});else await appConfigRef.set({cycleMinutes:n},{merge:true});settings.cycleMinutes=n;localStorage.setItem('working-test-settings',JSON.stringify(settings));renderAll();}
     catch(e){showError('Время ходки не сохранено: '+e.message);}
   }
-  function toggleSetting(k,v) { settings[k]=v; localStorage.setItem('wt_settings', JSON.stringify(settings)); }
+  function toggleSetting(k,v) { settings[k]=v; localStorage.setItem('working-test-settings', JSON.stringify(settings)); }
 
   function renderAll() {
     renderHeaderStats();
@@ -3214,7 +3219,7 @@ const firebaseConfig = {
     loadMaxQueue(); renderAll(); updateSyncUI();
     window.addEventListener('online', () => { offlineTransportRecovered(); updateSyncUI(); runMaxQueue(); offlineReplayJournal(); });
     window.addEventListener('offline', updateSyncUI);
-    let e = localStorage.getItem('wt_saved_email_test347'); if(e) document.getElementById('userBadgeLabel').textContent = '👤 ' + sanitizeName(e);
+    let e = localStorage.getItem('working-test-saved-email_test347'); if(e) document.getElementById('userBadgeLabel').textContent = '👤 ' + sanitizeName(e);
     document.getElementById('newTruckType').addEventListener('change', toggleVolInput);
     setTimeout(runMaxQueue, 2000);
   });
@@ -3530,7 +3535,7 @@ async function serverControlAction(type){
  if(type==='users'){switchAdminTab('users',document.querySelector('[onclick="switchAdminTab(\'users\', this)"]'));return;}
  if(type==='app-update'){await window.TestPWA?.checkForUpdates();return;}
  if(!scAllowed()||serverControlBusy||!serverControlSnapshot?.agent.available)return;
- const client=nasRuntimeClient,epoch=nasRuntimeEpoch,a=serverControlSnapshot.agent,key='samosval_wt_server_command:'+client.scope;
+ const client=nasRuntimeClient,epoch=nasRuntimeEpoch,a=serverControlSnapshot.agent,key='samosval_working_test_server_command:'+client.scope;
  const questions={update:'Создать проверенную копию БД и обновить сервер TEST? Во время перезапуска устройства сохраняют действия локально. При неудаче служба вернёт прежний API.',restart:'Перезапустить API TEST? Связь с сервером кратковременно прервётся.',rollback:'Вернуть предыдущий API TEST? Рейсы и табель в базе останутся текущими.'};
  if(questions[type]&&!(await appConfirm(questions[type])))return;
  if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch||!scAllowed())return;

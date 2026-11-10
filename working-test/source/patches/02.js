@@ -5,17 +5,17 @@
   // ===== Значение по умолчанию для holdResetCycle =====
   (function initDefault() {
     try {
-      const stored = JSON.parse(localStorage.getItem('wt_settings_test347') || '{}');
+      const stored = JSON.parse(localStorage.getItem('working-test-settings-test347') || '{}');
       if (typeof stored.holdResetCycle === 'undefined') {
         stored.holdResetCycle = 0.5;
-        localStorage.setItem('wt_settings_test347', JSON.stringify(stored));
+        localStorage.setItem('working-test-settings-test347', JSON.stringify(stored));
       }
     } catch(e) {}
   })();
 
   function getHoldResetCycle() {
     try {
-      const stored = JSON.parse(localStorage.getItem('wt_settings_test347') || '{}');
+      const stored = JSON.parse(localStorage.getItem('working-test-settings-test347') || '{}');
       const v = parseFloat(stored.holdResetCycle);
       return (!isNaN(v) && v >= 0.1) ? v : 0.5;
     } catch(e) { return 0.5; }
@@ -241,9 +241,9 @@
       v = Math.max(0.1, Math.min(5, v));
       v = Math.round(v * 10) / 10;
 
-      const stored = JSON.parse(localStorage.getItem('wt_settings_test347') || '{}');
+      const stored = JSON.parse(localStorage.getItem('working-test-settings-test347') || '{}');
       stored.holdResetCycle = v;
-      localStorage.setItem('wt_settings_test347', JSON.stringify(stored));
+      localStorage.setItem('working-test-settings-test347', JSON.stringify(stored));
       settings.holdResetCycle = v;
       inp.value = v;
 

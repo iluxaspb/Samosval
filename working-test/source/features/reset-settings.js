@@ -110,7 +110,7 @@
     const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 60000);
     try {
       const response = await fetch(config.maxUrl, { method: 'POST', headers: authHeaders(config), body: JSON.stringify(body), signal: ctrl.signal, redirect: 'error' });
-      if (response.ok) { const ack = await response.json(); if (ack?.contract === CONTRACT && ack.success === true && typeof ack.message_id === 'string' && ack.message_id) { try { localStorage.setItem('wt_max_last_success_test347', String(Date.now())); } catch (_) {} return 'ok'; } return 'retry'; }
+      if (response.ok) { const ack = await response.json(); if (ack?.contract === CONTRACT && ack.success === true && typeof ack.message_id === 'string' && ack.message_id) { try { localStorage.setItem('working-test-max-last-success-test347', String(Date.now())); } catch (_) {} return 'ok'; } return 'retry'; }
       if (response.status === 401 || response.status === 403) return 'auth'; if (response.status === 413) return 'too_large'; if (response.status === 429 || response.status >= 500) return 'retry'; return 'http_' + response.status;
     } catch (_) { return 'retry'; }
     finally { clearTimeout(timer); }
