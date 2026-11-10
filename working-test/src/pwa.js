@@ -124,7 +124,7 @@
        // На отдельном сайте (страница в корне) worker получает весь каталог, иначе
       // офлайн-кэш не перехватывал бы подресурсы. В общем репозитории scope
       // остаётся ограниченным одной страницей, чтобы не вытеснить прод-worker.
-      const swScope = location.pathname === '/index-working-test.html' ? './' : './index-working-test.html';
+      const swScope = './';
       registration = await navigator.serviceWorker.register('./sw-working-test.js',{scope:swScope,updateViaCache:'none'});
       registrationError='';watch(registration.installing);
       registration.addEventListener('updatefound',()=>watch(registration.installing));
