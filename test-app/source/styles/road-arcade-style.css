@@ -53,6 +53,7 @@
 .pad-middle{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;flex:1}
 .pad-pill{width:62px;height:17px;border:0;border-radius:10px;background:#4a4a4a;color:#dedede;font:700 8px/1 ui-monospace,monospace;letter-spacing:.12em;box-shadow:inset 0 -2px 0 #232323,0 1px 0 #eee}
 .pad-pill:active{background:#333;transform:translateY(1px)}
+.pad-pill[disabled]{opacity:.5;cursor:default;transform:none;background:#4a4a4a}
 .pad-ab{display:flex;align-items:flex-end;gap:12px;flex:0 0 auto}
 .pad-btn-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;font:700 11px/1 ui-monospace,monospace;color:#6b1414}
 .pad-round{width:52px;height:52px;border:0;border-radius:50%;background:radial-gradient(circle at 34% 28%,#f06060,#c01a1a 62%,#8e0f0f);color:#fff4f4;font:800 18px/1 ui-monospace,monospace;text-shadow:0 1px 0 #6d0a0a;box-shadow:inset 0 -4px 0 #6d0c0c,inset 0 2px 2px #ff9a9a,0 4px 8px #0005}
