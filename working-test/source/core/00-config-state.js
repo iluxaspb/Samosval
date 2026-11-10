@@ -124,7 +124,7 @@ const firebaseConfig = {
   // это убирает CORS, порты и внешние блокировки.
   const WORKING_TEST_UBUNTU_API_BASE = (typeof location !== 'undefined' && location.hostname === 'samosval-test.iluxa.pro')
     ? location.origin
-    : 'https://samosval-test.iluxa.pro:18443';
+    : 'https://samosval-test.iluxa.pro';
   const workingFirebaseApp = firebase.initializeApp(firebaseConfig, 'working-test');
   // Явный запрос именованного приложения для верификатора и изоляции persistence
   if (firebase.app('working-test') !== workingFirebaseApp) {
