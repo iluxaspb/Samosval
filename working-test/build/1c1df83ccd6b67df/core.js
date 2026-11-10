@@ -1,6 +1,6 @@
 
 const firebaseConfig = {
-    apiKey: "AIzaSyDInUbBnoZAhCFfd30I07DAKR_pfK4cChc",
+    apiKey: "AIzaSyB42a5kp__3i9rD2BocdnOuKKoSlvEFLI4",
     authDomain: "samosval-test.firebaseapp.com",
     projectId: "samosval-test",
     storageBucket: "samosval-test.firebasestorage.app",
