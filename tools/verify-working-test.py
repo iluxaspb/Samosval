@@ -575,8 +575,8 @@ def check_firebase_app_name(sources):
                     if depth == 0:
                         break
                     depth -= 1
-                elif char == ',' and depth == 0:
-                    break
+                # Capture ALL arguments (including commas at depth 0) so the
+                # second argument of initializeApp(config, 'name') is visible.
                 arguments += char
                 cursor += 1
             init_calls.append((name, arguments))
