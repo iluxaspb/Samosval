@@ -178,6 +178,13 @@
   }
 
   function setTestBackendMode(mode) {
+    // Единственный сервер данных — Ubuntu. Переключения отключены намеренно:
+    // вторая база больше не принимает записи и не может разойтись с первой.
+    renderTestBackendControls();
+    showToastEl('Сервер данных один — Ubuntu. Firebase используется только для входа.', false);
+    return Promise.resolve(false);
+  }
+  function setTestBackendModeLegacy(mode) {
     const policy = window.WorkingTestSwitchPolicy;
     return (async () => {
     // Перед решением обязательно читаем общий режим: иначе поколение ещё
@@ -288,10 +295,9 @@
     if (probeButton) probeButton.disabled = !allowed || !navigator.onLine || testUbuntuCheckPending;
     const select = document.getElementById('testBackendMode');
     if (select) {
-      select.disabled = !allowed;
-      // Показываем фактический владелец записи, а не локальную настройку:
-      // иначе список говорит «Ubuntu», а приложение работает на Firebase.
-      select.value = window.WorkingTestAuthority.runtimeProvider === 'ubuntu' ? 'ubuntu' : 'firebase';
+      // Данные обслуживает только Ubuntu; переключение режимов отключено.
+      select.disabled = true;
+      select.value = 'ubuntu';
     }
     const actual = document.getElementById('testBackendActual');
     if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
@@ -303,7 +309,5 @@
         ? ' Общий владелец записи: ' + (shared.runtimeProvider === 'ubuntu' ? 'Ubuntu' : 'Firebase')
           + ' (поколение ' + shared.generation + ') — действует для всех устройств.'
         : ' Общий владелец записи ещё не подтверждён сервером.';
-    if (note) note.textContent = (shared.runtimeProvider === 'ubuntu'
-      ? 'Данные обслуживает Ubuntu. Firebase остаётся только для входа пользователей.'
-      : 'Данные обслуживает Firebase. Ubuntu получает изменённые записи как резерв раз в минуту.') + sharedText;
+    if (note) note.textContent = 'Данные обслуживает Ubuntu — единственный сервер. Firebase используется только для входа пользователей. Переключение режимов отключено.';
   }

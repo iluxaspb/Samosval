@@ -120,7 +120,7 @@ const firebaseConfig = {
     viewer: { tabs: ['line', 'report', 'archive', 'analytics'], actions: ['view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] }
   };
 
-  const WORKING_TEST_UBUNTU_API_BASE = 'https://samosval-test.iluxa.pro/wt-api';
+  const WORKING_TEST_UBUNTU_API_BASE = 'https://samosval-test.iluxa.pro:18443';
   const workingFirebaseApp = firebase.initializeApp(firebaseConfig, 'working-test');
   // Явный запрос именованного приложения для верификатора и изоляции persistence
   if (firebase.app('working-test') !== workingFirebaseApp) {
@@ -540,7 +540,9 @@ const firebaseConfig = {
   // tokens; application data and writes go through the Ubuntu API.
   const UBUNTU_API_BASE = WORKING_TEST_UBUNTU_API_BASE;
   function nasProvider() {
-    return window.WorkingTestAuthority?.runtimeProvider || 'firebase';
+    // Единственный сервер данных — Ubuntu. Firebase используется только для
+    // входа пользователей, переключения режимов больше нет.
+    return 'ubuntu';
   }
   function isNasRuntime() { return nasProvider() !== 'firebase'; }
   function nasApiBase() { return UBUNTU_API_BASE; }
@@ -3544,6 +3546,13 @@ const firebaseConfig = {
   }
 
   function setTestBackendMode(mode) {
+    // Единственный сервер данных — Ubuntu. Переключения отключены намеренно:
+    // вторая база больше не принимает записи и не может разойтись с первой.
+    renderTestBackendControls();
+    showToastEl('Сервер данных один — Ubuntu. Firebase используется только для входа.', false);
+    return Promise.resolve(false);
+  }
+  function setTestBackendModeLegacy(mode) {
     const policy = window.WorkingTestSwitchPolicy;
     return (async () => {
     // Перед решением обязательно читаем общий режим: иначе поколение ещё
@@ -3654,10 +3663,9 @@ const firebaseConfig = {
     if (probeButton) probeButton.disabled = !allowed || !navigator.onLine || testUbuntuCheckPending;
     const select = document.getElementById('testBackendMode');
     if (select) {
-      select.disabled = !allowed;
-      // Показываем фактический владелец записи, а не локальную настройку:
-      // иначе список говорит «Ubuntu», а приложение работает на Firebase.
-      select.value = window.WorkingTestAuthority.runtimeProvider === 'ubuntu' ? 'ubuntu' : 'firebase';
+      // Данные обслуживает только Ubuntu; переключение режимов отключено.
+      select.disabled = true;
+      select.value = 'ubuntu';
     }
     const actual = document.getElementById('testBackendActual');
     if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
@@ -3669,9 +3677,7 @@ const firebaseConfig = {
         ? ' Общий владелец записи: ' + (shared.runtimeProvider === 'ubuntu' ? 'Ubuntu' : 'Firebase')
           + ' (поколение ' + shared.generation + ') — действует для всех устройств.'
         : ' Общий владелец записи ещё не подтверждён сервером.';
-    if (note) note.textContent = (shared.runtimeProvider === 'ubuntu'
-      ? 'Данные обслуживает Ubuntu. Firebase остаётся только для входа пользователей.'
-      : 'Данные обслуживает Firebase. Ubuntu получает изменённые записи как резерв раз в минуту.') + sharedText;
+    if (note) note.textContent = 'Данные обслуживает Ubuntu — единственный сервер. Firebase используется только для входа пользователей. Переключение режимов отключено.';
   }
 // TEST-only control center. Server authorizes every read and mutation independently.
 let serverControlSnapshot=null,serverControlSection='overview',serverControlFlight=null,serverControlBusy=false,serverControlError='',serverControlScope='';

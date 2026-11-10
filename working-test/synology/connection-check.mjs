@@ -1,5 +1,5 @@
 // Read-only HTTPS probe. Success does not switch the business data adapter.
-const endpoint='https://samosval-test.iluxa.pro:18443/wt-api';
+const endpoint='https://samosval-test.iluxa.pro:18443';
 export async function checkSynology({getIdToken,guard=()=>{},fetchImpl=globalThis.fetch,timeoutMs=10000}={}) {
   if (typeof getIdToken!=='function'||typeof fetchImpl!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120000) throw TypeError('invalid-check-options');
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);

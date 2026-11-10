@@ -2,7 +2,9 @@
   // tokens; application data and writes go through the Ubuntu API.
   const UBUNTU_API_BASE = WORKING_TEST_UBUNTU_API_BASE;
   function nasProvider() {
-    return window.WorkingTestAuthority?.runtimeProvider || 'firebase';
+    // Единственный сервер данных — Ubuntu. Firebase используется только для
+    // входа пользователей, переключения режимов больше нет.
+    return 'ubuntu';
   }
   function isNasRuntime() { return nasProvider() !== 'firebase'; }
   function nasApiBase() { return UBUNTU_API_BASE; }
