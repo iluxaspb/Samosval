@@ -146,7 +146,22 @@
     badge.dataset.state = status;
   }
 
+  // Очереди другого проекта занимают место на устройстве и не должны
+  // смешиваться с текущей: ключ содержит имя проекта, поэтому чужие удаляем.
+  function pruneForeignReplicaKeys() {
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        if (!key.startsWith('samosval-wt-replica-queue:') && !key.startsWith('samosval-wt-replica-cursor:')) continue;
+        const parts = key.split(':');
+        if (parts.length > 1 && parts[1] !== firebaseConfig.projectId) localStorage.removeItem(key);
+      }
+    } catch (_) {}
+  }
+
   function startReplica() {
+    pruneForeignReplicaKeys();
     replicaLoadQueue();
     if (!currentUid || replicaStarted) { renderReplicaStatus(); return; }
     replicaWatch();
