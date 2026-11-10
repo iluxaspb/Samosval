@@ -1,11 +1,10 @@
 
 const firebaseConfig = {
-    apiKey: "AIzaSyB42a5kp__3i9rD2BocdnOuKKoSlvEFLI4",
-    authDomain: "samosval-test.firebaseapp.com",
-    projectId: "samosval-test",
-    storageBucket: "samosval-test.firebasestorage.app",
-    messagingSenderId: "537285153088",
-    appId: "1:537285153088:web:cc40d712f36581784a2aa5"
+    apiKey: "AIzaSyDRy40gguXaHudGI_6Mn55tb7nxtuOGLTI",
+    authDomain: "samosval-offline.firebaseapp.com",
+    projectId: "samosval-offline",
+    messagingSenderId: "211416746528",
+    appId: "1:211416746528:web:e6f0519bd8ad779895ca45"
   };
 
   // ==========================================
@@ -137,7 +136,7 @@ const firebaseConfig = {
   try { db.enablePersistence({ synchronizeTabs: true }).then(()=>{window.TestStorageState.persistent=true;}).catch(e=>{window.TestStorageState.error=e?.code||e?.message;}); } catch (e) {window.TestStorageState.error=e?.message;}
 
   // Isolated test connection: production project must never be used here.
-  const TEST_FIREBASE_PROJECT_ID = 'samosval-test';
+  const TEST_FIREBASE_PROJECT_ID = 'samosval-offline';
   if (workingFirebaseApp.options.projectId !== TEST_FIREBASE_PROJECT_ID) {
     throw new Error('Защита тестовой версии: подключён неверный Firebase-проект');
   }

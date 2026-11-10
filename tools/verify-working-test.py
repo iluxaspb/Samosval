@@ -49,9 +49,9 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.0.1'
+REQUIRED_VERSION = '1.1.0'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
-FIREBASE_PROJECT = 'samosval-test'
+FIREBASE_PROJECT = 'samosval-offline'
 FIREBASE_APP_NAME = 'working-test'
 AUTHORITY_DOC = 'backendAuthority'
 TEST_RELEASE_FILES = ('index-test.html', 'sw-test.js', 'manifest-test.webmanifest')
@@ -82,7 +82,7 @@ OLD_STORAGE_KEYS = (
 # владельцем в переписке; это НЕ результаты текущей задачи и они не должны
 # попадать в git add/commit.
 BASELINE_CHANGES = {
-    'M': {'AGENTS.md'},
+    'M': {'AGENTS.md', 'server/src/index.mjs'},
     '??': {
         'PROJECT_STATE.md',
         'dino',
@@ -97,6 +97,9 @@ ALLOWED_NEW_FILES = {
     'sw-working-test.js',
     'tools/build-working-test.py',
     'tools/verify-working-test.py',
+    'server/sql/017_replica_stream.sql',
+    'server/src/replica-store.mjs',
+    'server/tests/replica-store.test.mjs',
 }
 ALLOWED_NEW_PREFIXES = ('working-test/',)
 
@@ -551,8 +554,8 @@ def check_firebase(texts):
         fail('firebase/поставщик', 'в снимке working-test нет projectId: "%s"' % FIREBASE_PROJECT)
     if not re.search(r'authDomain\s*:\s*["\']%s[."\']' % FIREBASE_PROJECT, joined):
         fail('firebase/поставщик', 'в снимке нет authDomain проекта %s' % FIREBASE_PROJECT)
-    if 'samosval-offline' in joined:
-        fail('firebase/поставщик', 'в снимке остался резервный проект samosval-offline')
+    if re.search(r'(projectId|authDomain)\s*:\s*["\']samosval-test[.\"\']', joined):
+        fail('firebase/поставщик', 'в снимке остался рабочий проект samosval-test: для лаборатории нужен samosval-offline')
     if 'ubuntu-candidate' in joined:
         fail('firebase/поставщик', 'в снимке остался маркер ubuntu-candidate')
     if 'autonas' in joined.lower():

@@ -56,7 +56,8 @@
         "core/18-line-ui.js",
         "core/19-navigation.js",
         "core/20-backend-mode.js",
-        "core/22-server-control.js"
+        "core/22-server-control.js",
+        "core/23-replica.js"
       ]
     },
     {
