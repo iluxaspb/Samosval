@@ -257,7 +257,8 @@ if(typeof document!=='undefined'){
   window.addEventListener('orientationchange',()=>setTimeout(()=>{if(typeof run!=='undefined'&&run&&marioIsImmersive())drawMario();},250));
 }
 function renderMario(host){
- host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+hearts(run?.lives??3)+'</b></span><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>Очки <b data-mario-score>'+(run?.score||0)+'</b></span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или экранной кнопкой"></canvas><div id="mario-pad" class="nes-pad" role="group" aria-label="Пульт управления: крестовина и кнопки A и B"><div class="pad-top"><span class="pad-brand">8-BIT PAD</span><span class="pad-lines" aria-hidden="true"></span></div><div class="pad-main"><div class="pad-dpad" aria-label="Крестовина"><button type="button" class="dp up" data-key="jump" aria-label="Прыжок">▲</button><button type="button" class="dp left" data-key="left" aria-label="Идти влево">◀</button><span class="dp center" aria-hidden="true"></span><button type="button" class="dp right" data-key="right" aria-label="Идти вправо">▶</button><span class="dp down" aria-hidden="true">▼</span></div><div class="pad-middle"><button type="button" class="pad-pill" disabled aria-disabled="true" title="Не используется">SELECT</button><button type="button" class="pad-pill" data-pad="start">START</button></div><div class="pad-ab"><div class="pad-btn-wrap"><button type="button" class="pad-round b" data-key="jump" aria-label="Прыжок, кнопка B">B</button><span>B</span></div><div class="pad-btn-wrap"><button type="button" class="pad-round a" data-key="jump" aria-label="Прыжок, кнопка A">A</button><span>A</span></div></div></div></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run?.over?'Играть снова':(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень'))+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-sound" aria-pressed="'+sound+'" title="Звуковые эффекты">'+(sound?'🔔 Звуки вкл':'🔕 Звуки выкл')+'</button><button id="mario-music" aria-pressed="'+musicOn+'" title="Фоновая музыка">'+(musicOn?'🎵 Музыка вкл':'🚫 Музыка выкл')+'</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">Пульт: ◀ ▶ — движение, A/B или ▲ — прыжок (держите дольше — выше), START — пауза, SELECT не используется. Ещё работают стрелки, A и D, пробел, W и ↑. Прыгайте на врагов, бейте блоки «?» снизу и собирайте монеты. Чем выше прыжок у флажка, тем больше бонус. Все монеты в конце уровня перечисляются в кошелёк — дневного лимита нет.</p>';
+ const floatPos=JSON.parse(localStorage.getItem('mario-float-jump-pos')||'null')||{right:40,bottom:40};
+ host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+hearts(run?.lives??3)+'</b></span><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>Очки <b data-mario-score>'+(run?.score||0)+'</b></span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или экранной кнопкой"></canvas><button id="mario-float-jump" class="mario-float-jump" data-key="jump" aria-label="Прыжок (перетащите для перемещения)" style="right:'+floatPos.right+'px;bottom:'+floatPos.bottom+'px">A</button><div id="mario-pad" class="nes-pad" role="group" aria-label="Пульт управления: крестовина и кнопки A и B"><div class="pad-top"><span class="pad-brand">8-BIT PAD</span><span class="pad-lines" aria-hidden="true"></span></div><div class="pad-main"><div class="pad-dpad" aria-label="Крестовина"><button type="button" class="dp up" data-key="jump" aria-label="Прыжок">▲</button><button type="button" class="dp left" data-key="left" aria-label="Идти влево">◀</button><span class="dp center" aria-hidden="true"></span><button type="button" class="dp right" data-key="right" aria-label="Идти вправо">▶</button><span class="dp down" aria-hidden="true">▼</span></div><div class="pad-middle"><button type="button" class="pad-pill" disabled aria-disabled="true" title="Не используется">SELECT</button><button type="button" class="pad-pill" data-pad="start">START</button></div><div class="pad-ab"><div class="pad-btn-wrap"><button type="button" class="pad-round b" data-key="jump" aria-label="Прыжок, кнопка B">B</button><span>B</span></div><div class="pad-btn-wrap"><button type="button" class="pad-round a" data-key="jump" aria-label="Прыжок, кнопка A">A</button><span>A</span></div></div></div></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run?.over?'Играть снова':(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень'))+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-sound" aria-pressed="'+sound+'" title="Звуковые эффекты">'+(sound?'🔔 Звуки вкл':'🔕 Звуки выкл')+'</button><button id="mario-music" aria-pressed="'+musicOn+'" title="Фоновая музыка">'+(musicOn?'🎵 Музыка вкл':'🚫 Музыка выкл')+'</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">Пульт: ◀ ▶ — движение, A/B или ▲ — прыжок (держите дольше — выше), START — пауза, SELECT не используется. Ещё работают стрелки, A и D, пробел, W и ↑. Прыгайте на врагов, бейте блоки «?» снизу и собирайте монеты. Чем выше прыжок у флажка, тем больше бонус. Все монеты в конце уровня перечисляются в кошелёк — дневного лимита нет.</p>';
  // Полноэкранный режим: отдельная кнопка и крупные кнопки управления.
  const fsBtn=document.createElement('button');fsBtn.id='mario-fs';fsBtn.type='button';fsBtn.textContent='⛶ Во весь экран';fsBtn.title='Игра на весь экран, телефон можно повернуть горизонтально';
  const toolsRow=host.querySelector('.arcade-tools');if(toolsRow){const next=toolsRow.querySelector('#mario-next');toolsRow.insertBefore(fsBtn,next||null);}
@@ -274,6 +275,46 @@ function renderMario(host){
  host.querySelector('#mario-sound').onclick=()=>{sound=!sound;savePrefs();unlockSound();tone('click');render(true);};
  host.querySelector('#mario-music').onclick=()=>{musicOn=!musicOn;savePrefs();unlockSound();tone('click');if(musicOn)musicStart();render(true);};
  host.querySelectorAll('[data-key]').forEach(b=>{b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture?.(e.pointerId);pointers.set(e.pointerId,b.dataset.key);b.setAttribute('aria-pressed','true');unlockSound();};const release=e=>{pointers.delete(e.pointerId);b.setAttribute('aria-pressed','false');};b.onpointerup=release;b.onpointercancel=release;b.onlostpointercapture=release;});
+ // Плавающая кнопка прыжка: перетаскивание + прыжок
+ const floatBtn=host.querySelector('#mario-float-jump');
+ if(floatBtn){
+   let dragStart=null,dragged=false;
+   floatBtn.onpointerdown=e=>{
+     e.preventDefault();
+     dragStart={x:e.clientX,y:e.clientY,time:Date.now()};
+     dragged=false;
+     floatBtn.setPointerCapture(e.pointerId);
+   };
+   floatBtn.onpointermove=e=>{
+     if(!dragStart)return;
+     const dx=e.clientX-dragStart.x,dy=e.clientY-dragStart.y;
+     if(Math.abs(dx)>8||Math.abs(dy)>8){
+       dragged=true;
+       const rect=host.getBoundingClientRect();
+       let right=rect.right-e.clientX,bottom=rect.bottom-e.clientY;
+       right=Math.max(10,Math.min(right,rect.width-80));
+       bottom=Math.max(10,Math.min(bottom,rect.height-80));
+       floatBtn.style.right=right+'px';
+       floatBtn.style.bottom=bottom+'px';
+     }
+   };
+   const floatRelease=e=>{
+     if(!dragStart)return;
+     if(dragged){
+       localStorage.setItem('mario-float-jump-pos',JSON.stringify({right:parseInt(floatBtn.style.right),bottom:parseInt(floatBtn.style.bottom)}));
+     }else{
+       // Короткое нажатие = прыжок
+       pointers.set(e.pointerId,'jump');
+       floatBtn.setAttribute('aria-pressed','true');
+       unlockSound();
+       setTimeout(()=>{pointers.delete(e.pointerId);floatBtn.setAttribute('aria-pressed','false');},80);
+     }
+     dragStart=null;
+     dragged=false;
+   };
+   floatBtn.onpointerup=floatRelease;
+   floatBtn.onpointercancel=floatRelease;
+ }
  host.querySelectorAll('[data-pad]').forEach(b=>{const act=e=>{e.preventDefault();tone('click');if(b.dataset.pad==='start'){if(!run)return;run.paused=!run.paused;keys.clear();pointers.clear();if(!run.paused)startLoop();drawMario();}};b.onpointerdown=act;b.onclick=e=>e.preventDefault();});
  if(!run)drawWelcome();else drawMario();
 }
