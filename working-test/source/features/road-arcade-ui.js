@@ -265,7 +265,8 @@ function renderMario(host){
  const isImmersive=marioIsImmersive();
  const firstRunKey=prefKey()+':mario-first-run-shown';
  const firstRunShown=!!(run&&(localStorage.getItem(firstRunKey)==='1'));
- host.innerHTML='<div class="mario-ingame-hud" aria-label="Панель игры">'
+ host.innerHTML='<div class="mario-game-wrapper" style="position:relative;width:100%;height:100%">'
+  +'<div class="mario-ingame-hud" aria-label="Панель игры">'
   +'<div class="mig-left">'
   +'<span class="mig-stat">Ур. <b data-mario-level>'+(run?.map.level||1)+'</b>/20</span>'
   +'<span class="mig-stat" data-mario-lives>'+hearts(run?.lives??3)+'</span>'
@@ -287,6 +288,7 @@ function renderMario(host){
   +'<div class="mic-jump-zone" id="mario-jump-zone" aria-label="Зона прыжка: коснитесь в любом месте правой половины экрана"></div>'
   +'<div class="mic-jump-hint" id="mario-jump-hint"><b>ПРЫЖОК</b>коснитесь здесь</div>'
   +'<button type="button" class="mic-exit" id="mario-fs-exit" aria-label="Выйти из полноэкранного режима">✕</button>'
+  +'</div>'
   +'</div>'
   +(!run?'<div id="mario-welcome-controls" class="arcade-tools" style="margin-top:10px"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">Начать уровень</button></div>':'')
   +(run?.done&&run.map.level<20&&run.map.level<unlocked()?'<div class="arcade-tools" style="margin-top:10px"><button id="mario-next">Следующий уровень →</button><button id="mario-restart">Заново</button></div>':'')
