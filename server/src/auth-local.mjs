@@ -2,6 +2,8 @@
 // Только node:crypto. Пароли необратимы (scrypt), токены подписаны HMAC-SHA256,
 // в базе хранится лишь SHA-256 от токена.
 import {createHash,createHmac,randomBytes,scrypt as scryptCallback,timingSafeEqual} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {FIREBASE_SCRYPT_ALGORITHM,verifyFirebaseScrypt} from './firebase-scrypt.mjs';
 
 export const PASSWORD_ALGORITHM='scrypt-sha256';
 // Параметры scrypt зафиксированы, чтобы хеш можно было перепроверить годы спустя.
@@ -34,6 +36,29 @@ export async function hashPassword(password){
   const hash=await scrypt(password,salt,SCRYPT_PARAMS.keylen,{N:SCRYPT_PARAMS.N,r:SCRYPT_PARAMS.r,p:SCRYPT_PARAMS.p,maxmem:SCRYPT_PARAMS.maxmem});
   return {algorithm:PASSWORD_ALGORITHM,salt,hash:hash.toString('hex')};
 }
+// Кэш конфига Firebase SCRYPT: загружается один раз при первой проверке пароля
+// этого типа. Секретные поля не выводятся в логи.
+let firebaseScryptConfigCache=null,firebaseScryptConfigPending=null;
+async function loadFirebaseScryptConfig(){
+  if(firebaseScryptConfigCache)return firebaseScryptConfigCache;
+  if(firebaseScryptConfigPending)return firebaseScryptConfigPending;
+  firebaseScryptConfigPending=(async()=>{
+    const paths=[process.env.FIREBASE_HASH_CONFIG_PATH,'/secrets/firebase-hash-config.json'].filter(Boolean);
+    for(const p of paths){
+      try{
+        const raw=await readFile(p,'utf8');
+        const cfg=JSON.parse(raw);
+        if(cfg&&typeof cfg.signerKey==='string'&&cfg.signerKey.length>0&&typeof cfg.saltSeparator==='string'&&Number.isSafeInteger(cfg.rounds)&&Number.isSafeInteger(cfg.memoryCost)){
+          console.log(`[auth] firebase-scrypt config loaded from ${p} (algorithm=${cfg.algorithm}, rounds=${cfg.rounds}, memoryCost=${cfg.memoryCost}, signerKeyLen=${cfg.signerKey.length})`);
+          return cfg;
+        }
+      }catch{}
+    }
+    console.error('[auth] firebase-scrypt config not found: login with firebase-scrypt passwords will fail');
+    return null;
+  })();
+  try{firebaseScryptConfigCache=await firebaseScryptConfigPending;return firebaseScryptConfigCache;}catch(e){firebaseScryptConfigPending=null;throw e;}
+}
 // Любая повреждённая запись даёт false, а не исключение: иначе ошибка формата
 // стала бы подсказкой о состоянии учётной записи.
 export async function verifyPassword(password,credential){
@@ -42,6 +67,11 @@ export async function verifyPassword(password,credential){
     if(!credential||typeof credential!=='object')return false;
     const {salt,hash,algorithm}=credential;
     if(typeof salt!=='string'||typeof hash!=='string'||!salt||!hash)return false;
+    if(algorithm===FIREBASE_SCRYPT_ALGORITHM){
+      const cfg=await loadFirebaseScryptConfig();
+      if(!cfg)return false;
+      return verifyFirebaseScrypt(password,{hash,salt,algorithm:FIREBASE_SCRYPT_ALGORITHM},cfg);
+    }
     if(algorithm!==undefined&&algorithm!==PASSWORD_ALGORITHM)return false;
     if(!/^[0-9a-f]+$/i.test(hash)||hash.length!==SCRYPT_PARAMS.keylen*2)return false;
     if(!/^[0-9a-f]+$/i.test(salt))return false;
