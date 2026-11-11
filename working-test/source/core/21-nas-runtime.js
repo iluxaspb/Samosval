@@ -135,8 +135,8 @@
     profileServerConfirmed=false;permissionsServerConfirmed=false;
     try{
       const {createNasClient}=await loadNasSessionClient();
-      if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid)return;
-      const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
+      if(epoch!==nasRuntimeEpoch||wtAuthUser()!==user||currentUid!==user.uid)return;
+      const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>wtAuthUser(),workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
       // Pulse: proves this phone is alive and tells the servers how many phones
       // still see the primary. Failover needs many phones, not one.
       const pulse=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;if(typeof client.writeAuthorityPresence!=='function')return;try{client.writeAuthorityPresence({}).catch(()=>{});}catch(_){}};
@@ -297,9 +297,9 @@
     })();nasCatalogRead=work;try{return await work;}finally{if(nasCatalogRead===work)nasCatalogRead=null;}
   }
   function nasTabelHost(){
-    const client=nasRuntimeClient,user=auth.currentUser,epoch=nasRuntimeEpoch;
+    const client=nasRuntimeClient,user=wtAuthUser(),epoch=nasRuntimeEpoch;
     if(!client||!user)throw Error('Сеанс Ubuntu не загружен');
-    const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||auth.currentUser!==user||currentUid!==client.uid||currentUserStatus!=='active'||!permissionsLoaded||!hasTabAccess('timesheet'))throw Error('Доступ к табелю изменился');};
+    const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||wtAuthUser()!==user||currentUid!==client.uid||currentUserStatus!=='active'||!permissionsLoaded||!hasTabAccess('timesheet'))throw Error('Доступ к табелю изменился');};
     const remoteFactory=async jobGuard=>{
       guard();const {createTabelRemote}=await loadNasTabelRemote();guard();
       return createTabelRemote({datasetEpoch:client.datasetEpoch,baseUrl:nasApiBase(),
@@ -323,7 +323,7 @@
   async function leaveNasPresence(){
     let timer;try{await Promise.race([Promise.allSettled([...nasPresenceLeavers].map(fn=>Promise.resolve().then(fn))),new Promise(resolve=>{timer=setTimeout(resolve,1500);})]);}finally{clearTimeout(timer);}
   }
-  async function ensureNasPendingAccount(user,getUser=()=>auth.currentUser) {
+  async function ensureNasPendingAccount(user,getUser=()=>wtAuthUser()) {
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');
     const {createNasClient}=await loadNasSessionClient();
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');

@@ -298,7 +298,9 @@
   async function deletePlugin(id) { if (!canAdmin() || !(await appConfirm('Удалить расширение?'))) return; try { if (getPluginRecords().find(p => p.id === id)?.bundled) await tfAwait(refs.plugins.doc(id).set({ enabled:false, removed:true }, {merge:true})); else await tfAwait(refs.plugins.doc(id).delete()); } catch(e) { showError(e.message); } }
 
   // === АВТОРИЗАЦИЯ ===
-  auth.onAuthStateChanged(async user => {
+  // Сессией управляет локальный вход Ubuntu (core/05). Firebase Auth больше не
+  // решает, кто вошёл: обработчик вызывается с профилем сервера.
+  async function wtApplyAuthUser(user) {
     const sessionGeneration = ++authSessionGeneration;
     if (user) {
       const sessionIsCurrent = () => sessionGeneration === authSessionGeneration && currentUid === user.uid;
@@ -318,10 +320,13 @@
       document.getElementById('userBadgeLabel').textContent = '👤 Проверка учётной записи…';
       updateSyncUI();
       document.getElementById('authOverlay').style.display = 'none';
-      // Общий режим читается ДО запуска рантайма: иначе приложение стартует в
-      // Firebase, и переключение на Ubuntu «отскакивает» обратно на Firebase.
-      await ensureWorkingAuthority();
-      try { watchWorkingAuthority(); } catch (_) {}
+      // Общий режим данных хранится в документе Firebase. После перехода на
+      // локальный вход Firebase-сессии нет, поэтому документ не читаем: иначе
+      // пользователь увидел бы ложную ошибку доступа.
+      if (typeof auth !== 'undefined' && auth.currentUser) {
+        await ensureWorkingAuthority();
+        try { watchWorkingAuthority(); } catch (_) {}
+      }
       if(isNasRuntime()){if(userDocUnsubscriber){userDocUnsubscriber();userDocUnsubscriber=null;}await startNasRuntime(user);return;}
       const forced = isForcedAdminEmail(currentEmail); const defaultNick = sanitizeName(currentEmail);
       if (userDocUnsubscriber) userDocUnsubscriber();
@@ -390,15 +395,18 @@
       stopSync(); initialized = false; pendingOps = 0; confirmedLoadIds.clear();
       syncState = { fromCache: {}, everConnected: {}, docCount: {}, pendingWrites: {}, lastSuccessAt: 0 };
       state = { trucks:[], objects:[], logs:[], truckStatus:{}, shift:null, archive:[], trash:[], audit:[], notifications:[], users:[], requests:[], plugins:[], patches:[] };
-      document.getElementById('authOverlay').style.display = 'flex'; document.getElementById('pendingScreen').style.display = 'none'; document.getElementById('disabledScreen').style.display = 'none';
-      document.getElementById('mainHeader').style.display = ''; document.querySelector('.container').style.display = ''; document.querySelector('nav').style.display = 'flex';
+      // Единая точка показа экранов входа/ожидания/блокировки (core/05):
+      // порядок вызовов больше не может оставить рабочую шапку видимой.
+      wtShowAuthScreens('signed-out');
       document.getElementById('userBadgeLabel').textContent = '👤 Войти'; updateSyncUI();
       // Firebase Auth сам восстанавливает сессию; пароль в браузере не храним.
       const savedEmail = localStorage.getItem('working-test-saved-email');
       if (savedEmail) document.getElementById('authEmail').value = savedEmail;
       document.getElementById('authPassword').value = '';
     }
-  });
+  }
+  // core/05 вызывает этот обработчик после входа, продления и выхода.
+  wtSetSessionHandler(wtApplyAuthUser);
 
   function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
   function applyRoleUI() {

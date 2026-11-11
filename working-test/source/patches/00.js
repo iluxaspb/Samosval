@@ -540,6 +540,14 @@
       setTimeout(() => { buildUI(); refreshUI(); }, 2500);
     });
   } catch(e) {}
+  // Вход теперь выполняет локальный сервер Ubuntu: сброс стека должен
+  // происходить по событию локальной сессии, а не только по Firebase.
+  try {
+    window.addEventListener('wt-auth-session-changed', () => {undoStack=[];redoStack=[];
+      setTimeout(() => { buildUI(); refreshUI(); }, 200);
+      setTimeout(() => { buildUI(); refreshUI(); }, 1000);
+    });
+  } catch(e) {}
 
   setInterval(() => {
     if (window.currentUserRole !== lastRole) {

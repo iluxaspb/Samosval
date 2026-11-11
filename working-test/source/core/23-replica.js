@@ -180,7 +180,7 @@
     }
     if (!batch.length) { replicaBusy = false; return; }
     try {
-      const token = await auth.currentUser.getIdToken();
+      const token = await wtAuthUser().getIdToken();
       const response = await fetch(WORKING_TEST_UBUNTU_API_BASE + '/api/v1/replica/apply', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },

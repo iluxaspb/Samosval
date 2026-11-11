@@ -11,8 +11,8 @@
   const WORKING_AUTHORITY_API = WORKING_TEST_UBUNTU_API_BASE + '/api/v1/authority';
 
   async function workingAuthorityRequest(method, body) {
-    if (!auth.currentUser) throw Error('Нужен вход в приложение');
-    const token = await auth.currentUser.getIdToken();
+    if (!wtAuthUser()) throw Error('Нужен вход в приложение');
+    const token = await wtAuthUser().getIdToken();
     const headers = { Authorization: 'Bearer ' + token };
     if (body) headers['Content-Type'] = 'application/json';
     const response = await fetch(WORKING_AUTHORITY_API, {
@@ -42,7 +42,7 @@
   }
 
   async function readWorkingAuthority() {
-    if (auth.currentUser) {
+    if (wtAuthUser()) {
       try {
         const state = await workingAuthorityRequest('GET');
         const a = state && state.authority;
@@ -68,7 +68,7 @@
     if (window.WorkingTestAuthority.stop) window.WorkingTestAuthority.stop();
     // До входа общий документ недоступен по правилам: не подписываемся и не
     // пугаем пользователя отказом доступа на экране входа.
-    if (!auth.currentUser) return;
+    if (!wtAuthUser()) return;
     window.WorkingTestAuthority.stop = db.doc(WORKING_AUTHORITY_PATH).onSnapshot({includeMetadataChanges:false}, snap => {
       const data=snap.exists?snap.data():{};
       if (!snap.exists) { window.WorkingTestAuthority.runtimeProvider='firebase'; window.WorkingTestAuthority.generation=0; return; }
@@ -117,7 +117,7 @@
   // готов: в нём есть наша учётная запись и рабочие данные. Иначе телефон
   // переключился бы в пустую базу и потерял доступ.
   async function checkReserveReadiness() {
-    const token = await auth.currentUser.getIdToken();
+    const token = await wtAuthUser().getIdToken();
     const session = await fetch(WORKING_TEST_UBUNTU_API_BASE + '/api/v1/session', {
       headers: { Authorization: 'Bearer ' + token }
     });
@@ -265,7 +265,7 @@
     try {
       const {checkSynology} = await loadTestUbuntuChecker();
       guard();
-      const counts = await checkSynology({getIdToken: force => auth.currentUser?.getIdToken(force), guard});
+      const counts = await checkSynology({getIdToken: force => wtAuthUser()?.getIdToken(force), guard});
       guard();
       result.textContent = `Линия и табель доступны. Машин: ${counts.trucks}; обычных рейсов: ${counts.normal}; объём: ${counts.volume} м³. Это проверка Ubuntu API; данные программы остаются в Ubuntu.`;    } catch (error) {
       if (uid === currentUid && epoch === testUbuntuCheckEpoch && permissionsLoaded && canAdmin()) {

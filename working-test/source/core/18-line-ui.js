@@ -170,13 +170,27 @@
     const email = document.getElementById('newUserEmail').value.trim(); const pass = document.getElementById('newUserPassword').value; const role = document.getElementById('newUserRole').value;
     if (!email || !pass) { showError('Заполните поля'); return; }
     if(isNasRuntime()){
-      const secAuth=secondaryApp.auth();
-      try{const credential=await secAuth.createUserWithEmailAndPassword(email,pass);await ensureNasPendingAccount(credential.user,()=>secAuth.currentUser);await refreshNasAdministration();await nasAdminAction('registration.approve',{uid:credential.user.uid,role});showToastEl('Пользователь создан на Ubuntu',false);}
+      // Учётную запись создаёт сервер Ubuntu. Пароль уходит только в запросе
+      // регистрации, в интерфейсе и журналах не сохраняется.
+      try{
+        const base=(typeof nasApiBase==='function'?nasApiBase():'').replace(/\/+$/,'');
+        if(!base)throw Error('Не настроен адрес сервера Ubuntu');
+        const response=await fetch(base+'/api/v1/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass,device:wtDeviceInfo()}),credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer'});
+        let payload=null;try{payload=await response.json();}catch(_){}
+        if(!response.ok)throw Error(wtAuthMessage(payload&&typeof payload.error==='string'?payload.error:'http-'+response.status));
+        const uid=payload&&payload.profile&&typeof payload.profile.uid==='string'?payload.profile.uid:'';
+        if(!uid)throw Error('Сервер не вернул учётную запись');
+        await refreshNasAdministration();
+        await nasAdminAction('registration.approve',{uid,role});
+        showToastEl('Пользователь создан на Ubuntu',false);
+      }
       catch(error){showError('Создание доступа не завершено: '+error.message);}
-      finally{await secAuth.signOut();document.getElementById('newUserPassword').value='';}return;
+      finally{document.getElementById('newUserPassword').value='';}return;
     }
-    try { const secAuth = secondaryApp.auth(); const cred = await secAuth.createUserWithEmailAndPassword(email, pass); await secAuth.signOut(); await tfAwait(usersRef.doc(cred.user.uid).set({ email, role, status: 'active', nickname: sanitizeName(email) })); showToastEl('✅ Создан', false); }
-    catch(e) { showError(e.message); }
+    // Ветка Firebase больше не используется: единственный сервер данных и
+    // учётных записей — Ubuntu. Оставлено честное сообщение вместо скрытого
+    // создания пользователя через Firebase Auth.
+    showError('Создание пользователей доступно только через сервер Ubuntu');
   }
   function renderPermissionsMatrix(){
     const role=document.getElementById('permRoleSelect').value,config=permissionsConfig[role]||{tabs:[],actions:[]},cont=document.getElementById('permissionsMatrixContainer');
