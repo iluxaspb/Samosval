@@ -267,6 +267,8 @@ function renderMario(host){
   +'<div class="mic-group mic-move"><button type="button" class="mic-dir" data-key="left" aria-label="Вперёд, влево">◀</button><button type="button" class="mic-dir" data-key="right" aria-label="Вперёд, вправо">▶</button></div>'
   +'<div class="mic-jump-zone" data-key="jump" aria-label="Прыжок (правая половина экрана)"></div>';
  host.appendChild(fsPad);host.querySelector('#mario-fs-exit').onclick=()=>exitMarioFullscreen();
+ // Долгий тап по кнопкам не должен открывать системное меню копирования.
+ fsPad.addEventListener('contextmenu',e=>e.preventDefault());
  host.querySelector('#mario-start').onclick=()=>{unlockSound();if(!run||run.done||run.lives<=0||run.map.level!==Number(host.querySelector('#mario-level').value))startLevel(Number(host.querySelector('#mario-level').value));else{run.paused=false;lastFrame=0;startLoop();}};
  host.querySelector('#mario-restart').onclick=()=>startLevel(Number(host.querySelector('#mario-level').value));host.querySelector('#mario-pause').onclick=()=>{if(!run)return;run.paused=!run.paused;keys.clear();pointers.clear();if(!run.paused)startLoop();drawMario();};
  host.querySelector('#mario-next').onclick=()=>{if(run?.done&&run.map.level<20&&run.map.level<unlocked())startLevel(run.map.level+1);};
