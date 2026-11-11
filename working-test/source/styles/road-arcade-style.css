@@ -81,7 +81,7 @@
 #mario-fs-controls .mic-jump-zone{position:absolute;top:0;right:0;bottom:0;width:50%;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 #mario-fs-controls .mic-dir{width:min(23vw,150px);height:min(23vw,150px);border-radius:20px;font-size:min(11vw,58px);line-height:1}
 #mario-fs-controls .mic-jump-btn{width:min(30vw,190px);height:min(30vw,190px);border-radius:50%;font-size:min(5.4vw,24px);letter-spacing:.06em;background:radial-gradient(circle at 35% 30%,#ef4444,#b91c1c 62%,#7f1d1d)}
-#mario-fs-controls .mic-exit{position:absolute;top:calc(10px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));width:54px;height:54px;border-radius:50%;font-size:22px;pointer-events:auto;background:rgba(15,23,42,.8)}
+#mario-fs-controls .mic-exit{position:absolute;top:calc(10px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));width:54px;height:54px;border-radius:50%;font-size:22px;pointer-events:auto;background:rgba(15,23,42,.8);z-index:20}
 #mario-fs-controls .mic-hud{position:absolute;top:calc(12px + env(safe-area-inset-top));left:calc(14px + env(safe-area-inset-left));display:flex;gap:14px;font-size:16px;font-weight:800;color:#fff;text-shadow:0 2px 6px #000;pointer-events:none}
 #arcade-dialog.mario-immersive #mario-fs-hint{display:none}
 @media (orientation:landscape) and (max-height:520px){
