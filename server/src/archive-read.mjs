@@ -4,7 +4,7 @@ export async function readArchiveEntries(client,ws=WS){
     const state=(await client.query('SELECT initialized,import_sha256 FROM identity_state WHERE id=1')).rows[0];
     if(!state?.initialized||!state.import_sha256)throw fail('archive-not-ready',409);
     const source=(await client.query('SELECT workspace_id,source_project,exported_at FROM migration_imports WHERE sha256=$1',[state.import_sha256])).rows[0];
-    if(!source||source.workspace_id!==ws||source.source_project!=='samosval-offline')throw fail('archive-source-mismatch',409);
+    if(!source||source.workspace_id!==ws||!['samosval-offline','samosval-test'].includes(source.source_project))throw fail('archive-source-mismatch',409);
     const prefix='workspaces/'+ws+'/archive/';
     const original=(await client.query('SELECT document_path,payload FROM migration_documents WHERE import_sha256=$1 AND left(document_path,length($2))=$2 ORDER BY document_path',[state.import_sha256,prefix])).rows;
     const archives=new Map();
