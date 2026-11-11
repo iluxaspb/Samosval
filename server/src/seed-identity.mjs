@@ -4,7 +4,7 @@ export async function seedIdentity(pool,{sha256,ownerUid}={}){
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
-    if((await client.query('SELECT current_database() AS name')).rows[0].name!=='samosval_test')throw fail('test-database-required');
+    if((await client.query('SELECT current_database() AS name')).rows[0].name!=='samosval_working_test_reserve')throw fail('test-database-required');
     const state=(await client.query('SELECT initialized FROM identity_state WHERE id=1 FOR UPDATE')).rows[0];
     if(!state||state.initialized)throw fail('identity-already-initialized',409);
     await client.query('LOCK TABLE registration_requests,identity_receipts,identity_audit IN EXCLUSIVE MODE');
