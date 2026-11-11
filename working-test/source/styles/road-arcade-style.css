@@ -74,8 +74,16 @@
 #arcade-dialog.mario-immersive #mario-pad{display:none!important}
 #arcade-dialog.mario-immersive #arcade-content{position:absolute;inset:0;margin:0;padding:0}
 #arcade-dialog.mario-immersive #mario-canvas{position:absolute;inset:0;width:100%;height:100%;max-height:none;object-fit:contain;background:#000;border-radius:0;border:0;image-rendering:pixelated;cursor:pointer}
-#mario-fs-controls{display:none}
-#arcade-dialog.mario-immersive #mario-fs-controls{display:block;position:absolute;inset:0;pointer-events:none;z-index:7;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mario-game-wrapper{position:relative;width:100%;isolation:isolate;container-type:inline-size}
+#arcade-dialog.mario-immersive .mario-game-wrapper{height:100%}
+.mario-game-wrapper #mario-canvas{min-height:300px}
+#mario-fs-controls{position:absolute;inset:0;pointer-events:none;z-index:7;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mario-awaiting-action #mario-fs-controls{display:none}
+.mario-ingame-actions{position:absolute;inset:90px 12px 12px;z-index:12;display:flex;flex-wrap:wrap;align-content:center;align-items:center;justify-content:center;gap:10px;pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mario-ingame-actions #mario-welcome-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+.mario-ingame-actions .mia-card{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;padding:14px;max-width:100%;box-sizing:border-box;background:rgba(15,23,42,.72);border:1px solid #ffffff80;border-radius:16px;box-shadow:0 8px 24px #0008;pointer-events:auto}
+.mario-ingame-actions button,.mario-ingame-actions #mario-level{box-sizing:border-box;min-height:48px;max-width:100%;padding:12px 16px;border:2px solid #ffd166;border-radius:12px;background:rgba(15,23,42,.92);color:#fff;font:800 16px/1.2 Arial,sans-serif;box-shadow:0 4px 16px #0008;pointer-events:auto;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mario-ingame-actions button:active{background:#854d0e}
 
 .mario-ingame-hud{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:calc(8px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 8px calc(10px + env(safe-area-inset-left));pointer-events:none;z-index:8;color:#fff;text-shadow:0 2px 4px #000,0 0 2px #000;font:800 14px/1 ui-monospace,monospace;letter-spacing:.02em;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .mario-ingame-hud .mig-left,.mario-ingame-hud .mig-center,.mario-ingame-hud .mig-right{display:flex;gap:10px;align-items:center}
@@ -85,6 +93,8 @@
 .mario-ingame-hud .mig-btn:active,.mario-ingame-hud .mig-btn[aria-pressed=true]{background:rgba(59,130,246,.85);transform:translateY(1px)}
 #arcade-dialog.mario-immersive .mario-ingame-hud{font-size:15px}
 #arcade-dialog.mario-immersive .mario-ingame-hud .mig-stat{padding:8px 12px}
+#arcade-dialog.mario-immersive .mario-ingame-hud .mig-right{padding-right:62px}
+@container(max-width:650px){.mario-ingame-hud{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px!important}.mario-ingame-hud .mig-left,.mario-ingame-hud .mig-center,.mario-ingame-hud .mig-right{gap:4px}.mario-ingame-hud .mig-right{grid-column:2;grid-row:1 / 3}.mario-ingame-hud .mig-stat{padding:5px!important}.mario-ingame-hud .mig-btn{padding:8px 6px}.mario-ingame-actions{top:100px}}
 
 .mic-joystick{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));left:calc(18px + env(safe-area-inset-left));width:min(36vw,180px);height:min(36vw,180px);pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 .mic-joystick-base{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.18),rgba(0,0,0,.35) 70%);border:2px solid rgba(255,255,255,.32);box-shadow:inset 0 2px 8px #0008,0 4px 12px #0006}
@@ -103,7 +113,8 @@
 .mic-jump-flash{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at var(--fx-x,75%) var(--fx-y,70%),rgba(255,255,255,.28),transparent 45%);opacity:0;animation:mic-flash .35s ease-out}
 @keyframes mic-flash{0%{opacity:1}100%{opacity:0}}
 
-.mic-exit{position:absolute;top:calc(10px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));width:44px;height:44px;border-radius:50%;font-size:20px;pointer-events:auto;background:rgba(15,23,42,.75);color:#fff;border:1px solid rgba(255,255,255,.25);z-index:20;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mic-exit{display:none;position:absolute;top:calc(6px + env(safe-area-inset-top));right:calc(8px + env(safe-area-inset-right));width:52px;height:52px;border-radius:14px;font:bold 26px/1 Arial,sans-serif;pointer-events:auto;background:#991b1b;color:#fff;border:3px solid #ffb454;box-shadow:0 0 0 2px #250b08,0 4px 16px #000c;z-index:20;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#arcade-dialog.mario-immersive .mic-exit{display:block}
 
 .mario-first-run{position:absolute;inset:0;z-index:30;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;color:#fff;padding:24px;text-align:center;pointer-events:auto}
 .mario-first-run .mfr-card{max-width:520px;background:rgba(15,23,42,.9);border:1px solid rgba(255,255,255,.2);border-radius:18px;padding:22px 24px;box-shadow:0 20px 60px #000c}
