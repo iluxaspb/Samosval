@@ -257,37 +257,137 @@ if(typeof document!=='undefined'){
   window.addEventListener('orientationchange',()=>setTimeout(()=>{if(typeof run!=='undefined'&&run&&marioIsImmersive())drawMario();},250));
 }
 function renderMario(host){
- host.innerHTML='<div class="mario-hud"><span>Уровень <b data-mario-level>'+(run?.map.level||1)+'</b> / 20</span><span>Жизни <b data-mario-lives>'+hearts(run?.lives??3)+'</b></span><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>Очки <b data-mario-score>'+(run?.score||0)+'</b></span></div><canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение стрелками или A и D, прыжок пробелом или тапом по правой половине экрана"></canvas><div id="mario-pad" class="nes-pad" role="group" aria-label="Пульт управления: крестовина и кнопки A и B"><div class="pad-top"><span class="pad-brand">8-BIT PAD</span><span class="pad-lines" aria-hidden="true"></span></div><div class="pad-main"><div class="pad-dpad" aria-label="Крестовина"><button type="button" class="dp up" data-key="jump" aria-label="Прыжок">▲</button><button type="button" class="dp left" data-key="left" aria-label="Идти влево">◀</button><span class="dp center" aria-hidden="true"></span><button type="button" class="dp right" data-key="right" aria-label="Идти вправо">▶</button><span class="dp down" aria-hidden="true">▼</span></div><div class="pad-middle"><button type="button" class="pad-pill" disabled aria-disabled="true" title="Не используется">SELECT</button><button type="button" class="pad-pill" data-pad="start">START</button></div><div class="pad-ab"><div class="pad-btn-wrap"><button type="button" class="pad-round b" data-key="jump" aria-label="Прыжок, кнопка B">B</button><span>B</span></div><div class="pad-btn-wrap"><button type="button" class="pad-round a" data-key="jump" aria-label="Прыжок, кнопка A">A</button><span>A</span></div></div></div></div><div class="arcade-tools"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">'+(run?.over?'Играть снова':(run&&!run.done&&run.lives>0?'Продолжить':'Начать уровень'))+'</button><button id="mario-pause">Пауза</button><button id="mario-restart">Заново</button><button id="mario-sound" aria-pressed="'+sound+'" title="Звуковые эффекты">'+(sound?'🔔 Звуки вкл':'🔕 Звуки выкл')+'</button><button id="mario-music" aria-pressed="'+musicOn+'" title="Фоновая музыка">'+(musicOn?'🎵 Музыка вкл':'🚫 Музыка выкл')+'</button><button id="mario-next" '+(!run?.done||run.map.level>=20?'hidden':'')+'>Следующий уровень →</button></div><p class="arcade-note">Пульт: ◀ ▶ — движение, A/B или ▲ — прыжок (держите дольше — выше), START — пауза, SELECT не используется. Ещё работают стрелки, A и D, пробел, W и ↑. Прыгайте на врагов, бейте блоки «?» снизу и собирайте монеты. Чем выше прыжок у флажка, тем больше бонус. Все монеты в конце уровня перечисляются в кошелёк — дневного лимита нет.</p>';
- // Полноэкранный режим: тап по canvas для входа, правая половина экрана для прыжка.
- const canvas=host.querySelector('#mario-canvas');
- if(canvas&&!marioIsImmersive()){canvas.onclick=()=>enterMarioFullscreen();}
- const fsPad=document.createElement('div');fsPad.id='mario-fs-controls';fsPad.setAttribute('aria-hidden','true');
- fsPad.innerHTML='<div class="mic-hud"><span>🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span><span>❤ <b data-mario-lives>'+hearts(run?.lives??3)+'</b></span><span>Ур. <b data-mario-level>'+(run?.map.level||1)+'</b></span></div>'
+ // HUD теперь живёт внутри игровой области (поверх canvas). В полноэкранном
+ // режиме добавляются джойстик слева и зона прыжка справа. Внешних кнопок
+ // управления (отдельной панели arcade-tools для Mario) больше нет — всё
+ // встроено в интерфейс игры, как в обычных играх.
+ const isImmersive=marioIsImmersive();
+ const firstRunKey=prefKey()+':mario-first-run-shown';
+ const firstRunShown=!!(run&&(localStorage.getItem(firstRunKey)==='1'));
+ host.innerHTML='<div class="mario-ingame-hud" aria-label="Панель игры">'
+  +'<div class="mig-left">'
+  +'<span class="mig-stat">Ур. <b data-mario-level>'+(run?.map.level||1)+'</b>/20</span>'
+  +'<span class="mig-stat" data-mario-lives>'+hearts(run?.lives??3)+'</span>'
+  +'</div>'
+  +'<div class="mig-center">'
+  +'<span class="mig-stat">🪙 <b data-mario-coins>'+(run?.coins||0)+'</b></span>'
+  +'<span class="mig-stat">⭐ <b data-mario-score>'+(run?.score||0)+'</b></span>'
+  +'</div>'
+  +'<div class="mig-right">'
+  +'<button type="button" class="mig-btn" id="mario-pause" aria-label="Пауза">⏸</button>'
+  +'<button type="button" class="mig-btn" id="mario-sound" aria-pressed="'+sound+'" aria-label="Звуки">'+(sound?'🔔':'🔕')+'</button>'
+  +'<button type="button" class="mig-btn" id="mario-music" aria-pressed="'+musicOn+'" aria-label="Музыка">'+(musicOn?'🎵':'🚫')+'</button>'
+  +(!isImmersive?'<button type="button" class="mig-btn" id="mario-fs" aria-label="Во весь экран">⛶</button>':'')
+  +'</div>'
+  +'</div>'
+  +'<canvas id="mario-canvas" width="960" height="540" aria-label="Марио: движение джойстиком слева, прыжок — касанием правой половины экрана"></canvas>'
+  +'<div id="mario-fs-controls" aria-hidden="true">'
+  +'<div class="mic-joystick" id="mario-joystick" aria-label="Джойстик движения: зажмите и ведите влево или вправо"><div class="mic-joystick-base"></div><div class="mic-joystick-thumb"></div></div>'
+  +'<div class="mic-jump-zone" id="mario-jump-zone" aria-label="Зона прыжка: коснитесь в любом месте правой половины экрана"></div>'
+  +'<div class="mic-jump-hint" id="mario-jump-hint"><b>ПРЫЖОК</b>коснитесь здесь</div>'
   +'<button type="button" class="mic-exit" id="mario-fs-exit" aria-label="Выйти из полноэкранного режима">✕</button>'
-  +'<div class="mic-group mic-move"><button type="button" class="mic-dir" data-key="left" aria-label="Вперёд, влево">◀</button><button type="button" class="mic-dir" data-key="right" aria-label="Вперёд, вправо">▶</button></div>'
-  +'<div class="mic-jump-zone" data-key="jump" aria-label="Прыжок (правая половина экрана)"></div>';
- host.appendChild(fsPad);host.querySelector('#mario-fs-exit').onclick=()=>exitMarioFullscreen();
- // Долгий тап по кнопкам не должен открывать системное меню копирования.
- fsPad.addEventListener('contextmenu',e=>e.preventDefault());
- host.querySelector('#mario-start').onclick=()=>{unlockSound();if(!run||run.done||run.lives<=0||run.map.level!==Number(host.querySelector('#mario-level').value))startLevel(Number(host.querySelector('#mario-level').value));else{run.paused=false;lastFrame=0;startLoop();}};
- host.querySelector('#mario-restart').onclick=()=>startLevel(Number(host.querySelector('#mario-level').value));host.querySelector('#mario-pause').onclick=()=>{if(!run)return;run.paused=!run.paused;keys.clear();pointers.clear();if(!run.paused)startLoop();drawMario();};
- host.querySelector('#mario-next').onclick=()=>{if(run?.done&&run.map.level<20&&run.map.level<unlocked())startLevel(run.map.level+1);};
+  +'</div>'
+  +(!run?'<div id="mario-welcome-controls" class="arcade-tools" style="margin-top:10px"><select id="mario-level" aria-label="Выбор уровня">'+Array.from({length:20},(_,i)=>'<option value="'+(i+1)+'" '+(i+1>(unlocked())?'disabled':'')+' '+(run?.map.level===i+1?'selected':'')+'>Уровень '+(i+1)+(i+1>unlocked()?' · закрыт':'')+'</option>').join('')+'</select><button id="mario-start">Начать уровень</button></div>':'')
+  +(run?.done&&run.map.level<20&&run.map.level<unlocked()?'<div class="arcade-tools" style="margin-top:10px"><button id="mario-next">Следующий уровень →</button><button id="mario-restart">Заново</button></div>':'')
+  +(run?.over?'<div class="arcade-tools" style="margin-top:10px"><button id="mario-restart">Играть снова</button></div>':'')
+  +(run&&!run.done&&!run.over?'<div class="arcade-tools" style="margin-top:10px"><button id="mario-restart">Заново</button></div>':'')
+  +'<p class="arcade-note">Встроенное управление: слева — джойстик движения, справа — прыжок по касанию. Также работают клавиши ←/→, A/D, пробел, W, ↑. Пауза, звуки и музыка — в верхней панели.</p>';
+ const canvas=host.querySelector('#mario-canvas');
+ if(canvas&&!isImmersive){canvas.onclick=()=>enterMarioFullscreen();}
+ // Кнопки HUD
+ const pauseBtn=host.querySelector('#mario-pause');
+ if(pauseBtn)pauseBtn.onclick=()=>{if(!run)return;run.paused=!run.paused;keys.clear();joyAxis=0;pointers.clear();if(!run.paused)startLoop();drawMario();};
  host.querySelector('#mario-sound').onclick=()=>{sound=!sound;savePrefs();unlockSound();tone('click');render(true);};
  host.querySelector('#mario-music').onclick=()=>{musicOn=!musicOn;savePrefs();unlockSound();tone('click');if(musicOn)musicStart();render(true);};
- host.querySelectorAll('[data-key]').forEach(b=>{if(b.classList.contains('mic-jump-zone'))return;b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture?.(e.pointerId);pointers.set(e.pointerId,b.dataset.key);b.setAttribute('aria-pressed','true');unlockSound();};const release=e=>{pointers.delete(e.pointerId);b.setAttribute('aria-pressed','false');};b.onpointerup=release;b.onpointercancel=release;b.onlostpointercapture=release;});
- // Зона прыжка: правая половина экрана в полноэкранном режиме
- const jumpZone=host.querySelector('.mic-jump-zone');
- if(jumpZone){
-   jumpZone.onpointerdown=e=>{e.preventDefault();jumpZone.setPointerCapture?.(e.pointerId);pointers.set(e.pointerId,'jump');unlockSound();};
-   const jumpRelease=e=>{pointers.delete(e.pointerId);};
-   jumpZone.onpointerup=jumpRelease;jumpZone.onpointercancel=jumpRelease;jumpZone.onlostpointercapture=jumpRelease;
+ const fsBtn=host.querySelector('#mario-fs');
+ if(fsBtn)fsBtn.onclick=()=>enterMarioFullscreen();
+ const exitBtn=host.querySelector('#mario-fs-exit');
+ if(exitBtn)exitBtn.onclick=()=>exitMarioFullscreen();
+ const startBtn=host.querySelector('#mario-start');
+ if(startBtn)startBtn.onclick=()=>{unlockSound();if(!run||run.done||run.lives<=0||run.map.level!==Number(host.querySelector('#mario-level').value))startLevel(Number(host.querySelector('#mario-level').value));else{run.paused=false;lastFrame=0;startLoop();}};
+ const restartBtn=host.querySelector('#mario-restart');
+ if(restartBtn)restartBtn.onclick=()=>startLevel(Number(host.querySelector('#mario-level')?.value||(run?.map.level||1)));
+ const nextBtn=host.querySelector('#mario-next');
+ if(nextBtn)nextBtn.onclick=()=>{if(run?.done&&run.map.level<20&&run.map.level<unlocked())startLevel(run.map.level+1);};
+ // Джойстик: горизонтальное перетаскивание без отрыва пальца.
+ // Ось axis ∈ [-1, 1] — пропорциональна смещению thumb от центра.
+ const joy=host.querySelector('#mario-joystick');
+ if(joy){
+   const thumb=joy.querySelector('.mic-joystick-thumb');
+   let joyPointerId=null,joyStartX=0,joyRadius=0;
+   joyAxis=0;
+   const onDown=e=>{
+     e.preventDefault();unlockSound();
+     joyPointerId=e.pointerId;joyStartX=e.clientX;
+     const rect=joy.getBoundingClientRect();joyRadius=rect.width/2;
+     joy.classList.add('active');joy.setPointerCapture?.(e.pointerId);
+     updateThumb(e.clientX);
+   };
+   const onMove=e=>{if(joyPointerId!==e.pointerId)return;e.preventDefault();updateThumb(e.clientX);};
+   const updateThumb=cx=>{
+     const dx=cx-joyStartX;const max=joyRadius*.85;
+     const clamped=Math.max(-max,Math.min(max,dx));
+     thumb.style.transform='translate(calc(-50% + '+clamped+'px),-50%)';
+     joyAxis=max>0?clamped/max:0;
+     if(joyAxis<-0.15){pointers.set('joy','left');pointers.delete('joyR');}
+     else if(joyAxis>0.15){pointers.set('joyR','right');pointers.delete('joy');}
+     else{pointers.delete('joy');pointers.delete('joyR');}
+   };
+   const onEnd=e=>{if(joyPointerId!==e.pointerId)return;joyPointerId=null;joyAxis=0;joy.classList.remove('active');thumb.style.transform='translate(-50%,-50%)';pointers.delete('joy');pointers.delete('joyR');};
+   joy.onpointerdown=onDown;joy.onpointermove=onMove;joy.onpointerup=onEnd;joy.onpointercancel=onEnd;joy.onlostpointercapture=onEnd;
+   joy.addEventListener('contextmenu',e=>e.preventDefault());
  }
- host.querySelectorAll('[data-pad]').forEach(b=>{const act=e=>{e.preventDefault();tone('click');if(b.dataset.pad==='start'){if(!run)return;run.paused=!run.paused;keys.clear();pointers.clear();if(!run.paused)startLoop();drawMario();}};b.onpointerdown=act;b.onclick=e=>e.preventDefault();});
+ // Зона прыжка: касание → прыжок + ripple + вспышка (тактильная отдача).
+ // Удержание пальца продолжает держать jump (физика прыжка учитывает это).
+ const jumpZone=host.querySelector('#mario-jump-zone');
+ const jumpHint=host.querySelector('#mario-jump-hint');
+ if(jumpZone){
+   let jumpPointerId=null,jumpPressTimer=null;
+   const spawnRipple=(x,y)=>{
+     const r=document.createElement('div');r.className='mic-ripple';
+     const rect=jumpZone.getBoundingClientRect();
+     r.style.left=(x-rect.left)+'px';r.style.top=(y-rect.top)+'px';
+     r.style.width=r.style.height='140px';
+     jumpZone.appendChild(r);setTimeout(()=>r.remove(),600);
+   };
+   const spawnFlash=(x,y)=>{
+     const f=document.createElement('div');f.className='mic-jump-flash';
+     const rect=jumpZone.getBoundingClientRect();
+     f.style.setProperty('--fx-x',((x-rect.left)/rect.width*100)+'%');
+     f.style.setProperty('--fx-y',((y-rect.top)/rect.height*100)+'%');
+     jumpZone.appendChild(f);setTimeout(()=>f.remove(),400);
+   };
+   jumpZone.onpointerdown=e=>{
+     e.preventDefault();unlockSound();
+     jumpPointerId=e.pointerId;jumpZone.setPointerCapture?.(e.pointerId);
+     spawnRipple(e.clientX,e.clientY);spawnFlash(e.clientX,e.clientY);
+     pointers.set(e.pointerId,'jump');
+     if(jumpHint&&!jumpHint.classList.contains('hidden'))jumpHint.classList.add('hidden');
+     // Короткая виброотдача (если поддерживается)
+     try{navigator.vibrate&&navigator.vibrate(18);}catch(_){}
+   };
+   const onUp=e=>{if(jumpPointerId!==e.pointerId)return;jumpPointerId=null;pointers.delete(e.pointerId);clearTimeout(jumpPressTimer);};
+   jumpZone.onpointerup=onUp;jumpZone.onpointercancel=onUp;jumpZone.onlostpointercapture=onUp;
+   jumpZone.addEventListener('contextmenu',e=>e.preventDefault());
+ }
+ // Оверлей первого запуска: объясняет управление один раз.
+ if(isImmersive&&!firstRunShown){
+   try{localStorage.setItem(firstRunKey,'1');}catch(_){}
+   const ov=document.createElement('div');ov.className='mario-first-run';ov.setAttribute('role','dialog');ov.setAttribute('aria-label','Подсказка управления');
+   ov.innerHTML='<div class="mfr-card"><h3>Как играть</h3>'
+    +'<div class="mfr-row"><div class="mfr-icon joy" aria-hidden="true"></div><div><span class="mfr-tap">Слева — джойстик.</span><br>Зажмите центр пальцем и ведите влево/вправо, не отрывая палец.</div></div>'
+    +'<div class="mfr-row"><div class="mfr-icon jump" aria-hidden="true">↑</div><div><span class="mfr-tap">Справа — прыжок.</span><br>Коснитесь в любом месте правой половины экрана — пойдёт прыжок. Держите дольше — прыгнет выше.</div></div>'
+    +'<div class="mfr-row" style="font-size:13px;opacity:.85">Сверху — уровень, жизни, монеты, пауза, звуки. Кнопка ✕ — выход.</div>'
+    +'<button type="button" id="mario-first-run-ok">Понятно, играть</button></div>';
+   host.appendChild(ov);
+   ov.querySelector('#mario-first-run-ok').onclick=()=>{ov.remove();if(run&&!run.paused&&!run.done){lastFrame=0;startLoop();}};
+   if(run)run.paused=true; // пока читает — игра на паузе
+ }
  if(!run)drawWelcome();else drawMario();
 }
 function startLevel(level){if(!A.available('mario')||level>unlocked())return;stopRun();unlockSound();run=C.createRun(level);notice='';levelBusy=false;finishSummary=null;coinFx.length=0;render(true);speak('Уровень '+level);startLoop();}
 function startLoop(){if(!raf&&dialog.open&&view==='mario'&&run&&!run.paused&&!run.done)raf=requestAnimationFrame(tickMario);if(run&&!run.paused&&!run.done)musicStart();else musicStop();}
-function tickMario(now){raf=0;if(!run||!dialog.open||view!=='mario'||!A.available('mario'))return;if(document.hidden){run.paused=true;keys.clear();pointers.clear();musicStop();drawMario();return;}if(!lastFrame)lastFrame=now;const dt=(now-lastFrame)/1000;const input=new Set([...keys,...pointers.values()]);C.advanceRun(run,{axis:(input.has('right')?1:0)-(input.has('left')?1:0),jump:input.has('jump')},dt,event=>onMario(event,run));for(const fx of coinFx){fx.t+=dt;fx.y+=fx.vy*dt;fx.vy+=900*dt;}if(coinFx.length)coinFx=coinFx.filter(fx=>fx.t<fx.life);lastFrame=now;drawMario();updateNumbers();startLoop();}
+function tickMario(now){raf=0;if(!run||!dialog.open||view!=='mario'||!A.available('mario'))return;if(document.hidden){run.paused=true;keys.clear();pointers.clear();joyAxis=0;musicStop();drawMario();return;}if(!lastFrame)lastFrame=now;const dt=(now-lastFrame)/1000;const input=new Set([...keys,...pointers.values()]);const axisFromKeys=(input.has('right')?1:0)-(input.has('left')?1:0);const axis=axisFromKeys!==0?axisFromKeys:joyAxis;C.advanceRun(run,{axis,jump:input.has('jump')},dt,event=>onMario(event,run));for(const fx of coinFx){fx.t+=dt;fx.y+=fx.vy*dt;fx.vy+=900*dt;}if(coinFx.length)coinFx=coinFx.filter(fx=>fx.t<fx.life);lastFrame=now;drawMario();updateNumbers();startLoop();}
 async function onMario(event,session){
  if(event.type==='jump'){tone(Math.abs(session.player.vx)>10?'jumpRun':'jump');return;}
  if(event.type==='land'){tone('land');return;}
