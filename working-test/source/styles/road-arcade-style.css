@@ -75,15 +75,45 @@
 #arcade-dialog.mario-immersive #arcade-content{position:absolute;inset:0;margin:0;padding:0}
 #arcade-dialog.mario-immersive #mario-canvas{position:absolute;inset:0;width:100%;height:100%;max-height:none;object-fit:contain;background:#000;border-radius:0;border:0;image-rendering:pixelated;cursor:pointer}
 #mario-fs-controls{display:none}
-#arcade-dialog.mario-immersive #mario-fs-controls{display:block;position:absolute;inset:0;pointer-events:none;z-index:6}
-#mario-fs-controls .mic-group{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom));display:flex;gap:16px;pointer-events:auto}
-#mario-fs-controls .mic-move{left:calc(14px + env(safe-area-inset-left))}
-#mario-fs-controls .mic-jump-zone{position:absolute;top:0;right:0;bottom:0;width:50%;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
-#mario-fs-controls .mic-dir{width:min(23vw,150px);height:min(23vw,150px);border-radius:20px;font-size:min(11vw,58px);line-height:1;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-#mario-fs-controls .mic-exit{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;position:absolute;top:calc(10px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));width:54px;height:54px;border-radius:50%;font-size:22px;pointer-events:auto;background:rgba(15,23,42,.8);z-index:20}
-#mario-fs-controls .mic-hud{position:absolute;top:calc(12px + env(safe-area-inset-top));left:calc(14px + env(safe-area-inset-left));display:flex;gap:14px;font-size:16px;font-weight:800;color:#fff;text-shadow:0 2px 6px #000;pointer-events:none}
-#arcade-dialog.mario-immersive #mario-fs-hint{display:none}
-@media (orientation:landscape) and (max-height:520px){
-  #mario-fs-controls .mic-dir{width:min(18vh,140px);height:min(18vh,140px);font-size:min(9vh,52px)}
-  #mario-fs-controls .mic-jump-btn{width:min(24vh,180px);height:min(24vh,180px);font-size:min(4.4vh,22px)}
-}
+#arcade-dialog.mario-immersive #mario-fs-controls{display:block;position:absolute;inset:0;pointer-events:none;z-index:7;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+
+.mario-ingame-hud{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:calc(8px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 8px calc(10px + env(safe-area-inset-left));pointer-events:none;z-index:8;color:#fff;text-shadow:0 2px 4px #000,0 0 2px #000;font:800 14px/1 ui-monospace,monospace;letter-spacing:.02em;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mario-ingame-hud .mig-left,.mario-ingame-hud .mig-center,.mario-ingame-hud .mig-right{display:flex;gap:10px;align-items:center}
+.mario-ingame-hud .mig-stat{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:6px 10px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.mario-ingame-hud .mig-stat b{color:#ffd230;margin-left:4px}
+.mario-ingame-hud .mig-btn{pointer-events:auto;cursor:pointer;background:rgba(15,23,42,.75);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:10px;padding:6px 10px;font:800 13px/1 ui-monospace,monospace;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;transition:background .12s,transform .1s}
+.mario-ingame-hud .mig-btn:active,.mario-ingame-hud .mig-btn[aria-pressed=true]{background:rgba(59,130,246,.85);transform:translateY(1px)}
+#arcade-dialog.mario-immersive .mario-ingame-hud{font-size:15px}
+#arcade-dialog.mario-immersive .mario-ingame-hud .mig-stat{padding:8px 12px}
+
+.mic-joystick{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));left:calc(18px + env(safe-area-inset-left));width:min(36vw,180px);height:min(36vw,180px);pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+.mic-joystick-base{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.18),rgba(0,0,0,.35) 70%);border:2px solid rgba(255,255,255,.32);box-shadow:inset 0 2px 8px #0008,0 4px 12px #0006}
+.mic-joystick-base::before,.mic-joystick-base::after{content:'';position:absolute;top:50%;width:0;height:0;border:8px solid transparent;transform:translateY(-50%);opacity:.7}
+.mic-joystick-base::before{left:10px;border-right-color:rgba(255,255,255,.85)}
+.mic-joystick-base::after{right:10px;border-left-color:rgba(255,255,255,.85)}
+.mic-joystick-thumb{position:absolute;top:50%;left:50%;width:42%;height:42%;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle at 30% 28%,#f06060,#c01a1a 62%,#8e0f0f);border:2px solid rgba(255,255,255,.55);box-shadow:inset 0 -4px 0 #6d0c0c,inset 0 3px 3px #ff9a9a,0 6px 14px #0008;transition:box-shadow .1s}
+.mic-joystick.active .mic-joystick-thumb{box-shadow:inset 0 -4px 0 #6d0c0c,inset 0 3px 3px #ff9a9a,0 0 0 4px rgba(59,130,246,.55),0 6px 14px #0008}
+
+.mic-jump-zone{position:absolute;top:0;right:0;bottom:0;width:50%;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+.mic-jump-hint{position:absolute;right:calc(14px + env(safe-area-inset-right));bottom:calc(18px + env(safe-area-inset-bottom));pointer-events:none;color:rgba(255,255,255,.55);font:800 min(5vw,22px)/1 ui-monospace,monospace;text-shadow:0 2px 6px #000;letter-spacing:.1em}
+.mic-jump-hint b{display:block;font-size:1.5em;margin-bottom:4px;color:rgba(255,255,255,.85)}
+#arcade-dialog.mario-immersive .mic-jump-hint.hidden{display:none}
+.mic-ripple{position:absolute;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(255,255,255,.55) 0%,rgba(239,68,68,.4) 35%,rgba(239,68,68,0) 70%);transform:translate(-50%,-50%) scale(.2);animation:mic-ripple .55s ease-out forwards;mix-blend-mode:screen}
+@keyframes mic-ripple{0%{transform:translate(-50%,-50%) scale(.2);opacity:.9}100%{transform:translate(-50%,-50%) scale(2.4);opacity:0}}
+.mic-jump-flash{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at var(--fx-x,75%) var(--fx-y,70%),rgba(255,255,255,.28),transparent 45%);opacity:0;animation:mic-flash .35s ease-out}
+@keyframes mic-flash{0%{opacity:1}100%{opacity:0}}
+
+.mic-exit{position:absolute;top:calc(10px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));width:44px;height:44px;border-radius:50%;font-size:20px;pointer-events:auto;background:rgba(15,23,42,.75);color:#fff;border:1px solid rgba(255,255,255,.25);z-index:20;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+
+.mario-first-run{position:absolute;inset:0;z-index:30;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;color:#fff;padding:24px;text-align:center;pointer-events:auto}
+.mario-first-run .mfr-card{max-width:520px;background:rgba(15,23,42,.9);border:1px solid rgba(255,255,255,.2);border-radius:18px;padding:22px 24px;box-shadow:0 20px 60px #000c}
+.mario-first-run h3{margin:0 0 12px;font:900 22px/1.2 Arial Black,sans-serif;color:#ffd230}
+.mario-first-run .mfr-row{display:flex;gap:14px;align-items:center;margin:12px 0;font:700 15px/1.4 ui-monospace,monospace;text-align:left}
+.mario-first-run .mfr-icon{flex:0 0 64px;height:64px;display:flex;align-items:center;justify-content:center;font-size:34px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15)}
+.mario-first-run .mfr-icon.joy{background:radial-gradient(circle at 30% 30%,rgba(239,68,68,.3),rgba(15,23,42,.6));position:relative}
+.mario-first-run .mfr-icon.joy::after{content:'';position:absolute;inset:30% 0 30% 55%;border-radius:50%;background:#fff;opacity:.6}
+.mario-first-run .mfr-icon.jump{background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.2),transparent 70%);animation:mfr-pulse 1.4s ease-in-out infinite}
+@keyframes mfr-pulse{0%,100%{box-shadow:inset 0 0 0 2px rgba(255,255,255,.3)}50%{box-shadow:inset 0 0 0 8px rgba(255,255,255,.1)}}
+.mario-first-run .mfr-tap{font-weight:900;color:#9be7ff}
+.mario-first-run button{margin-top:16px;padding:12px 26px;font:900 16px/1 ui-monospace,monospace;background:#15803d;color:#fff;border:0;border-radius:12px;cursor:pointer;box-shadow:0 6px 0 #0f5f2d,0 10px 24px #0006}
+.mario-first-run button:active{transform:translateY(2px);box-shadow:0 4px 0 #0f5f2d}

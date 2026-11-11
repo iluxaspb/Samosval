@@ -4,6 +4,7 @@
 const A=window.RoadArcade,C=window.RoadArcadeCore,E=escapeHtml;
 let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,musicOn=true,invites=true,seenOwner='',lastShiftId='',notice='',levelBusy=false,lastDay=C.dayKey(),coinFx=[],finishSummary=null;
 const keys=new Set(),pointers=new Map(),f=n=>Number(n||0).toLocaleString('ru-RU');
+let joyAxis=0;
 const dialog=document.createElement('dialog');dialog.id='arcade-dialog';dialog.setAttribute('aria-labelledby','arcade-title');document.body.append(dialog);
 const entry=document.createElement('button');entry.id='arcade-entry';entry.type='button';entry.title='Мини-игры и рейтинг выигрышей';entry.setAttribute('aria-label','Мини-игры и рейтинг выигрышей');entry.textContent='🎮';document.querySelector('#mainHeader .top-row')?.insertBefore(entry,document.querySelector('#mainHeader .gear-btn'));
 const mascot=()=>'<div class="slot-mascot" aria-hidden="true"><div class="eyes"><i class="eye"></i><i class="eye"></i></div><div class="smirk"></div><div class="belly">🍒 ⭐</div><i class="lever"></i></div>';
