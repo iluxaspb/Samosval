@@ -73,17 +73,12 @@
 #arcade-dialog.mario-immersive .arcade-tools,
 #arcade-dialog.mario-immersive #mario-pad{display:none!important}
 #arcade-dialog.mario-immersive #arcade-content{position:absolute;inset:0;margin:0;padding:0}
-#arcade-dialog.mario-immersive #mario-canvas{position:absolute;inset:0;width:100%;height:100%;max-height:none;object-fit:contain;background:#000;border-radius:0;border:0;image-rendering:pixelated}
-.mario-float-jump{display:none;position:absolute;width:80px;height:80px;border-radius:50%;background:radial-gradient(circle at 34% 28%,#f06060,#c01a1a 62%,#8e0f0f);color:#fff4f4;font:800 32px/1 ui-monospace,monospace;text-shadow:0 2px 0 #6d0a0a;box-shadow:inset 0 -6px 0 #6d0c0c,inset 0 3px 3px #ff9a9a,0 6px 12px #0008;border:0;cursor:grab;touch-action:none;z-index:1000;user-select:none;-webkit-user-select:none;transition:transform .1s}
-.mario-float-jump:active,.mario-float-jump[aria-pressed=true]{transform:scale(.92);box-shadow:inset 0 4px 10px #4d0808,0 2px 4px #0006;cursor:grabbing}
-#arcade-dialog.mario-immersive .mario-float-jump{display:block}
+#arcade-dialog.mario-immersive #mario-canvas{position:absolute;inset:0;width:100%;height:100%;max-height:none;object-fit:contain;background:#000;border-radius:0;border:0;image-rendering:pixelated;cursor:pointer}
 #mario-fs-controls{display:none}
 #arcade-dialog.mario-immersive #mario-fs-controls{display:block;position:absolute;inset:0;pointer-events:none;z-index:6}
 #mario-fs-controls .mic-group{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom));display:flex;gap:16px;pointer-events:auto}
 #mario-fs-controls .mic-move{left:calc(14px + env(safe-area-inset-left))}
-#mario-fs-controls .mic-jump{right:calc(14px + env(safe-area-inset-right))}
-#mario-fs-controls button{border:3px solid rgba(255,255,255,.6);color:#fff;font-weight:900;user-select:none;-webkit-user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent;background:rgba(15,23,42,.85);box-shadow:0 8px 22px #000a}
-#mario-fs-controls button:active,#mario-fs-controls button[aria-pressed=true]{transform:translateY(2px);background:rgba(59,130,246,.92)}
+#mario-fs-controls .mic-jump-zone{position:absolute;top:0;right:0;bottom:0;width:50%;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 #mario-fs-controls .mic-dir{width:min(23vw,150px);height:min(23vw,150px);border-radius:20px;font-size:min(11vw,58px);line-height:1}
 #mario-fs-controls .mic-jump-btn{width:min(30vw,190px);height:min(30vw,190px);border-radius:50%;font-size:min(5.4vw,24px);letter-spacing:.06em;background:radial-gradient(circle at 35% 30%,#ef4444,#b91c1c 62%,#7f1d1d)}
 #mario-fs-controls .mic-exit{position:absolute;top:calc(10px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));width:54px;height:54px;border-radius:50%;font-size:22px;pointer-events:auto;background:rgba(15,23,42,.8)}
