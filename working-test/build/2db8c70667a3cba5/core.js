@@ -517,6 +517,9 @@ const firebaseConfig = {
     const sources = ['trucks','objects','logs','status','shift','archive','trash','audit','notifications','plugins','patches','users','requests'];
     let lines = ['── ДИАГНОСТИКА ──', '', `Online: ${navigator.onLine ? 'да' : 'НЕТ'}`, `Пользователь: ${currentEmail || '—'}`, `Роль: ${ROLES[currentUserRole]?.label || currentUserRole || '—'}`, `Права загружены: ${permissionsLoaded ? 'да' : 'нет'}`, `Приехал: ${hasPermission('action_arrive') ? 'разрешено' : 'нет права'}`, `Погрузка: ${hasPermission('action_load') ? 'разрешено' : 'нет права'}`, `pendingOps: ${pendingOps}`, `Max: ${appConfig.maxEnabled ? 'вкл' : 'выкл'}`, `Патчей: ${state.patches.length}`, ''];
     lines.push('Режим сервера: ' + TEST_BACKEND_MODE_LABELS[window.WorkingTestAuthority?.runtimeProvider === 'ubuntu' ? 'ubuntu' : 'firebase'] + (window.WorkingTestAuthority?.generation ? ' (поколение ' + window.WorkingTestAuthority.generation + ')' : ''), getTestBackendIndicator(getSyncStatus()).label);
+    // Вход выполняет локальный сервер Ubuntu, поэтому сессии Firebase нет и
+    // синхронизация Firestore недоступна. Данные идут через Ubuntu API.
+    lines.push('Вход: Ubuntu API · Firebase-синхронизация недоступна (нет сессии Firebase)');
     lines.push('Страница: ' + location.pathname, 'База: ' + firebaseConfig.projectId, 'UID: ' + (currentUid || '—'));
     Object.entries(syncState.errors || {}).forEach(([source,error]) => lines.push('ОШИБКА ' + source + ': ' + error.code + ' · ' + error.message));
     sources.forEach(s => { lines.push(`${s.padEnd(11)} | ${syncState.pendingWrites[s]?'ДА':'—'} | ${syncState.docCount[s]||0}`); });
@@ -677,8 +680,8 @@ const firebaseConfig = {
     profileServerConfirmed=false;permissionsServerConfirmed=false;
     try{
       const {createNasClient}=await loadNasSessionClient();
-      if(epoch!==nasRuntimeEpoch||auth.currentUser!==user||currentUid!==user.uid)return;
-      const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>auth.currentUser,workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
+      if(epoch!==nasRuntimeEpoch||wtAuthUser()!==user||currentUid!==user.uid)return;
+      const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>wtAuthUser(),workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
       // Pulse: proves this phone is alive and tells the servers how many phones
       // still see the primary. Failover needs many phones, not one.
       const pulse=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;if(typeof client.writeAuthorityPresence!=='function')return;try{client.writeAuthorityPresence({}).catch(()=>{});}catch(_){}};
@@ -839,9 +842,9 @@ const firebaseConfig = {
     })();nasCatalogRead=work;try{return await work;}finally{if(nasCatalogRead===work)nasCatalogRead=null;}
   }
   function nasTabelHost(){
-    const client=nasRuntimeClient,user=auth.currentUser,epoch=nasRuntimeEpoch;
+    const client=nasRuntimeClient,user=wtAuthUser(),epoch=nasRuntimeEpoch;
     if(!client||!user)throw Error('Сеанс Ubuntu не загружен');
-    const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||auth.currentUser!==user||currentUid!==client.uid||currentUserStatus!=='active'||!permissionsLoaded||!hasTabAccess('timesheet'))throw Error('Доступ к табелю изменился');};
+    const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||wtAuthUser()!==user||currentUid!==client.uid||currentUserStatus!=='active'||!permissionsLoaded||!hasTabAccess('timesheet'))throw Error('Доступ к табелю изменился');};
     const remoteFactory=async jobGuard=>{
       guard();const {createTabelRemote}=await loadNasTabelRemote();guard();
       return createTabelRemote({datasetEpoch:client.datasetEpoch,baseUrl:nasApiBase(),
@@ -865,7 +868,7 @@ const firebaseConfig = {
   async function leaveNasPresence(){
     let timer;try{await Promise.race([Promise.allSettled([...nasPresenceLeavers].map(fn=>Promise.resolve().then(fn))),new Promise(resolve=>{timer=setTimeout(resolve,1500);})]);}finally{clearTimeout(timer);}
   }
-  async function ensureNasPendingAccount(user,getUser=()=>auth.currentUser) {
+  async function ensureNasPendingAccount(user,getUser=()=>wtAuthUser()) {
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');
     const {createNasClient}=await loadNasSessionClient();
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');
@@ -1333,7 +1336,9 @@ const firebaseConfig = {
   async function deletePlugin(id) { if (!canAdmin() || !(await appConfirm('Удалить расширение?'))) return; try { if (getPluginRecords().find(p => p.id === id)?.bundled) await tfAwait(refs.plugins.doc(id).set({ enabled:false, removed:true }, {merge:true})); else await tfAwait(refs.plugins.doc(id).delete()); } catch(e) { showError(e.message); } }
 
   // === АВТОРИЗАЦИЯ ===
-  auth.onAuthStateChanged(async user => {
+  // Сессией управляет локальный вход Ubuntu (core/05). Firebase Auth больше не
+  // решает, кто вошёл: обработчик вызывается с профилем сервера.
+  async function wtApplyAuthUser(user) {
     const sessionGeneration = ++authSessionGeneration;
     if (user) {
       const sessionIsCurrent = () => sessionGeneration === authSessionGeneration && currentUid === user.uid;
@@ -1353,10 +1358,13 @@ const firebaseConfig = {
       document.getElementById('userBadgeLabel').textContent = '👤 Проверка учётной записи…';
       updateSyncUI();
       document.getElementById('authOverlay').style.display = 'none';
-      // Общий режим читается ДО запуска рантайма: иначе приложение стартует в
-      // Firebase, и переключение на Ubuntu «отскакивает» обратно на Firebase.
-      await ensureWorkingAuthority();
-      try { watchWorkingAuthority(); } catch (_) {}
+      // Общий режим данных хранится в документе Firebase. После перехода на
+      // локальный вход Firebase-сессии нет, поэтому документ не читаем: иначе
+      // пользователь увидел бы ложную ошибку доступа.
+      if (typeof auth !== 'undefined' && auth.currentUser) {
+        await ensureWorkingAuthority();
+        try { watchWorkingAuthority(); } catch (_) {}
+      }
       if(isNasRuntime()){if(userDocUnsubscriber){userDocUnsubscriber();userDocUnsubscriber=null;}await startNasRuntime(user);return;}
       const forced = isForcedAdminEmail(currentEmail); const defaultNick = sanitizeName(currentEmail);
       if (userDocUnsubscriber) userDocUnsubscriber();
@@ -1425,15 +1433,18 @@ const firebaseConfig = {
       stopSync(); initialized = false; pendingOps = 0; confirmedLoadIds.clear();
       syncState = { fromCache: {}, everConnected: {}, docCount: {}, pendingWrites: {}, lastSuccessAt: 0 };
       state = { trucks:[], objects:[], logs:[], truckStatus:{}, shift:null, archive:[], trash:[], audit:[], notifications:[], users:[], requests:[], plugins:[], patches:[] };
-      document.getElementById('authOverlay').style.display = 'flex'; document.getElementById('pendingScreen').style.display = 'none'; document.getElementById('disabledScreen').style.display = 'none';
-      document.getElementById('mainHeader').style.display = ''; document.querySelector('.container').style.display = ''; document.querySelector('nav').style.display = 'flex';
+      // Единая точка показа экранов входа/ожидания/блокировки (core/05):
+      // порядок вызовов больше не может оставить рабочую шапку видимой.
+      wtShowAuthScreens('signed-out');
       document.getElementById('userBadgeLabel').textContent = '👤 Войти'; updateSyncUI();
       // Firebase Auth сам восстанавливает сессию; пароль в браузере не храним.
       const savedEmail = localStorage.getItem('working-test-saved-email');
       if (savedEmail) document.getElementById('authEmail').value = savedEmail;
       document.getElementById('authPassword').value = '';
     }
-  });
+  }
+  // core/05 вызывает этот обработчик после входа, продления и выхода.
+  wtSetSessionHandler(wtApplyAuthUser);
 
   function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
   function applyRoleUI() {
@@ -1455,58 +1466,405 @@ const firebaseConfig = {
     const gaiToggleContainer = document.getElementById('gaiReportToggleContainer');
     if (gaiToggleContainer) { const canGai = hasPermission('view_gai_report'); gaiToggleContainer.style.display = canGai ? 'flex' : 'none'; if (!canGai) showGAITable = false; }
   }
-  function handleLogin() {
-    let email = document.getElementById('authEmail').value.trim(), pass = document.getElementById('authPassword').value, err = document.getElementById('authError');
-    if (!email || !pass) { err.textContent = 'Укажите Email и пароль'; return; }
-    err.style.color = '#f8fafc'; err.textContent = '⏳ Вход...';
-    auth.signInWithEmailAndPassword(email, pass).then(() => {
-      localStorage.setItem('working-test-saved-email', email);
-      document.getElementById('authPassword').value = '';
-      err.textContent = '';
-    })
-    .catch(e => { if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') { err.style.color = 'var(--danger)'; err.textContent = 'Пользователь не найден.'; } else { err.style.color = 'var(--danger)'; err.textContent = e.message; } });
-  }
+  // === ВХОД ЧЕРЕЗ UBUNTU API ===
+  // Пароль, сессии и заявки проверяет сервер Ubuntu. Firebase SDK остаётся
+  // подключённым для данных, но не используется для входа, ролей и заявок.
+  const WT_AUTH_ACCESS_KEY = 'wt_access_token';
+  const WT_AUTH_REFRESH_KEY = 'wt_refresh_token';
+  const WT_AUTH_PROFILE_KEY = 'wt_user_profile';
+  const WT_AUTH_EMAIL_KEY = 'working-test-saved-email';
+  const WT_AUTH_REFRESH_MARGIN_MS = 120000;
+  const WT_AUTH_ERRORS = {
+    'invalid-credentials': 'Неверная почта или пароль.',
+    'identity-email-required': 'Проверьте адрес почты.',
+    'invalid-email': 'Проверьте адрес почты.',
+    'invalid-password': 'Пароль должен быть от 8 до 512 символов, без пробелов по краям.',
+    'email-already-exists': 'Этот e-mail уже зарегистрирован. Нажмите «Войти».',
+    'invalid-nickname': 'Проверьте имя пользователя.',
+    'account-disabled': 'Доступ ограничен администратором. Обратитесь к администратору.',
+    'account-deleted': 'Учётная запись удалена. Обратитесь к администратору.',
+    'pending-approval': 'Заявка ожидает подтверждения администратора.',
+    'invalid-session': 'Сеанс истёк. Войдите снова.',
+    'invalid-reset-token': 'Код восстановления недействителен или устарел. Запросите новый.',
+    'identity-not-ready': 'Сервер ещё не готов принимать вход. Попробуйте позже.',
+    'server-error': 'Сервер временно недоступен. Попробуйте позже.',
+    'origin-not-allowed': 'Этот адрес сайта не разрешён сервером.',
+    'unsupported-media-type': 'Сервер не принял формат запроса.',
+    'invalid-json': 'Сервер не разобрал запрос.',
+    'body-too-large': 'Слишком большой запрос.'
+  };
+  let wtSession = null, wtSessionUser = null, wtRefreshTimer = null, wtRefreshFlight = null;
+  let wtSessionHandler = null, wtAuthBusy = false, wtResumeStarted = false;
   let registrationInFlight = false;
-  async function ensurePendingAccount(user) {
-    if(isNasRuntime())return ensureNasPendingAccount(user);
-    const profileRef = usersRef.doc(user.uid), requestRef = requestsRef.doc(user.uid);
-    const rawTransaction = window.__historyRawTransaction || db.runTransaction.bind(db);
-    await rawTransaction(async tx => {
-      const profile = await tx.get(profileRef);
-      const request = await tx.get(requestRef);
-      if (profile.exists && profile.data().status !== 'pending') return;
-      const email = user.email || '';
-      const nickname = profile.exists ? profile.data().nickname || sanitizeName(email) : sanitizeName(email);
-      if (!profile.exists) tx.set(profileRef,{email,nickname,role:'viewer',status:'pending',createdAt:Date.now()});
-      if (!request.exists) tx.set(requestRef,{uid:user.uid,email,nickname,status:'pending',createdAt:Date.now()});
+  function wtAuthBase() {
+    try {
+      if (typeof nasApiBase === 'function') {
+        const base = nasApiBase();
+        if (typeof base === 'string' && base) return base.replace(/\/+$/, '');
+      }
+    } catch (_) {}
+    try {
+      const fallback = WORKING_TEST_UBUNTU_API_BASE;
+      if (typeof fallback === 'string' && fallback) return fallback.replace(/\/+$/, '');
+    } catch (_) {}
+    return '';
+  }
+  function wtAuthMessage(code) {
+    return WT_AUTH_ERRORS[code] || 'Не удалось выполнить действие. Проверьте соединение и повторите.';
+  }
+  // В журнал устройств уходят только признаки устройства: без адресов и токенов.
+  function wtDeviceInfo() {
+    const info = {};
+    try { if (navigator.userAgent) info.userAgent = String(navigator.userAgent).slice(0, 200); } catch (_) {}
+    try { if (navigator.platform) info.platform = String(navigator.platform).slice(0, 200); } catch (_) {}
+    return info;
+  }
+  async function wtAuthRequest(path, body, options) {
+    const base = wtAuthBase();
+    if (!base) throw Object.assign(Error('Не настроен адрес сервера Ubuntu.'), { code: 'no-api-base' });
+    const headers = {};
+    let payload;
+    if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
+    const token = options && options.accessToken;
+    if (token) headers.Authorization = 'Bearer ' + token;
+    let response;
+    try {
+      response = await fetch(base + path, Object.assign({ method: 'POST', headers, credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer' }, payload !== undefined ? { body: payload } : {}));
+    } catch (_) {
+      throw Object.assign(Error('Нет связи с сервером Ubuntu. Проверьте интернет и повторите.'), { code: 'network' });
+    }
+    let data = null;
+    try { data = await response.json(); } catch (_) {}
+    if (!response.ok) {
+      const code = data && typeof data.error === 'string' ? data.error : 'http-' + response.status;
+      throw Object.assign(Error(wtAuthMessage(code)), { code, status: response.status });
+    }
+    if (!data || typeof data !== 'object') throw Object.assign(Error('Сервер ответил неожиданно. Повторите действие.'), { code: 'invalid-response' });
+    return data;
+  }
+  function wtValidProfile(profile) {
+    return !!profile && typeof profile === 'object' && typeof profile.uid === 'string' && profile.uid.length > 0 && profile.uid.length <= 128;
+  }
+  function wtCacheProfile(profile) {
+    if (!wtValidProfile(profile)) return null;
+    try { localStorage.setItem(WT_AUTH_PROFILE_KEY, JSON.stringify(profile)); } catch (_) {}
+    return profile;
+  }
+  function wtStoredProfile() {
+    try {
+      const raw = localStorage.getItem(WT_AUTH_PROFILE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return wtValidProfile(parsed) ? parsed : null;
+    } catch (_) { return null; }
+  }
+  function wtStoredRefreshToken() {
+    try { const value = localStorage.getItem(WT_AUTH_REFRESH_KEY); return typeof value === 'string' ? value : ''; } catch (_) { return ''; }
+  }
+  function wtAccessToken() { return wtSession ? wtSession.accessToken : ''; }
+  // Тот же объект-владелец нужен клиенту данных Ubuntu: подпись сессии одна.
+  function wtAuthUser() {
+    if (!wtSession || !wtValidProfile(wtSession.profile)) return null;
+    const profile = wtSession.profile;
+    if (wtSessionUser && wtSessionUser.uid === profile.uid) return wtSessionUser;
+    wtSessionUser = {
+      uid: profile.uid,
+      email: profile.email || '',
+      displayName: profile.nickname || '',
+      localSession: true,
+      getIdToken: async force => {
+        if (!wtSession || wtSession.profile.uid !== profile.uid) return '';
+        if (force === true || wtTokenExpiring()) { try { await wtRefreshSession(); } catch (_) {} }
+        return wtSession && wtSession.profile.uid === profile.uid ? wtSession.accessToken : '';
+      }
+    };
+    return wtSessionUser;
+  }
+  function wtTokenExpiring() {
+    const expiresAt = wtSession ? Number(wtSession.expiresAt) || 0 : 0;
+    return !expiresAt || expiresAt - Date.now() <= WT_AUTH_REFRESH_MARGIN_MS;
+  }
+  function wtStoreSession(data) {
+    const profile = wtValidProfile(data && data.profile) ? data.profile : null;
+    if (!profile) throw Object.assign(Error('Сервер не вернул профиль пользователя.'), { code: 'invalid-profile' });
+    const accessToken = data && typeof data.accessToken === 'string' ? data.accessToken : '';
+    const refreshToken = data && typeof data.refreshToken === 'string' ? data.refreshToken : '';
+    if (!accessToken || !refreshToken) throw Object.assign(Error('Сервер не выдал токены сеанса.'), { code: 'invalid-session' });
+    wtSession = { profile, accessToken, refreshToken, expiresAt: Number(data.expiresAt) || 0 };
+    wtSessionUser = null;
+    try {
+      localStorage.setItem(WT_AUTH_ACCESS_KEY, accessToken);
+      localStorage.setItem(WT_AUTH_REFRESH_KEY, refreshToken);
+      localStorage.setItem(WT_AUTH_PROFILE_KEY, JSON.stringify(profile));
+    } catch (_) {}
+    wtScheduleRefresh();
+    return wtSession;
+  }
+  function wtClearSession() {
+    wtSession = null; wtSessionUser = null;
+    if (wtRefreshTimer) { try { clearTimeout(wtRefreshTimer); } catch (_) {} wtRefreshTimer = null; }
+    try {
+      localStorage.removeItem(WT_AUTH_ACCESS_KEY);
+      localStorage.removeItem(WT_AUTH_REFRESH_KEY);
+      localStorage.removeItem(WT_AUTH_PROFILE_KEY);
+    } catch (_) {}
+  }
+  function wtScheduleRefresh() {
+    if (wtRefreshTimer) { try { clearTimeout(wtRefreshTimer); } catch (_) {} wtRefreshTimer = null; }
+    const expiresAt = wtSession ? Number(wtSession.expiresAt) || 0 : 0;
+    if (!expiresAt || typeof setTimeout !== 'function') return;
+    const delay = Math.max(5000, expiresAt - Date.now() - WT_AUTH_REFRESH_MARGIN_MS);
+    wtRefreshTimer = setTimeout(() => { wtRefreshSession().catch(() => {}); }, delay);
+  }
+  // Продление сеанса. Ошибка означает конец сеанса: токены очищаются, экран
+  // входа показывается заново. Молча продолжать работу нельзя.
+  async function wtRefreshSession() {
+    if (wtRefreshFlight) return wtRefreshFlight;
+    const refreshToken = wtSession ? wtSession.refreshToken : wtStoredRefreshToken();
+    if (!refreshToken) throw Object.assign(Error(wtAuthMessage('invalid-session')), { code: 'invalid-session' });
+    const work = (async () => {
+      const data = await wtAuthRequest('/api/v1/auth/refresh', { refreshToken, device: wtDeviceInfo() });
+      if (!data || data.pending === true || !data.accessToken) throw Object.assign(Error(wtAuthMessage('invalid-session')), { code: 'invalid-session' });
+      const session = wtStoreSession(data);
+      return session;
+    })();
+    wtRefreshFlight = work;
+    try { return await work; } finally { if (wtRefreshFlight === work) wtRefreshFlight = null; }
+  }
+  function wtProfileStatus(profile) {
+    if (!wtValidProfile(profile)) return 'signed-out';
+    if (profile.deleted === true) return 'deleted';
+    if (profile.status === 'pending') return 'pending';
+    if (profile.status === 'active') return 'active';
+    return 'disabled';
+  }
+  // Статус берётся только из профиля сервера: pending — ожидание, disabled и
+  // deleted — блокировка, active — рабочий интерфейс.
+  function wtShowAuthScreens(status, profile) {
+    const overlay = document.getElementById('authOverlay');
+    const pending = document.getElementById('pendingScreen');
+    const disabled = document.getElementById('disabledScreen');
+    const header = document.getElementById('mainHeader');
+    const container = document.querySelector('.container');
+    const nav = document.querySelector('nav');
+    const isActive = status === 'active';
+    if (overlay) overlay.style.display = status === 'signed-out' ? 'flex' : 'none';
+    if (pending) pending.style.display = status === 'pending' ? 'flex' : 'none';
+    if (disabled) disabled.style.display = status === 'disabled' || status === 'deleted' ? 'flex' : 'none';
+    if (header) header.style.display = isActive ? '' : 'none';
+    if (container) container.style.display = isActive ? '' : 'none';
+    if (nav) nav.style.display = isActive ? 'flex' : 'none';
+    if (status === 'pending') {
+      const text = document.getElementById('registrationStatusText');
+      if (text) text.textContent = 'Учётная запись ожидает подтверждения администратора.';
+    }
+    if (status === 'disabled' || status === 'deleted') {
+      const title = document.getElementById('disabledStatusTitle');
+      const text = document.getElementById('disabledStatusText');
+      const reason = profile && typeof profile.rejectionReason === 'string' && profile.rejectionReason ? profile.rejectionReason : '';
+      if (title) title.textContent = status === 'deleted' ? 'Учётная запись удалена' : 'Доступ временно ограничен';
+      if (text) text.textContent = reason || (status === 'deleted'
+        ? 'Учётная запись удалена администратором. Обратитесь к администратору.'
+        : 'Доступ ограничен администратором. Обратитесь к администратору, чтобы восстановить доступ.');
+    }
+    if (status === 'signed-out') {
+      wtEnsureRecoveryUI();
+      try {
+        const saved = localStorage.getItem(WT_AUTH_EMAIL_KEY);
+        const field = document.getElementById('authEmail');
+        if (saved && field && !field.value) field.value = saved;
+      } catch (_) {}
+    }
+  }
+  function wtNotifySession(user) {
+    // Событие для модулей, которые раньше реагировали на вход Firebase
+    // (например, сброс стека отмены/восстановления).
+    try { window.dispatchEvent(new CustomEvent('wt-auth-session-changed', { detail: { uid: user && user.uid ? user.uid : null } })); } catch (_) {}
+    if (typeof wtSessionHandler !== 'function') return;
+    try { wtSessionHandler(user); } catch (error) { if (typeof reportSyncError === 'function') reportSyncError('auth', error); }
+  }
+  function wtApplyLocalSession(profile) {
+    const status = wtProfileStatus(profile);
+    if (status === 'active') {
+      wtShowAuthScreens('active', profile);
+      wtNotifySession(wtAuthUser());
+      return;
+    }
+    // Сначала сбрасываем состояние прошлого пользователя, затем показываем экран
+    // ожидания или блокировки: рабочие данные остаются недоступны.
+    wtNotifySession(null);
+    wtShowAuthScreens(status, profile);
+  }
+  function wtSetSessionHandler(handler) {
+    wtSessionHandler = typeof handler === 'function' ? handler : null;
+    wtResumeStoredSession();
+  }
+  // Автовход: продлеваем сохранённый сеанс. Любая ошибка очищает токены и
+  // возвращает экран входа — приложение не остаётся в подвешенном состоянии.
+  function wtResumeStoredSession() {
+    if (wtResumeStarted) return; wtResumeStarted = true;
+    const refreshToken = wtStoredRefreshToken();
+    const stored = wtStoredProfile();
+    if (!refreshToken) { wtShowAuthScreens('signed-out'); wtNotifySession(null); return; }
+    if (stored) wtShowAuthScreens(wtProfileStatus(stored), stored);
+    wtRefreshSession().then(session => {
+      wtApplyLocalSession(session.profile);
+    }).catch(() => {
+      wtClearSession();
+      wtShowAuthScreens('signed-out');
+      wtNotifySession(null);
     });
   }
+  function wtAuthError(element, text, isError) {
+    if (!element) return;
+    element.style.color = isError ? 'var(--danger)' : 'var(--text)';
+    element.textContent = text || '';
+  }
+  async function handleLogin() {
+    if (wtAuthBusy) return;
+    const emailField = document.getElementById('authEmail');
+    const passwordField = document.getElementById('authPassword');
+    const error = document.getElementById('authError');
+    const email = emailField ? emailField.value.trim() : '';
+    const password = passwordField ? passwordField.value : '';
+    if (!email || !password) { wtAuthError(error, 'Укажите почту и пароль.', true); return; }
+    wtAuthBusy = true;
+    wtAuthError(error, '⏳ Вход...', false);
+    try {
+      const data = await wtAuthRequest('/api/v1/auth/login', { email, password, device: wtDeviceInfo() });
+      if (passwordField) passwordField.value = '';
+      try { localStorage.setItem(WT_AUTH_EMAIL_KEY, email); } catch (_) {}
+      if (data && data.pending === true) {
+        const profile = wtCacheProfile(data.profile);
+        wtAuthError(error, '', false);
+        wtApplyLocalSession(profile);
+        return;
+      }
+      const session = wtStoreSession(data);
+      wtAuthError(error, '', false);
+      wtApplyLocalSession(session.profile);
+    } catch (failure) {
+      wtAuthError(error, failure.message || wtAuthMessage(failure.code), true);
+    } finally { wtAuthBusy = false; }
+  }
+  // Заявку создаёт сервер при регистрации: повторная запись в Firebase не нужна.
+  async function ensurePendingAccount() { return null; }
   async function handleRegister() {
     if (registrationInFlight) return;
-    const email = document.getElementById('authEmail').value.trim();
-    const passwordInput = document.getElementById('authPassword');
-    const password = passwordInput.value;
+    const emailField = document.getElementById('authEmail');
+    const passwordField = document.getElementById('authPassword');
     const error = document.getElementById('authError');
-    if (!email || !password) { error.textContent='Введите e-mail и пароль'; return; }
-    registrationInFlight=true;
-    const button=document.getElementById('registerBtn');button.disabled=true;
-    error.style.color='var(--text)';error.textContent='Создаём заявку…';
-    let created=false;
+    const email = emailField ? emailField.value.trim() : '';
+    const password = passwordField ? passwordField.value : '';
+    if (!email || !password) { wtAuthError(error, 'Введите e-mail и пароль.', true); return; }
+    if (password.length < 8) { wtAuthError(error, 'Пароль должен быть не короче 8 символов.', true); return; }
+    registrationInFlight = true;
+    const button = document.getElementById('registerBtn');
+    if (button) button.disabled = true;
+    wtAuthError(error, 'Создаём заявку…', false);
     try {
-      const credential=await auth.createUserWithEmailAndPassword(email,password);
-      created=true;passwordInput.value='';
-      await ensurePendingAccount(credential.user);
-      error.textContent='Заявка отправлена. Ожидайте подтверждения администратора.';
-      document.getElementById('registrationStatusText').textContent=error.textContent;
-    } catch(e) {
-      error.style.color='var(--danger)';
-      const messages={'auth/email-already-in-use':'Этот e-mail уже зарегистрирован. Нажмите «Войти».','auth/invalid-email':'Проверьте e-mail.','auth/weak-password':'Firebase отклонил пароль: используйте более сложный пароль.','auth/operation-not-allowed':'В Firebase необходимо включить вход по e-mail и паролю.'};
-      const text=created?'Учётка создана, но заявку отправить не удалось. Обновите страницу после проверки Rules.':messages[e.code]||e.message||'Ошибка регистрации';
-      error.textContent=text;
-      if(created)document.getElementById('registrationStatusText').textContent=text;
-    } finally {passwordInput.value='';registrationInFlight=false;button.disabled=false;}
+      const data = await wtAuthRequest('/api/v1/auth/register', { email, password, device: wtDeviceInfo() });
+      if (passwordField) passwordField.value = '';
+      if (data && (data.pending === true || !data.accessToken)) {
+        const text = 'Заявка отправлена. Ожидайте подтверждения администратора.';
+        wtAuthError(error, text, false);
+        const status = document.getElementById('registrationStatusText');
+        if (status) status.textContent = text;
+        wtApplyLocalSession(wtCacheProfile(data.profile));
+        return;
+      }
+      const session = wtStoreSession(data);
+      wtAuthError(error, '', false);
+      wtApplyLocalSession(session.profile);
+    } catch (failure) {
+      wtAuthError(error, failure.message || wtAuthMessage(failure.code), true);
+    } finally {
+      if (passwordField) passwordField.value = '';
+      registrationInFlight = false;
+      if (button) button.disabled = false;
+    }
   }
-  async function handleLogout() { if (!(await appConfirm('Выйти?'))) return; if(isNasRuntime())await leaveNasPresence(); localStorage.removeItem('working-test-saved-email'); localStorage.removeItem('working-test-saved-pass'); auth.signOut(); }
+  async function handleLogout() {
+    if (!(await appConfirm('Выйти?'))) return;
+    const refreshToken = wtSession ? wtSession.refreshToken : wtStoredRefreshToken();
+    try { if (typeof isNasRuntime === 'function' && isNasRuntime()) await leaveNasPresence(); } catch (_) {}
+    // Сессию на сервере отзываем, но локальный выход выполняем в любом случае.
+    if (refreshToken) { try { await wtAuthRequest('/api/v1/auth/logout', { refreshToken }); } catch (_) {} }
+    wtClearSession();
+    try { localStorage.removeItem(WT_AUTH_EMAIL_KEY); } catch (_) {}
+    wtNotifySession(null);
+    wtShowAuthScreens('signed-out');
+    // Перезагрузка только после очистки токенов и экранов: если она не
+    // выполнится, приложение всё равно останется на экране входа, а не
+    // вернётся в прежнюю сессию.
+    location.reload();
+  }
+  // === ВОССТАНОВЛЕНИЕ ПАРОЛЯ ===
+  // Экран входа не переписывается: блок восстановления создаётся рядом с полями
+  // и показывается только по кнопке «Забыли пароль?».
+  function wtEnsureRecoveryUI() {
+    const card = document.querySelector('#authOverlay .auth-card');
+    if (!card || document.getElementById('wtRecoveryBlock')) return;
+    const block = document.createElement('div');
+    block.id = 'wtRecoveryBlock';
+    block.style.display = 'none';
+    block.innerHTML = '<div id="wtRecoveryStep1"><button type="button" class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="handleForgotPassword()">Забыли пароль?</button></div>'
+      + '<div id="wtRecoveryStep2" style="display:none;margin-top:10px;">'
+      + '<div class="form-group"><label>Код восстановления</label><input type="text" id="wtResetToken" class="form-control" autocomplete="one-time-code" placeholder="Код от администратора"></div>'
+      + '<div class="form-group"><label>Новый пароль</label><input type="password" id="wtResetPassword" class="form-control" autocomplete="new-password" placeholder="Не короче 8 символов"></div>'
+      + '<div style="display:flex;gap:8px;"><button type="button" class="btn btn-quick" style="flex:1;" onclick="handleResetPassword()">Сменить пароль</button>'
+      + '<button type="button" class="btn btn-secondary" style="flex:1;" onclick="wtHidePasswordRecovery()">Отмена</button></div></div>';
+    card.append(block);
+  }
+  function wtShowPasswordRecovery() {
+    wtEnsureRecoveryUI();
+    const block = document.getElementById('wtRecoveryBlock');
+    const step2 = document.getElementById('wtRecoveryStep2');
+    if (block) block.style.display = '';
+    if (step2) step2.style.display = '';
+  }
+  function wtHidePasswordRecovery() {
+    const block = document.getElementById('wtRecoveryBlock');
+    const step2 = document.getElementById('wtRecoveryStep2');
+    const token = document.getElementById('wtResetToken');
+    const password = document.getElementById('wtResetPassword');
+    if (step2) step2.style.display = 'none';
+    if (token) token.value = '';
+    if (password) password.value = '';
+    wtAuthError(document.getElementById('authError'), '', false);
+    if (block) block.style.display = 'none';
+  }
+  async function handleForgotPassword() {
+    const emailField = document.getElementById('authEmail');
+    const error = document.getElementById('authError');
+    const email = emailField ? emailField.value.trim() : '';
+    if (!email) { wtAuthError(error, 'Сначала укажите почту в поле Email.', true); return; }
+    try {
+      const data = await wtAuthRequest('/api/v1/auth/forgot', { email });
+      wtAuthError(error, (data && typeof data.message === 'string' && data.message) ? data.message : 'Если учётная запись с такой почтой существует, восстановление подготовлено.', false);
+      wtShowPasswordRecovery();
+    } catch (failure) {
+      wtAuthError(error, failure.message || wtAuthMessage(failure.code), true);
+    }
+  }
+  async function handleResetPassword() {
+    const tokenField = document.getElementById('wtResetToken');
+    const passwordField = document.getElementById('wtResetPassword');
+    const error = document.getElementById('authError');
+    const token = tokenField ? tokenField.value.trim() : '';
+    const newPassword = passwordField ? passwordField.value : '';
+    if (!token) { wtAuthError(error, 'Введите код восстановления.', true); return; }
+    if (!newPassword || newPassword.length < 8) { wtAuthError(error, 'Новый пароль должен быть не короче 8 символов.', true); return; }
+    try {
+      await wtAuthRequest('/api/v1/auth/reset', { token, newPassword });
+      wtAuthError(error, 'Пароль изменён. Войдите с новым паролем.', false);
+      wtHidePasswordRecovery();
+      const loginPassword = document.getElementById('authPassword');
+      if (loginPassword) loginPassword.value = '';
+    } catch (failure) {
+      wtAuthError(error, failure.message || wtAuthMessage(failure.code), true);
+    }
+  }
 
   // === АДМИН ===
   function switchAdminTab(tab, btn) {
@@ -3028,13 +3386,27 @@ const firebaseConfig = {
     const email = document.getElementById('newUserEmail').value.trim(); const pass = document.getElementById('newUserPassword').value; const role = document.getElementById('newUserRole').value;
     if (!email || !pass) { showError('Заполните поля'); return; }
     if(isNasRuntime()){
-      const secAuth=secondaryApp.auth();
-      try{const credential=await secAuth.createUserWithEmailAndPassword(email,pass);await ensureNasPendingAccount(credential.user,()=>secAuth.currentUser);await refreshNasAdministration();await nasAdminAction('registration.approve',{uid:credential.user.uid,role});showToastEl('Пользователь создан на Ubuntu',false);}
+      // Учётную запись создаёт сервер Ubuntu. Пароль уходит только в запросе
+      // регистрации, в интерфейсе и журналах не сохраняется.
+      try{
+        const base=(typeof nasApiBase==='function'?nasApiBase():'').replace(/\/+$/,'');
+        if(!base)throw Error('Не настроен адрес сервера Ubuntu');
+        const response=await fetch(base+'/api/v1/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass,device:wtDeviceInfo()}),credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer'});
+        let payload=null;try{payload=await response.json();}catch(_){}
+        if(!response.ok)throw Error(wtAuthMessage(payload&&typeof payload.error==='string'?payload.error:'http-'+response.status));
+        const uid=payload&&payload.profile&&typeof payload.profile.uid==='string'?payload.profile.uid:'';
+        if(!uid)throw Error('Сервер не вернул учётную запись');
+        await refreshNasAdministration();
+        await nasAdminAction('registration.approve',{uid,role});
+        showToastEl('Пользователь создан на Ubuntu',false);
+      }
       catch(error){showError('Создание доступа не завершено: '+error.message);}
-      finally{await secAuth.signOut();document.getElementById('newUserPassword').value='';}return;
+      finally{document.getElementById('newUserPassword').value='';}return;
     }
-    try { const secAuth = secondaryApp.auth(); const cred = await secAuth.createUserWithEmailAndPassword(email, pass); await secAuth.signOut(); await tfAwait(usersRef.doc(cred.user.uid).set({ email, role, status: 'active', nickname: sanitizeName(email) })); showToastEl('✅ Создан', false); }
-    catch(e) { showError(e.message); }
+    // Ветка Firebase больше не используется: единственный сервер данных и
+    // учётных записей — Ubuntu. Оставлено честное сообщение вместо скрытого
+    // создания пользователя через Firebase Auth.
+    showError('Создание пользователей доступно только через сервер Ubuntu');
   }
   function renderPermissionsMatrix(){
     const role=document.getElementById('permRoleSelect').value,config=permissionsConfig[role]||{tabs:[],actions:[]},cont=document.getElementById('permissionsMatrixContainer');
@@ -3383,8 +3755,8 @@ const firebaseConfig = {
   const WORKING_AUTHORITY_API = WORKING_TEST_UBUNTU_API_BASE + '/api/v1/authority';
 
   async function workingAuthorityRequest(method, body) {
-    if (!auth.currentUser) throw Error('Нужен вход в приложение');
-    const token = await auth.currentUser.getIdToken();
+    if (!wtAuthUser()) throw Error('Нужен вход в приложение');
+    const token = await wtAuthUser().getIdToken();
     const headers = { Authorization: 'Bearer ' + token };
     if (body) headers['Content-Type'] = 'application/json';
     const response = await fetch(WORKING_AUTHORITY_API, {
@@ -3414,7 +3786,7 @@ const firebaseConfig = {
   }
 
   async function readWorkingAuthority() {
-    if (auth.currentUser) {
+    if (wtAuthUser()) {
       try {
         const state = await workingAuthorityRequest('GET');
         const a = state && state.authority;
@@ -3440,7 +3812,7 @@ const firebaseConfig = {
     if (window.WorkingTestAuthority.stop) window.WorkingTestAuthority.stop();
     // До входа общий документ недоступен по правилам: не подписываемся и не
     // пугаем пользователя отказом доступа на экране входа.
-    if (!auth.currentUser) return;
+    if (!wtAuthUser()) return;
     window.WorkingTestAuthority.stop = db.doc(WORKING_AUTHORITY_PATH).onSnapshot({includeMetadataChanges:false}, snap => {
       const data=snap.exists?snap.data():{};
       if (!snap.exists) { window.WorkingTestAuthority.runtimeProvider='firebase'; window.WorkingTestAuthority.generation=0; return; }
@@ -3489,7 +3861,7 @@ const firebaseConfig = {
   // готов: в нём есть наша учётная запись и рабочие данные. Иначе телефон
   // переключился бы в пустую базу и потерял доступ.
   async function checkReserveReadiness() {
-    const token = await auth.currentUser.getIdToken();
+    const token = await wtAuthUser().getIdToken();
     const session = await fetch(WORKING_TEST_UBUNTU_API_BASE + '/api/v1/session', {
       headers: { Authorization: 'Bearer ' + token }
     });
@@ -3637,7 +4009,7 @@ const firebaseConfig = {
     try {
       const {checkSynology} = await loadTestUbuntuChecker();
       guard();
-      const counts = await checkSynology({getIdToken: force => auth.currentUser?.getIdToken(force), guard});
+      const counts = await checkSynology({getIdToken: force => wtAuthUser()?.getIdToken(force), guard});
       guard();
       result.textContent = `Линия и табель доступны. Машин: ${counts.trucks}; обычных рейсов: ${counts.normal}; объём: ${counts.volume} м³. Это проверка Ubuntu API; данные программы остаются в Ubuntu.`;    } catch (error) {
       if (uid === currentUid && epoch === testUbuntuCheckEpoch && permissionsLoaded && canAdmin()) {
@@ -3961,7 +4333,7 @@ window.addEventListener('DOMContentLoaded',()=>{
     }
     if (!batch.length) { replicaBusy = false; return; }
     try {
-      const token = await auth.currentUser.getIdToken();
+      const token = await wtAuthUser().getIdToken();
       const response = await fetch(WORKING_TEST_UBUNTU_API_BASE + '/api/v1/replica/apply', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
