@@ -1,8 +1,28 @@
-import {createHash} from 'node:crypto';
-import {fail} from './tabel-access.mjs';
-import {ROLES,roleView,profileView,registrationDraft,normalizeIdentityOperation,defaultNickname} from './identity-rules.mjs';
+import {createHash,randomUUID} from 'node:crypto';
+import {fail,map} from './tabel-access.mjs';
+import {ROLES,roleView,profileView,registrationDraft,normalizeIdentityOperation,defaultNickname,credentialDraft,normalizePassword} from './identity-rules.mjs';
+import {hashPassword,verifyPassword,signSession,verifySession,hashToken,TOKEN_TTL} from './auth-local.mjs';
+import {loadSessionSecret} from './auth-config.mjs';
 const profile=async(client,uid,lock='')=>(await client.query('SELECT uid,email,display_name,role,status,revision,protected,profile FROM app_users WHERE uid=$1 '+lock,[uid])).rows[0];
 const active=row=>row?.status==='active'&&!row.profile?.deleted;
+// Заглушка для проверки пароля неизвестной почты: время ответа не должно
+// показывать, существует ли учётная запись.
+const DUMMY_CREDENTIAL=Object.freeze({algorithm:'scrypt-sha256',salt:'0'.repeat(16),hash:'0'.repeat(128)});
+export const HARD_DELETE_DISPLAY_NAME='Удалённый пользователь';
+export const ANONYMOUS_UID='deleted-user';
+const tombstoneEmail=uid=>'deleted+'+createHash('sha256').update(uid).digest('hex').slice(0,32)+'@local.invalid';
+// В журнал устройств попадают только обезличенные признаки, без адресов и токенов.
+function deviceRow(info){
+  if(!map(info))return null;
+  const out={};
+  for(const key of ['userAgent','platform','label','model','appVersion']){
+    const value=info[key];
+    if(typeof value==='string'&&value.trim())out[key]=value.trim().slice(0,200);
+  }
+  return Object.keys(out).length?out:null;
+}
+const sessionView=row=>({id:row.id,device:row.device_info||null,createdAt:new Date(row.created_at).getTime(),expiresAt:new Date(row.expires_at).getTime(),revokedAt:row.revoked_at?new Date(row.revoked_at).getTime():null,active:!row.revoked_at&&new Date(row.expires_at).getTime()>Date.now()});
+
 async function stateLock(client){
   const state=(await client.query('SELECT initialized,owner_uid FROM identity_state WHERE id=1 FOR UPDATE')).rows[0];
   if(!state?.initialized)throw fail('identity-not-ready',409);return state;
@@ -10,6 +30,40 @@ async function stateLock(client){
 async function recordAudit(client,op,uid,before,after){
   await client.query('INSERT INTO identity_audit(operation_id,uid,type,target_uid,before_data,after_data) VALUES ($1,$2,$3,$4,$5,$6)',[op.id,uid,op.type,op.uid||null,before,after]);
 }
+// Необратимое удаление внутри уже открытой транзакции вызывающего: секреты и
+// живые сессии стираются, а следы операций обезличиваются. Рабочие данные
+// (смены, журналы линии, статусы самосвалов, записи табеля) не затрагиваются.
+async function applyHardDeleteCleanup(client,uid){
+  await client.query('DELETE FROM user_credentials WHERE uid=$1',[uid]);
+  await client.query('DELETE FROM user_sessions WHERE uid=$1',[uid]);
+  await client.query('DELETE FROM password_reset_tokens WHERE uid=$1',[uid]);
+  await client.query('DELETE FROM registration_requests WHERE uid=$1',[uid]);
+  await client.query('DELETE FROM identity_receipts WHERE uid=$1',[uid]);
+  // Журналы и квитанции сохраняют факт и вид операции, но не человека и не данные.
+  await client.query('UPDATE identity_audit SET uid=$2,target_uid=NULL,before_data=NULL,after_data=NULL WHERE uid=$1 OR target_uid=$1',[uid,ANONYMOUS_UID]);
+  await client.query('UPDATE line_audit SET uid=$2 WHERE uid=$1',[uid,ANONYMOUS_UID]);
+  await client.query("UPDATE line_operation_receipts SET uid=$2,result='{}'::jsonb WHERE uid=$1",[uid,ANONYMOUS_UID]);
+  await client.query("UPDATE tabel_receipts SET uid=$2,payload='{}'::jsonb WHERE uid=$1",[uid,ANONYMOUS_UID]);
+  await client.query("UPDATE shift_operation_receipts SET uid=$2,result='{}'::jsonb WHERE uid=$1",[uid,ANONYMOUS_UID]);
+  await client.query("UPDATE control_operation_receipts SET uid=$2,result='{}'::jsonb WHERE uid=$1",[uid,ANONYMOUS_UID]);
+  await client.query('UPDATE control_audit SET uid=$2,before_data=NULL,after_data=NULL WHERE uid=$1',[uid,ANONYMOUS_UID]);
+  await client.query("UPDATE history_receipts SET uid=$2,result='{}'::jsonb WHERE uid=$1",[uid,ANONYMOUS_UID]);
+  await client.query('UPDATE history_audit SET uid=$2 WHERE uid=$1',[uid,ANONYMOUS_UID]);
+  await client.query("UPDATE workspace_service_receipts SET uid=$2,result='{}'::jsonb WHERE uid=$1",[uid,ANONYMOUS_UID]);
+  await client.query('UPDATE workspace_service_audit SET uid=$2,before_data=NULL,after_data=NULL WHERE uid=$1',[uid,ANONYMOUS_UID]);
+  await client.query("UPDATE server_control_jobs SET uid=$2,request='{}'::jsonb,detail='{}'::jsonb WHERE uid=$1",[uid,ANONYMOUS_UID]);
+  await client.query('UPDATE server_authority_events SET uid=$2 WHERE uid=$1',[uid,ANONYMOUS_UID]);
+  await client.query('UPDATE server_authority SET updated_by=$2 WHERE updated_by=$1',[uid,ANONYMOUS_UID]);
+  await client.query('UPDATE line_history SET uid=$2,game_actor=NULL WHERE uid=$1',[uid,ANONYMOUS_UID]);
+}
+function tombstoneProfile(now,actorUid){
+  return {deleted:true,hardDeleted:true,hardDeletedAt:now,updatedAt:now,updatedBy:actorUid};
+}
+async function assertNotLastAdmin(client){
+  const admins=Number((await client.query("SELECT count(*) AS n FROM app_users WHERE role='admin' AND status='active' AND profile->>'deleted' IS DISTINCT FROM 'true'")).rows[0].n);
+  if(admins<=1)throw fail('last-active-admin',409);
+}
+
 export async function readSession(pool,uid){
   const client=await pool.connect();
   try{
@@ -121,7 +175,11 @@ export async function identityOperation(pool,uid,input){
           if(target.status==='pending')throw fail('pending-requires-decision',409);
           changed.status=op.enabled?'active':'disabled';if(op.enabled)changed.profile.rejectionReason=null;
         }
-        if(op.type==='user.delete'){changed.status='disabled';changed.profile.deleted=true;await client.query('DELETE FROM registration_requests WHERE uid=$1',[op.uid]);}
+        if(op.type==='user.delete'){
+          changed.status='disabled';changed.profile.deleted=true;
+          if(op.hard!==false)changed.profile.hardDeleted=true;
+          else await client.query('DELETE FROM registration_requests WHERE uid=$1',[op.uid]);
+        }
         if(op.type==='user.restore'){
           if(!target.profile.deleted)throw fail('account-not-deleted',409);
           changed.status='disabled';changed.profile.deleted=false;
@@ -130,9 +188,20 @@ export async function identityOperation(pool,uid,input){
       if(target.role==='admin'&&active(target)&&!(changed.role==='admin'&&active(changed))){
         if(Number((await client.query("SELECT count(*) AS n FROM app_users WHERE role='admin' AND status='active' AND profile->>'deleted' IS DISTINCT FROM 'true'")).rows[0].n)<=1)throw fail('last-active-admin',409);
       }
-      changed.profile.updatedAt=Date.now();changed.profile.updatedBy=uid;
-      await client.query('UPDATE app_users SET display_name=$2,role=$3,status=$4,profile=$5,revision=revision+1 WHERE uid=$1',[op.uid,changed.display_name,changed.role,changed.status,changed.profile]);
+      const hardDelete=op.type==='user.delete'&&op.hard!==false;
+      if(hardDelete){
+        // Профиль заменяется целиком: исходные персональные поля не сохраняются.
+        const now=Date.now();
+        await applyHardDeleteCleanup(client,op.uid);
+        changed.profile=tombstoneProfile(now,uid);changed.status='disabled';
+        changed.display_name=HARD_DELETE_DISPLAY_NAME;changed.email=tombstoneEmail(op.uid);
+        await client.query('UPDATE app_users SET display_name=$2,email=$3,role=$4,status=$5,profile=$6,revision=revision+1 WHERE uid=$1',[op.uid,changed.display_name,changed.email,changed.role,changed.status,changed.profile]);
+      }else{
+        changed.profile.updatedAt=Date.now();changed.profile.updatedBy=uid;
+        await client.query('UPDATE app_users SET display_name=$2,role=$3,status=$4,profile=$5,revision=revision+1 WHERE uid=$1',[op.uid,changed.display_name,changed.role,changed.status,changed.profile]);
+      }
       changed.revision=Number(target.revision)+1;after=profileView(changed);
+      if(hardDelete){before=null;auditOp={...op,type:'user.hard-delete',uid:null};}
     }
     const result={outcome:'confirmed',operationId:op.id,result:after};
     await recordAudit(client,op,uid,before,after);

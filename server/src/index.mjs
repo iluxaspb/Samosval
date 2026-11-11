@@ -9,7 +9,11 @@ import {readArchiveSnapshot} from './archive-read.mjs';
 import {readLineHistory,historyOperation} from './history-store.mjs';
 import { Pool } from 'pg';
 import { verifyFirebaseUser, verifyFirebaseIdentity } from './auth.mjs';
-import {readSession,registerPending,readAdministration,identityOperation,readMembers} from './identity-store.mjs';
+import {readSession,registerPending,readAdministration,identityOperation,readMembers,
+  registerWithPassword,loginWithPassword,refreshSession,logoutSession,revokeAllSessions,
+  listSessions,revokeSession,issuePasswordReset,consumePasswordReset} from './identity-store.mjs';
+import {loadSessionSecret} from './auth-config.mjs';
+import {verifySession} from './auth-local.mjs';
 import { submitLineOperation } from './line-store.mjs';
 import { readLineSnapshot } from './line-read.mjs';
 import {createPresenceService} from './tabel-presence.mjs';
@@ -32,6 +36,10 @@ for (const key of required) {
     throw new Error(`Missing or unsafe configuration: ${key}`);
 }
 const permittedOrigins = new Set(String(process.env.ALLOWED_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean));
+// Секрет подписи сессий загружается один раз при старте: он нужен локальному
+// входу и проверке токенов. Заданный, но неверный секрет останавливает запуск,
+// отсутствующий — заменяется временным на процесс (auth-config предупреждает).
+const sessionSecret = await loadSessionSecret();
 const pool = new Pool({
   host:process.env.PGHOST||'postgres', port:Number(process.env.PGPORT||5432),
   database:process.env.POSTGRES_DB, user:process.env.POSTGRES_USER,
@@ -56,6 +64,39 @@ function readJson(req,limit=262144) {
     req.on('error',reject);
   });
 }
+const RESET_REQUEST_MESSAGE='Если учётная запись с такой почтой существует, ссылка для восстановления отправлена.';
+const AUTH_ERROR_STATUSES=new Set([400,401,403,409,413,415,429]);
+// Ответы локального входа не должны раскрывать текст ошибки базы: наружу
+// уходит только короткий код из белого списка, остальное — в журнал.
+function authFailure(res,error,label){
+  const status=AUTH_ERROR_STATUSES.has(error?.status)?error.status:500;
+  if(status===500)console.error('[auth-api] '+label+' failed',error?.code||error?.name||'unknown');
+  const code=typeof error?.code==='string'&&/^[a-z][a-z0-9-]{1,63}$/.test(error.code)?error.code:'invalid-request';
+  return send(res,status,{error:status===500?'server-error':code});
+}
+const jsonBody=req=>String(req.headers['content-type']||'').toLowerCase().startsWith('application/json');
+const bodyObject=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
+const textValue=value=>typeof value==='string'?value:'';
+const hasTokens=result=>!!(result&&(result.tokens||result.accessToken||result.refreshToken));
+// В журнал устройств уходят только признаки устройства, без адресов и токенов.
+function deviceInfoFrom(req,body){
+  const info={...bodyObject(body?.device)};
+  if(!info.userAgent&&req.headers['user-agent'])info.userAgent=String(req.headers['user-agent']);
+  return info;
+}
+// Проверка локального access-токена: подпись, тип и срок проверяет auth-local,
+// затем база подтверждает, что сессия не отозвана и не истекла, а профиль
+// активен и не удалён. Ошибка базы не превращается в успешную проверку.
+async function verifyAccessToken(req){
+  const match=/^Bearer\s+([A-Za-z0-9._-]{1,4096})$/i.exec(String(req.headers.authorization||'').trim());
+  if(!match)return null;
+  const claims=await verifySession(match[1],{secret:sessionSecret,type:'access'});
+  if(!claims||typeof claims.sid!=='string'||!claims.sid||claims.sid.length>128)return null;
+  const row=(await pool.query("SELECT s.id,s.uid,s.expires_at,s.revoked_at,u.status,u.profile FROM user_sessions s JOIN app_users u ON u.uid=s.uid WHERE s.id=$1 AND s.uid=$2",[claims.sid,claims.uid])).rows[0];
+  if(!row||row.revoked_at||new Date(row.expires_at).getTime()<=Date.now())return null;
+  if(row.status!=='active'||row.profile?.deleted)return null;
+  return {uid:row.uid,sid:row.id};
+}
 const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
   observeServerRequest(req,res);
   const origin=req.headers.origin;
@@ -63,7 +104,7 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
     if(!permittedOrigins.has(origin)) return send(res,403,{error:'origin-not-allowed'});
     res.setHeader('Access-Control-Allow-Origin',origin);
     res.setHeader('Vary','Origin');
-    res.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods','GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, X-Samosval-Epoch, X-Samosval-Generation, If-None-Match');
     res.setHeader('Access-Control-Max-Age','600');
     res.setHeader('Access-Control-Expose-Headers','X-Samosval-Epoch, X-Samosval-Generation, ETag');
@@ -91,6 +132,95 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
       if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
       return send(res,200,await touchPresence(pool,uid,await readJson(req)));
     }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;return send(res,status,{error:status===500?'presence-unavailable':e.code||e.message});}
+  }
+  // Локальный вход: пароль и токены проверяются здесь, без Firebase и без
+  // заголовков authority. Поэтому маршруты объявлены до single-writer gate:
+  // иначе первый вход после переключения был бы заблокирован.
+  if(path==='/api/v1/auth/register'&&req.method==='POST'){
+    if(!jsonBody(req))return send(res,415,{error:'unsupported-media-type'});
+    try{
+      const body=await readJson(req);
+      const registered=await registerWithPassword(pool,body);
+      if(hasTokens(registered))return send(res,201,registered);
+      // Store может вернуть только профиль: тогда сразу выдаём сессию тем же
+      // паролем. Если учётная запись ждёт подтверждения, это не ошибка.
+      try{
+        const session=await loginWithPassword(pool,textValue(body?.email),textValue(body?.password),deviceInfoFrom(req,body));
+        return send(res,201,{...bodyObject(registered),...bodyObject(session)});
+      }catch(error){
+        if(error?.status===403||error?.code==='account-disabled'||error?.code==='pending-approval')return send(res,201,registered);
+        throw error;
+      }
+    }catch(error){return authFailure(res,error,'register');}
+  }
+  if(path==='/api/v1/auth/login'&&req.method==='POST'){
+    if(!jsonBody(req))return send(res,415,{error:'unsupported-media-type'});
+    try{
+      const body=await readJson(req);
+      return send(res,200,await loginWithPassword(pool,textValue(body?.email),textValue(body?.password),deviceInfoFrom(req,body)));
+    }catch(error){return authFailure(res,error,'login');}
+  }
+  if(path==='/api/v1/auth/refresh'&&req.method==='POST'){
+    if(!jsonBody(req))return send(res,415,{error:'unsupported-media-type'});
+    try{
+      const body=await readJson(req);
+      return send(res,200,await refreshSession(pool,textValue(body?.refreshToken),deviceInfoFrom(req,body)));
+    }catch(error){return authFailure(res,error,'refresh');}
+  }
+  if(path==='/api/v1/auth/logout'&&req.method==='POST'){
+    if(!jsonBody(req))return send(res,415,{error:'unsupported-media-type'});
+    try{
+      const body=await readJson(req);
+      await logoutSession(pool,textValue(body?.refreshToken));
+      return send(res,200,{ok:true});
+    }catch(error){return authFailure(res,error,'logout');}
+  }
+  if(path==='/api/v1/auth/forgot'&&req.method==='POST'){
+    if(!jsonBody(req))return send(res,415,{error:'unsupported-media-type'});
+    let body;
+    try{body=await readJson(req);}
+    catch(error){return send(res,error?.status===413?413:400,{error:error?.status===413?'body-too-large':'invalid-json'});}
+    try{await issuePasswordReset(pool,textValue(body?.email));}
+    catch(error){console.error('[auth-api] forgot failed',error?.code||error?.name||'unknown');}
+    // Ответ одинаков для известной и неизвестной почты: иначе маршрут стал бы
+    // проверкой существования учётной записи. Токен клиенту не возвращается.
+    return send(res,200,{ok:true,message:RESET_REQUEST_MESSAGE});
+  }
+  if(path==='/api/v1/auth/reset'&&req.method==='POST'){
+    if(!jsonBody(req))return send(res,415,{error:'unsupported-media-type'});
+    try{
+      const body=await readJson(req);
+      await consumePasswordReset(pool,textValue(body?.token),textValue(body?.newPassword));
+      return send(res,200,{ok:true});
+    }catch(error){return authFailure(res,error,'reset');}
+  }
+  if(path==='/api/v1/auth/sessions'&&req.method==='GET'){
+    try{
+      const auth=await verifyAccessToken(req);
+      if(!auth)return send(res,401,{error:'unauthorized'});
+      return send(res,200,await listSessions(pool,auth.uid));
+    }catch(error){return authFailure(res,error,'sessions');}
+  }
+  if(path==='/api/v1/auth/sessions'&&req.method==='DELETE'){
+    try{
+      const auth=await verifyAccessToken(req);
+      if(!auth)return send(res,401,{error:'unauthorized'});
+      // Только свои сессии: uid из тела запроса не читается.
+      const result=await revokeAllSessions(pool,auth.uid);
+      return send(res,200,{ok:true,...(Number.isSafeInteger(result?.revoked)?{revoked:result.revoked}:{})});
+    }catch(error){return authFailure(res,error,'revoke-all');}
+  }
+  const ownSessionPath=/^\/api\/v1\/auth\/sessions\/([^/]{1,128})$/.exec(path);
+  if(ownSessionPath&&req.method==='DELETE'){
+    try{
+      const auth=await verifyAccessToken(req);
+      if(!auth)return send(res,401,{error:'unauthorized'});
+      let id;
+      try{id=decodeURIComponent(ownSessionPath[1]);}
+      catch{return send(res,400,{error:'invalid-session-id'});}
+      await revokeSession(pool,auth.uid,id);
+      return send(res,200,{ok:true});
+    }catch(error){return authFailure(res,error,'revoke-session');}
   }
   // Single-writer gate. Reads stay open; every authenticated application write
   // is refused unless this server is the declared authority at the current

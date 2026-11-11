@@ -4,6 +4,27 @@ export const TABS=Object.freeze(['line','timesheet','report','archive','trucks',
 export const ACTIONS=Object.freeze(['timesheet_edit','timesheet_manage','timesheet_export','start_shift','close_shift','edit_line','action_arrive','action_load','action_ttn','undo_action','edit_logs','manage_trucks','manage_objects','archive_edit','archive_delete','import_backup','view_card_stats','view_header','undo_any','view_gai_report','view_reis_in_ticker','history_view','history_undo_own','history_undo_any','history_redo_own','history_redo_any']);
 const uid=value=>typeof value==='string'&&value.length>0&&value.length<=128;
 const revision=(value,zero=false)=>Number.isSafeInteger(value)&&value>=(zero?0:1)&&value<Number.MAX_SAFE_INTEGER;
+export const PASSWORD_MIN_LENGTH=8;
+export const PASSWORD_MAX_LENGTH=512;
+// Пароль и почта проверяются без краевых пробелов: иначе " пароль" и "пароль"
+// оказались бы разными входами с одинаковым видом на экране.
+export function normalizeEmail(value){
+  if(typeof value!=='string')throw fail('identity-email-required');
+  if(value!==value.trim()||/\s/.test(value)||!value.includes('@')||value.length>320)throw fail('identity-email-required');
+  return value.toLowerCase();
+}
+export function normalizePassword(value,code='invalid-password'){
+  if(typeof value!=='string'||value!==value.trim())throw fail(code);
+  if(value.length<PASSWORD_MIN_LENGTH||value.length>PASSWORD_MAX_LENGTH)throw fail(code);
+  return value;
+}
+export function credentialDraft(input){
+  if(!map(input))throw fail('invalid-credentials');
+  const email=normalizeEmail(input.email),password=normalizePassword(input.password);
+  const raw=input.nickname===undefined||input.nickname===null?'':input.nickname;
+  if(typeof raw!=='string'||raw.length>80)throw fail('invalid-nickname');
+  return {email,password,nickname:raw.trim()||defaultNickname(email)};
+}
 export function defaultNickname(email){
   const name=String(email||'').split('@')[0].slice(0,80);return name?name.charAt(0).toUpperCase()+name.slice(1):'Пользователь';
 }
@@ -42,6 +63,12 @@ export function normalizeIdentityOperation(input){
   }
   if(input.type==='user.nickname'){
     if(typeof input.nickname!=='string'||input.nickname.length>80)throw fail('invalid-nickname');op.nickname=input.nickname.trim();
+  }
+  if(input.type==='user.delete'){
+    // По умолчанию удаление необратимо (hard). Явное hard:false оставляет
+    // прежний мягкий вариант с возможностью восстановления.
+    if(input.hard!==undefined&&typeof input.hard!=='boolean')throw fail('invalid-hard-delete');
+    op.hard=input.hard!==false;
   }
   if(input.type==='registration.reject'){
     if(input.reason!==undefined&&(typeof input.reason!=='string'||input.reason.length>1000))throw fail('invalid-reason');
