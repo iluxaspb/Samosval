@@ -405,8 +405,6 @@
       document.getElementById('authPassword').value = '';
     }
   }
-  // core/05 вызывает этот обработчик после входа, продления и выхода.
-  wtSetSessionHandler(wtApplyAuthUser);
 
   function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
   function applyRoleUI() {

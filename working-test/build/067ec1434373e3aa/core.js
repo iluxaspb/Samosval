@@ -1443,8 +1443,6 @@ const firebaseConfig = {
       document.getElementById('authPassword').value = '';
     }
   }
-  // core/05 вызывает этот обработчик после входа, продления и выхода.
-  wtSetSessionHandler(wtApplyAuthUser);
 
   function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
   function applyRoleUI() {
@@ -1880,6 +1878,16 @@ const firebaseConfig = {
     if (tab === 'patches') renderPatchesList();
     if (tab === 'console') renderConsole();
     if (tab === 'appsettings') renderAppSettingsIfActive();
+  }
+
+  // Регистрация обработчика откладывается до конца загрузки документа:
+  // переменные последующих модулей (например, core/15) к этому моменту
+  // инициализированы, и восстановление сеанса не попадает в их TDZ.
+  function wtRegisterSessionHandler() { wtSetSessionHandler(wtApplyAuthUser); }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wtRegisterSessionHandler, { once: true });
+  } else {
+    setTimeout(wtRegisterSessionHandler, 0);
   }
   function renderAppSettingsIfActive() {
     renderTestBackendControls();

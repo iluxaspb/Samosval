@@ -413,3 +413,13 @@
     if (tab === 'console') renderConsole();
     if (tab === 'appsettings') renderAppSettingsIfActive();
   }
+
+  // Регистрация обработчика откладывается до конца загрузки документа:
+  // переменные последующих модулей (например, core/15) к этому моменту
+  // инициализированы, и восстановление сеанса не попадает в их TDZ.
+  function wtRegisterSessionHandler() { wtSetSessionHandler(wtApplyAuthUser); }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wtRegisterSessionHandler, { once: true });
+  } else {
+    setTimeout(wtRegisterSessionHandler, 0);
+  }
