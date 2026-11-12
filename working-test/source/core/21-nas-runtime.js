@@ -29,7 +29,11 @@
   // «сторож» промиса не пуст, повторный вызов возвращает тот же мёртвый
   // промис, и ошибка источника никогда не снимается. При возврате в
   // приложение сторожа сбрасываются, и чтение начинается заново.
-  function nasDropHungReads(){nasSettingsRead=null;nasArchiveRead=null;nasGameRead=null;nasAuxRead=null;nasCatalogRead=null;nasAdminRead=null;}
+  // Флаги серии и пробуждения сбрасываются тоже: на замороженной вкладке их
+  // «finally» может не выполниться никогда, и тогда каждый новый возврат из
+  // фона уходил в «pending», а реальный запрос с прерыванием мёртвого сокета
+  // (nasNetworkWake → abortInflight) не запускался — оставался «не в сети».
+  function nasDropHungReads(){nasSettingsRead=null;nasArchiveRead=null;nasGameRead=null;nasAuxRead=null;nasCatalogRead=null;nasAdminRead=null;nasActivityInFlight=false;nasActivityPending=false;nasActivityGate=null;}
   // Правила повторов живут в отдельном файле 26-nas-resume.js. До его
   // загрузки (и в тестах) пользуемся безопасной копией того же состояния.
   function nasSyncNewState(){return typeof WorkingTestNasResume!=='undefined'?WorkingTestNasResume.createState():{items:{}};}
@@ -177,6 +181,16 @@
     }finally{nasWakeInFlight=false;}
   }
   function nasActivityApi(){return typeof WorkingTestNasActivity!=='undefined'?WorkingTestNasActivity:null;}
+  // Быстрая проверка связи при возврате из фона: лёгкий probe() прерывает
+  // мёртвые сокеты (abortInflight) и снимает «Работа локально» за секунды,
+  // не дожидаясь полной серии nasActiveRefresh и её reads.
+  function nasFastLinkCheck(epoch,client){
+    if(!client||epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)return;
+    if(typeof navigator!=='undefined'&&navigator.onLine===false)return;
+    if(typeof document!=='undefined'&&document.hidden)return;
+    try{client.abortInflight?.();}catch(_){}
+    Promise.resolve(client.probe()).then(()=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient)offlineTransportRecovered();},()=>{});
+  }
   function nasActivityGateState(){if(!nasActivityGate){const api=nasActivityApi();nasActivityGate=api?api.createGate({minGap:4000}):{lastAt:0,minGap:4000,pending:false};}return nasActivityGate;}
   // Приложение активно на экране: вкладка видима и сеть есть.
   function nasScreenActive(){if(typeof document!=='undefined'&&document.hidden)return false;if(typeof navigator!=='undefined'&&navigator.onLine===false)return false;return true;}
@@ -291,16 +305,16 @@
       const wakeOnline=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;
         nasResumePolling?.();void nasActiveRefresh('online',{force:true});};
       const wakeVisible=()=>{if(typeof document!=='undefined'&&document.visibilityState==='hidden'){nasHiddenAt=Date.now();return;}
-        nasDropHungReads();void nasActiveRefresh('visibilitychange',{force:true});};
+        nasDropHungReads();nasFastLinkCheck(epoch,client);void nasActiveRefresh('visibilitychange',{force:true});};
       const wakeFocus=()=>{nasDropHungReads();void nasActiveRefresh('focus',{force:true});};
       // Возврат из кэша браузера (bfcache): страница «оживает» без перезагрузки.
       const wakePageShow=event=>{const persisted=!!(event&&event.persisted);if(!persisted&&!nasHiddenAt)return;
-        nasDropHungReads();void nasActiveRefresh('pageshow',{force:true});};
+        nasDropHungReads();nasFastLinkCheck(epoch,client);void nasActiveRefresh('pageshow',{force:true});};
       // Разблокировка экрана телефона и выход из фона в мобильной оболочке.
       // Page Lifecycle API отправляет freeze/resume на document, а НЕ на window:
       // без document-слушателя разблокировка экрана в PWA не будила приложение,
       // и данные после пробуждения не обновлялись.
-      const wakeResume=()=>{nasDropHungReads();void nasActiveRefresh('resume',{force:true});};
+      const wakeResume=()=>{nasDropHungReads();nasFastLinkCheck(epoch,client);void nasActiveRefresh('resume',{force:true});};
       const wakeFreeze=()=>{nasHiddenAt=Date.now();};
       if(typeof window!=='undefined'&&typeof window.addEventListener==='function'){
         window.addEventListener('online',wakeOnline);window.addEventListener('focus',wakeFocus);

@@ -379,6 +379,9 @@
     }
   };
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)resume();});
+  // iOS Safari может не прислать visibilitychange после возврата из фона:
+  // страховка по focus и pageshow запускает ту же проверку версии и связи.
+  window.addEventListener('focus',resume);window.addEventListener('pageshow',resume);
   window.addEventListener('online',resume);window.addEventListener('offline',render);
   setInterval(render,5000);
 
