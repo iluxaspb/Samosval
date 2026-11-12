@@ -84,7 +84,9 @@
   }
   function getSyncStatus() {
     const queued=offlinePendingCount();
-    if (offlineServerUnreachable || !navigator.onLine) return { state: 'offline', text: 'Работа локально' + (queued ? ` · действий к отправке: ${queued}` : '') };
+    let showOffline=offlineServerUnreachable||!navigator.onLine;
+    if(showOffline&&offlineStatusSince&&Date.now()-offlineStatusSince<OFFLINE_UI_GRACE_MS)showOffline=false;
+    if(showOffline)return{ state: 'offline', text: 'Работа локально' + (queued ? ` · действий к отправке: ${queued}` : '') };
     if (Object.keys(syncState.errors || {}).length) return {state:'error',text:'Ошибка загрузки: ' + Object.keys(syncState.errors).join(', ')};
     if (!currentUserRole) return {state:'init',text:'Проверка учётной записи…'};
     if (!initialized || !permissionsLoaded) return { state: 'init', text: 'Загрузка данных и прав…' };

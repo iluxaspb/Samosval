@@ -10,6 +10,8 @@
   function nasApiBase() { return UBUNTU_API_BASE; }
   function nasStorageScope() { const base=nasApiBase();let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval-working-test-nas-epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify([nasProvider(),base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0, nasPresenceTimer=null, nasGamesTimer=null;
+  // Пробуждение после смены сети: обработчики событий и защита от наложения.
+  let nasWakeStop=null, nasWakeInFlight=false, nasWakeAt=0;
   // Single-writer authority as announced by the server. The phone never decides
   // this on its own: it mirrors the server and stops writing when it is not the
   // declared authority.
@@ -24,6 +26,7 @@
   const nasCommandFlights=new Map();
   function stopNasRuntime() {
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
+    nasWakeStop?.();nasWakeStop=null;nasWakeInFlight=false;nasWakeAt=0;
     if(nasPresenceTimer&&typeof clearInterval==='function'){clearInterval(nasPresenceTimer);nasPresenceTimer=null;}
     if(nasGamesTimer&&typeof clearInterval==='function'){clearInterval(nasGamesTimer);nasGamesTimer=null;}
     nasRuntimeStop?.(); nasRuntimeStop = null;
@@ -129,6 +132,29 @@
     for(const [source,count] of [['trucks',snapshot.trucks.length],['status',snapshot.statuses.length],['logs',snapshot.logs.length],['shift',snapshot.shift?1:0]])markSync(source,false,false,count);
     markSync('nas',false,false,snapshot.logs.length);saveCache();renderAll();return true;
   }
+  // Разовое пробуждение после смены сети (VPN, Wi-Fi <-> мобильная) или
+  // возврата во вкладку. Один короткий запрос probe(); при успехе сбрасываем
+  // флаг «Работа локально», сразу читаем линию и отправляем накопленную
+  // очередь. Отдельного цикла нет — только существующая подписка.
+  async function nasNetworkWake(epoch,client,{force=false}={}){
+    if(!client||epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||nasWakeInFlight)return;
+    if(typeof navigator!=='undefined'&&!navigator.onLine)return;
+    const now=Date.now();
+    if(!force&&now-nasWakeAt<2500)return;
+    nasWakeAt=now;nasWakeInFlight=true;
+    const live=()=>epoch===nasRuntimeEpoch&&client===nasRuntimeClient;
+    try{
+      // Probe идёт отдельным запросом: зависшие фоновые чтения его не держат.
+      if(typeof client.probe==='function')await client.probe();else await client.readSession();
+      if(!live())return;
+      offlineTransportRecovered();
+      nasResumePolling?.();
+      await nasRefreshLine().catch(()=>{});
+      if(live())void replayNasOfflineJournal();
+    }catch(_){
+      // Краткий обрыв связи: подписка повторит попытку сама. Без уведомлений.
+    }finally{nasWakeInFlight=false;}
+  }
   async function startNasRuntime(user) {
     const epoch=nasRuntimeEpoch;
     // Nothing is server-confirmed until the first NAS session arrives.
@@ -145,7 +171,10 @@
       for(const name of ['plugins','patches','audit','notifications'])refs[name]=nasAuxCollection(name,client,epoch);
       let registering=false;
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
-        onSession:session=>{if(epoch!==nasRuntimeEpoch)return;applyNasSession(session);
+        onSession:session=>{if(epoch!==nasRuntimeEpoch)return;
+          // Любой успешный ответ сервера доказывает, что связь есть: снимаем
+          // «Работа локально» и накопленный бэкофф повтора очереди.
+          offlineTransportRecovered();applyNasSession(session);
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasSettings().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-settings',error);});
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch)nasGameReadError(error);});
           if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasAuxiliary().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-auxiliary',error);});
@@ -156,6 +185,21 @@
         onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal();},
         onError:error=>{if(epoch!==nasRuntimeEpoch)return;reportSyncError('nas',error);}
       });};nasResumePolling();
+      // После смены сети браузер часто НЕ присылает 'online', а старые сокеты
+      // висят до собственного таймаута. Пробуждаем существующую подписку и
+      // разово проверяем связь при возврате сети, вкладки или фокуса.
+      nasWakeStop?.();
+      const wakeOnline=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;
+        nasResumePolling?.();void replayNasOfflineJournal();
+        if(typeof offlineServerUnreachable!=='undefined'&&offlineServerUnreachable)void nasNetworkWake(epoch,client,{force:true});};
+      const wakeVisible=()=>{if(typeof document!=='undefined'&&document.visibilityState==='hidden')return;void nasNetworkWake(epoch,client);};
+      const wakeFocus=()=>{void nasNetworkWake(epoch,client);};
+      if(typeof window!=='undefined'&&typeof window.addEventListener==='function'){
+        window.addEventListener('online',wakeOnline);window.addEventListener('focus',wakeFocus);
+        if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('visibilitychange',wakeVisible);
+        nasWakeStop=()=>{window.removeEventListener('online',wakeOnline);window.removeEventListener('focus',wakeFocus);
+          if(typeof document!=='undefined'&&typeof document.removeEventListener==='function')document.removeEventListener('visibilitychange',wakeVisible);nasWakeStop=null;};
+      }
       // Если игровая книга не загрузилась при входе (сбой сети), без повтора
       // кнопки игр оставались вечно неактивными. Пробуем снова каждые 30 секунд.
       if(nasGamesTimer&&typeof clearInterval==='function')clearInterval(nasGamesTimer);

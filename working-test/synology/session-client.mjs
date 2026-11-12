@@ -125,10 +125,11 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     const a=session?.authority;
     if(a&&Number.isSafeInteger(a.generation)&&a.generation>0){authorityGeneration=a.generation;authorityProvider=a.provider==='firebase'?'firebase':'ubuntu';}
   }
+  const validateSession=x=>envelope(x,'samosval-session',workspaceId)&&typeof x.identityReady==='boolean'&&
+    (x.profile===null||record(x.profile)&&x.profile.uid===uid&&['pending','active','disabled'].includes(x.profile.status)&&typeof x.profile.role==='string'&&typeof x.profile.deleted==='boolean')&&
+    record(x.permissions)&&Array.isArray(x.permissions.tabs)&&x.permissions.tabs.every(t=>typeof t==='string')&&Array.isArray(x.permissions.actions)&&x.permissions.actions.every(a=>typeof a==='string');
   const readSession=async()=>{
-    const session=await request('/api/v1/session',{validate:x=>envelope(x,'samosval-session',workspaceId)&&typeof x.identityReady==='boolean'&&
-      (x.profile===null||record(x.profile)&&x.profile.uid===uid&&['pending','active','disabled'].includes(x.profile.status)&&typeof x.profile.role==='string'&&typeof x.profile.deleted==='boolean')&&
-      record(x.permissions)&&Array.isArray(x.permissions.tabs)&&x.permissions.tabs.every(t=>typeof t==='string')&&Array.isArray(x.permissions.actions)&&x.permissions.actions.every(a=>typeof a==='string')});
+    const session=await request('/api/v1/session',{validate:validateSession});
     applyAuthority(session);return session;
   };
   const readAuthority=async()=>{const state=await request('/api/v1/authority',{validate:x=>record(x)&&x.format==='samosval-authority'&&x.version===1&&x.source==='ubuntu'&&record(x.authority)&&['ubuntu','firebase'].includes(x.authority.provider)&&Number.isSafeInteger(x.authority.generation)&&x.authority.generation>0&&record(x.presence)&&Array.isArray(x.events)});
@@ -208,6 +209,41 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     if(!record(operation)||typeof operation.id!=='string'||!operation.id||!['arrive','load','ttn','reset'].includes(operation.type))throw new NasClientError('invalid-line-operation');
     return request('/api/v1/line/operations',{operation,validate:receipt});
   }
+  // Single lightweight probe for external recovery after a network change.
+  // It creates its own AbortController with a short deadline and never joins
+  // the background lane, so a hung archive/games read cannot delay it.
+  async function probe(timeout=8000) {
+    guard();
+    const deadline=Number.isSafeInteger(timeout)&&timeout>=1000&&timeout<=120000?timeout:8000;
+    const controller=new AbortController();controllers.add(controller);
+    const timer=setTimeout(()=>controller.abort(),deadline);
+    let phase='credentials';
+    try {
+      guard();phase='credentials';
+      let token;
+      try {token=await abortable(owner.getIdToken(false),controller.signal);}
+      catch(error){guard();if(controller.signal.aborted)throw error;throw new NasClientError('authentication-unavailable',{retryable:true});}
+      guard();
+      if(typeof token!=='string'||!token)throw new NasClientError('authentication-required');
+      phase='response-headers';
+      const response=await abortable(fetchImpl(apiRoot+'/api/v1/session',{method:'GET',
+        headers:{Authorization:'Bearer '+token},signal:controller.signal,redirect:'error',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'}),controller.signal);
+      guard();checkEpoch(response);
+      if(!response.ok)throw new NasClientError('api-http-'+response.status,{status:response.status,retryable:[408,425,429].includes(response.status)||response.status>=500,uncertain:false});
+      phase='response-body';
+      const data=await abortable(response.json(),controller.signal);
+      guard();phase='response-schema';
+      if(!validateSession(data))throw new NasClientError('invalid-api-response',{status:response.status,retryable:true,uncertain:false});
+      applyAuthority(data);return data;
+    }catch(error){
+      guard();
+      if(controller.signal.aborted){const failure=new NasClientError('api-timeout',{retryable:true,uncertain:false});failure.phase=phase;failure.message+=': '+phase;throw failure;}
+      if(error instanceof NasClientError)throw error;
+      const failure=new NasClientError('api-unreachable',{retryable:true,uncertain:false});
+      const detail=['Failed to fetch','Illegal invocation','Load failed'].includes(error?.message)?error.message:error?.name||'network-error';
+      failure.message+=': '+detail;throw failure;
+    }finally{clearTimeout(timer);controllers.delete(controller);}
+  }
   async function submitHistory(operation,{operationScope}={}) {
     guard();
     if(operationScope!==scope)throw new NasClientError('outbox-scope-mismatch');
@@ -218,9 +254,27 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   function subscribeLine({onSession,onSnapshot,onError,intervalMs=4000}={}) {
     guard();
     if(![onSession,onSnapshot,onError].every(f=>typeof f==='function')||!Number.isSafeInteger(intervalMs)||intervalMs<1000||intervalMs>60000)throw TypeError('invalid-subscription-options');
-    let closed=false,timer;
-    const close=()=>{closed=true;clearTimeout(timer);subscriptions.delete(close);}; subscriptions.add(close);
+    let closed=false,timer,inFlight=false,wakeRequested=false;
+    const teardowns=[];
+    const close=()=>{closed=true;clearTimeout(timer);for(const off of teardowns)off();teardowns.length=0;subscriptions.delete(close);}; subscriptions.add(close);
+    const schedule=delay=>{if(closed)return;clearTimeout(timer);timer=setTimeout(tick,delay);};
+    // A network change (VPN switch, Wi-Fi <-> mobile) does not always fire
+    // 'online' and leaves the previous sockets hanging until their own timeout.
+    // Wake the loop right away instead of waiting a full interval; the request
+    // itself has its own deadline and creates a fresh AbortController.
+    const wake=()=>{if(closed)return;if(inFlight){wakeRequested=true;clearTimeout(timer);return;}schedule(0);};
+    if(typeof window!=='undefined'&&typeof window.addEventListener==='function'){
+      window.addEventListener('online',wake);teardowns.push(()=>window.removeEventListener('online',wake));
+    }
+    const connection=typeof navigator!=='undefined'?navigator.connection:null;
+    if(connection&&typeof connection.addEventListener==='function'){
+      connection.addEventListener('change',wake);teardowns.push(()=>connection.removeEventListener('change',wake));
+    }
     async function tick(){
+      if(closed)return;
+      clearTimeout(timer);
+      if(inFlight){wakeRequested=true;return;}
+      inFlight=true;
       try {
         const session=await readSession(); if(closed)return;
         onSession(session); guard(); if(closed)return;
@@ -229,10 +283,10 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
           const line=await readLine(); guard();if(!closed)onSnapshot(line);
         }
       }catch(error){if(closed)return;onError(error);if(error.code==='session-changed'){close();return;}}
-      finally{if(!closed)timer=setTimeout(tick,intervalMs);}
+      finally{inFlight=false;if(!closed){if(wakeRequested){wakeRequested=false;schedule(0);}else schedule(intervalMs);}}
     }
     void tick();return close;
   }
   function stop(){stopped=true;readCache.clear();for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,stop,readAuthority,submitAuthority,writeAuthorityPresence,authority});
+  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,probe,stop,readAuthority,submitAuthority,writeAuthorityPresence,authority});
 }

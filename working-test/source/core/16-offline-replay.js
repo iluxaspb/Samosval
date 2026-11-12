@@ -1,3 +1,9 @@
+  // Показывать «Работа локально» только если перебой длится дольше 3 секунд.
+  // После смены сети (VPN, Wi-Fi <-> мобильная) связь обычно восстанавливается
+  // сама, и мигающая надпись только пугает. Флаг недоступности и бэкофф повтора
+  // при этом работают сразу — отложен только показ.
+  const OFFLINE_UI_GRACE_MS=3000;
+  let offlineStatusSince=0;
   function offlineTransportError(e){
     const code=String(e?.code||'').toLowerCase(),message=String(e?.message||'').toLowerCase();
     return ['unavailable','deadline-exceeded','network-request-failed','resource-exhausted'].includes(code)
@@ -7,12 +13,14 @@
     offlineServerUnreachable=true;
     offlineServerRetryDelay=Math.min(60000,offlineServerRetryDelay?offlineServerRetryDelay*2:4000);
     offlineServerRetryAt=Date.now()+offlineServerRetryDelay;
+    offlineStatusSince=Date.now();
     console.warn('[offline] Сервер недоступен, локальная очередь сохранена:',error?.code||error?.message||error);
     updateSyncUI();
   }
   function offlineTransportRecovered(){
     if(!offlineServerUnreachable&&!offlineServerRetryAt)return;
     offlineServerUnreachable=false;offlineServerRetryAt=0;offlineServerRetryDelay=0;
+    offlineStatusSince=0;
     updateSyncUI();
   }
   function offlineUnreviewedFailures(){return offlineJournalRead().filter(x=>x.status==='rejected'&&!x.reviewed);}
