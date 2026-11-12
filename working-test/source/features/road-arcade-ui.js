@@ -102,10 +102,12 @@ function render(force=false){
  const stamp=JSON.stringify([view,rankMode,sound,slotBusy,slotMessage,slotSymbols,status.ready,status.error,A.head().gameRound,unlocked(),view==='ranking'?Object.values(A.players()).map(p=>[p.uid,p._round]):null,view==='ranking'?A.recent().map(r=>r.id):null]);
  if(!force&&stamp===viewStamp){updateNumbers();return;}
  if(view==='mario'&&run&&!force&&dialog.querySelector('#mario-canvas')){updateNumbers();return;}viewStamp=stamp;
- dialog.innerHTML='<div class="arcade-head"><h2 id="arcade-title">🎮 Дорожная аркада</h2><button class="arcade-close" aria-label="Закрыть мини-игры">×</button></div>'
- +'<div class="arcade-tabs"><button data-view="home" aria-pressed="'+(view==='home')+'">Игры</button>'+(A.available('mario')?'<button data-view="mario" aria-pressed="'+(view==='mario')+'">🍄 Марио</button>':'')+(A.available('slot')?'<button data-view="slot" aria-pressed="'+(view==='slot')+'">🎰 Автомат</button>':'')+'<button data-view="ranking" aria-pressed="'+(view==='ranking')+'">🏆 Выигрыши</button><button id="arcade-sound" aria-pressed="'+sound+'">'+(sound?'🔊 Звук':'🔇 Без звука')+'</button></div>'
+ // UI-1: игры запускаются только с домашнего экрана «Игры»; вкладок две; автомат открывается полноэкранным.
+ dialog.classList.toggle('slot-fullscreen',view==='slot');
+ dialog.innerHTML='<div class="arcade-head"><h2 id="arcade-title">🎮 Дорожная аркада</h2><button class="arcade-close" aria-label="'+(view==='slot'?'Выйти из автомата':'Закрыть мини-игры')+'">'+(view==='slot'?'Выйти':'×')+'</button></div>'
+ +'<div class="arcade-tabs"><button data-view="home" aria-pressed="'+(view==='home')+'">Игры</button><button data-view="ranking" aria-pressed="'+(view==='ranking')+'">Выигрыши</button></div>'
  +'<div class="arcade-balance"><span>Кошелёк <b data-arcade-balance>'+f(A.balance())+'</b> 🪙</span><span>Монеты Марио — в кошелёк в конце уровня</span></div><p class="arcade-note">Только виртуальные монеты приложения. Игры не меняют рабочий рейтинг.</p><div class="arcade-status" id="arcade-status" role="status">'+E(status.error||(!status.ready?'Синхронизируем игровой банк…':notice))+'</div><div id="arcade-content"></div>';
- dialog.querySelector('.arcade-close').onclick=close;dialog.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>open(b.dataset.view));dialog.querySelector('#arcade-sound').onclick=()=>{sound=!sound;savePrefs();unlockSound();dialog.querySelector('#arcade-sound').textContent=sound?'🔊 Звук':'🔇 Без звука';dialog.querySelector('#arcade-sound').setAttribute('aria-pressed',String(sound));};
+ dialog.querySelector('.arcade-close').onclick=close;dialog.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>open(b.dataset.view));
  const host=dialog.querySelector('#arcade-content');
  if(view==='home'){
   host.innerHTML='<div class="arcade-hub">'+(A.available()?'':'<section class="arcade-game-card"><div class="game-emoji">🎮</div><h3>Игры ждут смены</h3><p class="arcade-note">Мини-игры открываются, когда на линии начата смена: игра идёт во время рабочей смены. Начните смену — и кнопки Марио и автомата появятся здесь.</p></section>')+(A.available('mario')?'<section class="arcade-game-card"><div class="game-emoji">🍄 🚧</div><h3>Марио: дорожное приключение</h3><p class="arcade-note">20 уровней: блоки «?» с монетами, враги, трубы и флажок. Каждый враг и монета — в кошелёк, в конце уровня ещё бонус за высоту прыжка. Дневного лимита нет.</p><button class="arcade-start" data-launch="mario">Играть</button></section>':'')+(A.available('slot')?'<section class="arcade-game-card">'+mascot()+'<h3>Однорукий бандит</h3><p class="arcade-note">Ставка 10 монет. Частые небольшие выплаты и редкий общий джекпот. Выигрыш не гарантирован.</p><button class="arcade-start" data-launch="slot">К автомату</button></section>':'')+'</div>';
@@ -233,6 +235,7 @@ function renderRanking(host){
 }
 function hearts(n){n=Math.max(0,Math.min(3,Number(n)||0));return '❤️'.repeat(n)+'🖤'.repeat(3-n);}
 function marioIsImmersive(){return dialog.classList.contains('mario-immersive');}
+let marioAutoFs=false; // UI-1: fullscreen включён автоматически поворотом экрана
 async function enterMarioFullscreen(){
   if(typeof dialog==='undefined'||!dialog)return;
   try{if(typeof dialog.requestFullscreen==='function')await dialog.requestFullscreen({navigationUI:'hide'});}catch(e){}
@@ -253,9 +256,19 @@ async function exitMarioFullscreen(){
 if(typeof document!=='undefined'){
   document.addEventListener('fullscreenchange',()=>{
     // Выход из системного полноэкранного режима должен возвращать обычный вид.
-     if(!document.fullscreenElement&&typeof dialog!=='undefined'&&dialog&&dialog.classList.contains('mario-immersive')){dialog.classList.remove('mario-immersive');document.documentElement.style.overscrollBehavior='';render(true);}
+     if(!document.fullscreenElement&&typeof dialog!=='undefined'&&dialog&&dialog.classList.contains('mario-immersive')){dialog.classList.remove('mario-immersive');document.documentElement.style.overscrollBehavior='';marioAutoFs=false;render(true);}
   });
   window.addEventListener('orientationchange',()=>setTimeout(()=>{if(typeof run!=='undefined'&&run&&marioIsImmersive())drawMario();},250));
+  // UI-1: поворот телефона в landscape во время игры Марио сам разворачивает игру
+  // на весь экран. Fullscreen API без жеста может отклонить запрос — тогда остаётся
+  // CSS-полноэкранный режим (класс mario-immersive). Игра не перезапускается и
+  // прогресс не теряется: stopRun не вызывается, canvas перерисовывает drawMario.
+  const marioLandscape=matchMedia('(orientation: landscape)');
+  marioLandscape.addEventListener?.('change',()=>{
+    if(!dialog.open||view!=='mario'){marioAutoFs=false;return;}
+    if(marioLandscape.matches&&!marioIsImmersive()){marioAutoFs=true;enterMarioFullscreen();}
+    else if(!marioLandscape.matches&&marioAutoFs){marioAutoFs=false;exitMarioFullscreen();}
+  });
 }
 function renderMario(host){
  // HUD теперь живёт внутри игровой области (поверх canvas). В полноэкранном

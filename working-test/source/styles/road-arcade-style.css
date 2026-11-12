@@ -128,3 +128,40 @@
 .mario-first-run .mfr-tap{font-weight:900;color:#9be7ff}
 .mario-first-run button{margin-top:16px;padding:12px 26px;font:900 16px/1 ui-monospace,monospace;background:#15803d;color:#fff;border:0;border-radius:12px;cursor:pointer;box-shadow:0 6px 0 #0f5f2d,0 10px 24px #0006}
 .mario-first-run button:active{transform:translateY(2px);box-shadow:0 4px 0 #0f5f2d}
+
+/* ===== UI-1: компактная шапка, кнопки Марио ниже поля в портрете, полноэкранный автомат ===== */
+/* Компактная верхняя часть: игры визуально поднимаются выше. */
+.arcade-head{margin:0;padding:0}
+.arcade-head h2{margin:0}
+.arcade-tabs{margin:6px 0;gap:6px}
+.arcade-tabs button{padding:8px 12px;min-height:38px}
+
+/* Пункт 1а: в портретном режиме телефона джойстик и зона прыжка НЕ перекрывают
+   игровое поле — они уходят в полосу управления ПОД canvas, крупнее текущих,
+   с учётом безопасной зоны iOS. Управление (тот же ввод) не меняется. */
+@media (orientation:portrait) and (max-width:580px){
+  #arcade-dialog:not(.mario-immersive) .mario-game-wrapper #mario-canvas{max-height:calc(100dvh - 250px - env(safe-area-inset-bottom));min-height:200px}
+  #arcade-dialog:not(.mario-immersive) .mario-game-wrapper{padding-bottom:calc(150px + env(safe-area-inset-bottom))}
+  #arcade-dialog:not(.mario-immersive) #mario-fs-controls{top:auto;bottom:0;height:calc(150px + env(safe-area-inset-bottom));width:100%}
+  #arcade-dialog:not(.mario-immersive) .mic-joystick{position:absolute;left:calc(10px + env(safe-area-inset-left));bottom:calc(10px + env(safe-area-inset-bottom));width:min(40vw,170px);height:min(40vw,170px);max-width:none;max-height:none}
+  #arcade-dialog:not(.mario-immersive) .mic-jump-zone{position:absolute;top:0;right:0;bottom:0;width:56%;border-radius:16px;margin-left:auto;background:rgba(50,100,67,.35);border:1px solid #ffffff2e}
+  #arcade-dialog:not(.mario-immersive) .mic-jump-zone::after{content:'ПРЫЖОК';position:absolute;inset:auto 0 calc(16px + env(safe-area-inset-bottom)) 0;text-align:center;font:800 13px/1 ui-monospace,monospace;letter-spacing:.12em;color:rgba(255,255,255,.75);text-shadow:0 2px 6px #000;pointer-events:none}
+  #arcade-dialog:not(.mario-immersive) .mic-jump-hint{display:none}
+}
+/* Тонкая компенсация: в landscape на узких экранах прыжковая зона не наезжает на джойстик. */
+@media (orientation:landscape) and (max-height:520px){
+  #arcade-dialog:not(.mario-immersive) .mic-joystick{bottom:calc(10px + env(safe-area-inset-bottom))}
+}
+
+/* Пункт 3: автомат открывается на весь экран. */
+#arcade-dialog.slot-fullscreen{margin:0;width:100vw;max-width:100vw;max-height:100dvh;height:100dvh;border:0;border-radius:0;box-sizing:border-box}
+#arcade-dialog.slot-fullscreen .arcade-tabs{display:none}
+#arcade-dialog.slot-fullscreen .arcade-head{margin:0 0 4px;padding:0}
+#arcade-dialog.slot-fullscreen .arcade-close{min-height:52px;min-width:110px;padding:0 18px;font-size:18px;font-weight:800;border:2px solid #b56b18;background:#7f2d0e;color:#fff}
+#arcade-dialog.slot-fullscreen .slot-shell{max-width:560px;margin:8px auto}
+@media (max-width:580px){
+  #arcade-dialog.slot-fullscreen .slot-shell{max-width:100%;margin:0 auto;padding:10px}
+  #arcade-dialog.slot-fullscreen .slot-reel{height:78px;font-size:34px}
+  #arcade-dialog.slot-fullscreen .slot-strip span{height:78px;line-height:78px}
+  #arcade-dialog.slot-fullscreen .arcade-balance,#arcade-dialog.slot-fullscreen .arcade-note{margin:4px 0}
+}
