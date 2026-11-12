@@ -24,7 +24,7 @@
   document.querySelector('#settingsModal .modal-body')?.append(group);
   const status = group.querySelector('#test-pwa-state'), version = group.querySelector('#test-pwa-version'), install = group.querySelector('#test-pwa-install'), check = group.querySelector('#test-pwa-check');
   const updateMessage = group.querySelector('#test-pwa-update-message');
-  let progressDialog=null,installTarget='';
+  let progressDialog=null,installTarget='',downloadWatch=null;
   function updateProgress(phase,text,completed,total){
     if(!progressDialog){
       progressDialog=document.createElement('dialog');progressDialog.id='app-update-dialog';progressDialog.setAttribute('aria-labelledby','app-update-title');
@@ -45,6 +45,7 @@
   navigator.serviceWorker?.addEventListener('message',event=>{
     const data=event.data;if(!manualUpdateBusy||data?.type!=='WORKING_TEST_PWA_PROGRESS'||data.version!==installTarget||!Number.isInteger(data.completed)||!Number.isInteger(data.total)||data.completed<0||data.completed>data.total)return;
     if(![registration?.installing,registration?.waiting,registration?.active].includes(event.source))return;
+    if(downloadWatch){downloadWatch.lastAt=Date.now();downloadWatch.completed=data.completed;downloadWatch.total=data.total;}
     updateProgress('download','Каждый файл проверяется по контрольной сумме.',data.completed,data.total);
   });
   const standalone = () => installed || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -178,32 +179,48 @@
     }
     if(reason)throw Object.assign(Error(reason),{updatePaused:true});
   }
-  async function publishedManifest() {
-     const response = await fetch('./working-test/build-manifest.json?manual=' + Date.now(),{cache:'no-store',signal:AbortSignal.timeout(15000)});
+  async function publishedVersion() {
+    // Фактически опубликованная сборка: именно её версию поставит браузер из
+    // sw-working-test.js. Устаревший build-manifest.json не может тут ни
+    // расходиться с реальностью, ни блокировать обновление.
+    const response = await fetch('./sw-working-test.js',{cache:'no-store',signal:AbortSignal.timeout(15000)});
     if (!response.ok) throw Error('Сайт не ответил: HTTP ' + response.status);
-    const data = await response.json();
-    if (!/^[a-f0-9]{16}$/.test(data.version) ||
-         !Array.isArray(data.assets) || !data.assets.some(item => item.url === './index-working-test.html')) {
-      throw Error('На сайте нет полного манифеста новой версии.');
-    }
-    return data;
+    const code = await response.text();
+    const match = code.match(/const VERSION = '([a-f0-9]{16})'/);
+    if (!match) throw Error('На сайте не найден номер опубликованной сборки.');
+    return match[1];
+  }
+  async function publishedManifest() {
+    // Только справочная сверка для диагностики. Манифест может отставать из-за
+    // рассогласованной публикации; его расхождение НИКОГДА не блокирует обновление.
+    try {
+      const response = await fetch('./working-test/build-manifest.json?manual=' + Date.now(),{cache:'no-store',signal:AbortSignal.timeout(15000)});
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (!/^[a-f0-9]{16}$/.test(data.version || '')) return null;
+      return data;
+    } catch (_) { return null; }
   }
   async function waitForVerifiedBuild(expected) {
+    // Контрольные суммы всех файлов уже проверены самим service worker при
+    // установке: complete === true означает проверенную сборку. Поэтому берём
+    // ФАКТИЧЕСКУЮ версию из статуса воркера, а не из (возможно устаревшего)
+    // манифеста, на который указывает expected.
     const deadline = Date.now() + 90000;
     while (Date.now() < deadline) {
       const ready = registration?.waiting;
       if (ready) {
         const result = await workerStatus(ready);
-        if (result?.version === expected && result?.complete === true) return ready;
+        if (result?.complete === true && typeof result.version === 'string') return {worker:ready, version:result.version};
       }
       const active = registration?.active;
-      if (active) {
+      if (active?.state === 'activated') {
         const result = await workerStatus(active);
-        if (result?.version === expected && result?.complete === true) return null;
+        if (result?.complete === true && typeof result.version === 'string') return {worker:null, version:result.version};
       }
       await new Promise(resolve => setTimeout(resolve,450));
     }
-    throw Error('Не удалось полностью скачать новую сборку. Откройте страницу восстановления.');
+    throw Error('Не удалось полностью скачать новую сборку за 90 секунд. Откройте страницу восстановления: ./update-working-test.html');
   }
   function applyVerifiedBuild(worker,expected) {
     return new Promise((resolve,reject) => {
@@ -241,10 +258,16 @@
     updateProgress('check','Проверяю опубликованную сборку и сохранение данных.');
     render();
     const message = text => {updateMessage.textContent = text;bannerMessage.textContent=text;};
+    let stallTimer = null, downloadDeadline = null;
     try {
       if (!eligible || !navigator.onLine || !window.isSecureContext) throw Error('Для обновления нужен интернет.');
       message('Проверяю последнюю версию непосредственно на сайте…');
-      const latest = await publishedManifest();latestPublished=latest;installTarget=latest.version;render();
+      const latest = {version: await publishedVersion()};
+      latestPublished = latest;installTarget = latest.version;render();
+      const manifest = await publishedManifest();
+      if (manifest && manifest.version !== latest.version) {
+        console.warn('Рабочая тестовая: манифест расходится с фактической сборкой', manifest.version, latest.version);
+      }
       if (latest.version === buildVersion) {
         message('Уже открыта актуальная сборка ' + (releaseVersion || buildVersion) + '.');updateProgress('done','У вас уже установлена актуальная сборка.',1,1);
         return;
@@ -259,19 +282,52 @@
       if (!registration) await register();
       if (!registration) throw Error('Не удалось подключить служебный файл обновления.');
       await registration.update();
-      const waiting = await waitForVerifiedBuild(latest.version);
+      // Защита от «вечного скачивания»: через 45 с без новых файлов — честное
+      // предупреждение, общий предел 120 с — понятная ошибка со ссылкой.
+      downloadWatch = {lastAt: Date.now(), completed: 0, total: 0};
+      stallTimer = setInterval(() => {
+        if (!downloadWatch) return;
+        if (Date.now() - downloadWatch.lastAt >= 45000) {
+          updateProgress('download','Соединение медленное, продолжаю…', downloadWatch.completed, downloadWatch.total);
+        }
+      }, 1000);
+      const tooLong = new Promise((resolve, reject) => {
+        downloadDeadline = setTimeout(() => reject(Error('Скачивание заняло слишком много времени. Проверьте соединение и повторите, или откройте страницу восстановления: ./update-working-test.html')), 120000);
+      });
+      const verified = await Promise.race([waitForVerifiedBuild(latest.version), tooLong]);
+      clearTimeout(downloadDeadline); downloadDeadline = null; clearInterval(stallTimer); stallTimer = null; downloadWatch = null;
       await assertUpdateSafe();
-      if (waiting) {
-        message('Новая сборка проверена. Применяю обновление…');updateProgress('install','Все файлы получены и проверены. Переключаю сборку.');
-        await applyVerifiedBuild(waiting,latest.version);
+      if (verified.version === buildVersion) {
+        // Фактическая активная сборка уже совпадает с открытой: 90-секундное
+        // ожидание активации не нужно.
+        message('Уже открыта актуальная сборка ' + (releaseVersion || buildVersion) + '.');
+        try { progressDialog.close(); } catch (_) {}
+        return;
+      }
+      if (verified.worker) {
+        message('Новая сборка '+verified.version+' проверена. Применяю обновление…');updateProgress('install','Все файлы получены и проверены. Переключаю сборку.');
+        await applyVerifiedBuild(verified.worker, verified.version);
       }
       updateProgress('install','Ожидаю подтверждения запуска новой сборки от браузера.');
-      await waitForActivation(latest.version);
+      await waitForActivation(verified.version);
       await assertUpdateSafe();
       message('Обновление установлено. Перезапускаю…');updateProgress('restart','Запускаю новую сборку. Рейсы и табель сохранены.');
-       location.replace('./index-working-test.html?update=' + encodeURIComponent(latest.version));
+      location.replace('./index-working-test.html?update=' + encodeURIComponent(verified.version));
     } catch(error) {
-      const detail=String(error?.message||error);message((error.updatePaused?'Обновление отложено: ':'Обновление не установлено: ')+detail);updateProgress(error.updatePaused?'paused':'error',detail);
+      if (downloadDeadline) clearTimeout(downloadDeadline);
+      if (stallTimer) clearInterval(stallTimer);
+      downloadWatch = null;
+      const detail=String(error?.message||error);
+      if (auto && !error?.updatePaused) {
+        // Автоустановка не показывает модальный диалог ошибки: только текст в
+        // баннере, диалог прогресса закрывается.
+        updateMessage.textContent='Обновление не установлено: '+detail;
+        bannerMessage.textContent='Обновление не установлено: '+detail;
+        try { progressDialog.close(); } catch (_) {}
+      } else {
+        message((error.updatePaused?'Обновление отложено: ':'Обновление не установлено: ')+detail);
+        updateProgress(error.updatePaused?'paused':'error',detail);
+      }
     } finally {
       manualUpdateBusy = false;
       render();
@@ -280,7 +336,15 @@
   async function discoverPublishedUpdate(){
     if(!eligible||!navigator.onLine||document.hidden)return;
     if(publishedCheck)return publishedCheck;
-    publishedCheck=(async()=>{try{latestPublished=await publishedManifest();render();}catch{/* A failed check never claims an update is available. */}})().finally(()=>{publishedCheck=null;});
+    publishedCheck=(async()=>{
+      try{
+        const version=await publishedVersion();
+        latestPublished={version};
+        const manifest=await publishedManifest();
+        if(manifest && manifest.version!==version) console.warn('Рабочая тестовая: манифест отстаёт от фактической сборки', manifest.version, version);
+        render();
+      }catch{/* A failed check never claims an update is available. */}
+    })().finally(()=>{publishedCheck=null;});
     return publishedCheck;
   }
   updateApply.onclick=installPublishedUpdate;
@@ -295,10 +359,14 @@
   async function autoApplyUpdate(){
     if(manualUpdateBusy||!eligible||!navigator.onLine||document.hidden)return;
     if(!latestPublished||latestPublished.version===buildVersion)return;
+    // Одна и та же версия не повторяется бесконечно в рамках сессии.
+    const seenKey='wt_auto_update:'+latestPublished.version;
+    try { if (sessionStorage.getItem(seenKey)) return; } catch (_) {}
     if(Date.now()-pageStartedAt<30000)return;
     if(autoApplyAt&&Date.now()-autoApplyAt<300000)return;
     autoApplyAt=Date.now();
     try{await assertUpdateSafe();}catch(_){return;} // есть несохранённое — человек нажмёт сам
+    try { sessionStorage.setItem(seenKey,'1'); } catch (_) {}
     bannerMessage.textContent='Новая версия найдена — устанавливаю автоматически.';
     updateMessage.textContent='Новая версия найдена — устанавливаю автоматически.';
     void installPublishedUpdate(true).catch(()=>{});

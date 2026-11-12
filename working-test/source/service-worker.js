@@ -14,26 +14,69 @@ async function publishProgress(){
   for(const client of windows){if(new URL(client.url).pathname===new URL(PAGE).pathname)client.postMessage({type:'WORKING_TEST_PWA_PROGRESS',version:VERSION,completed:completedFiles,total:RECORDS.length});}
 }
 const hash = async buffer => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',buffer)),b=>b.toString(16).padStart(2,'0')).join('');
+// One hanging download on a mobile network must never block installation for
+// good: each attempt has a timeout, three attempts with a growing pause, and
+// an overall install deadline guarantees a clear failure instead of a stall.
+const FETCH_TIMEOUT = 30000;
+const FETCH_ATTEMPTS = 3;
+const INSTALL_DEADLINE = 240000;
+const fetchWithTimeout = async url => {
+  let lastError;
+  for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+    try {
+      const response = await fetch(url, {cache:'reload',credentials:'same-origin',signal:controller.signal});
+      if (!response.ok || response.type === 'opaque') {
+        throw Error('Cannot cache '+url+' (HTTP '+(response.status||'?')+')');
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < FETCH_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError || Error('Cannot fetch '+url);
+};
 
 self.addEventListener('install', event => event.waitUntil((async () => {
   const cache = await caches.open(CACHE);
+  const deadlineAt = Date.now() + INSTALL_DEADLINE;
+  let deadlineTimer;
+  const deadline = new Promise((resolve, reject) => {
+    deadlineTimer = setTimeout(() => reject(Error('Install deadline exceeded: '+VERSION)), INSTALL_DEADLINE);
+  });
   try {
     // Limit parallel requests on phones. A partial install must never replace the last working app.
-    let next = 0;
-    const results = await Promise.allSettled(Array.from({length:4}, async () => {
-      while (next < RECORDS.length) {
-        const record = RECORDS[next++], url = new URL(record.url, BASE).href;
-        const response = await fetch(new Request(url, {cache:'reload',credentials:'same-origin'}));
-        if (!response.ok || response.type === 'opaque') throw Error('Cannot cache '+url);
-        if (await hash(await response.clone().arrayBuffer()) !== record.sha256) throw Error('Release mismatch: '+url);
-        await cache.put(url,response);completedFiles++;await publishProgress().catch(()=>{});
-      }
-    }));
-    const failed = results.find(r => r.status === 'rejected');
-    if (failed) throw failed.reason;
-    await cache.put(COMPLETE,new Response(VERSION));
-    // No skipWaiting: finish the current session before switching code versions.
+    const work = (async () => {
+      let next = 0;
+      const results = await Promise.allSettled(Array.from({length:4}, async () => {
+        while (next < RECORDS.length) {
+          if (Date.now() >= deadlineAt) throw Error('Install deadline exceeded: '+VERSION);
+          const record = RECORDS[next++], url = new URL(record.url, BASE).href;
+          const response = await fetchWithTimeout(url);
+          // response.ok/opaque already checked inside fetchWithTimeout; keep the SHA-256 check.
+          if (await hash(await response.clone().arrayBuffer()) !== record.sha256) throw Error('Release mismatch: '+url);
+          await cache.put(url,response);completedFiles++;await publishProgress().catch(()=>{});
+        }
+      }));
+      const failed = results.find(r => r.status === 'rejected');
+      if (failed) throw failed.reason;
+      await cache.put(COMPLETE,new Response(VERSION));
+      // No skipWaiting: finish the current session before switching code versions.
+    })();
+    // The whole installation must finish within the deadline: a stalled network
+    // fails with a clear error instead of hanging forever. The timer is cleared
+    // as soon as the install work succeeds.
+    await Promise.race([work, deadline]);
+    work.catch(() => {});
+    clearTimeout(deadlineTimer);
   } catch (error) {
+    clearTimeout(deadlineTimer);
     await caches.delete(CACHE);
     throw error;
   }
