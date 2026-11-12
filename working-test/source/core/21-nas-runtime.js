@@ -23,10 +23,22 @@
   let nasArchiveRead=null;
   let nasGameRead=null,nasGameSnapshot=null,nasGameReady=false,nasGameReceiptFloor=0;
   let nasAuxSnapshot=null,nasAuxRead=null;
+  // После сворачивания приложения сокет и таймеры могут «умереть». Пока
+  // «сторож» промиса не пуст, повторный вызов возвращает тот же мёртвый
+  // промис, и ошибка источника никогда не снимается. При возврате в
+  // приложение сторожа сбрасываются, и чтение начинается заново.
+  function nasDropHungReads(){nasSettingsRead=null;nasArchiveRead=null;nasGameRead=null;nasAuxRead=null;nasCatalogRead=null;nasAdminRead=null;}
+  // Правила повторов живут в отдельном файле 26-nas-resume.js. До его
+  // загрузки (и в тестах) пользуемся безопасной копией того же состояния.
+  function nasSyncNewState(){return typeof WorkingTestNasResume!=='undefined'?WorkingTestNasResume.createState():{items:{}};}
+  function nasSyncApi(){return typeof WorkingTestNasResume!=='undefined'?WorkingTestNasResume:null;}
+  let nasSyncRetry=nasSyncNewState(), nasSyncTimer=null, nasLastSessionAt=0, nasHiddenAt=0;
   const nasCommandFlights=new Map();
   function stopNasRuntime() {
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
     nasWakeStop?.();nasWakeStop=null;nasWakeInFlight=false;nasWakeAt=0;
+    if(nasSyncTimer&&typeof clearInterval==='function'){clearInterval(nasSyncTimer);nasSyncTimer=null;}
+    nasSyncTimer=null;nasSyncRetry=nasSyncNewState();nasLastSessionAt=0;nasHiddenAt=0;
     if(nasPresenceTimer&&typeof clearInterval==='function'){clearInterval(nasPresenceTimer);nasPresenceTimer=null;}
     if(nasGamesTimer&&typeof clearInterval==='function'){clearInterval(nasGamesTimer);nasGamesTimer=null;}
     nasRuntimeStop?.(); nasRuntimeStop = null;
@@ -144,16 +156,48 @@
     nasWakeAt=now;nasWakeInFlight=true;
     const live=()=>epoch===nasRuntimeEpoch&&client===nasRuntimeClient;
     try{
+      // Зависшие чтения прошлого соединения не должны перекрывать проверку.
+      nasDropHungReads();
+      try{nasRuntimeClient?.abortInflight?.();}catch(_){}
       // Probe идёт отдельным запросом: зависшие фоновые чтения его не держат.
       if(typeof client.probe==='function')await client.probe();else await client.readSession();
       if(!live())return;
       offlineTransportRecovered();
+      // Связь подтверждена: ошибки источников читаем заново без задержки.
+      nasSyncApi()?.reset?.(nasSyncRetry);
       nasResumePolling?.();
       await nasRefreshLine().catch(()=>{});
       if(live())void replayNasOfflineJournal();
     }catch(_){
       // Краткий обрыв связи: подписка повторит попытку сама. Без уведомлений.
     }finally{nasWakeInFlight=false;}
+  }
+  // Ключ ошибки источника → повторное чтение. Успешное чтение само снимает
+  // ошибку через markSync, поэтому отдельной очистки здесь не нужно.
+  function nasSyncSources(){
+    return {'nas':nasRefreshLine,'nas-objects':refreshNasObjects,'nas-games':refreshNasGames,
+      'nas-auxiliary':refreshNasAuxiliary,'nas-archive':refreshNasArchive,
+      'nas-settings':refreshNasSettings,'nas-admin':refreshNasAdministration};
+  }
+  // Надзиратель: повторяет чтение только упавших источников с нарастающей
+  // паузой. Ничего не делает, когда приложение свёрнуто или сети нет.
+  function nasSyncSupervisorTick(){
+    if(typeof document!=='undefined'&&document.hidden)return;
+    if(typeof navigator!=='undefined'&&!navigator.onLine)return;
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    if(!client||epoch!==nasRuntimeEpoch||currentUserStatus!=='active')return;
+    const resume=nasSyncApi();if(!resume)return;
+    const errors=(typeof syncState!=='undefined'&&syncState.errors)||{},sources=nasSyncSources(),now=Date.now();
+    for(const source of Object.keys(errors)){
+      const read=sources[source];if(typeof read!=='function')continue;
+      if(!resume.due(nasSyncRetry,source,now))continue;
+      let pending;
+      try{pending=read();}catch(_){resume.recordFailure(nasSyncRetry,source,now);continue;}
+      Promise.resolve(pending).then(()=>{resume.recordSuccess(nasSyncRetry,source);},
+        ()=>{resume.recordFailure(nasSyncRetry,source,Date.now());});
+    }
+    // Долгая тишина в подписке: поднимаем её и проверяем связь принудительно.
+    if(now-nasLastSessionAt>20000&&!nasWakeInFlight){nasLastSessionAt=now;nasResumePolling?.();void nasNetworkWake(epoch,client,{force:true});}
   }
   async function startNasRuntime(user) {
     const epoch=nasRuntimeEpoch;
@@ -172,6 +216,9 @@
       let registering=false;
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
         onSession:session=>{if(epoch!==nasRuntimeEpoch)return;
+          // Отмечаем живой ответ сервера: по этой метке надзиратель понимает,
+          // что подписка молчит слишком долго.
+          nasLastSessionAt=Date.now();
           // Любой успешный ответ сервера доказывает, что связь есть: снимаем
           // «Работа локально» и накопленный бэкофф повтора очереди.
           offlineTransportRecovered();applyNasSession(session);
@@ -185,6 +232,13 @@
         onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal();},
         onError:error=>{if(epoch!==nasRuntimeEpoch)return;reportSyncError('nas',error);}
       });};nasResumePolling();
+      // Отсчёт тишины подписки начинается сразу: иначе до первого сеанса
+      // надзиратель каждые 2,5 секунды заново перезапускал бы подписку.
+      nasLastSessionAt=Date.now();
+      // Надзиратель повторов: раз в 2,5 секунды проверяет, не застряла ли
+      // подписка и не остались ли ошибки источников без повторного чтения.
+      if(nasSyncTimer&&typeof clearInterval==='function')clearInterval(nasSyncTimer);
+      nasSyncTimer=typeof setInterval==='function'?setInterval(nasSyncSupervisorTick,2500):null;
       // После смены сети браузер часто НЕ присылает 'online', а старые сокеты
       // висят до собственного таймаута. Пробуждаем существующую подписку и
       // разово проверяем связь при возврате сети, вкладки или фокуса.
@@ -192,12 +246,17 @@
       const wakeOnline=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;
         nasResumePolling?.();void replayNasOfflineJournal();
         if(typeof offlineServerUnreachable!=='undefined'&&offlineServerUnreachable)void nasNetworkWake(epoch,client,{force:true});};
-      const wakeVisible=()=>{if(typeof document!=='undefined'&&document.visibilityState==='hidden')return;void nasNetworkWake(epoch,client);};
-      const wakeFocus=()=>{void nasNetworkWake(epoch,client);};
+      const wakeVisible=()=>{if(typeof document!=='undefined'&&document.visibilityState==='hidden'){nasHiddenAt=Date.now();return;}
+        nasDropHungReads();void nasNetworkWake(epoch,client,{force:true});};
+      const wakeFocus=()=>{nasDropHungReads();void nasNetworkWake(epoch,client,{force:true});};
+      // Возврат из кэша браузера (bfcache): страница «оживает» без перезагрузки.
+      const wakePageShow=event=>{const persisted=!!(event&&event.persisted);if(!persisted&&!nasHiddenAt)return;
+        nasDropHungReads();void nasNetworkWake(epoch,client,{force:true});};
       if(typeof window!=='undefined'&&typeof window.addEventListener==='function'){
         window.addEventListener('online',wakeOnline);window.addEventListener('focus',wakeFocus);
+        window.addEventListener('pageshow',wakePageShow);
         if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('visibilitychange',wakeVisible);
-        nasWakeStop=()=>{window.removeEventListener('online',wakeOnline);window.removeEventListener('focus',wakeFocus);
+        nasWakeStop=()=>{window.removeEventListener('online',wakeOnline);window.removeEventListener('focus',wakeFocus);window.removeEventListener('pageshow',wakePageShow);
           if(typeof document!=='undefined'&&typeof document.removeEventListener==='function')document.removeEventListener('visibilitychange',wakeVisible);nasWakeStop=null;};
       }
       // Если игровая книга не загрузилась при входе (сбой сети), без повтора

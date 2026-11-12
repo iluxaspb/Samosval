@@ -29,6 +29,11 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   const owner=getUser();
   if(!owner||typeof owner.uid!=='string'||!owner.uid||typeof owner.getIdToken!=='function')throw new NasClientError('authentication-required');
   const uid=owner.uid, controllers=new Set(), subscriptions=new Set(); let stopped=false;
+  // После сворачивания приложения сокет и таймеры могут «умереть»: снаружи
+  // нужен способ разорвать зависшие запросы и разбудить текущую подписку.
+  let subscriptionWake=null;
+  function abortInflight(){for(const controller of controllers)controller.abort();}
+  function wake(){if(subscriptionWake)subscriptionWake();}
   // Generation of the single-writer authority, learned from every session read.
   // A phone that lags behind is refused by the server instead of writing blind.
   let authorityGeneration=0, authorityProvider='ubuntu';
@@ -256,13 +261,15 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     if(![onSession,onSnapshot,onError].every(f=>typeof f==='function')||!Number.isSafeInteger(intervalMs)||intervalMs<1000||intervalMs>60000)throw TypeError('invalid-subscription-options');
     let closed=false,timer,inFlight=false,wakeRequested=false;
     const teardowns=[];
-    const close=()=>{closed=true;clearTimeout(timer);for(const off of teardowns)off();teardowns.length=0;subscriptions.delete(close);}; subscriptions.add(close);
+    const close=()=>{closed=true;clearTimeout(timer);if(subscriptionWake===wake)subscriptionWake=null;for(const off of teardowns)off();teardowns.length=0;subscriptions.delete(close);}; subscriptions.add(close);
     const schedule=delay=>{if(closed)return;clearTimeout(timer);timer=setTimeout(tick,delay);};
     // A network change (VPN switch, Wi-Fi <-> mobile) does not always fire
     // 'online' and leaves the previous sockets hanging until their own timeout.
     // Wake the loop right away instead of waiting a full interval; the request
     // itself has its own deadline and creates a fresh AbortController.
-    const wake=()=>{if(closed)return;if(inFlight){wakeRequested=true;clearTimeout(timer);return;}schedule(0);};
+    // Сначала рвём все активные запросы: мёртвый сокет иначе держит тик и
+    // подписка остаётся нерабочей до перезагрузки страницы.
+    const wake=()=>{if(closed)return;abortInflight();if(inFlight){wakeRequested=true;clearTimeout(timer);return;}schedule(0);};
     if(typeof window!=='undefined'&&typeof window.addEventListener==='function'){
       window.addEventListener('online',wake);teardowns.push(()=>window.removeEventListener('online',wake));
     }
@@ -275,18 +282,29 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
       clearTimeout(timer);
       if(inFlight){wakeRequested=true;return;}
       inFlight=true;
+      let watchdog;
       try {
-        const session=await readSession(); if(closed)return;
-        onSession(session); guard(); if(closed)return;
-        // Publish profile changes even when line access has just been revoked.
-        if(session.identityReady&&session.profile?.status==='active'&&!session.profile.deleted&&session.permissions.tabs.includes('line')){
-          const line=await readLine(); guard();if(!closed)onSnapshot(line);
-        }
+        const work=(async()=>{
+          const session=await readSession(); if(closed)return;
+          onSession(session); guard(); if(closed)return;
+          // Publish profile changes even when line access has just been revoked.
+          if(session.identityReady&&session.profile?.status==='active'&&!session.profile.deleted&&session.permissions.tabs.includes('line')){
+            const line=await readLine(); guard();if(!closed)onSnapshot(line);
+          }
+        })();
+        // Жёсткий сторож тика: после возврата из фона таймеры и сокет могут
+        // зависнуть навсегда, и тогда inFlight остался бы true, а подписка
+        // умерла до перезагрузки страницы. Сторож гарантирует сброс inFlight.
+        const deadline=new Promise((resolve,reject)=>{watchdog=setTimeout(()=>{
+          const error=new NasClientError('api-timeout',{retryable:true,uncertain:false});
+          error.phase='watchdog';error.message+=': watchdog';reject(error);
+        },30000);});
+        await Promise.race([work,deadline]);
       }catch(error){if(closed)return;onError(error);if(error.code==='session-changed'){close();return;}}
-      finally{inFlight=false;if(!closed){if(wakeRequested){wakeRequested=false;schedule(0);}else schedule(intervalMs);}}
+      finally{clearTimeout(watchdog);inFlight=false;if(!closed){if(wakeRequested){wakeRequested=false;schedule(0);}else schedule(intervalMs);}}
     }
-    void tick();return close;
+    subscriptionWake=wake;void tick();return close;
   }
   function stop(){stopped=true;readCache.clear();for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,probe,stop,readAuthority,submitAuthority,writeAuthorityPresence,authority});
+  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,probe,stop,wake,abortInflight,readAuthority,submitAuthority,writeAuthorityPresence,authority});
 }
