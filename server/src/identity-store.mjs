@@ -261,6 +261,10 @@ export async function identityOperation(pool,uid,input){
       if(Number(version?.revision||0)!==op.expectedRevision)throw fail('permissions-changed',409);
       before={role:op.role,revision:Number(version.revision),rows:(await client.query('SELECT action,allowed FROM role_permissions WHERE role=$1 ORDER BY action',[op.role])).rows};
       await client.query('UPDATE role_permissions SET allowed=false WHERE role=$1',[op.role]);
+      // Права вкладок табеля приходят без tabel_tab_*, когда админ оставил
+      // состояние «по умолчанию: все вкладки». Превращать это в явный запрет
+      // нельзя: строки удаляются, и роль снова получает все вкладки табеля.
+      await client.query("DELETE FROM role_permissions WHERE role=$1 AND allowed=false AND action LIKE 'tabel\\_tab\\_%'",[op.role]);
       for(const action of [...op.permissions.tabs.map(t=>'tab_'+t),...op.permissions.actions])await client.query('INSERT INTO role_permissions(role,action,allowed) VALUES ($1,$2,true) ON CONFLICT(role,action) DO UPDATE SET allowed=true',[op.role,action]);
       await client.query('UPDATE role_permission_versions SET revision=revision+1 WHERE role=$1',[op.role]);
       after={role:op.role,revision:op.expectedRevision+1,permissions:op.permissions};

@@ -29,10 +29,20 @@ const NAV_VIEWS = [
 // Гранулярные права на вкладки табеля (tabel_tab_*). Пока роли не выдано ни
 // одного такого права, сессия приходит без tabelTabs — показываем все вкладки
 // как раньше, чтобы существующие права пользователей не менялись.
+// История — журнал изменений: её читают только прораб, администратор или роль
+// с явным правом tabel_tab_history. Остальным вкладка не показывается, иначе
+// открывается пустой экран, а сервер отвечает 403.
+function canReadHistory(s) {
+  const session = s.host.session();
+  if (session.role === "admin" || session.role === "foreman") return true;
+  return Array.isArray(session.tabelTabs) && session.tabelTabs.includes("history");
+}
 function navViews(s) {
   const allowed = s.host.session().tabelTabs;
-  if (!Array.isArray(allowed) || !allowed.length) return NAV_VIEWS;
-  return NAV_VIEWS.filter(([id]) => allowed.includes(id));
+  const views = !Array.isArray(allowed) || !allowed.length
+    ? NAV_VIEWS
+    : NAV_VIEWS.filter(([id]) => allowed.includes(id));
+  return views.filter(([id]) => id !== "history" || canReadHistory(s));
 }
 export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   const host = ctx.ledgerHost,
@@ -400,7 +410,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     if (!s.object || !s.remote) return;
     await s.store.pull(s.key("config"));
     await s.store.pullObject(s.object.id);
-    await s.store.pullHistory(s.object.id);
+    if (canReadHistory(s)) await s.store.pullHistory(s.object.id);
   }
   s.select = async (id) => {
     if (s.grid?.snapshot) {
