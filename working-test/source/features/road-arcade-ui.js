@@ -203,9 +203,10 @@ async function spin(){
    let lastFlip=0;if(!spinDonePromise)tone('spin');
    let outcomeType='',outcomePayout=0,outcomeCost=C.BET,outcomeProfit=0;
    try{
-    const result=await A.transact(operation);if(currentUid!==user)return;A.storeSpin(null);if(!result.replayed&&result.payout>=result.cost)window.__gameMoneyFlow?.(-result.cost);
-    slotSymbols=result.result?.symbols||['🚧','🍒','⭐'];
-    outcomeType=result.result?.type||'';outcomePayout=Number(result.payout)||0;outcomeCost=Number(result.cost)||C.BET;outcomeProfit=outcomePayout-outcomeCost;
+    // Итоговые символы зависят только от заранее сохранённого броска, поэтому
+    // барабаны останавливаются на выпавшем результате, но деньги ещё не двигаются.
+    const shown=C.slotOutcome(operation.roll,Number(A.head()?.bank)||0).symbols;
+    slotSymbols=shown.slice();
     if(reelAnim&&reelAnim.active){
      reelAnim.symbols=slotSymbols.slice();
      // Целевая позиция каждого барабана — индекс выпавшего символа в REEL_ICONS.
@@ -217,9 +218,14 @@ async function spin(){
      await Promise.race([Promise.all([spinDonePromise,minDelay]),new Promise(r=>setTimeout(r,6500))]);
     }else await new Promise(resolve=>setTimeout(resolve,Math.max(0,1700-(performance.now()-started))));
     if(currentUid!==user)return;
+    // Ставка и выплата записываются ОДНОЙ серверной операцией только теперь —
+    // после остановки барабанов. Повтор той же операции сервер не задваивает.
+    const result=await A.transact(operation);if(currentUid!==user)return;A.storeSpin(null);if(!result.replayed&&result.payout>=result.cost)window.__gameMoneyFlow?.(-result.cost);
+    slotSymbols=result.result?.symbols||slotSymbols;
+    outcomeType=result.result?.type||'';outcomePayout=Number(result.payout)||0;outcomeCost=Number(result.cost)||C.BET;outcomeProfit=outcomePayout-outcomeCost;
     const profit=outcomeProfit;
     slotMessage=outcomeType==='jackpot'?'ДЖЕКПОТ! Выплата '+f(outcomePayout)+' 🪙 · общий банк ваш':profit>0?'Выплата '+f(outcomePayout)+' 🪙 · выигрыш за вычетом ставки +'+f(profit):profit===0?'Вернулась ставка: '+f(outcomePayout)+' 🪙. Итог 0.':'Выплата '+f(outcomePayout)+' 🪙 · итог −'+f(-profit);
-   }catch(e){if(currentUid===user){outcomeType='';slotMessage=(e.message||'Нет связи')+' Если ставка уже принята, повторная проверка не спишет монеты ещё раз.';}}
+   }catch(e){if(currentUid===user){outcomeType='';slotMessage=(e.message||'Нет связи')+' Ставка не списана. Нажмите «Вращать» ещё раз — повтор не задвоит монеты.';}}
    finally{if(reelAnim){reelAnim.cancel();reelAnim=null;}clearInterval(slotTimer);slotTimer=null;slotBusy=false;
     if(currentUid===user&&dialog.open&&view==='slot'){
      render(true);const shell=dialog.querySelector('.slot-shell');
