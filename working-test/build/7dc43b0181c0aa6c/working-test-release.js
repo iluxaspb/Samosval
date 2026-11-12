@@ -1,0 +1,4 @@
+window.WORKING_TEST_RELEASE={version:'1.5.1',label:'Рабочая тестовая версия 1.5.1',channel:'working-test'};
+// Совместимость со скопированными модулями теста, которые читают это имя.
+window.TEST_APP_RELEASE=window.WORKING_TEST_RELEASE;
+window.__testGetShift=()=>state.shift;
