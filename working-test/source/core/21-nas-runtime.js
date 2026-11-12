@@ -12,6 +12,8 @@
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0, nasPresenceTimer=null, nasGamesTimer=null;
   // Пробуждение после смены сети: обработчики событий и защита от наложения.
   let nasWakeStop=null, nasWakeInFlight=false, nasWakeAt=0;
+  // Активное обновление: пока приложение на экране, данные читаются сами.
+  let nasActivityTimer=null, nasActivityInFlight=false, nasActivityPending=false, nasActivityGate=null;
   // Single-writer authority as announced by the server. The phone never decides
   // this on its own: it mirrors the server and stops writing when it is not the
   // declared authority.
@@ -37,6 +39,8 @@
   function stopNasRuntime() {
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
     nasWakeStop?.();nasWakeStop=null;nasWakeInFlight=false;nasWakeAt=0;
+    if(nasActivityTimer&&typeof clearInterval==='function'){clearInterval(nasActivityTimer);nasActivityTimer=null;}
+    nasActivityTimer=null;nasActivityInFlight=false;nasActivityPending=false;nasActivityGate=null;
     if(nasSyncTimer&&typeof clearInterval==='function'){clearInterval(nasSyncTimer);nasSyncTimer=null;}
     nasSyncTimer=null;nasSyncRetry=nasSyncNewState();nasLastSessionAt=0;nasHiddenAt=0;
     if(nasPresenceTimer&&typeof clearInterval==='function'){clearInterval(nasPresenceTimer);nasPresenceTimer=null;}
@@ -172,6 +176,47 @@
       // Краткий обрыв связи: подписка повторит попытку сама. Без уведомлений.
     }finally{nasWakeInFlight=false;}
   }
+  function nasActivityApi(){return typeof WorkingTestNasActivity!=='undefined'?WorkingTestNasActivity:null;}
+  function nasActivityGateState(){if(!nasActivityGate){const api=nasActivityApi();nasActivityGate=api?api.createGate({minGap:4000}):{lastAt:0,minGap:4000,pending:false};}return nasActivityGate;}
+  // Приложение активно на экране: вкладка видима и сеть есть.
+  function nasScreenActive(){if(typeof document!=='undefined'&&document.hidden)return false;if(typeof navigator!=='undefined'&&navigator.onLine===false)return false;return true;}
+  // Полное обновление всех данных, пока приложение активно. Ничего не экономим:
+  // линия, справочники, игры, настройки, архив и админка перечитываются при
+  // каждом возврате на экран и по таймеру. Порядок важен: линия первой, потому
+  // что она поднимает поколение чтений и отменяет устаревшие ответы.
+  async function nasActiveRefresh(reason,{force=true}={}){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    if(!client||epoch!==nasRuntimeEpoch||currentUserStatus!=='active')return false;
+    if(!nasScreenActive())return false;
+    const api=nasActivityApi(),gate=nasActivityGateState();
+    const allowed=api?api.allow(gate,Date.now(),force):true;
+    if(!allowed){nasActivityPending=true;return false;}
+    if(nasActivityInFlight){nasActivityPending=true;return false;}
+    nasActivityInFlight=true;
+    const live=()=>epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&currentUserStatus==='active'&&nasScreenActive();
+    try{
+      if(reason==='poll'){
+        // Периодический опрос не рвёт текущие запросы пользователя и не
+        // перезапускает подписку: перечитываем линию и остальные источники.
+        await nasRefreshLine().catch(()=>{});
+      }else{
+        // Возврат на экран: полный путь пробуждения — проверка связи,
+        // подписка и линия.
+        await nasNetworkWake(epoch,client,{force:true});
+      }
+      if(!live())return false;
+      // Связь подтверждена: снимаем накопленные паузы повторов.
+      nasSyncApi()?.reset?.(nasSyncRetry);
+      const reads=[refreshNasObjects,refreshNasSettings,refreshNasAuxiliary,refreshNasGames];
+      if(hasTabAccess('archive')||hasTabAccess('analytics'))reads.push(refreshNasArchive);
+      if(canAdmin())reads.push(refreshNasAdministration);
+      await Promise.allSettled(reads.map(read=>{try{return Promise.resolve(read());}catch(error){return Promise.reject(error);}}));
+      if(live())void replayNasOfflineJournal();
+      return true;
+    }catch(_){return false;}
+    finally{nasActivityInFlight=false;
+      if(nasActivityPending){nasActivityPending=false;setTimeout(()=>{void nasActiveRefresh('pending',{force:false});},0);}}
+  }
   // Ключ ошибки источника → повторное чтение. Успешное чтение само снимает
   // ошибку через markSync, поэтому отдельной очистки здесь не нужно.
   function nasSyncSources(){
@@ -240,25 +285,30 @@
       if(nasSyncTimer&&typeof clearInterval==='function')clearInterval(nasSyncTimer);
       nasSyncTimer=typeof setInterval==='function'?setInterval(nasSyncSupervisorTick,2500):null;
       // После смены сети браузер часто НЕ присылает 'online', а старые сокеты
-      // висят до собственного таймаута. Пробуждаем существующую подписку и
-      // разово проверяем связь при возврате сети, вкладки или фокуса.
+      // висят до собственного таймаута. Любой возврат на экран — это полное
+      // обновление данных: видимость, фокус, сеть, pageshow, разблокировка.
       nasWakeStop?.();
       const wakeOnline=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;
-        nasResumePolling?.();void replayNasOfflineJournal();
-        if(typeof offlineServerUnreachable!=='undefined'&&offlineServerUnreachable)void nasNetworkWake(epoch,client,{force:true});};
+        nasResumePolling?.();void nasActiveRefresh('online',{force:true});};
       const wakeVisible=()=>{if(typeof document!=='undefined'&&document.visibilityState==='hidden'){nasHiddenAt=Date.now();return;}
-        nasDropHungReads();void nasNetworkWake(epoch,client,{force:true});};
-      const wakeFocus=()=>{nasDropHungReads();void nasNetworkWake(epoch,client,{force:true});};
+        nasDropHungReads();void nasActiveRefresh('visibilitychange',{force:true});};
+      const wakeFocus=()=>{nasDropHungReads();void nasActiveRefresh('focus',{force:true});};
       // Возврат из кэша браузера (bfcache): страница «оживает» без перезагрузки.
       const wakePageShow=event=>{const persisted=!!(event&&event.persisted);if(!persisted&&!nasHiddenAt)return;
-        nasDropHungReads();void nasNetworkWake(epoch,client,{force:true});};
+        nasDropHungReads();void nasActiveRefresh('pageshow',{force:true});};
+      // Разблокировка экрана телефона и выход из фона в мобильной оболочке.
+      const wakeResume=()=>{nasDropHungReads();void nasActiveRefresh('resume',{force:true});};
       if(typeof window!=='undefined'&&typeof window.addEventListener==='function'){
         window.addEventListener('online',wakeOnline);window.addEventListener('focus',wakeFocus);
-        window.addEventListener('pageshow',wakePageShow);
+        window.addEventListener('pageshow',wakePageShow);window.addEventListener('resume',wakeResume);
         if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('visibilitychange',wakeVisible);
-        nasWakeStop=()=>{window.removeEventListener('online',wakeOnline);window.removeEventListener('focus',wakeFocus);window.removeEventListener('pageshow',wakePageShow);
+        nasWakeStop=()=>{window.removeEventListener('online',wakeOnline);window.removeEventListener('focus',wakeFocus);
+          window.removeEventListener('pageshow',wakePageShow);window.removeEventListener('resume',wakeResume);
           if(typeof document!=='undefined'&&typeof document.removeEventListener==='function')document.removeEventListener('visibilitychange',wakeVisible);nasWakeStop=null;};
       }
+      // Пока приложение активно на экране — обновляем всё каждые 15 секунд.
+      if(nasActivityTimer&&typeof clearInterval==='function')clearInterval(nasActivityTimer);
+      nasActivityTimer=typeof setInterval==='function'?setInterval(()=>{if(!nasScreenActive())return;void nasActiveRefresh('poll',{force:false});},15000):null;
       // Если игровая книга не загрузилась при входе (сбой сети), без повтора
       // кнопки игр оставались вечно неактивными. Пробуем снова каждые 30 секунд.
       if(nasGamesTimer&&typeof clearInterval==='function')clearInterval(nasGamesTimer);

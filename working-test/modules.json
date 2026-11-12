@@ -39,6 +39,7 @@
         "core/03-formatting.js",
         "core/21-nas-runtime.js",
         "core/26-nas-resume.js",
+        "core/28-nas-activity.js",
         "core/04-subscriptions.js",
         "core/05-authentication.js",
         "core/06-app-settings.js",
