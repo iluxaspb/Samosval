@@ -19,6 +19,21 @@ const areas = [
   "history",
   "permissions",
 ];
+const NAV_VIEWS = [
+  ["request", "Заявки"],
+  ["shift", "Смена"],
+  ["table", "Таблица"],
+  ["catalog", "Справочник"],
+  ["history", "История"],
+];
+// Гранулярные права на вкладки табеля (tabel_tab_*). Пока роли не выдано ни
+// одного такого права, сессия приходит без tabelTabs — показываем все вкладки
+// как раньше, чтобы существующие права пользователей не менялись.
+function navViews(s) {
+  const allowed = s.host.session().tabelTabs;
+  if (!Array.isArray(allowed) || !allowed.length) return NAV_VIEWS;
+  return NAV_VIEWS.filter(([id]) => allowed.includes(id));
+}
 export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   const host = ctx.ledgerHost,
     session = host.session();
@@ -601,13 +616,18 @@ async function render(s) {
   s.root.classList.toggle("tn-table", s.view === "table");
   s.root.dataset.view = s.view;
   s.root.dataset.shiftContext = s.view === "shift" ? shiftContext : "";
-  s.root.innerHTML = `<header class="tn-header"><select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.object ? [s.object] : []), ...(s.host.data().objects || [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${[
-    ["request", "Заявки"],
-    ["shift", "Смена"],
-    ["table", "Таблица"],
-    ["catalog", "Справочник"],
-    ["history", "История"],
-  ]
+  const navViewsNow = navViews(s);
+  if (
+    NAV_VIEWS.some(([id]) => id === s.view) &&
+    !navViewsNow.some(([id]) => id === s.view)
+  ) {
+    const fallback =
+      (s.requestLocked && navViewsNow.some(([id]) => id === "request") ? "request" : null) ||
+      navViewsNow.find(([id]) => id === "shift")?.[0] ||
+      navViewsNow[0]?.[0];
+    if (fallback) s.view = fallback;
+  }
+  s.root.innerHTML = `<header class="tn-header"><select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.object ? [s.object] : []), ...(s.host.data().objects || [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${navViewsNow
     .map(([id, label]) =>
       btn(label, "view", `data-view="${id}" aria-pressed="${s.view === id}"`),
     )

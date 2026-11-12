@@ -13,6 +13,15 @@
   }
 
   function hasPermission(action) { if(currentUserStatus!=='active')return false; if (currentUserRole === 'admin') return true; if (!permissionsLoaded) return false; const actions = permissionsConfig[currentUserRole]?.actions; return Array.isArray(actions) && actions.includes(action); }
+
+  // Вкладки табеля, доступные текущему пользователю. Пока роли не выдано ни одного
+  // granular-права tabel_tab_*, возвращаем null: табель показывает все вкладки как
+  // раньше, чтобы существующие права пользователей не менялись автоматически.
+  function tabelTabViews(){
+    if(currentUserRole === 'admin') return null;
+    const granted = ['shift','table','request','catalog','history'].filter(tab => hasPermission('tabel_tab_' + tab));
+    return granted.length ? granted : null;
+  }
   function requireEdit(action, actionName) { if (hasPermission(action)) return true; showError('👁 Нет прав на ' + (actionName || 'это действие')); return false; }
 
   // === SECURITY: обновляем классы perm-blocked для кнопок ===

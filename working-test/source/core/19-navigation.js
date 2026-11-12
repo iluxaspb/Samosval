@@ -67,6 +67,7 @@
       const session = () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
         uid: currentUid, name: getUserName(), role: currentUserRole, active: currentUserStatus === 'active',
         view: permissionsLoaded && hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit'),
+        tabelTabs: tabelTabViews(),
         objectId: state.shift && state.shift.objectId});
       return {session, workspace: wsRef, refs,
         users:async()=>state.users.length?state.users:(await usersRef.get()).docs.map(d=>({...d.data(),id:d.id})),

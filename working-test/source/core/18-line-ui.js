@@ -195,10 +195,32 @@
   function renderPermissionsMatrix(){
     const role=document.getElementById('permRoleSelect').value,config=permissionsConfig[role]||{tabs:[],actions:[]},cont=document.getElementById('permissionsMatrixContainer');
     const groups=[['Смена и линия',['start_shift','close_shift','edit_line']],['Работа самосвалов',['action_arrive','action_load','action_ttn']],['Последнее действие в статусе',['undo_action','undo_any']],['Журнал отмены и восстановления',['history_view','history_undo_own','history_undo_any','history_redo_own','history_redo_any']],['Данные и архив',['edit_logs','manage_trucks','manage_objects','archive_edit','archive_delete','import_backup']],['Отображение',['view_card_stats','view_header','view_gai_report','view_reis_in_ticker']]];
-    const known=new Set(groups.flatMap(g=>g[1])),extra=[...new Set([...ALL_ACTIONS,...(config.actions||[])])].filter(x=>!known.has(x));if(extra.length)groups.push(['Другие возможности',extra]);
+    const known=new Set(groups.flatMap(g=>g[1])),extra=[...new Set([...ALL_ACTIONS,...(config.actions||[])])].filter(x=>!known.has(x)&&!x.startsWith('tabel_tab_'));if(extra.length)groups.push(['Другие возможности',extra]);
     cont.innerHTML='<input id="permissionSearch" class="form-control" type="search" placeholder="Найти право…" aria-label="Поиск прав" style="margin-bottom:12px"><p style="color:var(--muted);font-size:12px">Администратор имеет полный доступ. Новые права журнала у остальных ролей выключены, пока вы их не включите. Изменения применяются кнопкой сохранения.</p>';
     function section(title,ids,type,labels,selected){const block=document.createElement('section');block.className='perm-group';const h=document.createElement('div');h.className='perm-group-header';h.textContent=title;block.append(h);const list=document.createElement('div');list.className='perm-list';for(const id of ids){const label=document.createElement('label');label.className='perm-item';label.dataset.search=(title+' '+(labels[id]||id)).toLowerCase();const input=document.createElement('input');input.type='checkbox';input.dataset.type=type;input.value=id;input.checked=selected.includes(id);label.append(input,document.createTextNode(' '+(labels[id]||id)));list.append(label);}block.append(list);cont.append(block);}
     section('Доступные вкладки',ALL_TABS.filter(t=>t!=='admin'),'tab',TAB_LABELS,config.tabs||[]);for(const [title,ids] of groups)section(title,ids,'action',ACTION_LABELS,config.actions||[]);
+    // Табель: гранулярные вкладки. Пока роли не выдано ни одного права tabel_tab_*,
+    // показываем состояние «по умолчанию: все вкладки» и ничего не сохраняем,
+    // пока администратор не включит выборочный набор.
+    if(role!=='admin'){
+      const tabelIds=['tabel_tab_request','tabel_tab_shift','tabel_tab_table','tabel_tab_catalog','tabel_tab_history'];
+      const configured=(config.actions||[]).filter(x=>tabelIds.includes(x));
+      const customized=configured.length>0;
+      const block=document.createElement('section');block.className='perm-group';
+      const h=document.createElement('div');h.className='perm-group-header';h.textContent='Табель';block.append(h);
+      const note=document.createElement('p');note.style='color:var(--muted);font-size:12px;margin:0 0 8px';
+      note.textContent=customized?'Отмечены только вкладки табеля, доступные этой роли.':'По умолчанию: все вкладки. Снимите галочки, чтобы ограничить вкладки табеля для этой роли (полный сброс галочек вернёт все вкладки).';
+      block.append(note);
+      const list=document.createElement('div');list.className='perm-list';
+      for(const id of tabelIds){
+        const label=document.createElement('label');label.className='perm-item';label.dataset.search=('Табель '+(ACTION_LABELS[id]||id)).toLowerCase();
+        const input=document.createElement('input');input.type='checkbox';input.dataset.type='action';input.value=id;
+        input.checked=customized?configured.includes(id):true;
+        label.append(input,document.createTextNode(' '+(ACTION_LABELS[id]||id).replace('Табель: ','')));
+        list.append(label);
+      }
+      block.append(list);cont.append(block);
+    }
     document.getElementById('permissionSearch').oninput=e=>{const q=e.target.value.trim().toLowerCase();cont.querySelectorAll('.perm-item').forEach(x=>x.hidden=!x.dataset.search.includes(q));cont.querySelectorAll('.perm-group').forEach(x=>x.hidden=![...x.querySelectorAll('.perm-item')].some(l=>!l.hidden));};
   }
 
@@ -207,7 +229,11 @@
     const role = document.getElementById('permRoleSelect').value;
     const cont = document.getElementById('permissionsMatrixContainer');
     const tabs = Array.from(cont.querySelectorAll('input[data-type="tab"]:checked')).map(i => i.value);
-    const actions = Array.from(cont.querySelectorAll('input[data-type="action"]:checked')).map(i => i.value);
+    let actions = Array.from(cont.querySelectorAll('input[data-type="action"]:checked')).map(i => i.value);
+    // Полный набор вкладок табеля == состояние по умолчанию: не записываем
+    // tabel_tab_* в роль, чтобы старые конфигурации не менялись без причины.
+    const tabelAll = ['tabel_tab_request','tabel_tab_shift','tabel_tab_table','tabel_tab_catalog','tabel_tab_history'];
+    if (tabelAll.every(id => actions.includes(id))) actions = actions.filter(id => !tabelAll.includes(id));
     if(isNasRuntime())return runNasAdminAction('permissions.replace',{role,permissions:{tabs,actions}});
     try { const update = {}; update[role] = { tabs, actions }; await tfAwait(permsRef.set(update, { merge: true })); addAudit(`Изменены права для роли: ${ROLES[role].label}`).catch(()=>{}); showToastEl('💾 Права сохранены', false); }
     catch(e) { showError(e.message); }

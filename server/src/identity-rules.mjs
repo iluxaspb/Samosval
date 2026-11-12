@@ -1,7 +1,7 @@
 import {fail,map} from './tabel-access.mjs';
 export const ROLES=Object.freeze(['admin','foreman','master','lopater','viewer']);
 export const TABS=Object.freeze(['line','timesheet','report','archive','trucks','analytics','backup','admin']);
-export const ACTIONS=Object.freeze(['timesheet_edit','timesheet_manage','timesheet_export','start_shift','close_shift','edit_line','action_arrive','action_load','action_ttn','undo_action','edit_logs','manage_trucks','manage_objects','archive_edit','archive_delete','import_backup','view_card_stats','view_header','undo_any','view_gai_report','view_reis_in_ticker','history_view','history_undo_own','history_undo_any','history_redo_own','history_redo_any']);
+export const ACTIONS=Object.freeze(['timesheet_edit','timesheet_manage','timesheet_export','start_shift','close_shift','edit_line','action_arrive','action_load','action_ttn','undo_action','edit_logs','manage_trucks','manage_objects','archive_edit','archive_delete','import_backup','view_card_stats','view_header','undo_any','view_gai_report','view_reis_in_ticker','history_view','history_undo_own','history_undo_any','history_redo_own','history_redo_any','tabel_tab_shift','tabel_tab_table','tabel_tab_request','tabel_tab_catalog','tabel_tab_history']);
 const uid=value=>typeof value==='string'&&value.length>0&&value.length<=128;
 const revision=(value,zero=false)=>Number.isSafeInteger(value)&&value>=(zero?0:1)&&value<Number.MAX_SAFE_INTEGER;
 export const PASSWORD_MIN_LENGTH=8;
