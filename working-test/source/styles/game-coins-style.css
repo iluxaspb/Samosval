@@ -35,8 +35,7 @@
 
 #game-wallet{flex:0 0 auto;height:24px;min-height:0;max-width:88px;margin-left:auto;border:1px solid #b8893266;border-radius:7px;padding:0 5px;background:#fbbf2410;color:#fcd34d;font-size:11px;line-height:22px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 #mainHeader .top-row{flex-wrap:nowrap}
-#mainHeader .top-row .version-label{min-width:0;flex-shrink:1}
-#mainHeader .top-row .version-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mainHeader .version-row{flex-shrink:0;overflow:visible}
 #mainHeader .top-row .sync-dot-wrap,#mainHeader .top-row .gear-btn{flex-shrink:0}
 #mainHeader .top-row .user-badge{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .game-button-coin{display:inline-block;flex-shrink:0;margin-left:4px;font-size:22px;line-height:1;vertical-align:middle;pointer-events:none}
