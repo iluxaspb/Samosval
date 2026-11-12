@@ -297,18 +297,34 @@
       const wakePageShow=event=>{const persisted=!!(event&&event.persisted);if(!persisted&&!nasHiddenAt)return;
         nasDropHungReads();void nasActiveRefresh('pageshow',{force:true});};
       // Разблокировка экрана телефона и выход из фона в мобильной оболочке.
+      // Page Lifecycle API отправляет freeze/resume на document, а НЕ на window:
+      // без document-слушателя разблокировка экрана в PWA не будила приложение,
+      // и данные после пробуждения не обновлялись.
       const wakeResume=()=>{nasDropHungReads();void nasActiveRefresh('resume',{force:true});};
+      const wakeFreeze=()=>{nasHiddenAt=Date.now();};
       if(typeof window!=='undefined'&&typeof window.addEventListener==='function'){
         window.addEventListener('online',wakeOnline);window.addEventListener('focus',wakeFocus);
         window.addEventListener('pageshow',wakePageShow);window.addEventListener('resume',wakeResume);
-        if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('visibilitychange',wakeVisible);
+        if(typeof document!=='undefined'&&typeof document.addEventListener==='function'){
+          document.addEventListener('visibilitychange',wakeVisible);
+          document.addEventListener('resume',wakeResume);
+          document.addEventListener('freeze',wakeFreeze);
+        }
         nasWakeStop=()=>{window.removeEventListener('online',wakeOnline);window.removeEventListener('focus',wakeFocus);
           window.removeEventListener('pageshow',wakePageShow);window.removeEventListener('resume',wakeResume);
-          if(typeof document!=='undefined'&&typeof document.removeEventListener==='function')document.removeEventListener('visibilitychange',wakeVisible);nasWakeStop=null;};
+          if(typeof document!=='undefined'&&typeof document.removeEventListener==='function'){
+            document.removeEventListener('visibilitychange',wakeVisible);
+            document.removeEventListener('resume',wakeResume);
+            document.removeEventListener('freeze',wakeFreeze);
+          }nasWakeStop=null;};
       }
       // Пока приложение активно на экране — обновляем всё каждые 15 секунд.
       if(nasActivityTimer&&typeof clearInterval==='function')clearInterval(nasActivityTimer);
-      nasActivityTimer=typeof setInterval==='function'?setInterval(()=>{if(!nasScreenActive())return;void nasActiveRefresh('poll',{force:false});},15000):null;
+      // Страховка: в фоне/на заблокированном экране таймеры замирают, а события
+      // пробуждения могут не прийти. Разрыв между тиками больше двух интервалов
+      // (30 с) означает, что приложение спало — обновляем всё принудительно.
+      let nasActivityTickAt=Date.now();
+      nasActivityTimer=typeof setInterval==='function'?setInterval(()=>{const now=Date.now(),gap=now-nasActivityTickAt;nasActivityTickAt=now;if(!nasScreenActive())return;void nasActiveRefresh(gap>45000?'resume':'poll',{force:gap>45000});},15000):null;
       // Если игровая книга не загрузилась при входе (сбой сети), без повтора
       // кнопки игр оставались вечно неактивными. Пробуем снова каждые 30 секунд.
       if(nasGamesTimer&&typeof clearInterval==='function')clearInterval(nasGamesTimer);

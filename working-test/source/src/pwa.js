@@ -58,7 +58,7 @@
   function stateShift() { return typeof window.__testGetShift === 'function' ? window.__testGetShift() : null; }
   function render() {
     const s = state();
-    const hasUpdate=!!latestPublished&&latestPublished.version!==buildVersion;
+    const hasUpdate=(!!latestPublished&&latestPublished.version!==buildVersion)||s.updateReady;
     updateBanner.hidden=!hasUpdate;
     updateApply.disabled=manualUpdateBusy||!navigator.onLine;
     updateApply.textContent=manualUpdateBusy?'Устанавливаю…':'Установить';
@@ -235,7 +235,7 @@
     }
     throw Error('Браузер не подтвердил активацию. Данные сохранены; повторите установку при устойчивом соединении.');
   }
-  async function installPublishedUpdate() {
+  async function installPublishedUpdate(auto=false) {
     if (manualUpdateBusy) return;
     manualUpdateBusy = true;installTarget='';
     updateProgress('check','Проверяю опубликованную сборку и сохранение данных.');
@@ -252,7 +252,7 @@
       await assertUpdateSafe();
       const question = 'Установить новую сборку и перезапустить это окно приложения? Данные сохраняются. Сначала завершите ввод в открытых формах.';
       progressDialog.close();
-      const agreed = typeof appConfirm === 'function' ? await appConfirm(question) : window.confirm(question);
+      const agreed = auto ? true : (typeof appConfirm === 'function' ? await appConfirm(question) : window.confirm(question));
       if (!agreed) {message('Обновление отменено.');return;}
       await assertUpdateSafe();
       message('Загружаю новую сборку, проверяю целостность файлов…');updateProgress('download','Получаю проверенный комплект файлов приложения.');
@@ -286,11 +286,28 @@
   updateApply.onclick=installPublishedUpdate;
   check.onclick = installPublishedUpdate;
   setInterval(discoverPublishedUpdate,120000);
+  // Новая версия ставится сама, без нажатия кнопки: владелец просил, чтобы
+  // приложение обновлялось принудительно при появлении новой сборки. Автоустановка
+  // выполняется только когда это безопасно: интернет есть, приложение на экране,
+  // с момента запуска прошло не меньше 30 с (не мешаем входу) и нет
+  // несохранённых действий (assertUpdateSafe внутри установки это проверит).
+  const pageStartedAt=Date.now();let autoApplyAt=0;
+  async function autoApplyUpdate(){
+    if(manualUpdateBusy||!eligible||!navigator.onLine||document.hidden)return;
+    if(!latestPublished||latestPublished.version===buildVersion)return;
+    if(Date.now()-pageStartedAt<30000)return;
+    if(autoApplyAt&&Date.now()-autoApplyAt<300000)return;
+    autoApplyAt=Date.now();
+    try{await assertUpdateSafe();}catch(_){return;} // есть несохранённое — человек нажмёт сам
+    bannerMessage.textContent='Новая версия найдена — устанавливаю автоматически.';
+    updateMessage.textContent='Новая версия найдена — устанавливаю автоматически.';
+    void installPublishedUpdate(true).catch(()=>{});
+  }
   const resume = () => {
     render();
     if (navigator.onLine && !document.hidden) {
       offlineTransportRecovered(); offlineReplayJournal();
-      checkForUpdates();discoverPublishedUpdate();
+      checkForUpdates();discoverPublishedUpdate().then(()=>autoApplyUpdate());
     }
   };
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)resume();});
@@ -327,5 +344,5 @@
     return '<!DOCTYPE html>\n'+doc.documentElement.outerHTML;
   }
   window.TestPWA={snapshot:state,inlineHtml,checkForUpdates:discoverPublishedUpdate,installUpdate:installPublishedUpdate};
-  checkForUpdates();discoverPublishedUpdate();render();
+  checkForUpdates();discoverPublishedUpdate().then(()=>autoApplyUpdate());render();
 })();

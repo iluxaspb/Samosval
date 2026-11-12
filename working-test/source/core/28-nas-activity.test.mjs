@@ -62,7 +62,7 @@ test('рантайм слушает возврат видимости, фоку�
 
 test('каждое событие и таймер запускают активное обновление', () => {
   for (const reason of ['visibilitychange', 'focus', 'pageshow', 'online', 'resume', 'poll']) {
-    assert.match(runtime, new RegExp("nasActiveRefresh\\('" + reason + "'"), 'нет обновления по поводу ' + reason);
+    assert.match(runtime, new RegExp("nasActiveRefresh\\((?:gap>45000\\?'resume':)?'" + reason + "'"), 'нет обновления по поводу ' + reason);
   }
 });
 
@@ -70,4 +70,14 @@ test('активное обновление перечитывает все ос
   for (const name of ['refreshNasObjects', 'refreshNasSettings', 'refreshNasAuxiliary', 'refreshNasGames', 'refreshNasArchive', 'refreshNasAdministration', 'replayNasOfflineJournal', 'nasNetworkWake']) {
     assert.ok(runtime.includes(name), 'не читается источник ' + name);
   }
+});
+
+test('разблокировка экрана слушается на document (Page Lifecycle API)', () => {
+  assert.match(runtime, /document\.addEventListener\('resume',wakeResume\)/, 'нет document-слушателя resume');
+  assert.match(runtime, /document\.addEventListener\('freeze',wakeFreeze\)/, 'нет document-слушателя freeze');
+});
+
+test('таймер замечает пропущенное время и обновляет всё принудительно', () => {
+  assert.match(runtime, /gap>45000/, 'нет проверки разрыва между тиками');
+  assert.match(runtime, /nasActiveRefresh\(gap>45000\?'resume':'poll'/, 'страховка не запускает полное обновление');
 });

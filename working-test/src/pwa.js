@@ -235,7 +235,7 @@
     }
     throw Error('Браузер не подтвердил активацию. Данные сохранены; повторите установку при устойчивом соединении.');
   }
-  async function installPublishedUpdate() {
+  async function installPublishedUpdate(auto=false) {
     if (manualUpdateBusy) return;
     manualUpdateBusy = true;installTarget='';
     updateProgress('check','Проверяю опубликованную сборку и сохранение данных.');
@@ -252,7 +252,7 @@
       await assertUpdateSafe();
       const question = 'Установить новую сборку и перезапустить это окно приложения? Данные сохраняются. Сначала завершите ввод в открытых формах.';
       progressDialog.close();
-      const agreed = typeof appConfirm === 'function' ? await appConfirm(question) : window.confirm(question);
+      const agreed = auto ? true : (typeof appConfirm === 'function' ? await appConfirm(question) : window.confirm(question));
       if (!agreed) {message('Обновление отменено.');return;}
       await assertUpdateSafe();
       message('Загружаю новую сборку, проверяю целостность файлов…');updateProgress('download','Получаю проверенный комплект файлов приложения.');
@@ -286,11 +286,28 @@
   updateApply.onclick=installPublishedUpdate;
   check.onclick = installPublishedUpdate;
   setInterval(discoverPublishedUpdate,120000);
+  // Новая версия ставится сама, без нажатия кнопки: владелец просил, чтобы
+  // приложение обновлялось принудительно при появлении новой сборки. Автоустановка
+  // выполняется только когда это безопасно: интернет есть, приложение на экране,
+  // с момента запуска прошло не меньше 30 с (не мешаем входу) и нет
+  // несохранённых действий (assertUpdateSafe внутри установки это проверит).
+  const pageStartedAt=Date.now();let autoApplyAt=0;
+  async function autoApplyUpdate(){
+    if(manualUpdateBusy||!eligible||!navigator.onLine||document.hidden)return;
+    if(!latestPublished||latestPublished.version===buildVersion)return;
+    if(Date.now()-pageStartedAt<30000)return;
+    if(autoApplyAt&&Date.now()-autoApplyAt<300000)return;
+    autoApplyAt=Date.now();
+    try{await assertUpdateSafe();}catch(_){return;} // есть несохранённое — человек нажмёт сам
+    bannerMessage.textContent='Новая версия найдена — устанавливаю автоматически.';
+    updateMessage.textContent='Новая версия найдена — устанавливаю автоматически.';
+    void installPublishedUpdate(true).catch(()=>{});
+  }
   const resume = () => {
     render();
     if (navigator.onLine && !document.hidden) {
       offlineTransportRecovered(); offlineReplayJournal();
-      checkForUpdates();discoverPublishedUpdate();
+      checkForUpdates();discoverPublishedUpdate().then(()=>autoApplyUpdate());
     }
   };
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)resume();});
@@ -326,34 +343,6 @@
     doc.querySelectorAll('link[rel="manifest"],link[rel="apple-touch-icon"]').forEach(n=>n.remove());
     return '<!DOCTYPE html>\n'+doc.documentElement.outerHTML;
   }
-  // Автоматическое обновление. Если новая сборка полностью скачана и проверена,
-  // а неотправленных действий нет, приложение само переходит на неё при запуске.
-  // Без этого телефон мог остаться на старой (сломанной) сборке навсегда.
-  let autoApplyStarted=false;
-  async function autoApplyWaiting(){
-    if(autoApplyStarted||manualUpdateBusy||!updateReady||!registration?.waiting||!navigator.onLine)return;
-    if(!waitingVersion||waitingVersion===buildVersion)return;
-    if(document.querySelector('dialog[open], input:focus, textarea:focus'))return;
-    const marker='wt_auto_update:'+waitingVersion;
-    try{if(sessionStorage.getItem(marker)==='1')return;sessionStorage.setItem(marker,'1');}catch(_){}
-    autoApplyStarted=true;
-    try{
-      await assertUpdateSafe();
-      const pending=typeof offlinePendingCount==='function'?Number(offlinePendingCount())||0:0;
-      if(pending){autoApplyStarted=false;return;}
-      manualUpdateBusy=true;
-      render();
-      updateProgress('install','Устанавливаю новую сборку. Данные и очередь действий сохраняются.');
-      await applyVerifiedBuild(registration.waiting,waitingVersion);
-      await waitForActivation(waitingVersion);
-      try{sessionStorage.removeItem(marker);}catch(_){}
-      location.replace('./index-working-test.html?update='+encodeURIComponent(waitingVersion));
-    }catch(error){
-      manualUpdateBusy=false;autoApplyStarted=false;render();
-    }
-  }
-  setTimeout(autoApplyWaiting,5000);
-  setInterval(autoApplyWaiting,60000);
-  window.TestPWA={snapshot:state,inlineHtml,checkForUpdates:discoverPublishedUpdate,installUpdate:installPublishedUpdate,applyWaiting:autoApplyWaiting};
-  checkForUpdates();discoverPublishedUpdate();render();
+  window.TestPWA={snapshot:state,inlineHtml,checkForUpdates:discoverPublishedUpdate,installUpdate:installPublishedUpdate};
+  checkForUpdates();discoverPublishedUpdate().then(()=>autoApplyUpdate());render();
 })();
