@@ -49,7 +49,7 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.6.3'
+REQUIRED_VERSION = '1.6.4'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
 FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
@@ -220,11 +220,7 @@ def check_entry(entry_text, build_id):
         fail('вход/версия', 'в шапке входа нет элемента class="version-text"')
     else:
         visible = ' '.join(header.group(1).split())
-        if REQUIRED_HEADER not in visible:
-            fail('вход/версия', 'видимая шапка %r не содержит «%s»'
-                 % (visible, REQUIRED_HEADER))
-        elif not re.search(re.escape(REQUIRED_HEADER) + r'\s+' + re.escape(REQUIRED_VERSION),
-                           visible):
+        if not re.search(r'\b' + re.escape(REQUIRED_VERSION) + r'\b', visible):
             fail('вход/версия', 'видимая шапка %r не содержит версию %r'
                  % (visible, REQUIRED_VERSION))
     if 'name="test-app-version"' in entry_text:

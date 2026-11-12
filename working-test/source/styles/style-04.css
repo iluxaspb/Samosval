@@ -20,14 +20,14 @@
     .header-inner { padding: 6px 12px; border-bottom: 1px solid var(--border); }
     .top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; gap: 6px; }
 
-    .version-row { display: flex; align-items: center; width: 100%; margin: 0 0 4px; padding: 2px 0; min-height: 24px; }
-    .version-row .version-text { display: inline-flex; align-items: center; min-height: 24px; max-width: 100%; }
+    .user-stack { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-width: 0; line-height: 1; }
+    .user-stack .version-text { display: inline-flex; align-items: center; max-width: 100%; }
     .truck-card.offline-pending::after {
       content: '☁️ ОФЛАЙН'; position:absolute; z-index:5; top:3px; right:7px;
       font-size:9px; font-weight:900; color:#f59e0b; text-shadow:0 1px 2px #000;
       pointer-events:none;
     }
-    .version-text { opacity: 1; color: #22c55e; font-weight: 800; font-size: 12px; line-height: 1.25; letter-spacing: 0.2px; white-space: nowrap; overflow: visible; text-overflow: clip; text-decoration: underline; text-underline-offset: 3px; }
+    .version-text { opacity: 1; color: #22c55e; font-weight: 800; font-size: 11px; line-height: 1; letter-spacing: 0.2px; white-space: nowrap; overflow: visible; text-overflow: clip; text-decoration: underline; text-underline-offset: 3px; margin: 0; padding: 1px 0; min-height: 18px; }
     /* Номер сборки виден всем; подробности сборки и история доступны администратору. */
     body:not([data-release-admin="1"]) .release-diagnostics { display: none !important; }
 

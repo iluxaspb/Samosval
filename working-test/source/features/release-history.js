@@ -1,6 +1,10 @@
 
 (function(){
-  const releases=[{version:'1.6.3',date:'2026-11-12',title:'Обновление больше не зависает',items:[
+  const releases=[{version:'1.6.4',date:'2026-11-13',title:'Компактная версия в шапке',items:[
+    'В шапке остался только короткий номер версии — он размещён над именем пользователя и по‑прежнему открывает список изменений по нажатию.',
+    'Убрана отдельная строка с текстом «Рабочая тестовая версия» — шапка стала компактнее, элементы не перекрываются и не сдвигаются.'
+]},
+  {version:'1.6.3',date:'2026-11-12',title:'Обновление больше не зависает',items:[
     'Обновление теперь ставится по фактической опубликованной сборке, а не по устаревшему служебному файлу: приложение больше не висит на «скачивании» 90 секунд и не срывается с ошибкой.',
     'Загрузка файлов работает с повторами и таймаутами: одна зависшая загрузка на медленной сети больше не блокирует обновление навсегда.',
     'Страница восстановления обновления теперь работает на рабочей тестовой версии: проверяет фактическую сборку и не отменяется из-за расхождения служебных файлов.',
@@ -186,7 +190,7 @@
     {version:'2.90',title:'Многопользовательская синхронизация',items:['Согласованная запись погрузки и состояния самосвала.','Защита от повторного рейса при одновременной погрузке несколькими операторами.','Обновление карточек у других пользователей и проверка конфликтов при отмене.']}
   ];
   const css=document.createElement('style');css.textContent=`
-    .version-text{background:none;border:0;padding:2px 0;min-height:24px;display:inline-flex;align-items:center;font:inherit;font-size:12px;font-weight:800;white-space:nowrap;cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:3px}
+    .version-text{background:none;border:0;padding:1px 0;min-height:18px;display:inline-flex;align-items:center;font:inherit;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:3px}
     .version-text:disabled{opacity:1;cursor:default;text-decoration:none}.version-text:focus-visible{outline:2px solid #60a5fa;outline-offset:4px;border-radius:4px}
     .pcm-overlay{background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
     .release-dialog{color:var(--text,#eef2ff);background:var(--card,#1e293b);border:1px solid var(--border,#475569);border-radius:18px;width:min(560px,calc(100vw - 32px));max-height:85dvh;padding:0;box-shadow:0 12px 36px #0005}
@@ -198,7 +202,7 @@
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
   const metaVersion=document.querySelector('meta[name="working-test-version"]')?.content||document.querySelector('meta[name="test-app-version"]')?.content||releases[0].version;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Рабочая тестовая версия '+metaVersion;button.setAttribute('aria-haspopup','dialog');button.title=canViewReleaseHistory()?'История изменений':'Номер сборки';button.disabled=!canViewReleaseHistory();label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent=metaVersion;button.setAttribute('aria-haspopup','dialog');button.title=canViewReleaseHistory()?'История изменений':'Номер сборки';button.disabled=!canViewReleaseHistory();label.replaceWith(button);
   button.addEventListener('click',()=>{
     if (!canViewReleaseHistory()) return;
     if(document.getElementById('releaseHistoryDialog'))return;
