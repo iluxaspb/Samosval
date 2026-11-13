@@ -2,7 +2,7 @@
   "id": "./index-working-test.html",
   "name": "Самосвалы — Рабочая тестовая версия",
   "short_name": "Самосвалы РТ",
-  "description": "Рабочая Firebase; Ubuntu — отдельные тестовые данные",
+  "description": "Рабочая версия: данные на сервере Ubuntu, вход локальный",
   "lang": "ru",
   "start_url": "./index-working-test.html",
   "scope": "./index-working-test.html",
