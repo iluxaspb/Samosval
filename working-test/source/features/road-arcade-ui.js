@@ -291,7 +291,10 @@ async function creditDino(event){
  if(isRecord){try{localStorage.setItem(bestKey,String(event.score));}catch(e){}}
  setStatus('Заезд окончен: очки '+f(event.score)+'. Сохраняем монеты…');
  try{
-  const result=await A.transact({id:'dino_'+session.startedAt+'_'+session.runId,kind:'dino',coins:event.coins,score:event.score});
+  // Сервер принимает итог заезда максимум с 99 монетами (антидублирование
+  // и лимиты кошелька), поэтому пересылаем собранное с ограничением.
+  const coins=Math.max(0,Math.min(99,event.coins|0));
+  const result=await A.transact({id:'dino_'+session.startedAt+'_'+session.runId,kind:'dino',coins,score:event.score});
   if(currentUid!==user)return;
   tone('coin');
   setStatus((result.replayed?'Итог заезда уже был учтён. ':'')+'Зачислено в кошелёк: '+(Number(result.payout)||0)+' 🪙'+(isRecord?' · НОВЫЙ РЕКОРД!':''));
