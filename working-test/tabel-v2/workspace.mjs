@@ -351,7 +351,9 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     lastClosed = JSON.parse(localStorage.getItem(lastClosedKey(session.projectId, session.workspaceId)) || "null");
   } catch {}
   const remember = () => {
-    if (s.object)
+    // Вкладка «Заявка» держит собственный адрес: общий ключ
+    // 'tabel-v2-last-object' она не перезаписывает.
+    if (s.object && s.view !== "request")
       try {
         localStorage.setItem(selectionKey, s.object.id);
       } catch {}
@@ -376,7 +378,17 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       recentlyClosed, lastObject: s.object?.id || lastObject,
     })) || null;
   };
-  s.object = s.defaultObject(true);
+  // Адрес вкладки «Заявка»: явный requestObjectId хоста, иначе последний
+  // сохранённый адрес заявки. Общий выбор объекта его не использует.
+  s.requestAddressId = () => {
+    const objs = host.data().objects || [];
+    if (host.requestObjectId && objs.some((o) => o.id === host.requestObjectId))
+      return host.requestObjectId;
+    let saved = null;
+    try { saved = localStorage.getItem("tabel-v2-last-request-object:" + storageScope(session)); } catch {}
+    return saved && objs.some((o) => o.id === saved) ? saved : null;
+  };
+  s.object = s.defaultObject(!!host.requestObjectId);
   s.status = () => {
     const target = root.querySelector("[data-status]");
     if (!target) return;
@@ -416,7 +428,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     await s.store.pullObject(s.object.id);
     if (canReadHistory(s)) await s.store.pullHistory(s.object.id);
   }
-  s.select = async (id) => {
+  s.select = async (id, { isolate = false } = {}) => {
     if (s.grid?.snapshot) {
       s.gridPositions ||= {};
       s.gridPositions[s.object.id] = s.grid.snapshot();
@@ -426,7 +438,8 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     s.grid = null;
     s.object = (host.data().objects || []).find((o) => o.id === id) || s.object;
     s.generation++;
-    remember();
+    // isolate: выбор адреса вкладки «Заявка» — общий ключ не трогаем.
+    if (!isolate) remember();
     await host.prepare?.(s.store, s.object);
     await render(s);
     void synchronize();
@@ -575,7 +588,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       s.foreignWriteConsents.clear();
       s.view = "shift";
       s.day = D.today();
-      const preferred = s.defaultObject(true);
+      const preferred = s.defaultObject(false);
       if (preferred && preferred.id !== s.object?.id) await s.select(preferred.id);
       else if (!s.object && preferred) {
         s.object = preferred;
@@ -659,7 +672,8 @@ async function render(s) {
   };
   s.root.querySelector("[data-action=object]").onclick = () => newObject(s);
   s.root.querySelector("[data-object]").onchange = (e) =>
-    s.select(e.target.value)
+    // На виде «Заявка» адрес изолирован: общий ключ не перезаписываем.
+    s.select(e.target.value, { isolate: s.view === "request" })
       .then(() => {
         // На виде «Заявка» выбор нового адреса сразу закрепляет его за заявкой.
         if (s.view === "request" && s.object) {
@@ -676,6 +690,16 @@ async function render(s) {
     (b) =>
       (b.onclick = async () => {
         if (b.dataset.view === "shift") s.day = D.today();
+        // Изоляция адреса заявки: вход на «Заявку» ставит её собственный
+        // адрес (без записи общего ключа), уход с неё возвращает общий
+        // механизм выбора объекта (смена / последний объект).
+        if (b.dataset.view === "request") {
+          const req = s.requestAddressId();
+          if (req && req !== s.object?.id) await s.select(req, { isolate: true });
+        } else if (s.view === "request") {
+          const gen = s.defaultObject(false);
+          if (gen && gen.id !== s.object?.id) await s.select(gen.id);
+        }
         s.view = b.dataset.view;
         if (s.view === "history" && s.object)
           await s.store.pullHistory(s.object.id);

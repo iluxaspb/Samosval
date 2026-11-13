@@ -33,11 +33,11 @@ test("preferredObjectId: без заявки активная смена поб�
   assert.equal(id, "obj-shift");
 });
 
-test("source anchor: show() вызывает defaultObject(true) в working-test", () => {
+test("source anchor: show() вызывает defaultObject(false) в working-test", () => {
   const src = readFileSync(
     join(here, "..", "..", "tabel-v2", "workspace.mjs"),
     "utf8"
   );
-  assert.match(src, /const preferred = s\.defaultObject\(true\);/,
-    "show() должен вызывать s.defaultObject(true), иначе адрес заявки сбрасывается на объект активной смены");
+  assert.match(src, /const preferred = s\.defaultObject\(false\);/,
+    "show() должен вызывать s.defaultObject(false): общий объект — от смены/последнего объекта, а не адрес заявки (изоляция 1.7.6)");
 });
