@@ -166,9 +166,20 @@
   #arcade-dialog.slot-fullscreen .arcade-balance,#arcade-dialog.slot-fullscreen .arcade-note{margin:4px 0}
 }
 /* ── Дино-бегун ── */
-.dino-wrap{margin-top:12px}
+/* Экран «Дино» растягивается на всё свободное место диалога: шапка/HUD и
+   кнопки остаются на месте, а игровое поле (flex) забирает остаток высоты.
+   Safe-area внизу учитывается отступом, чтобы на телефоне с «челкой»
+   кнопки не уходили под системную панель. */
+.dino-wrap{margin-top:10px;display:flex;flex-direction:column;min-height:340px;padding-bottom:calc(4px + env(safe-area-inset-bottom,0px))}
 .dino-hud{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:8px 0}
 .dino-hud b{font-variant-numeric:tabular-nums;color:#fcd34d}
-#dino-canvas{display:block;width:100%;aspect-ratio:1000/210;background:#f7f7f7;border:1px solid #5793a8;border-radius:12px;touch-action:none;cursor:pointer;image-rendering:pixelated}
+/* Игровое поле: тап в любом месте = прыжок, поэтому обработчик висит на
+   .dino-field (внутри него canvas и плавающая кнопка прыжка). */
+.dino-field{position:relative;flex:1 1 auto;min-height:40vh;max-height:72dvh;border:1px solid #5793a8;border-radius:14px;overflow:hidden;touch-action:none;cursor:pointer;background:#cdeefb;user-select:none;-webkit-user-select:none}
+#dino-canvas{display:block;width:100%;height:100%;background:transparent;border:0;touch-action:none;cursor:pointer}
+/* Плавающая кнопка-пружок («машка»): полупрозрачная, с тенью, перетаскивается. */
+.dino-fab{position:absolute;width:64px;height:64px;min-width:64px;min-height:64px;padding:0;border:2px solid #ffffff73;border-radius:50%;background:radial-gradient(circle at 32% 28%,#7ee29a,#2f9e5f 72%);color:#fff;font-size:30px;font-weight:900;line-height:1;box-shadow:0 10px 24px #00000052,0 2px 6px #0007;backdrop-filter:blur(2px);opacity:.86;touch-action:none;user-select:none;-webkit-user-select:none;z-index:5;cursor:grab}
+.dino-fab.dragging{opacity:.96;cursor:grabbing;transform:scale(1.07)}
+.dino-fab:active{transform:scale(.96)}
 .dino-actions{display:flex;gap:10px;margin-top:12px}
 .dino-actions button{border:1px solid var(--border);background:#274e70;color:var(--text);border-radius:10px;padding:12px 18px;min-height:46px;font-weight:700;font-size:15px}

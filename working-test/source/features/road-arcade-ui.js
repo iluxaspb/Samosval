@@ -3,7 +3,7 @@
 'use strict';
 const A=window.RoadArcade,C=window.RoadArcadeCore,E=escapeHtml;
 let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,musicOn=true,invites=true,seenOwner='',lastShiftId='',notice='',levelBusy=false,lastDay=C.dayKey(),coinFx=[],finishSummary=null;
-let dinoRun=null,dinoRaf=0,dinoLast=0,dinoBusy=false,dinoBestShown=false,dinoCoinFx=[];
+let dinoRun=null,dinoRaf=0,dinoLast=0,dinoBusy=false,dinoBestShown=false,dinoCoinFx=[],dinoResizeObs=null;
 const keys=new Set(),pointers=new Map(),f=n=>Number(n||0).toLocaleString('ru-RU');
 let joyAxis=0;
 const dialog=document.createElement('dialog');dialog.id='arcade-dialog';dialog.setAttribute('aria-labelledby','arcade-title');document.body.append(dialog);
@@ -93,7 +93,7 @@ function musicStart(){
 }
 function musicStop(){if(musicTimer)clearInterval(musicTimer);musicTimer=0;}
 function stopRun(){musicStop();if(raf)cancelAnimationFrame(raf);raf=0;lastFrame=0;keys.clear();pointers.clear();if(run)run.paused=true;stopDino();}
-function stopDino(){if(dinoRaf)cancelAnimationFrame(dinoRaf);dinoRaf=0;dinoLast=0;}
+function stopDino(){if(dinoRaf)cancelAnimationFrame(dinoRaf);dinoRaf=0;dinoLast=0;if(dinoResizeObs){try{dinoResizeObs.disconnect();}catch(e){}dinoResizeObs=null;}}
 function close(){stopRun();clearInterval(slotTimer);slotTimer=null;stopMatrixIdle();speechSynthesisSafeCancel();hideJackpot();if(dialog.open)dialog.close();}
 dialog.addEventListener('close',()=>{stopRun();clearInterval(slotTimer);slotTimer=null;stopMatrixIdle();speechSynthesisSafeCancel();});
 function open(next='home'){if(!A.visible())return;unlockSound();hideInvite();if((next==='mario'&&!A.available('mario'))||(next==='slot'&&!A.available('slot'))||(next==='dino'&&!A.available('dino')))next='home';if(view!==next)stopRun();view=next;viewStamp='';dialogOwner=currentUid;if(!dialog.open)dialog.showModal();render(true);}
@@ -243,22 +243,94 @@ function renderDino(host){
  const playing=dinoRun&&!dinoRun.over;
  const bestKey=prefKey()+':dino-best',best=Number(localStorage.getItem(bestKey)||0);
  host.innerHTML='<div class="dino-wrap"><div class="dino-hud"><span>🪙 <b data-dino-coins>'+(dinoRun?.collected||0)+'</b></span><span>⭐ <b data-dino-score>'+(dinoRun?.score||0)+'</b></span><span>Рекорд: <b>'+f(best)+'</b></span></div>'
- +'<canvas id="dino-canvas" width="1000" height="210" aria-label="Дино-бегун: тап или пробел — прыжок, вниз — пригнуться"></canvas>'
- +(playing?'':'<div class="dino-actions"><button type="button" id="dino-start">'+(dinoRun?'Играть снова':'Начать заезд')+'</button></div><p class="arcade-note">Прыжок — тап по экрану или клавиша пробел/↑. Пригнуться под птицей — ↓ или свайп вниз. Скорость растёт со временем. Собранные монетки зачисляются в кошелёк одним платежом по итогам завершённого заезда (game over); повторная отправка итога не задваивает начисление.</p>')
+ +'<div class="dino-field" id="dino-field">'
+ +'<canvas id="dino-canvas" aria-label="Дино-бегун: тап или пробел — прыжок, вниз — пригнуться"></canvas>'
+ +'<button type="button" class="dino-fab" id="dino-fab" aria-label="Кнопка прыжка: короткое нажатие — прыжок, можно перетащить в удобное место">⤒</button>'
+ +'</div>'
+ +(playing?'':'<div class="dino-actions"><button type="button" id="dino-start">'+(dinoRun?'Играть снова':'Начать заезд')+'</button></div><p class="arcade-note">Прыжок — тап в любом месте экрана или клавиша пробел/↑. Пригнуться под птицей — ↓ или свайп вниз. Круглую кнопку-пружок можно перетащить в удобное место. Скорость растёт со временем. Собранные монетки зачисляются в кошелёк одним платежом по итогам завершённого заезда (game over); повторная отправка итога не задваивает начисление.</p>')
  +'</div>';
+ const field=host.querySelector('#dino-field');
  const canvas=host.querySelector('#dino-canvas');
  const start=host.querySelector('#dino-start');
  if(start)start.onclick=startDino;
- if(canvas){
-  // Управление: тап по всему полю — прыжок; удержание — выше прыжок; вниз (клавиша/свайп) — пригнуться.
+ if(field&&canvas){
+  dinoFitCanvas(canvas);
+  // Отзывчивый ресайз: внутреннее разрешение canvas пересчитывается под
+  // фактический размер контейнера (с devicePixelRatio), без «резины».
+  try{
+   if(dinoResizeObs)dinoResizeObs.disconnect();
+   if(typeof ResizeObserver==='function'){
+    dinoResizeObs=new ResizeObserver(()=>{dinoFitCanvas(canvas);if(dinoRun&&!dinoRun.over)drawDino();else drawDinoIdle(canvas,best);});
+    dinoResizeObs.observe(field);
+   }
+  }catch(e){dinoResizeObs=null;}
+  // Управление: тап по ЛЮБОМУ месту игрового поля — прыжок; удержание — выше;
+  // вниз (клавиша/свайп) — пригнуться. Тап по оверлею game over — новый заезд.
   let duckPointer=null,downY=0;
-  canvas.onpointerdown=e=>{e.preventDefault();if(!dinoRun||dinoRun.over){startDino();return;}unlockSound();canvas.setPointerCapture?.(e.pointerId);downY=e.clientY;duckPointer=e.pointerId;dinoInput.jump=true;};
-  canvas.onpointermove=e=>{if(duckPointer!==e.pointerId||!dinoInput.jump)return;if(e.clientY-downY>28){dinoInput.jump=false;dinoInput.duck=true;}};
+  field.onpointerdown=e=>{
+   if(e.target.closest('button'))return; // кнопки (FAB) сами разбирают нажатия
+   e.preventDefault();
+   if(!dinoRun||dinoRun.over){startDino();return;}
+   unlockSound();field.setPointerCapture?.(e.pointerId);
+   downY=e.clientY;duckPointer=e.pointerId;dinoInput.jump=true;
+  };
+  field.onpointermove=e=>{if(duckPointer!==e.pointerId||!dinoInput.jump)return;if(e.clientY-downY>28){dinoInput.jump=false;dinoInput.duck=true;}};
   const up=e=>{if(duckPointer!==e.pointerId)return;duckPointer=null;dinoInput.jump=false;dinoInput.duck=false;};
-  canvas.onpointerup=up;canvas.onpointercancel=up;
-  canvas.addEventListener('contextmenu',e=>e.preventDefault());
+  field.onpointerup=up;field.onpointercancel=up;
+  field.addEventListener('contextmenu',e=>e.preventDefault());
+  setupDinoFab(host,field);
  }
  if(!playing)drawDinoIdle(canvas,best);else startDinoLoop();
+}
+// ── Плавающая кнопка-пружок: перетаскивается, позиция — в долях поля ─────
+function dinoFabKey(){return prefKey()+':dino-fab-pos';}
+function loadDinoFabPos(){
+ try{const p=JSON.parse(localStorage.getItem(dinoFabKey())||'null');
+  if(p&&Number.isFinite(p.x)&&Number.isFinite(p.y))return {x:Math.max(0,Math.min(1,p.x)),y:Math.max(0,Math.min(1,p.y))};
+ }catch(e){}
+ return null; // дефолт — правый нижний угол игрового поля
+}
+function saveDinoFabPos(p){try{localStorage.setItem(dinoFabKey(),JSON.stringify({x:+p.x.toFixed(4),y:+p.y.toFixed(4)}));}catch(e){}}
+function clampDinoFab(fab,field){
+ const fw=field.clientWidth||300,fh=field.clientHeight||160,s=fab.offsetWidth||64;
+ const x=Math.max(6,Math.min(fw-s-6,parseFloat(fab.style.left||'9999'))),y=Math.max(6,Math.min(fh-s-6,parseFloat(fab.style.top||'9999')));
+ fab.style.left=x+'px';fab.style.top=y+'px';
+}
+function setupDinoFab(host,field){
+ const fab=host.querySelector('#dino-fab');if(!fab)return;
+ const place=p=>{ // p — доли ширины/высоты поля; дефолт — правый нижний угол
+  const fw=field.clientWidth||300,fh=field.clientHeight||160,s=fab.offsetWidth||64;
+  const x=p?p.x*(fw-s):fw-s-12,y=p?p.y*(fh-s):fh-s-12;
+  fab.style.left=x+'px';fab.style.top=y+'px';
+ };
+ place(loadDinoFabPos());
+ let pid=null,sx=0,sy=0,ox=0,oy=0,dragged=false;
+ fab.addEventListener('pointerdown',e=>{
+  e.preventDefault();e.stopPropagation(); // тап по кнопке не должен прыгать дважды
+  pid=e.pointerId;dragged=false;sx=e.clientX;sy=e.clientY;
+  ox=parseFloat(fab.style.left||'0');oy=parseFloat(fab.style.top||'0');
+  fab.classList.add('dragging');fab.setPointerCapture?.(pid);
+ });
+ fab.addEventListener('pointermove',e=>{
+  if(pid!==e.pointerId)return;e.preventDefault();e.stopPropagation();
+  const dx=e.clientX-sx,dy=e.clientY-sy;
+  if(!dragged&&Math.hypot(dx,dy)>8){dragged=true;dinoInput.jump=false;} // перетаскивание ≠ прыжок
+  if(dragged){fab.style.left=(ox+dx)+'px';fab.style.top=(oy+dy)+'px';clampDinoFab(fab,field);}
+ });
+ const done=e=>{
+  if(pid!==e.pointerId)return;pid=null;fab.classList.remove('dragging');
+  if(dragged){ // фиксируем позицию в долях поля — переживает ресайз
+   const fw=field.clientWidth||300,fh=field.clientHeight||160,s=fab.offsetWidth||64;
+   clampDinoFab(fab,field);
+   saveDinoFabPos({x:(parseFloat(fab.style.left)/(fw-s)),y:(parseFloat(fab.style.top)/(fh-s))});
+  }else{ // короткий тап — прыжок
+   if(!dinoRun||dinoRun.over)startDino();
+   else{unlockSound();dinoInput.jump=true;setTimeout(()=>{if(!pid)dinoInput.jump=false;},180);}
+  }
+ };
+ fab.addEventListener('pointerup',done);
+ fab.addEventListener('pointercancel',done);
+ fab.addEventListener('contextmenu',e=>e.preventDefault());
 }
 const dinoInput={jump:false,duck:false};
 const dinoKeyMap={Space:'jump',ArrowUp:'jump',ArrowDown:'duck',KeyW:'jump',KeyS:'duck'};
@@ -301,55 +373,187 @@ async function creditDino(event){
  }catch(e){if(currentUid===user)setStatus('Монеты пока не зачислены: '+(e.message||'нет связи')+'. Итог можно безопасно повторить — двойного начисления не будет.');}
  finally{dinoBusy=false;if(dinoRun===session)render(true);}
 }
-function drawDinoIdle(canvas,best){if(!canvas)return;const g=canvas.getContext('2d');if(!g)return;
- g.fillStyle='#f7f7f7';g.fillRect(0,0,1000,210);drawDinoGround(g,0);
- g.fillStyle='#535353';g.font='900 26px monospace';g.textAlign='center';g.textBaseline='middle';
- g.fillText('ДИНО-БЕГУН',500,70);
- g.font='bold 16px monospace';g.fillText('Прыжок — тап или пробел · пригнуться — ↓',500,105);
- g.fillText('Рекорд: '+f(best||0),500,135);
- g.font='40px serif';g.fillText('🦖',870,140);g.fillText('🌵',930,140);
+// Внутреннее разрешение canvas — под фактический размер контейнера, с
+// devicePixelRatio. Мир игры остаётся в логических координатах 1000x210,
+// а отрисовка масштабируется контекстом (scale) — физика в core не меняется.
+const DINO_WORLD={W:1000,H:210};
+function dinoFitCanvas(canvas){
+ try{
+  const rect=canvas.parentElement?.getBoundingClientRect();
+  const w=Math.max(120,Math.round(rect?.width||canvas.clientWidth||600));
+  const h=Math.max(90,Math.round(rect?.height||canvas.clientHeight||220));
+  const dpr=Math.max(1,Math.min(3,(window.devicePixelRatio||1)));
+  const pw=Math.round(w*dpr),ph=Math.round(h*dpr);
+  if(canvas.width!==pw||canvas.height!==ph){canvas.width=pw;canvas.height=ph;}
+ }catch(e){}
 }
-function drawDinoGround(g,t){
- g.fillStyle='#f7f7f7';g.fillRect(0,0,1000,210);
- g.strokeStyle='#535353';g.lineWidth=2;g.beginPath();g.moveTo(0,151);g.lineTo(1000,151);g.stroke();
- g.fillStyle='#adadad';for(let i=0;i<10;i++){const x=((i*137-t*0.9)%1060+1060)%1060-30;g.fillRect(x,160+(i%3)*14,10,3);}
+// Общий вход в рисование: пересчёт разрешения + масштаб мира под фактический
+// canvas. Любая ошибка (нет 2d-контекста, самодельный DOM в смоук-тестах)
+// глушится — игра не должна падать из-за рисования.
+function dinoDrawWorld(canvas,painter){
+ if(!canvas)return;
+ dinoFitCanvas(canvas);
+ try{
+  const g=canvas.getContext&&canvas.getContext('2d');if(!g||typeof g.fillRect!=='function')return;
+  const cw=canvas.width||600,ch=canvas.height||200;
+  const scale=Math.min(cw/DINO_WORLD.W,ch/DINO_WORLD.H);
+  g.setTransform(1,0,0,1,0,0);
+  g.clearRect(0,0,cw,ch);
+  g.save();
+  g.translate((cw-DINO_WORLD.W*scale)/2,(ch-DINO_WORLD.H*scale)/2);
+  g.scale(scale,scale);
+  g.beginPath();g.rect(0,0,DINO_WORLD.W,DINO_WORLD.H);g.clip();
+  painter(g,scale);
+  g.restore();
+ }catch(e){}
 }
+// roundRect с fallback на обычный path для старых движков/заглушек.
+function dinoRoundRect(g,x,y,w,h,r){
+ try{
+  if(typeof g.roundRect==='function'){g.beginPath();g.roundRect(x,y,w,h,r);return;}
+ }catch(e){}
+ r=Math.min(r,w/2,h/2);g.beginPath();
+ g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);
+ g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();
+}
+function drawDinoIdle(canvas,best){
+ dinoDrawWorld(canvas,g=>{
+  drawDinoSky(g,0);
+  g.textAlign='center';g.textBaseline='middle';
+  g.fillStyle='#20456b';g.font='900 30px Arial Black,Arial,sans-serif';
+  g.fillText('ДИНО-БЕГУН',500,58);
+  g.fillStyle='#3a6b96';g.font='bold 15px Arial,sans-serif';
+  g.fillText('Прыжок — тап по экрану или пробел · пригнуться — ↓ или свайп вниз',500,92);
+  g.fillStyle='#7ba7c9';g.font='bold 14px Arial,sans-serif';
+  g.fillText('Рекорд: '+f(best||0),500,118);
+  drawDinoPlayer(g,{dino:{y:0,ducking:false,grounded:true},speed:0},(typeof performance!=='undefined'&&performance.now?performance.now()/1000:0));
+ });
+}
+// Мягкий градиент неба + далёкие холмы и облака — фон прокручивается со скоростью мира.
+function drawDinoSky(g,t){
+ const sky=g.createLinearGradient?g.createLinearGradient(0,0,0,210):null;
+ if(sky){sky.addColorStop(0,'#bfe6f7');sky.addColorStop(.7,'#e8f6fd');sky.addColorStop(1,'#f6fbf4');g.fillStyle=sky;}else g.fillStyle='#dff2fb';
+ g.fillRect(0,0,1000,210);
+ // облака (два слоя параллакса)
+ g.fillStyle='#ffffffb8';
+ for(let i=0;i<4;i++){const x=((i*300-t*.25)%1200+1200)%1200-100;g.beginPath();g.arc(x,42+(i%2)*16,16,0,Math.PI*2);g.arc(x+20,36+(i%2)*16,20,0,Math.PI*2);g.arc(x+42,44+(i%2)*16,14,0,Math.PI*2);g.fill();}
+ // холмы
+ const hill=g.createLinearGradient?g.createLinearGradient(0,90,0,152):null;
+ if(hill){hill.addColorStop(0,'#bfe3b2');hill.addColorStop(1,'#9ed18d');g.fillStyle=hill;}else g.fillStyle='#bfe3b2';
+ for(let i=0;i<5;i++){const x=((i*260-t*.5)%1300+1300)%1300-150;g.beginPath();g.arc(x,176,46,Math.PI,0);g.fill();}
+ // земля
+ const ground=g.createLinearGradient?g.createLinearGradient(0,150,0,210):null;
+ if(ground){ground.addColorStop(0,'#e7d9a8');ground.addColorStop(1,'#cdb87e');g.fillStyle=ground;}else g.fillStyle='#e0d09e';
+ g.fillRect(0,150,1000,60);
+ g.strokeStyle='#8f7a4d';g.lineWidth=2;g.beginPath();g.moveTo(0,151);g.lineTo(1000,151);g.stroke();
+ g.fillStyle='#b9a36b';
+ for(let i=0;i<10;i++){const x=((i*137-t*0.9)%1060+1060)%1060-30;dinoRoundRect(g,x,160+(i%3)*14,12,3,2);g.fill();}
+}
+function drawDinoGround(g,t){drawDinoSky(g,t);}
+// Детализированный динозавр: тело с объёмным градиентом, гребень, хвост,
+// голова с глазом/ноздрей/пастью, фазы бега и позы прыжка/пригибания.
 function drawDinoPlayer(g,run,t){
  const D=C.DINO,x=54,h=run.dino.ducking?D.H*.55:D.H,y=D.GROUND_Y-h-run.dino.y;
- g.save();g.translate(x,y);if(run.dino.ducking)g.translate(-4,0);
- g.fillStyle='#535353';
- // Тело и голова как у Chrome-динозаврика, лапы перебирают при беге.
- g.fillRect(8,run.dino.ducking?4:10,26,run.dino.ducking?14:22);
- g.fillRect(24,run.dino.ducking?0:0,18,14); // голова
- g.fillStyle='#f7f7f7';g.fillRect(35,run.dino.ducking?3:3,4,4); // глаз
- g.fillStyle='#535353';
- const stride=run.dino.grounded&&run.speed>0?Math.sin(t*22)*3:0;
- g.fillRect(10,run.dino.ducking?17:30+Math.max(0,stride),9,run.dino.ducking?9:14);
- g.fillRect(24,run.dino.ducking?17:30+Math.max(0,-stride),9,run.dino.ducking?9:14);
- if(!run.dino.grounded){g.fillRect(0,run.dino.ducking?16:26,10,6);g.fillRect(34,run.dino.ducking?16:26,10,6);}
+ const duck=!!run.dino.ducking,air=!run.dino.grounded;
+ const body=g.createLinearGradient?g.createLinearGradient(0,y,0,y+h):null;
+ if(body){body.addColorStop(0,'#7ec86f');body.addColorStop(.55,'#4fa843');body.addColorStop(1,'#35802e');}
+ const FILL=body||'#4fa843',DARK='#2c6b28',LIGHT='#a5dd8f';
+ g.save();g.translate(x,y);
+ if(duck)g.translate(-4,0);
+ const stride=run.dino.grounded&&run.speed>0?Math.sin(t*22):0;
+ // хвост
+ g.fillStyle=FILL;g.beginPath();
+ g.moveTo(10,duck?4:12);g.quadraticCurveTo(-14,duck?-2:2,-20,duck?8:14);
+ g.quadraticCurveTo(-10,duck?14:22,10,duck?16:26);g.closePath();g.fill();
+ // тело
+ g.fillStyle=FILL;dinoRoundRect(g,8,duck?2:8,28,duck?16:26,9);g.fill();
+ // светлая брюшина — объём
+ g.fillStyle=LIGHT;dinoRoundRect(g,12,duck?10:24,20,duck?7:9,5);g.fill();
+ // гребень на спине
+ g.fillStyle=DARK;
+ for(let i=0;i<3;i++){const cx=14+i*8;g.beginPath();g.moveTo(cx,duck?2:8);g.quadraticCurveTo(cx+2,duck?-4:0,cx+5,duck?2:8);g.closePath();g.fill();}
+ // голова
+ g.fillStyle=FILL;dinoRoundRect(g,24,duck?-4:0,20,15,6);g.fill();
+ // пасть
+ g.fillStyle=DARK;dinoRoundRect(g,34,duck?5:9,9,3.5,1.5);g.fill();
+ g.fillStyle='#fff';dinoRoundRect(g,35,duck?3.4:7.4,7,1.6,1);g.fill(); // зубы
+ // глаз + ноздря
+ g.fillStyle='#fff';g.beginPath();g.arc(38,duck?1:5,3.4,0,Math.PI*2);g.fill();
+ g.fillStyle='#1d2b1b';g.beginPath();g.arc(39,duck?1:5,1.7,0,Math.PI*2);g.fill();
+ g.fillStyle=DARK;g.beginPath();g.arc(42,duck?6:10,1,0,Math.PI*2);g.fill();
+ // лапы: бег — перебирают, прыжок — поджаты, пригибание — короткие
+ g.fillStyle=FILL;
+ if(air){ // поза прыжка: лапы поджаты под тело
+  dinoRoundRect(g,9,duck?14:26,11,8,4);g.fill();
+  dinoRoundRect(g,24,duck?14:26,11,8,4);g.fill();
+ }else if(duck){
+  dinoRoundRect(g,10,16,10,8,4);g.fill();
+  dinoRoundRect(g,24,16,10,8,4);g.fill();
+ }else{
+  dinoRoundRect(g,10,32+Math.max(0,stride)*1.4,9,13-Math.max(0,stride),4);g.fill();
+  dinoRoundRect(g,24,32+Math.max(0,-stride)*1.4,9,13-Math.max(0,-stride),4);g.fill();
+ }
  g.restore();
 }
-function drawDinoCactus(g,q){g.fillStyle='#2e8b57';const ribs=3;g.fillRect(q.x+q.w/2-3,q.y,6,q.h);for(let i=0;i<ribs;i++){const ry=q.y+6+i*(q.h-10)/ribs;g.fillRect(q.x,ry,8,5);g.fillRect(q.x+q.w-8,ry+3,8,5);}}
-function drawDinoBird(g,q,t){const flap=Math.sin(t*10)>0;g.fillStyle='#535353';g.save();g.translate(q.x+q.w/2,q.y+q.h/2);
- g.beginPath();g.moveTo(-20,flap?2:8);g.lineTo(2,flap?-10:0);g.lineTo(16,flap?-2:4);g.lineTo(-4,flap?6:10);g.closePath();g.fill();
- g.fillRect(-24,-2,8,4);g.restore();}
-function drawDinoCoin(g,c,t){const w=Math.max(.25,Math.abs(Math.cos(t*4+c.x*.02)));g.save();g.translate(c.x+c.w/2,c.y+c.h/2);g.scale(w,1);g.fillStyle='#ffd230';g.beginPath();g.arc(0,0,10,0,Math.PI*2);g.fill();g.strokeStyle='#b37b00';g.lineWidth=2;g.stroke();g.fillStyle='#fff2a8';g.fillRect(-2,-5,3,10);g.restore();}
+// Кактус: скруглённый ствол с продольными рёбрами и мягкими отростками.
+function drawDinoCactus(g,q){
+ const body=g.createLinearGradient?g.createLinearGradient(q.x,0,q.x+q.w,0):null;
+ if(body){body.addColorStop(0,'#2f8f57');body.addColorStop(.5,'#43ab6b');body.addColorStop(1,'#267346');}
+ g.fillStyle=body||'#2f8f57';
+ dinoRoundRect(g,q.x+q.w/2-4,q.y,8,q.h,4);g.fill();
+ g.fillStyle='#f6fbf4';dinoRoundRect(g,q.x+q.w/2-2,q.y+4,1.6,q.h-8,1);g.fill(); // блик
+ g.fillStyle=body||'#2f8f57';
+ dinoRoundRect(g,q.x,q.y+q.h*.3,8,q.h*.45,4);g.fill();
+ dinoRoundRect(g,q.x+q.w-8,q.y+q.h*.2,8,q.h*.5,4);g.fill();
+ dinoRoundRect(g,q.x+q.w/2-4-5,q.y+q.h*.3-3,5,4,2);g.fill();
+ dinoRoundRect(g,q.x+q.w-3,q.y+q.h*.2-3,5,4,2);g.fill();
+ g.fillStyle='#f6fbf455';dinoRoundRect(g,q.x+q.w/2-4,q.y+q.h-5,8,2,1);g.fill();
+}
+// Птица: тело с клювом и машущими крыльями (два положения через синус).
+function drawDinoBird(g,q,t){
+ const flap=Math.sin(t*10)>0;
+ g.save();g.translate(q.x+q.w/2,q.y+q.h/2);
+ g.fillStyle='#4a5b70';
+ dinoRoundRect(g,-16,-4,26,9,5);g.fill(); // тело
+ g.fillStyle='#5d7086';dinoRoundRect(g,-22,-6,10,10,4);g.fill(); // голова
+ g.fillStyle='#f4a63c';g.beginPath();g.moveTo(-26,-2);g.lineTo(-34,1);g.lineTo(-26,3);g.closePath();g.fill(); // клюв
+ g.fillStyle='#fff';g.beginPath();g.arc(-19,-3,2,0,Math.PI*2);g.fill();
+ g.fillStyle='#1d2b3b';g.beginPath();g.arc(-19,-3,1,0,Math.PI*2);g.fill();
+ g.fillStyle='#3c4c60';g.beginPath(); // крыло
+ g.moveTo(-8,0);g.quadraticCurveTo(4,flap?-16:4,16,flap?-10:8);
+ g.quadraticCurveTo(4,flap?-4:8,0,4);g.closePath();g.fill();
+ g.fillStyle='#4a5b70';dinoRoundRect(g,8,-3,8,3,2);g.fill(); // хвостик
+ g.restore();
+}
+function drawDinoCoin(g,c,t){
+ const w=Math.max(.25,Math.abs(Math.cos(t*4+c.x*.02)));
+ g.save();g.translate(c.x+c.w/2,c.y+c.h/2);g.scale(w,1);
+ const face=g.createRadialGradient?g.createRadialGradient(-3,-3,2,0,0,11):null;
+ if(face){face.addColorStop(0,'#ffe98a');face.addColorStop(.7,'#ffd230');face.addColorStop(1,'#d99e12');}
+ g.fillStyle=face||'#ffd230';g.beginPath();g.arc(0,0,10,0,Math.PI*2);g.fill();
+ g.strokeStyle='#b37b00';g.lineWidth=2;g.stroke();
+ g.fillStyle='#fff2a8';dinoRoundRect(g,-2,-5,3,10,1.5);g.fill();
+ g.restore();
+}
 function drawDino(){
- const canvas=dialog.querySelector('#dino-canvas');if(!canvas||!dinoRun)return;const g=canvas.getContext('2d');if(!g)return;
- drawDinoGround(g,dinoRun.t*dinoRun.speed);
- for(const q of dinoRun.obstacles){if(q.kind==='bird')drawDinoBird(g,q,dinoRun.t);else drawDinoCactus(g,q);}
- for(const c of dinoRun.coins)drawDinoCoin(g,c,dinoRun.t);
- for(const fx of dinoCoinFx){if(fx.t<fx.life)drawDinoCoin(g,{x:fx.x,y:fx.y,w:22,h:22},dinoRun.t);}
- drawDinoPlayer(g,dinoRun,dinoRun.t);
- g.fillStyle='#00000088';g.fillRect(10,8,190,26);g.fillStyle='#fff';g.font='bold 15px monospace';g.textAlign='left';g.textBaseline='top';
- g.fillText('🪙 '+dinoRun.collected+'   ⭐ '+dinoRun.score,20,15);
- if(dinoRun.over){
-  g.fillStyle='rgba(0,0,0,.45)';g.fillRect(0,0,1000,210);
-  g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';g.font='900 30px monospace';
-  g.fillText('GAME OVER',500,80);g.font='bold 17px monospace';
-  g.fillText('Очки '+f(dinoRun.score)+' · монет '+dinoRun.collected,500,115);
-  if(!dinoBusy)g.fillText('Тап — новый заезд',500,150);
- }
+ const canvas=dialog.querySelector('#dino-canvas');if(!canvas||!dinoRun)return;
+ dinoDrawWorld(canvas,g=>{
+  drawDinoGround(g,dinoRun.t*dinoRun.speed);
+  for(const q of dinoRun.obstacles){if(q.kind==='bird')drawDinoBird(g,q,dinoRun.t);else drawDinoCactus(g,q);}
+  for(const c of dinoRun.coins)drawDinoCoin(g,c,dinoRun.t);
+  for(const fx of dinoCoinFx){if(fx.t<fx.life)drawDinoCoin(g,{x:fx.x,y:fx.y,w:22,h:22},dinoRun.t);}
+  drawDinoPlayer(g,dinoRun,dinoRun.t);
+  g.fillStyle='#00000066';dinoRoundRect(g,10,8,190,26,8);g.fill();
+  g.fillStyle='#fff';g.font='bold 15px monospace';g.textAlign='left';g.textBaseline='top';
+  g.fillText('🪙 '+dinoRun.collected+'   ⭐ '+dinoRun.score,20,15);
+  if(dinoRun.over){
+   g.fillStyle='rgba(10,22,38,.5)';g.fillRect(0,0,1000,210);
+   g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';g.font='900 30px Arial Black,Arial,sans-serif';
+   g.fillText('GAME OVER',500,80);g.font='bold 17px Arial,sans-serif';
+   g.fillText('Очки '+f(dinoRun.score)+' · монет '+dinoRun.collected,500,115);
+   if(!dinoBusy)g.fillText('Тап — новый заезд',500,150);
+  }
+ });
 }
 function renderRanking(host){
  const rows=C.leaderboard(A.players(),rankMode),mine=currentUid;
