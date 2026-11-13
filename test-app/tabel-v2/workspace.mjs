@@ -546,7 +546,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
       s.foreignWriteConsents.clear();
       s.view = "shift";
       s.day = D.today();
-      const preferred = s.defaultObject();
+      const preferred = s.defaultObject(true);
       if (preferred && preferred.id !== s.object?.id) await s.select(preferred.id);
       else if (!s.object && preferred) {
         s.object = preferred;
