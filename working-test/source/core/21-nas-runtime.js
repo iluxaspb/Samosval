@@ -458,7 +458,7 @@
   async function nasGameAction(action){
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
     const {id,roll,...gameAction}=action;
-    const target=gameAction.kind==='slot'?'slot:'+id:gameAction.kind==='purchase'?'theme:'+gameAction.itemId:gameAction.kind+':'+gameAction.level+':'+(gameAction.coin??'');
+    const target=gameAction.kind==='slot'||gameAction.kind==='dino'?(gameAction.kind+':'+id):gameAction.kind==='purchase'?'theme:'+gameAction.itemId:gameAction.kind+':'+gameAction.level+':'+(gameAction.coin??'');
     const receipt=await nasBusinessCommand('game',target,{type:'game.play',action:gameAction});
     if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
     if(gameAction.kind!=='purchase'&&acceptNasGameReceipt(receipt.result)){

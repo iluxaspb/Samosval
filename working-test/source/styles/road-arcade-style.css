@@ -165,3 +165,10 @@
   #arcade-dialog.slot-fullscreen .slot-strip span{height:78px;line-height:78px}
   #arcade-dialog.slot-fullscreen .arcade-balance,#arcade-dialog.slot-fullscreen .arcade-note{margin:4px 0}
 }
+/* ── Дино-бегун ── */
+.dino-wrap{margin-top:12px}
+.dino-hud{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:8px 0}
+.dino-hud b{font-variant-numeric:tabular-nums;color:#fcd34d}
+#dino-canvas{display:block;width:100%;aspect-ratio:1000/210;background:#f7f7f7;border:1px solid #5793a8;border-radius:12px;touch-action:none;cursor:pointer;image-rendering:pixelated}
+.dino-actions{display:flex;gap:10px;margin-top:12px}
+.dino-actions button{border:1px solid var(--border);background:#274e70;color:var(--text);border-radius:10px;padding:12px 18px;min-height:46px;font-weight:700;font-size:15px}

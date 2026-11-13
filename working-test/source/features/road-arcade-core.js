@@ -35,6 +35,12 @@ function settle(head,player,action,available,day){
   p.marioCoins+=coins;p.net+=coins;delta=coins;payout=coins;
   if(p.unlocked<=action.level&&action.level<LEVELS)p.unlocked=action.level+1;
   result={type:'mario_finish',coins,score:Number.isInteger(action.score)?action.score:0,bonus:Number.isInteger(action.jumpBonus)?action.jumpBonus:0,unlocked:p.unlocked};
+ }else if(action.kind==='dino'){
+  // Заезд «Дино»: ставка не нужна, монеты зачисляются одним платежом только
+  // по завершённому заезду (game over). Сервер ограничивает размер выплаты.
+  const coins=Number.isInteger(action.coins)?Math.max(0,Math.min(99,action.coins)):0;
+  p.net+=coins;delta=coins;payout=coins;
+  result={type:'dino_run',coins,score:Number.isInteger(action.score)?action.score:0};
  }else if(action.kind==='purchase'){
   if(!Number.isInteger(action.price)||action.price<0||available<action.price)throw Error('Монет пока недостаточно.');cost=action.price;
  }else throw Error('Неизвестное игровое действие');
@@ -114,6 +120,46 @@ function hurt(run,onEvent){
  if(run.lives<=0){run.over=true;run.paused=true;run.done=false;onEvent({type:'gameover',lives:0,coins:run.coins,score:run.score});}
  else onEvent({type:'hurt',lives:run.lives,invuln:run.invuln});
 }
-root.RoadArcadeCore={LIMIT,BET,LEVELS,COINS_PER_LEVEL,dayKey,roundId,initialHead,initialPlayer,slotOutcome,settle,leaderboard,createLevel,createRun,advanceRun};
+// ── «Дино»: бесконечный бег с прыжками через кактусы и птиц ──────────────
+// Логика отделена от рисования: createDinoRun/advanceDinoRun работают с
+// числами и не знают про canvas — поэтому тестируются в node --test.
+const DINO={W:44,H:47,GRAVITY:2600,JUMP:-880,START_SPEED:340,MAX_SPEED:760,ACCEL:7,GROUND_Y:150};
+function createDinoRun(){
+ return {t:0,speed:DINO.START_SPEED,dino:{y:0,vy:0,ducking:false,grounded:true},obstacles:[],coins:[],nextSpawn:1.2,nextCoin:.8,collected:0,score:0,over:false,jumpHeld:false,startedAt:Date.now(),runId:Math.floor(Math.random()*1e9)};
+}
+function dinoBox(run){const d=run.dino;const y=DINO.GROUND_Y-(d.ducking?DINO.H*.55:DINO.H)-d.y;return {x:54,y,w:d.ducking?DINO.W*1.25:DINO.W,h:d.ducking?DINO.H*.55:DINO.H};}
+function dinoRect(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+// Препятствия появляются по «таймеру расстояния», высота/тип — детерминированно
+// от счётчика (никакого Math.random в логике — проще повторять в тестах).
+function spawnDinoObstacle(run){
+ run._spawn=(run._spawn||0)+1;const n=run._spawn;
+ const bird=n%4===0&&run.t>14; // птицы только после разгона
+ if(bird)return {kind:'bird',x:1000,y:DINO.GROUND_Y-(62+((n>>2)%3)*22),w:46,h:32};
+ const tall=n%3===0;return {kind:'cactus',x:1000,y:DINO.GROUND_Y-(tall?58:40),w:tall?26:20,h:tall?58:40};
+}
+function advanceDinoRun(run,input,dt,onEvent=()=>{}){
+ if(run.over)return;const step=Math.max(0,Math.min(.05,dt));run.t+=step;
+ run.speed=Math.min(DINO.MAX_SPEED,run.speed+DINO.ACCEL*step);
+ const d=run.dino,wantJump=!!input.jump,wantDuck=!!input.duck;
+ // Прыжок — с земли, по свежему нажатию; короткое нажатие = низкий прыжок.
+ if(wantJump&&!run.jumpHeld&&d.grounded){d.vy=DINO.JUMP;d.grounded=false;onEvent({type:'jump'});}
+ if(!wantJump&&run.jumpHeld&&d.vy<-300)d.vy*=.45;
+ run.jumpHeld=wantJump;
+ d.ducking=d.grounded&&wantDuck;
+ d.vy=Math.min(1100,d.vy+DINO.GRAVITY*step);d.y-=d.vy*step;
+ if(d.y<=0){if(!d.grounded&&d.vy>200)onEvent({type:'land'});d.y=0;d.vy=0;d.grounded=true;}
+ const dx=run.speed*step;run.score+=Math.round(dx/10);
+ run.nextSpawn-=step;
+ if(run.nextSpawn<=0){run.obstacles.push(spawnDinoObstacle(run));run.nextSpawn=0.85+((run._spawn||0)%5)*0.22;}
+ run.nextCoin-=step;
+ if(run.nextCoin<=0){run._coin=(run._coin||0)+1;const c=run._coin;run.coins.push({id:c,x:1000,y:DINO.GROUND_Y-(44+(c%4)*30),w:22,h:22});run.nextCoin=1.6+(c%3)*0.7;}
+ const me=dinoBox(run);
+ for(const q of run.obstacles)q.x-=dx;
+ run.obstacles=run.obstacles.filter(q=>q.x+q.w>-20);
+ for(const c of run.coins)c.x-=dx;
+ run.coins=run.coins.filter(c=>{if(dinoRect(me,c)){run.collected++;run.score+=25;onEvent({type:'coin'});return false;}return c.x+c.w>-20;});
+ for(const q of run.obstacles)if(dinoRect(me,q)){run.over=true;onEvent({type:'gameover',score:run.score,coins:run.collected});return;}
+}
+root.RoadArcadeCore={LIMIT,BET,LEVELS,COINS_PER_LEVEL,dayKey,roundId,initialHead,initialPlayer,slotOutcome,settle,leaderboard,createLevel,createRun,advanceRun,DINO,createDinoRun,advanceDinoRun};
 })(typeof window!=='undefined'?window:globalThis);
 

@@ -14,7 +14,7 @@ export function normalizeGame(input){
     if(typeof input.targetUid!=='string'||!input.targetUid||input.targetUid.length>128||!Number.isSafeInteger(input.amount)||input.amount<1||input.amount>10000||typeof input.reason!=='string'||input.reason.trim().length<3||input.reason.trim().length>160)throw fail('invalid-coin-grant');
     return {id:input.id,type:input.type,targetUid:input.targetUid,amount:input.amount,reason:input.reason.trim()};
   }
-  if(input.type!=='game.play'||!map(input.action)||!['slot','mario','finish','purchase'].includes(input.action.kind))throw fail('invalid-game-operation');
+  if(input.type!=='game.play'||!map(input.action)||!['slot','mario','finish','purchase','dino'].includes(input.action.kind))throw fail('invalid-game-operation');
   const a=input.action,action={kind:a.kind};
   if(a.kind==='purchase'){if(!Object.hasOwn(themePrices,a.itemId))throw fail('unknown-theme');action.itemId=a.itemId;}
   if(['mario','finish'].includes(a.kind)){
@@ -26,6 +26,12 @@ export function normalizeGame(input){
     if(a.score!==undefined&&(!Number.isInteger(a.score)||a.score<0||a.score>999999))throw fail('invalid-game-score');
     if(a.jumpBonus!==undefined&&(!Number.isInteger(a.jumpBonus)||a.jumpBonus<0||a.jumpBonus>10))throw fail('invalid-game-bonus');
     action.coins=a.coins||0;action.score=a.score||0;action.jumpBonus=a.jumpBonus||0;
+  }
+  if(a.kind==='dino'){
+    // Итог заезда «Дино»: монеты, собранные по пути до game over.
+    if(a.coins!==undefined&&(!Number.isInteger(a.coins)||a.coins<0||a.coins>99))throw fail('invalid-game-coins');
+    if(a.score!==undefined&&(!Number.isInteger(a.score)||a.score<0||a.score>999999))throw fail('invalid-game-score');
+    action.coins=a.coins||0;action.score=a.score||0;
   }
   if(a.kind==='mario'){
     if(!Number.isInteger(a.coin)||a.coin<0||a.coin>4||typeof a.day!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(a.day))throw fail('invalid-game-coin');action.coin=a.coin;action.day=a.day;
@@ -89,7 +95,7 @@ export function submitGame(pool,uid,input,ws=WS){
     if(outcome.noop)return {result:{noop:true,reason:outcome.reason,delta:0}};
     const round=data.head.gameRound+1,state={gameRound:round,bank:outcome.head.bank,totalStakes:outcome.head.totalStakes,totalPayouts:outcome.head.totalPayouts,actors:{...data.head.actors,[uid]:round},player:outcome.player};
     const final={delta:outcome.delta,cost:outcome.cost||0,payout:outcome.payout||0,result:outcome.result||{},kind:a.kind,level:a.level||null,coin:a.coin??null,round};
-    const entry={...author,...state,...(kind==='slot'&&final.payout>final.cost?{gameWinRound:round}:{}),eventType:'game_arcade',kind:a.kind,cost:final.cost,payout:final.payout,delta:final.delta,result:final.result,requestId:op.id,text:'🎮 '+({slot:'Вращение автомата',mario:'Монета Марио',finish:'Уровень Марио',purchase:'Покупка темы'}[a.kind])};
+    const entry={...author,...state,...(kind==='slot'&&final.payout>final.cost?{gameWinRound:round}:{}),eventType:'game_arcade',kind:a.kind,cost:final.cost,payout:final.payout,delta:final.delta,result:final.result,requestId:op.id,text:'🎮 '+({slot:'Вращение автомата',mario:'Монета Марио',finish:'Уровень Марио',dino:'Заезд Дино',purchase:'Покупка темы'}[a.kind])};
     await client.query("INSERT INTO game_records(workspace_id,record_id,collection,payload) VALUES ($1,$2,'audit',$3)",[ws,roundId(round),entry]);
     if(kind==='purchase')await client.query("INSERT INTO game_records(workspace_id,record_id,collection,payload) VALUES ($1,$2,'audit',$3)",[ws,purchaseId(uid,a.itemId),{...author,eventType:'game_purchase',itemId:a.itemId,price:a.price,text:'🛍 Куплена тема: '+a.itemId}]);
     return {result:{...final,confirmedHead:{...entry,id:roundId(round)}},after:entry};

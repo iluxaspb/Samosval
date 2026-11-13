@@ -3,6 +3,7 @@
 'use strict';
 const A=window.RoadArcade,C=window.RoadArcadeCore,E=escapeHtml;
 let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,musicOn=true,invites=true,seenOwner='',lastShiftId='',notice='',levelBusy=false,lastDay=C.dayKey(),coinFx=[],finishSummary=null;
+let dinoRun=null,dinoRaf=0,dinoLast=0,dinoBusy=false,dinoBestShown=false,dinoCoinFx=[];
 const keys=new Set(),pointers=new Map(),f=n=>Number(n||0).toLocaleString('ru-RU');
 let joyAxis=0;
 const dialog=document.createElement('dialog');dialog.id='arcade-dialog';dialog.setAttribute('aria-labelledby','arcade-title');document.body.append(dialog);
@@ -91,17 +92,19 @@ function musicStart(){
  tick();musicTimer=setInterval(tick,60);
 }
 function musicStop(){if(musicTimer)clearInterval(musicTimer);musicTimer=0;}
-function stopRun(){musicStop();if(raf)cancelAnimationFrame(raf);raf=0;lastFrame=0;keys.clear();pointers.clear();if(run)run.paused=true;}
+function stopRun(){musicStop();if(raf)cancelAnimationFrame(raf);raf=0;lastFrame=0;keys.clear();pointers.clear();if(run)run.paused=true;stopDino();}
+function stopDino(){if(dinoRaf)cancelAnimationFrame(dinoRaf);dinoRaf=0;dinoLast=0;}
 function close(){stopRun();clearInterval(slotTimer);slotTimer=null;stopMatrixIdle();speechSynthesisSafeCancel();hideJackpot();if(dialog.open)dialog.close();}
 dialog.addEventListener('close',()=>{stopRun();clearInterval(slotTimer);slotTimer=null;stopMatrixIdle();speechSynthesisSafeCancel();});
-function open(next='home'){if(!A.visible())return;unlockSound();hideInvite();if(next==='mario'&&!A.available('mario')||next==='slot'&&!A.available('slot'))next='home';if(view!==next)stopRun();view=next;viewStamp='';dialogOwner=currentUid;if(!dialog.open)dialog.showModal();render(true);}
+function open(next='home'){if(!A.visible())return;unlockSound();hideInvite();if((next==='mario'&&!A.available('mario'))||(next==='slot'&&!A.available('slot'))||(next==='dino'&&!A.available('dino')))next='home';if(view!==next)stopRun();view=next;viewStamp='';dialogOwner=currentUid;if(!dialog.open)dialog.showModal();render(true);}
 entry.onclick=()=>open();
 function render(force=false){
- if(!dialog.open)return;if(dialogOwner!==currentUid||!A.visible()||!A.available()||(view==='slot'&&!A.available('slot'))||(view==='mario'&&!A.available('mario'))){close();return;}
+ if(!dialog.open)return;if(dialogOwner!==currentUid||!A.visible()||!A.available()||(view==='slot'&&!A.available('slot'))||(view==='mario'&&!A.available('mario'))||(view==='dino'&&!A.available('dino'))){close();return;}
  const status=A.status(),player=A.me(),today=player.daily?.day===C.dayKey()?player.daily.claims.length:0;
  const stamp=JSON.stringify([view,rankMode,sound,slotBusy,slotMessage,slotSymbols,status.ready,status.error,A.head().gameRound,unlocked(),view==='ranking'?Object.values(A.players()).map(p=>[p.uid,p._round]):null,view==='ranking'?A.recent().map(r=>r.id):null]);
  if(!force&&stamp===viewStamp){updateNumbers();return;}
  if(view==='mario'&&run&&!force&&dialog.querySelector('#mario-canvas')){updateNumbers();return;}viewStamp=stamp;
+ if(view==='dino'&&dinoRun&&!dinoRun.over&&!force&&dialog.querySelector('#dino-canvas')){updateNumbers();return;}
  // UI-1: игры запускаются только с домашнего экрана «Игры»; вкладок две; автомат открывается полноэкранным.
  dialog.classList.toggle('slot-fullscreen',view==='slot');
  dialog.innerHTML='<div class="arcade-head"><h2 id="arcade-title">🎮 Дорожная аркада</h2><button class="arcade-close" aria-label="'+(view==='slot'?'Выйти из автомата':'Закрыть мини-игры')+'">'+(view==='slot'?'Выйти':'×')+'</button></div>'
@@ -110,9 +113,9 @@ function render(force=false){
  dialog.querySelector('.arcade-close').onclick=close;dialog.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>open(b.dataset.view));
  const host=dialog.querySelector('#arcade-content');
  if(view==='home'){
-  host.innerHTML='<div class="arcade-hub">'+(A.available()?'':'<section class="arcade-game-card"><div class="game-emoji">🎮</div><h3>Игры ждут смены</h3><p class="arcade-note">Мини-игры открываются, когда на линии начата смена: игра идёт во время рабочей смены. Начните смену — и кнопки Марио и автомата появятся здесь.</p></section>')+(A.available('mario')?'<section class="arcade-game-card"><div class="game-emoji">🍄 🚧</div><h3>Марио: дорожное приключение</h3><p class="arcade-note">20 уровней: блоки «?» с монетами, враги, трубы и флажок. Каждый враг и монета — в кошелёк, в конце уровня ещё бонус за высоту прыжка. Дневного лимита нет.</p><button class="arcade-start" data-launch="mario">Играть</button></section>':'')+(A.available('slot')?'<section class="arcade-game-card">'+mascot()+'<h3>Однорукий бандит</h3><p class="arcade-note">Ставка 10 монет. Частые небольшие выплаты и редкий общий джекпот. Выигрыш не гарантирован.</p><button class="arcade-start" data-launch="slot">К автомату</button></section>':'')+'</div>';
+  host.innerHTML='<div class="arcade-hub">'+(A.available()?'':'<section class="arcade-game-card"><div class="game-emoji">🎮</div><h3>Игры ждут смены</h3><p class="arcade-note">Мини-игры открываются, когда на линии начата смена: игра идёт во время рабочей смены. Начните смену — и кнопки Марио и автомата появятся здесь.</p></section>')+(A.available('mario')?'<section class="arcade-game-card"><div class="game-emoji">🍄 🚧</div><h3>Марио: дорожное приключение</h3><p class="arcade-note">20 уровней: блоки «?» с монетами, враги, трубы и флажок. Каждый враг и монета — в кошелёк, в конце уровня ещё бонус за высоту прыжка. Дневного лимита нет.</p><button class="arcade-start" data-launch="mario">Играть</button></section>':'')+(A.available('slot')?'<section class="arcade-game-card">'+mascot()+'<h3>Однорукий бандит</h3><p class="arcade-note">Ставка 10 монет. Частые небольшие выплаты и редкий общий джекпот. Выигрыш не гарантирован.</p><button class="arcade-start" data-launch="slot">К автомату</button></section>':'')+(A.available('dino')?'<section class="arcade-game-card"><div class="game-emoji">🦖 🌵</div><h3>Дино-бегун</h3><p class="arcade-note">Как офлайн-игра в Chrome: динозаврик бежит, перепрыгивает кактусы, птицы летят навстречу, скорость растёт. По пути монетки — в кошелёк в конце заезда. Тап по экрану или пробел — прыжок, вниз — пригнуться.</p><button class="arcade-start" data-launch="dino">Играть</button></section>':'')+'</div>';
   host.querySelectorAll('[data-launch]').forEach(b=>b.onclick=()=>open(b.dataset.launch));
- }else if(view==='slot')renderSlot(host);else if(view==='ranking')renderRanking(host);else renderMario(host);
+ }else if(view==='slot')renderSlot(host);else if(view==='ranking')renderRanking(host);else if(view==='dino')renderDino(host);else renderMario(host);
  updateNumbers();
 }
 function updateNumbers(){
@@ -123,6 +126,7 @@ function updateNumbers(){
  // а любую причину отказа объясняем текстом в spin().
  const spin=dialog.querySelector('#slot-spin');if(spin)spin.disabled=slotBusy;
  if(view==='mario'&&run){const el=dialog.querySelector('[data-mario-lives]');if(el)el.innerHTML=hearts(run.lives);const level=dialog.querySelector('[data-mario-level]');if(level)level.textContent=run.map.level;const coins=dialog.querySelector('[data-mario-coins]');if(coins)coins.textContent=run.coins;const score=dialog.querySelector('[data-mario-score]');if(score)score.textContent=run.score;}
+ if(view==='dino'&&dinoRun){const coins=dialog.querySelector('[data-dino-coins]');if(coins)coins.textContent=dinoRun.collected;const score=dialog.querySelector('[data-dino-score]');if(score)score.textContent=dinoRun.score;}
 }
 // Настоящие барабаны: полоса символов прокручивается вертикально с размытием
 // на скорости и поочерёдной остановкой с отскоком (ease-out-back).
@@ -234,6 +238,116 @@ async function spin(){
      else if(outcomeType)tone('hurt');
     }}
   }
+// ── «Дино-бегун»: как офлайн-игра в Chrome ───────────────────────────────
+function renderDino(host){
+ const playing=dinoRun&&!dinoRun.over;
+ const bestKey=prefKey()+':dino-best',best=Number(localStorage.getItem(bestKey)||0);
+ host.innerHTML='<div class="dino-wrap"><div class="dino-hud"><span>🪙 <b data-dino-coins>'+(dinoRun?.collected||0)+'</b></span><span>⭐ <b data-dino-score>'+(dinoRun?.score||0)+'</b></span><span>Рекорд: <b>'+f(best)+'</b></span></div>'
+ +'<canvas id="dino-canvas" width="1000" height="210" aria-label="Дино-бегун: тап или пробел — прыжок, вниз — пригнуться"></canvas>'
+ +(playing?'':'<div class="dino-actions"><button type="button" id="dino-start">'+(dinoRun?'Играть снова':'Начать заезд')+'</button></div><p class="arcade-note">Прыжок — тап по экрану или клавиша пробел/↑. Пригнуться под птицей — ↓ или свайп вниз. Скорость растёт со временем. Собранные монетки зачисляются в кошелёк одним платежом по итогам завершённого заезда (game over); повторная отправка итога не задваивает начисление.</p>')
+ +'</div>';
+ const canvas=host.querySelector('#dino-canvas');
+ const start=host.querySelector('#dino-start');
+ if(start)start.onclick=startDino;
+ if(canvas){
+  // Управление: тап по всему полю — прыжок; удержание — выше прыжок; вниз (клавиша/свайп) — пригнуться.
+  let duckPointer=null,downY=0;
+  canvas.onpointerdown=e=>{e.preventDefault();if(!dinoRun||dinoRun.over){startDino();return;}unlockSound();canvas.setPointerCapture?.(e.pointerId);downY=e.clientY;duckPointer=e.pointerId;dinoInput.jump=true;};
+  canvas.onpointermove=e=>{if(duckPointer!==e.pointerId||!dinoInput.jump)return;if(e.clientY-downY>28){dinoInput.jump=false;dinoInput.duck=true;}};
+  const up=e=>{if(duckPointer!==e.pointerId)return;duckPointer=null;dinoInput.jump=false;dinoInput.duck=false;};
+  canvas.onpointerup=up;canvas.onpointercancel=up;
+  canvas.addEventListener('contextmenu',e=>e.preventDefault());
+ }
+ if(!playing)drawDinoIdle(canvas,best);else startDinoLoop();
+}
+const dinoInput={jump:false,duck:false};
+const dinoKeyMap={Space:'jump',ArrowUp:'jump',ArrowDown:'duck',KeyW:'jump',KeyS:'duck'};
+document.addEventListener('keydown',e=>{if(!dialog.open||view!=='dino'||/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;const k=dinoKeyMap[e.code];if(k){e.preventDefault();dinoInput[k]=true;unlockSound();if(!dinoRun||dinoRun.over)startDino();}});
+document.addEventListener('keyup',e=>{const k=dinoKeyMap[e.code];if(k)dinoInput[k]=false;});
+function startDino(){if(!A.available('dino')||dinoBusy)return;stopDino();unlockSound();dinoRun=C.createDinoRun();dinoBestShown=false;dinoCoinFx.length=0;notice='';render(true);startDinoLoop();}
+function startDinoLoop(){if(!dinoRaf&&dialog.open&&view==='dino'&&dinoRun&&!dinoRun.over)dinoRaf=requestAnimationFrame(tickDino);}
+function tickDino(now){
+ dinoRaf=0;if(!dinoRun||!dialog.open||view!=='dino'||!A.available('dino'))return;
+ if(document.hidden){drawDino();startDinoLoop();return;}
+ if(!dinoLast)dinoLast=now;const dt=(now-dinoLast)/1000;dinoLast=now;
+ C.advanceDinoRun(dinoRun,{jump:dinoInput.jump,duck:dinoInput.duck},dt,onDinoEvent);
+ for(const fx of dinoCoinFx){fx.t+=dt;fx.y+=fx.vy*dt;fx.vy+=900*dt;}
+ if(dinoCoinFx.length)dinoCoinFx=dinoCoinFx.filter(fx=>fx.t<fx.life);
+ drawDino();updateNumbers();
+ startDinoLoop();
+}
+function onDinoEvent(event){
+ if(event.type==='jump'){tone('jump');return;}
+ if(event.type==='land'){tone('land');return;}
+ if(event.type==='coin'){tone('coin');dinoCoinFx.push({x:70,y:80,vy:-230,t:0,life:.7});return;}
+ if(event.type==='gameover'){tone('gameover');stopDino();void creditDino(event);return;}
+}
+// Монеты — ТОЛЬКО по факту завершённого заезда, одной серверной операцией с
+// уникальным requestId (id заезда). Повтор того же id сервер не задваивает.
+async function creditDino(event){
+ const session=dinoRun;if(!session||dinoBusy)return;
+ dinoBusy=true;const user=currentUid,bestKey=prefKey()+':dino-best';
+ const isRecord=event.score>Number(localStorage.getItem(bestKey)||0);
+ if(isRecord){try{localStorage.setItem(bestKey,String(event.score));}catch(e){}}
+ setStatus('Заезд окончен: очки '+f(event.score)+'. Сохраняем монеты…');
+ try{
+  const result=await A.transact({id:'dino_'+session.startedAt+'_'+session.runId,kind:'dino',coins:event.coins,score:event.score});
+  if(currentUid!==user)return;
+  tone('coin');
+  setStatus((result.replayed?'Итог заезда уже был учтён. ':'')+'Зачислено в кошелёк: '+(Number(result.payout)||0)+' 🪙'+(isRecord?' · НОВЫЙ РЕКОРД!':''));
+ }catch(e){if(currentUid===user)setStatus('Монеты пока не зачислены: '+(e.message||'нет связи')+'. Итог можно безопасно повторить — двойного начисления не будет.');}
+ finally{dinoBusy=false;if(dinoRun===session)render(true);}
+}
+function drawDinoIdle(canvas,best){if(!canvas)return;const g=canvas.getContext('2d');if(!g)return;
+ g.fillStyle='#f7f7f7';g.fillRect(0,0,1000,210);drawDinoGround(g,0);
+ g.fillStyle='#535353';g.font='900 26px monospace';g.textAlign='center';g.textBaseline='middle';
+ g.fillText('ДИНО-БЕГУН',500,70);
+ g.font='bold 16px monospace';g.fillText('Прыжок — тап или пробел · пригнуться — ↓',500,105);
+ g.fillText('Рекорд: '+f(best||0),500,135);
+ g.font='40px serif';g.fillText('🦖',870,140);g.fillText('🌵',930,140);
+}
+function drawDinoGround(g,t){
+ g.fillStyle='#f7f7f7';g.fillRect(0,0,1000,210);
+ g.strokeStyle='#535353';g.lineWidth=2;g.beginPath();g.moveTo(0,151);g.lineTo(1000,151);g.stroke();
+ g.fillStyle='#adadad';for(let i=0;i<10;i++){const x=((i*137-t*0.9)%1060+1060)%1060-30;g.fillRect(x,160+(i%3)*14,10,3);}
+}
+function drawDinoPlayer(g,run,t){
+ const D=C.DINO,x=54,h=run.dino.ducking?D.H*.55:D.H,y=D.GROUND_Y-h-run.dino.y;
+ g.save();g.translate(x,y);if(run.dino.ducking)g.translate(-4,0);
+ g.fillStyle='#535353';
+ // Тело и голова как у Chrome-динозаврика, лапы перебирают при беге.
+ g.fillRect(8,run.dino.ducking?4:10,26,run.dino.ducking?14:22);
+ g.fillRect(24,run.dino.ducking?0:0,18,14); // голова
+ g.fillStyle='#f7f7f7';g.fillRect(35,run.dino.ducking?3:3,4,4); // глаз
+ g.fillStyle='#535353';
+ const stride=run.dino.grounded&&run.speed>0?Math.sin(t*22)*3:0;
+ g.fillRect(10,run.dino.ducking?17:30+Math.max(0,stride),9,run.dino.ducking?9:14);
+ g.fillRect(24,run.dino.ducking?17:30+Math.max(0,-stride),9,run.dino.ducking?9:14);
+ if(!run.dino.grounded){g.fillRect(0,run.dino.ducking?16:26,10,6);g.fillRect(34,run.dino.ducking?16:26,10,6);}
+ g.restore();
+}
+function drawDinoCactus(g,q){g.fillStyle='#2e8b57';const ribs=3;g.fillRect(q.x+q.w/2-3,q.y,6,q.h);for(let i=0;i<ribs;i++){const ry=q.y+6+i*(q.h-10)/ribs;g.fillRect(q.x,ry,8,5);g.fillRect(q.x+q.w-8,ry+3,8,5);}}
+function drawDinoBird(g,q,t){const flap=Math.sin(t*10)>0;g.fillStyle='#535353';g.save();g.translate(q.x+q.w/2,q.y+q.h/2);
+ g.beginPath();g.moveTo(-20,flap?2:8);g.lineTo(2,flap?-10:0);g.lineTo(16,flap?-2:4);g.lineTo(-4,flap?6:10);g.closePath();g.fill();
+ g.fillRect(-24,-2,8,4);g.restore();}
+function drawDinoCoin(g,c,t){const w=Math.max(.25,Math.abs(Math.cos(t*4+c.x*.02)));g.save();g.translate(c.x+c.w/2,c.y+c.h/2);g.scale(w,1);g.fillStyle='#ffd230';g.beginPath();g.arc(0,0,10,0,Math.PI*2);g.fill();g.strokeStyle='#b37b00';g.lineWidth=2;g.stroke();g.fillStyle='#fff2a8';g.fillRect(-2,-5,3,10);g.restore();}
+function drawDino(){
+ const canvas=dialog.querySelector('#dino-canvas');if(!canvas||!dinoRun)return;const g=canvas.getContext('2d');if(!g)return;
+ drawDinoGround(g,dinoRun.t*dinoRun.speed);
+ for(const q of dinoRun.obstacles){if(q.kind==='bird')drawDinoBird(g,q,dinoRun.t);else drawDinoCactus(g,q);}
+ for(const c of dinoRun.coins)drawDinoCoin(g,c,dinoRun.t);
+ for(const fx of dinoCoinFx){if(fx.t<fx.life)drawDinoCoin(g,{x:fx.x,y:fx.y,w:22,h:22},dinoRun.t);}
+ drawDinoPlayer(g,dinoRun,dinoRun.t);
+ g.fillStyle='#00000088';g.fillRect(10,8,190,26);g.fillStyle='#fff';g.font='bold 15px monospace';g.textAlign='left';g.textBaseline='top';
+ g.fillText('🪙 '+dinoRun.collected+'   ⭐ '+dinoRun.score,20,15);
+ if(dinoRun.over){
+  g.fillStyle='rgba(0,0,0,.45)';g.fillRect(0,0,1000,210);
+  g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';g.font='900 30px monospace';
+  g.fillText('GAME OVER',500,80);g.font='bold 17px monospace';
+  g.fillText('Очки '+f(dinoRun.score)+' · монет '+dinoRun.collected,500,115);
+  if(!dinoBusy)g.fillText('Тап — новый заезд',500,150);
+ }
+}
 function renderRanking(host){
  const rows=C.leaderboard(A.players(),rankMode),mine=currentUid;
  host.innerHTML='<div class="arcade-tools"><button data-rank="slot">🎰 Автомат</button><button data-rank="mario">🍄 Марио</button></div><h3>'+ (rankMode==='slot'?'Рейтинг выплат автомата':'Рейтинг собранных монет Марио')+'</h3><p class="arcade-note">'+(rankMode==='slot'?'Сортировка по общей сумме выплат за всё время. Итог = выплаты минус ставки; он может быть отрицательным.':'Все монеты, полученные в Марио за всё время. Не влияет на рабочий рейтинг.')+'</p><div style="overflow-x:auto"><table class="arcade-ranking"><thead><tr><th>Игрок</th><th>'+ (rankMode==='slot'?'Выплаты':'Монеты')+'</th>'+(rankMode==='slot'?'<th>Ставки</th><th>Итог</th><th>Джекпоты</th>':'')+'</tr></thead><tbody>'+rows.map((p,i)=>'<tr class="'+(p.uid===mine?'me':'')+'"><td>'+(['🥇','🥈','🥉'][i]||i+1)+' '+E(resolveUserDisplayName(p.email,p.name))+(p.uid===mine?' · вы':'')+'</td><td>'+f(rankMode==='slot'?p.payouts:p.marioCoins)+'</td>'+(rankMode==='slot'?'<td>'+f(p.stakes)+'</td><td>'+(p.payouts-p.stakes>0?'+':'')+f(p.payouts-p.stakes)+'</td><td>'+p.jackpots+'</td>':'')+'</tr>').join('')+'</tbody></table></div>'+(!rows.length?'<p class="arcade-note">Пока никто не сыграл. Здесь появятся результаты участников.</p>':'')+'<div class="arcade-recent"><h3>Последние выигрыши</h3><p class="arcade-note">Последние 20 выигрышей всех игроков. Суммарный рейтинг включает всю историю.</p>'+A.recent().map(r=>'<div class="arcade-recent-row"><span>'+E(resolveUserDisplayName(r.userEmail,r.userName))+(r.result?.type==='jackpot'?' 👑 Джекпот':'')+'<small>'+E(new Date(r.timestamp).toLocaleString('ru-RU'))+'</small></span><b>+'+f(r.payout-r.cost)+' 🪙</b></div>').join('')+(!A.recent().length?'<p class="arcade-note">Выигрышей в последних событиях пока нет.</p>':'')+'</div>';
@@ -521,7 +635,7 @@ function invitation(){
 document.addEventListener('click',e=>{if(e.isTrusted&&!e.target.closest('#arcade-dialog,#arcade-invite'))actionCount++;},true);
 function syncUI(){
  const today=C.dayKey();if(today!==lastDay){lastDay=today;if(run)run.collected.clear();}
- if(seenOwner!==currentUid){seenOwner=currentUid;loadPrefs();hideInvite();actionCount=0;lastInvite=Date.now();if(dialog.open)close();run=null;slotMessage='';}
+ if(seenOwner!==currentUid){seenOwner=currentUid;loadPrefs();hideInvite();actionCount=0;lastInvite=Date.now();if(dialog.open)close();run=null;dinoRun=null;stopDino();slotMessage='';}
  const shiftId=state.shift?.id||'';if(lastShiftId&&shiftId!==lastShiftId&&dialog.open)close();lastShiftId=shiftId;
  entry.hidden=!A.visible();settings.hidden=!A.visible();admin.hidden=!canAdmin();admin.querySelectorAll('[data-arcade-flag]').forEach(input=>{const id=input.dataset.arcadeFlag;if(!savingFlags.has(id)){const recent=recentFlags.get(id);input.checked=recent!==undefined?recent:appConfig?.testReviewFlags?.[id]!==false;}input.disabled=!canAdmin()||savingFlags.has(id);});updateSettings();
  if(!A.available()||appConfig?.testReviewFlags?.arcade_invites===false||!invites)hideInvite();
