@@ -892,6 +892,14 @@ function request(s, main) {
       s.store.get("_defaults/config"),
       "Последний состав заявки",
     );
+    // Адрес последней СОХРАНЁННОЙ заявки: окно «Создать заявку» (entry.mjs)
+    // подставляет его выбранным по умолчанию при следующем открытии.
+    try {
+      localStorage.setItem(
+        "tabel-v2-last-request-object:" + storageScope(s.host.session()),
+        s.object.id,
+      );
+    } catch {}
     return next;
   }
   form.onsubmit = async (e) => {

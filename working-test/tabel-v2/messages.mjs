@@ -16,7 +16,17 @@ export function error(e) {
   const target =
     open?.querySelector("[role=alert]") ||
     document.querySelector(".tn-app [role=alert]");
-  if (target) target.textContent = e.message || e;
+  if (target) {
+    target.textContent = e.message || e;
+    target.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    target.animate?.(
+      [
+        { background: "#fee", color: "#900" },
+        { background: "", color: "" },
+      ],
+      { duration: 800, easing: "ease-out" },
+    );
+  }
 }
 export function dialog(title, html, save) {
   const el = document.createElement("dialog");

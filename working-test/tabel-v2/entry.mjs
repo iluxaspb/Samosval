@@ -167,15 +167,22 @@ async function pickRequestObject(host) {
   return new Promise((resolve) => {
     let result = null;
     const objects = host.objects || [];
+    const session = host.session();
+    const scope = storageScope(session);
+    const lastKey = 'tabel-v2-last-request-object:' + scope;
+    let lastId = '';
+    try { lastId = localStorage.getItem(lastKey) || ''; } catch {}
+    const hasLast = lastId && objects.some((o) => o.id === lastId);
     const el = dialog(
       "Адрес для заявки",
       field(
         "Выберите адрес",
-        '<select name="object"><option value="">Выберите объект</option>' +
+        '<select name="object">' +
+          (hasLast ? '' : '<option value="">Выберите объект</option>') +
           objects
             .map(
               (o) =>
-                `<option value="${esc(o.id)}">${esc(o.address || o.name)}</option>`,
+                `<option value="${esc(o.id)}"${o.id === lastId ? ' selected' : ''}>${esc(o.address || o.name)}</option>`,
             )
             .join("") +
           '<option value="__new">＋ Новый адрес</option></select>',
