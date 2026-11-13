@@ -1,11 +1,11 @@
 {
-  "version": "0dbbf17a5351b67c",
-  "channel": "working-1.7.4",
+  "version": "24396da34664f835",
+  "channel": "working-1.7.5",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index-working-test.html",
-      "sha256": "3c669d9aff1d243ad98a8223e48283505557fc60d5909e955d396306b6ce15b8"
+      "sha256": "a87f8d5aaa24dcbc2b4679b1ee17086f1f4ff38c06ebf779fa78907cc05a8700"
     },
     {
       "url": "./manifest-working-test.webmanifest",
@@ -309,7 +309,7 @@
     },
     {
       "url": "./working-test/tabel-v2/object-default.mjs",
-      "sha256": "5d6fbba81e73a060da7ac4a031fbafa3c3a04fea85aa5f4b091c86ae1c18a310"
+      "sha256": "d875666383c5138a47f652d5c1ec149351683350351738394a9fa54d923f115e"
     },
     {
       "url": "./working-test/tabel-v2/online-policy.mjs",
@@ -381,11 +381,11 @@
     },
     {
       "url": "./working-test/tabel-v2/workspace.css",
-      "sha256": "5ab7fbef8232b56a5d345945e685f832943d3933f041dcb71a0df0f52d0b10b0"
+      "sha256": "88383192a408778919828ead099e3fc667907bcb5cbaf49bb9ca841ffb11af76"
     },
     {
       "url": "./working-test/tabel-v2/workspace.mjs",
-      "sha256": "0323c7e70f1c24b14e3eaa03bc2fa0240df80b87b35e0f319528baafc50c7705"
+      "sha256": "04c9f9f055264707f6fdba28c5a99c0e754ec96fc231b1ff07bb0ae79bf3f109"
     },
     {
       "url": "./working-test/vendor/Caveat-OFL.txt",
@@ -448,108 +448,108 @@
       "sha256": "57ec8efe1d2e4f631388a0ef3fbf3a654e6fc2f160bcb3225d2a35c287813548"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/auto-backup.js",
+      "url": "./working-test/build/24396da34664f835/auto-backup.js",
       "sha256": "a2ed3ef0cb18bcd67441322820befdb7f9d9b381cf24040868f8a0319410a200"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/built-in-patches.js",
+      "url": "./working-test/build/24396da34664f835/built-in-patches.js",
       "sha256": "78276501d382ab0ff1ef01f9a24f43f6900ada7d8ac08250f0a708a3da91830f"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/closed-shift-duplicates.js",
+      "url": "./working-test/build/24396da34664f835/closed-shift-duplicates.js",
       "sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/confirm-bridge.js",
+      "url": "./working-test/build/24396da34664f835/confirm-bridge.js",
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/core.js",
+      "url": "./working-test/build/24396da34664f835/core.js",
       "sha256": "9b1321a6935dfd91a9946a23931458ac914b1fbdfd223d2c88f7a1bb25191971"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/firebase-traffic-dashboard.js",
+      "url": "./working-test/build/24396da34664f835/firebase-traffic-dashboard.js",
       "sha256": "07713b52ee0f055ef2b645f38cb4d82f8c00c12be24298e349bcf31a8395c945"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/firebase-traffic-hook.js",
+      "url": "./working-test/build/24396da34664f835/firebase-traffic-hook.js",
       "sha256": "7e4c7cdb603fad5f12b29cfca7407067cf9814e9520dd15a604773a729c6bcd3"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/firebase-traffic-inference.js",
+      "url": "./working-test/build/24396da34664f835/firebase-traffic-inference.js",
       "sha256": "c2d63b6ef3512a31009621466011cf6ea72167fe62df4b49249bf40b78f59222"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/gai-report-toggle.js",
+      "url": "./working-test/build/24396da34664f835/gai-report-toggle.js",
       "sha256": "584a1b9bfb8c3edd8229fe73be5db55788dc251c182b545c27a4cac1b9c1455a"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/game-coins-v2.js",
+      "url": "./working-test/build/24396da34664f835/game-coins-v2.js",
       "sha256": "6ddd31217217f195abee6e17f0e1a8f612fb3113d0233e4cfb94c30d755619f9"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/global-interface-haptics.js",
+      "url": "./working-test/build/24396da34664f835/global-interface-haptics.js",
       "sha256": "f1b8613f85be1745740cecd2c7f57287a8408644a1109360972897ef8401578b"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/history-recorder.js",
+      "url": "./working-test/build/24396da34664f835/history-recorder.js",
       "sha256": "251adb91bf8643af8835eb7a88659af5fc006e52841f7c06fa8f5ec21503198a"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/line-card-layers.js",
+      "url": "./working-test/build/24396da34664f835/line-card-layers.js",
       "sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/offline-feedback.js",
+      "url": "./working-test/build/24396da34664f835/offline-feedback.js",
       "sha256": "94b6082bc2d2939da2214787ad258b870c426ef0475220b7dd364d3959498db7"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/paper-viewer.js",
+      "url": "./working-test/build/24396da34664f835/paper-viewer.js",
       "sha256": "81fc33f0faf0bdd09f8778dc3bfba25ae9568bd2ae8af999f0ff297accacb125"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/release-history.js",
-      "sha256": "866e1ee825f8614d503a1615a4724680b00818c569c23bb61678ca3aee83e6a0"
+      "url": "./working-test/build/24396da34664f835/release-history.js",
+      "sha256": "f75c2e6af7c509b1d425f9b13361775fc984133b5ada9dc77decd174220358db"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/reset-settings.js",
+      "url": "./working-test/build/24396da34664f835/reset-settings.js",
       "sha256": "45bd5eba801d2d67758dfac630657ce95666c83fd187d80b58349a450b507775"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/road-arcade-core.js",
+      "url": "./working-test/build/24396da34664f835/road-arcade-core.js",
       "sha256": "1a2558283137ef6f29747e80656120cec7137128bd75bcad9c1018b8ee7c3a82"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/road-arcade-runtime.js",
+      "url": "./working-test/build/24396da34664f835/road-arcade-runtime.js",
       "sha256": "2e402eaffa9e3849815f2cd33e2ab00936eb575242e79bbfd46f5e34b964f6b0"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/road-arcade-ui.js",
+      "url": "./working-test/build/24396da34664f835/road-arcade-ui.js",
       "sha256": "fe9641d6f50061f25a2456e6b80a23cc35d5b5ee12c3a807d226016bc403aa22"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/road-jokes-v1.js",
+      "url": "./working-test/build/24396da34664f835/road-jokes-v1.js",
       "sha256": "a25b2e30bfd8a2c8c3bf9665b3c8aa3ec2768df99085b0df90ed637c155d1bfa"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/road-season-effects-v1.js",
+      "url": "./working-test/build/24396da34664f835/road-season-effects-v1.js",
       "sha256": "1447fe55145ad75200008647e0071d8b65d8bf9c9eaa2eef10a6a5b86f7e1592"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/road-shop-v1.js",
+      "url": "./working-test/build/24396da34664f835/road-shop-v1.js",
       "sha256": "37279a9991c2dff3a4434eae11ebb8974dde0b91c59bd28e105383b86345c821"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/settings-hub.js",
+      "url": "./working-test/build/24396da34664f835/settings-hub.js",
       "sha256": "86478c35b6feccc0e80afc39e5a713323b3c8290fba86eba03b796d1a852337e"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/trip-analytics.js",
+      "url": "./working-test/build/24396da34664f835/trip-analytics.js",
       "sha256": "c8940046633e4541ccf906193ceb854bb781d8d760185ba7ce3eab3db41761a2"
     },
     {
-      "url": "./working-test/build/0dbbf17a5351b67c/working-test-release.js",
-      "sha256": "de276c31e3e5e5cb74955a37ff8d3c2a0ebe0927f46c167d51ecfde3a2b964e3"
+      "url": "./working-test/build/24396da34664f835/working-test-release.js",
+      "sha256": "8330229b876cb3fc5f76869b4fac1f308753741e055e502c5bb6de94a5f64a02"
     }
   ]
 }
