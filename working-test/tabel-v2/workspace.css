@@ -1392,3 +1392,9 @@ dialog.tn.tn-borders-dialog{width:min(380px,calc(100vw - 24px));border-radius:18
 .tn-grid-axis tbody th[data-row]{position:sticky;left:0;z-index:5;background:var(--tn-card,#fff);color:var(--tn-text,#111);min-width:32px;font-weight:500;text-align:center;cursor:pointer}.tn-linked.tn-grid-axis tbody td:first-of-type{left:32px}.tn-grid-axis thead th{cursor:pointer}
 
 .tn-border-presets button span{display:block;max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.15;text-align:center}.tn-border-options label{display:flex;flex-direction:column;align-items:stretch;gap:5px;font-size:11px}.tn-border-options select{width:100%;box-sizing:border-box}
+
+/* Вид «Заявка»: адрес заявки выделен зелёным в шапке (1.7.5). */
+.tn-header.tn-request-address{background:#0f5132;border-bottom:2px solid #188038}
+.tn-header.tn-request-address select{color:#0f5132;font-weight:600;background:#e8f5ee;border-color:#7cc79c}
+.tn-header.tn-request-address button{background:#188038;color:#fff;border-color:#188038}
+.tn-header.tn-request-address button[data-action=request-save-top]{font-weight:600}

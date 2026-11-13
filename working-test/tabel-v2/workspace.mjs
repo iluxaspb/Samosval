@@ -362,8 +362,16 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     let recentlyClosed = null;
     try { recentlyClosed = JSON.parse(localStorage.getItem(lastClosedKey(session.projectId, session.workspaceId)) || "null"); } catch {}
     const snap = host.data();
+    // Адрес последней сохранённой заявки: после «Сохранить заявку» объект
+    // закрепляется и переходы Линия→Табель его не меняют. Действует только
+    // для explicitRequest (вид «Заявка»); обычный выбор объекта — как раньше.
+    let requestAddressId = null;
+    if (explicitRequest && !host.requestObjectId) {
+      try { requestAddressId = localStorage.getItem("tabel-v2-last-request-object:" + storageScope(session)) || null; } catch {}
+    }
     return (snap.objects || []).find((o) => o.id === preferredObjectId({
       objects: snap.objects, requestObjectId: explicitRequest ? host.requestObjectId : null,
+      requestAddressId,
       shift: snap.shift, archive: snap.archive,
       recentlyClosed, lastObject: s.object?.id || lastObject,
     })) || null;
@@ -633,7 +641,7 @@ async function render(s) {
       navViewsNow[0]?.[0];
     if (fallback) s.view = fallback;
   }
-  s.root.innerHTML = `<header class="tn-header"><select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.object ? [s.object] : []), ...(s.host.data().objects || [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${navViewsNow
+  s.root.innerHTML = `<header class="tn-header${s.view === "request" ? " tn-request-address" : ""}"><select data-object aria-label="Объект" ${s.view === "request" && s.requestLocked ? "disabled" : ""}>${[...new Map([...(s.object ? [s.object] : []), ...(s.host.data().objects || [])].map((o) => [o.id, o])).values()].map((o) => `<option value="${esc(o.id)}" ${o.id === s.object?.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>${s.view === "request" ? '<button type="submit" form="tn-request-form" data-action="request-save-top">Сохранить</button>' : ""}${btn("＋ Объект", "object", s.view === "request" && s.requestLocked ? "disabled" : "")}${btn("⚙", "settings-menu", 'aria-label="Настройки объекта"')}</header><nav>${navViewsNow
     .map(([id, label]) =>
       btn(label, "view", `data-view="${id}" aria-pressed="${s.view === id}"`),
     )
@@ -651,7 +659,19 @@ async function render(s) {
   };
   s.root.querySelector("[data-action=object]").onclick = () => newObject(s);
   s.root.querySelector("[data-object]").onchange = (e) =>
-    s.select(e.target.value).catch(error);
+    s.select(e.target.value)
+      .then(() => {
+        // На виде «Заявка» выбор нового адреса сразу закрепляет его за заявкой.
+        if (s.view === "request" && s.object) {
+          try {
+            localStorage.setItem(
+              "tabel-v2-last-request-object:" + storageScope(s.host.session()),
+              s.object.id,
+            );
+          } catch {}
+        }
+      })
+      .catch(error);
   s.root.querySelectorAll("[data-view]").forEach(
     (b) =>
       (b.onclick = async () => {
@@ -768,7 +788,7 @@ function newObject(s) {
 function request(s, main) {
   const base = s.store.get(s.key("config")),
     c = s.config();
-  main.innerHTML = `<form class="tn-request"><div class="tn-request-date">${field("Дата заявки", input("date", c.request.date, 'type="date" required'))}${field("Смена", `<select name="shift"><option value="day">Дневная</option><option value="night" ${c.request.shift === "night" ? "selected" : ""}>Ночная</option></select>`)}</div><div class="tn-tools">${btn("＋ Добавить технику", "choose-equipment")}${btn("＋ ИТР", "add-itr")}</div><h3>Техника в заявке</h3>${
+  main.innerHTML = `<form class="tn-request" id="tn-request-form"><div class="tn-request-date">${field("Дата заявки", input("date", c.request.date, 'type="date" required'))}${field("Смена", `<select name="shift"><option value="day">Дневная</option><option value="night" ${c.request.shift === "night" ? "selected" : ""}>Ночная</option></select>`)}</div><div class="tn-tools">${btn("＋ Добавить технику", "choose-equipment")}${btn("＋ ИТР", "add-itr")}</div><h3>Техника в заявке</h3>${
     R.selectedEquipment(c)
       .map(
         (e) =>

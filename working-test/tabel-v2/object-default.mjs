@@ -14,11 +14,14 @@ function closedTime(row) {
 }
 
 export function preferredObjectId({
-  objects = [], requestObjectId = null, shift = null, archive = [],
+  objects = [], requestObjectId = null, requestAddressId = null, shift = null, archive = [],
   recentlyClosed = null, lastObject = null,
 } = {}) {
   const known = new Set(objects.map((o) => o.id));
   if (known.has(requestObjectId)) return requestObjectId;
+  // Адрес последней сохранённой заявки держится только для вида «Заявка»
+  // (explicitRequest): Линия не должна перетягивать адрес сохранённой заявки.
+  if (known.has(requestAddressId)) return requestAddressId;
   if (shift?.isActive && known.has(shift.objectId)) return shift.objectId;
   const closed = (archive || [])
     .filter((row) => row && known.has(row.objectId))
