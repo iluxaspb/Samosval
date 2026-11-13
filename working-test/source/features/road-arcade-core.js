@@ -125,7 +125,7 @@ function hurt(run,onEvent){
 // числами и не знают про canvas — поэтому тестируются в node --test.
 const DINO={W:44,H:47,GRAVITY:2600,JUMP:-880,START_SPEED:340,MAX_SPEED:760,ACCEL:7,GROUND_Y:150};
 function createDinoRun(){
- return {t:0,speed:DINO.START_SPEED,dino:{y:0,vy:0,ducking:false,grounded:true},obstacles:[],coins:[],nextSpawn:1.2,nextCoin:.8,collected:0,score:0,over:false,jumpHeld:false,startedAt:Date.now(),runId:Math.floor(Math.random()*1e9)};
+ return {t:0,animT:0,speed:DINO.START_SPEED,dino:{y:0,vy:0,ducking:false,grounded:true},obstacles:[],coins:[],nextSpawn:1.2,nextCoin:.8,collected:0,score:0,over:false,jumpHeld:false,startedAt:Date.now(),runId:Math.floor(Math.random()*1e9)};
 }
 function dinoBox(run){const d=run.dino;const y=DINO.GROUND_Y-(d.ducking?DINO.H*.55:DINO.H)-d.y;return {x:54,y,w:d.ducking?DINO.W*1.25:DINO.W,h:d.ducking?DINO.H*.55:DINO.H};}
 function dinoRect(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
@@ -139,6 +139,9 @@ function spawnDinoObstacle(run){
 }
 function advanceDinoRun(run,input,dt,onEvent=()=>{}){
  if(run.over)return;const step=Math.max(0,Math.min(.05,dt));run.t+=step;
+ // Фаза анимации бега: копится пропорционально скорости и реальному dt —
+ // не зависит от fps и замирает на паузе (advance просто не вызывается).
+ run.animT=(run.animT||0)+step*(6+run.speed/60);
  run.speed=Math.min(DINO.MAX_SPEED,run.speed+DINO.ACCEL*step);
  const d=run.dino,wantJump=!!input.jump,wantDuck=!!input.duck;
  // Прыжок — с земли, по свежему нажатию; короткое нажатие = низкий прыжок.

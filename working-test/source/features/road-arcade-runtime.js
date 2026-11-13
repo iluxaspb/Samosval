@@ -101,7 +101,32 @@ async function transact(action){
  if(currentUid===user&&result.confirmedHead){const d=result.confirmedHead;if(d.gameRound>=head.gameRound)head=d;acceptPlayer(d);if(d.kind==='slot'&&d.payout>d.cost)recent=[d,...recent.filter(r=>r.id!==d.id)].slice(0,20);emit();}
  return result;
 }
-window.RoadArcade={visible,available,delta:id=>players[id]?.net||0,balance,me,head:()=>head,players:()=>players,recent:()=>recent,status:()=>({ready,error,hydrated:ready&&(!head.actors[currentUid]||players[currentUid]?._round>=head.actors[currentUid])}),subscribe:fn=>{callbacks.add(fn);return ()=>callbacks.delete(fn);},transact,readSpin,storeSpin,newSpin:()=>({id:uid(),kind:'slot',roll:roll(),createdAt:Date.now()}),buyTheme:item=>transact({kind:'purchase',itemId:item.id}),sync};
+// Рейтинг «Дино»: монеты — сумма выплат за все заезды, очки — лучший результат.
+// В Ubuntu-режиме агрегируем полный журнал записей kind='dino'; в Firebase-режиме
+// полноценного журнала заездов в клиенте нет — честно возвращаем игроков, у кого
+// есть динозаврные выплаты (какие данные есть, такие и показываем).
+function dinoStats(){
+ if(isNasRuntime()){
+  if(!nasGameSnapshot?.records)return {};
+  const map={};
+  for(const r of nasGameSnapshot.records){
+   if(r.eventType!=='game_arcade'||r.kind!=='dino')continue;
+   const id=r.userUid||'';if(!id)continue;
+   const e=map[id]||(map[id]={uid:id,email:r.userEmail||'',name:r.userName||'',coins:0,best:0});
+   e.coins+=Number(r.payout)||0;
+   e.best=Math.max(e.best,Number(r.result?.score)||0);
+   if(!e.email&&r.userEmail)e.email=r.userEmail;
+   if(!e.name&&r.userName)e.name=r.userName;
+  }
+  return map;
+ }
+ const out={};
+ for(const p of Object.values(players)){
+  if(p.dinoCoins>0||p.dinoBest>0)out[p.uid]={uid:p.uid,email:p.email,name:p.name,coins:Number(p.dinoCoins)||0,best:Number(p.dinoBest)||0};
+ }
+ return out;
+}
+window.RoadArcade={visible,available,delta:id=>players[id]?.net||0,balance,me,head:()=>head,players:()=>players,recent:()=>recent,dinoStats,status:()=>({ready,error,hydrated:ready&&(!head.actors[currentUid]||players[currentUid]?._round>=head.actors[currentUid])}),subscribe:fn=>{callbacks.add(fn);return ()=>callbacks.delete(fn);},transact,readSpin,storeSpin,newSpin:()=>({id:uid(),kind:'slot',roll:roll(),createdAt:Date.now()}),buyTheme:item=>transact({kind:'purchase',itemId:item.id}),sync};
 window.addEventListener('review-flags-changed',()=>{sync();emit();});setInterval(sync,1000);sync();
 })();
 

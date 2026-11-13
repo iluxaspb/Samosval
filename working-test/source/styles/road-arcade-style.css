@@ -183,3 +183,14 @@
 .dino-fab:active{transform:scale(.96)}
 .dino-actions{display:flex;gap:10px;margin-top:12px}
 .dino-actions button{border:1px solid var(--border);background:#274e70;color:var(--text);border-radius:10px;padding:12px 18px;min-height:46px;font-weight:700;font-size:15px}
+/* Портрет: поле закрыто оверлеем «переверните телефон» — поверх canvas и кнопки. */
+.dino-rotate-overlay{display:none}
+@media (orientation: portrait){
+  .dino-rotate-overlay{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:16px;background:#12324a;color:#fff;font-weight:800;font-size:17px;line-height:1.35;border-radius:inherit}
+  .dino-rotate-icon{font-size:34px;transform:rotate(90deg)}
+}
+/* Ландшафт: поле занимает всю доступную высоту окна — крупная игра на телефоне. */
+@media (orientation: landscape) and (max-height:520px){
+  .dino-wrap{min-height:0;padding-bottom:2px}
+  .dino-field{min-height:0;max-height:none;flex:1 1 auto;height:calc(100dvh - 210px)}
+}

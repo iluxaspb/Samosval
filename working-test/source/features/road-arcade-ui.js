@@ -4,6 +4,22 @@
 const A=window.RoadArcade,C=window.RoadArcadeCore,E=escapeHtml;
 let view='home',rankMode='slot',dialogOwner='',viewStamp='',run=null,raf=0,lastFrame=0,slotBusy=false,slotTimer=null,slotMessage='',slotSymbols=['🍒','⭐','💎'],audio=null,sound=true,musicOn=true,invites=true,seenOwner='',lastShiftId='',notice='',levelBusy=false,lastDay=C.dayKey(),coinFx=[],finishSummary=null;
 let dinoRun=null,dinoRaf=0,dinoLast=0,dinoBusy=false,dinoBestShown=false,dinoCoinFx=[],dinoResizeObs=null;
+// Дино — только горизонтальный режим: в портрете поле закрыто оверлеем
+// .dino-rotate-overlay (видимостью управляет CSS media orientation), заезд
+// не стартует и ставится на паузу. dinoRun при паузе сохраняется — прогресс
+// не теряется, после поворота бег продолжается с места остановки.
+const dinoPortrait=()=>{try{return matchMedia('(orientation: portrait)').matches;}catch(e){return false;}};
+if(typeof matchMedia==='function'){const dinoOrient=matchMedia('(orientation: portrait)');
+ dinoOrient.addEventListener?.('change',()=>{
+  if(!dialog.open||view!=='dino')return;
+  if(dinoOrient.matches){if(dinoRun&&!dinoRun.over)stopDino();} // пауза: raf и наблюдатель сняты, dinoRun цел
+  else{
+   // Возврат в ландшафт: fullscreen может требовать жест — ошибка глушится.
+   try{const fl=dialog.querySelector('#dino-field');if(fl&&!document.fullscreenElement&&typeof fl.requestFullscreen==='function')void fl.requestFullscreen();}catch(e){}
+   render(true); // пересобирает поле: ResizeObserver заново, луп продолжается
+  }
+ });
+}
 const keys=new Set(),pointers=new Map(),f=n=>Number(n||0).toLocaleString('ru-RU');
 let joyAxis=0;
 const dialog=document.createElement('dialog');dialog.id='arcade-dialog';dialog.setAttribute('aria-labelledby','arcade-title');document.body.append(dialog);
@@ -246,6 +262,7 @@ function renderDino(host){
  +'<div class="dino-field" id="dino-field">'
  +'<canvas id="dino-canvas" aria-label="Дино-бегун: тап или пробел — прыжок, вниз — пригнуться"></canvas>'
  +'<button type="button" class="dino-fab" id="dino-fab" aria-label="Кнопка прыжка: короткое нажатие — прыжок, можно перетащить в удобное место">⤒</button>'
+ +'<div class="dino-rotate-overlay" aria-hidden="true"><span class="dino-rotate-icon">📱</span>Переверните телефон в горизонтальный режим</div>'
  +'</div>'
  +(playing?'':'<div class="dino-actions"><button type="button" id="dino-start">'+(dinoRun?'Играть снова':'Начать заезд')+'</button></div><p class="arcade-note">Прыжок — тап в любом месте экрана или клавиша пробел/↑. Пригнуться под птицей — ↓ или свайп вниз. Круглую кнопку-пружок можно перетащить в удобное место. Скорость растёт со временем. Собранные монетки зачисляются в кошелёк одним платежом по итогам завершённого заезда (game over); повторная отправка итога не задваивает начисление.</p>')
  +'</div>';
@@ -336,7 +353,7 @@ const dinoInput={jump:false,duck:false};
 const dinoKeyMap={Space:'jump',ArrowUp:'jump',ArrowDown:'duck',KeyW:'jump',KeyS:'duck'};
 document.addEventListener('keydown',e=>{if(!dialog.open||view!=='dino'||/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;const k=dinoKeyMap[e.code];if(k){e.preventDefault();dinoInput[k]=true;unlockSound();if(!dinoRun||dinoRun.over)startDino();}});
 document.addEventListener('keyup',e=>{const k=dinoKeyMap[e.code];if(k)dinoInput[k]=false;});
-function startDino(){if(!A.available('dino')||dinoBusy)return;stopDino();unlockSound();dinoRun=C.createDinoRun();dinoBestShown=false;dinoCoinFx.length=0;notice='';render(true);startDinoLoop();}
+function startDino(){if(!A.available('dino')||dinoBusy||dinoPortrait())return;stopDino();unlockSound();dinoRun=C.createDinoRun();dinoBestShown=false;dinoCoinFx.length=0;notice='';render(true);startDinoLoop();}
 function startDinoLoop(){if(!dinoRaf&&dialog.open&&view==='dino'&&dinoRun&&!dinoRun.over)dinoRaf=requestAnimationFrame(tickDino);}
 function tickDino(now){
  dinoRaf=0;if(!dinoRun||!dialog.open||view!=='dino'||!A.available('dino'))return;
@@ -455,15 +472,19 @@ function drawDinoGround(g,t){drawDinoSky(g,t);}
 function drawDinoPlayer(g,run,t){
  const D=C.DINO,x=54,h=run.dino.ducking?D.H*.55:D.H,y=D.GROUND_Y-h-run.dino.y;
  const duck=!!run.dino.ducking,air=!run.dino.grounded;
+ const at=Number(run.animT)||0; // накопленная фаза бега (в advanceDinoRun) — не зависит от fps
+ const ph=at*(1+run.speed/500); // быстрее бег — быстрее семенят лапы
+ const bob=air||duck?0:Math.sin(ph*2)*1.4; // лёгкое покачивание тела на бегу
+ const tail=air?0:Math.sin(ph)*3; // хвост покачивается в противофазе шагам
+ const legA=Math.sin(ph),legB=Math.sin(ph+Math.PI); // лапы строго противофазны
  const body=g.createLinearGradient?g.createLinearGradient(0,y,0,y+h):null;
  if(body){body.addColorStop(0,'#7ec86f');body.addColorStop(.55,'#4fa843');body.addColorStop(1,'#35802e');}
  const FILL=body||'#4fa843',DARK='#2c6b28',LIGHT='#a5dd8f';
- g.save();g.translate(x,y);
+ g.save();g.translate(x,y-bob);
  if(duck)g.translate(-4,0);
- const stride=run.dino.grounded&&run.speed>0?Math.sin(t*22):0;
  // хвост
  g.fillStyle=FILL;g.beginPath();
- g.moveTo(10,duck?4:12);g.quadraticCurveTo(-14,duck?-2:2,-20,duck?8:14);
+ g.moveTo(10,duck?4:12);g.quadraticCurveTo(-14,(duck?-2:2)+tail*.4,-20+tail*.5,(duck?8:14)+tail);
  g.quadraticCurveTo(-10,duck?14:22,10,duck?16:26);g.closePath();g.fill();
  // тело
  g.fillStyle=FILL;dinoRoundRect(g,8,duck?2:8,28,duck?16:26,9);g.fill();
@@ -486,12 +507,12 @@ function drawDinoPlayer(g,run,t){
  if(air){ // поза прыжка: лапы поджаты под тело
   dinoRoundRect(g,9,duck?14:26,11,8,4);g.fill();
   dinoRoundRect(g,24,duck?14:26,11,8,4);g.fill();
- }else if(duck){
-  dinoRoundRect(g,10,16,10,8,4);g.fill();
-  dinoRoundRect(g,24,16,10,8,4);g.fill();
- }else{
-  dinoRoundRect(g,10,32+Math.max(0,stride)*1.4,9,13-Math.max(0,stride),4);g.fill();
-  dinoRoundRect(g,24,32+Math.max(0,-stride)*1.4,9,13-Math.max(0,-stride),4);g.fill();
+ }else if(duck){ // пригибание: короткие лапы семенят
+  dinoRoundRect(g,10+legA*3,17,10,7,4);g.fill();
+  dinoRoundRect(g,24+legB*3,17,10,7,4);g.fill();
+ }else{ // бег: бедро качается, колено и стопа смещаются по x и y противофазно
+  dinoRoundRect(g,10+legA*2.5,31+legA*1.6,9,13-legA*2,4);g.fill();
+  dinoRoundRect(g,24+legB*2.5,31+legB*1.6,9,13-legB*2,4);g.fill();
  }
  g.restore();
 }
@@ -556,8 +577,16 @@ function drawDino(){
  });
 }
 function renderRanking(host){
- const rows=C.leaderboard(A.players(),rankMode),mine=currentUid;
- host.innerHTML='<div class="arcade-tools"><button data-rank="slot">🎰 Автомат</button><button data-rank="mario">🍄 Марио</button></div><h3>'+ (rankMode==='slot'?'Рейтинг выплат автомата':'Рейтинг собранных монет Марио')+'</h3><p class="arcade-note">'+(rankMode==='slot'?'Сортировка по общей сумме выплат за всё время. Итог = выплаты минус ставки; он может быть отрицательным.':'Все монеты, полученные в Марио за всё время. Не влияет на рабочий рейтинг.')+'</p><div style="overflow-x:auto"><table class="arcade-ranking"><thead><tr><th>Игрок</th><th>'+ (rankMode==='slot'?'Выплаты':'Монеты')+'</th>'+(rankMode==='slot'?'<th>Ставки</th><th>Итог</th><th>Джекпоты</th>':'')+'</tr></thead><tbody>'+rows.map((p,i)=>'<tr class="'+(p.uid===mine?'me':'')+'"><td>'+(['🥇','🥈','🥉'][i]||i+1)+' '+E(resolveUserDisplayName(p.email,p.name))+(p.uid===mine?' · вы':'')+'</td><td>'+f(rankMode==='slot'?p.payouts:p.marioCoins)+'</td>'+(rankMode==='slot'?'<td>'+f(p.stakes)+'</td><td>'+(p.payouts-p.stakes>0?'+':'')+f(p.payouts-p.stakes)+'</td><td>'+p.jackpots+'</td>':'')+'</tr>').join('')+'</tbody></table></div>'+(!rows.length?'<p class="arcade-note">Пока никто не сыграл. Здесь появятся результаты участников.</p>':'')+'<div class="arcade-recent"><h3>Последние выигрыши</h3><p class="arcade-note">Последние 20 выигрышей всех игроков. Суммарный рейтинг включает всю историю.</p>'+A.recent().map(r=>'<div class="arcade-recent-row"><span>'+E(resolveUserDisplayName(r.userEmail,r.userName))+(r.result?.type==='jackpot'?' 👑 Джекпот':'')+'<small>'+E(new Date(r.timestamp).toLocaleString('ru-RU'))+'</small></span><b>+'+f(r.payout-r.cost)+' 🪙</b></div>').join('')+(!A.recent().length?'<p class="arcade-note">Выигрышей в последних событиях пока нет.</p>':'')+'</div>';
+ const mine=currentUid;
+ let tools='<div class="arcade-tools"><button data-rank="slot">🎰 Автомат</button><button data-rank="mario">🍄 Марио</button><button data-rank="dino">🦖 Дино</button></div>',tableHtml='';
+ if(rankMode==='dino'){
+  const rows=Object.values(A.dinoStats()).sort((a,b)=>b.best-a.best||b.coins-a.coins);
+  tableHtml='<h3>Рейтинг «Дино-бегун»</h3><p class="arcade-note">Лучшие очки и монеты за все заезды «Дино». Сортировка по очкам.</p><div style="overflow-x:auto"><table class="arcade-ranking"><thead><tr><th>Игрок</th><th>Лучшие очки</th><th>Монеты</th></tr></thead><tbody>'+rows.map((p,i)=>'<tr class="'+(p.uid===mine?'me':'')+'"><td>'+(['🥇','🥈','🥉'][i]||i+1)+' '+E(resolveUserDisplayName(p.email,p.name))+(p.uid===mine?' · вы':'')+'</td><td>'+f(p.best)+'</td><td>'+f(p.coins)+'</td></tr>').join('')+'</tbody></table></div>'+(!rows.length?'<p class="arcade-note">Пока никто не пробежал. Здесь появятся результаты заездов.</p>':'');
+ }else{
+  const rows=C.leaderboard(A.players(),rankMode);
+  tableHtml='<h3>'+ (rankMode==='slot'?'Рейтинг выплат автомата':'Рейтинг собранных монет Марио')+'</h3><p class="arcade-note">'+(rankMode==='slot'?'Сортировка по общей сумме выплат за всё время. Итог = выплаты минус ставки; он может быть отрицательным.':'Все монеты, полученные в Марио за всё время. Не влияет на рабочий рейтинг.')+'</p><div style="overflow-x:auto"><table class="arcade-ranking"><thead><tr><th>Игрок</th><th>'+ (rankMode==='slot'?'Выплаты':'Монеты')+'</th>'+(rankMode==='slot'?'<th>Ставки</th><th>Итог</th><th>Джекпоты</th>':'')+'</tr></thead><tbody>'+rows.map((p,i)=>'<tr class="'+(p.uid===mine?'me':'')+'"><td>'+(['🥇','🥈','🥉'][i]||i+1)+' '+E(resolveUserDisplayName(p.email,p.name))+(p.uid===mine?' · вы':'')+'</td><td>'+f(rankMode==='slot'?p.payouts:p.marioCoins)+'</td>'+(rankMode==='slot'?'<td>'+f(p.stakes)+'</td><td>'+(p.payouts-p.stakes>0?'+':'')+f(p.payouts-p.stakes)+'</td><td>'+p.jackpots+'</td>':'')+'</tr>').join('')+'</tbody></table></div>'+(!rows.length?'<p class="arcade-note">Пока никто не сыграл. Здесь появятся результаты участников.</p>':'');
+ }
+ host.innerHTML=tools+tableHtml+'<div class="arcade-recent"><h3>Последние выигрыши</h3><p class="arcade-note">Последние 20 выигрышей всех игроков. Суммарный рейтинг включает всю историю.</p>'+A.recent().map(r=>'<div class="arcade-recent-row"><span>'+E(resolveUserDisplayName(r.userEmail,r.userName))+(r.result?.type==='jackpot'?' 👑 Джекпот':'')+'<small>'+E(new Date(r.timestamp).toLocaleString('ru-RU'))+'</small></span><b>+'+f(r.payout-r.cost)+' 🪙</b></div>').join('')+(!A.recent().length?'<p class="arcade-note">Выигрышей в последних событиях пока нет.</p>':'')+'</div>';
  host.querySelectorAll('[data-rank]').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.rank===rankMode));b.onclick=()=>{rankMode=b.dataset.rank;render(true);};});
 }
 function hearts(n){n=Math.max(0,Math.min(3,Number(n)||0));return '❤️'.repeat(n)+'🖤'.repeat(3-n);}
