@@ -65,7 +65,7 @@ export function bindNumericFields(root) {
   for (const input of root.querySelectorAll(
     'input[inputmode="decimal"],input[inputmode="numeric"]',
   )) {
-    if (input.dataset.numericBound || input.readOnly || input.disabled) return;
+    if (input.dataset.numericBound || input.readOnly || input.disabled) continue;
     input.dataset.numericBound = "";
     input.readOnly = true;
     input.inputMode = "none";
