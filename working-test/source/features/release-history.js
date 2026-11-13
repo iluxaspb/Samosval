@@ -1,6 +1,9 @@
 
 (function(){
-  const releases=[{version:'1.6.5',date:'2026-11-13',title:'Быстрое восстановление связи после фона',items:[
+  const releases=[{version:'1.6.6',date:'2026-11-13',title:'Подпись версии в шапке',items:[
+    'В шапке отображается слово «Версия» и номер через двоеточие — например, «Версия: 1.6.6»; по нажатию по-прежнему открывается история изменений.'
+]},
+  {version:'1.6.5',date:'2026-11-13',title:'Быстрое восстановление связи после фона',items:[
     'После возврата из фона приложение сразу проверяет связь лёгким запросом и снимает пометку «Работа локально» за секунды, не дожидаясь полной перезагрузки данных.',
     'Сбрасываются зависшие после сна фоновые флаги: возврат из фона больше не застревает в состоянии «обновляется» без реального запроса.',
     'Проверка новой версии запускается и по событиям focus/pageshow — страховка для Safari на iPhone.'
@@ -207,7 +210,7 @@
   `;document.head.appendChild(css);
   const label=document.querySelector('.version-text');if(!label)return;
   const metaVersion=document.querySelector('meta[name="working-test-version"]')?.content||document.querySelector('meta[name="test-app-version"]')?.content||releases[0].version;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent=metaVersion;button.setAttribute('aria-haspopup','dialog');button.title=canViewReleaseHistory()?'История изменений':'Номер сборки';button.disabled=!canViewReleaseHistory();label.replaceWith(button);
+  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия: '+metaVersion;button.setAttribute('aria-haspopup','dialog');button.title=canViewReleaseHistory()?'История изменений':'Номер сборки';button.disabled=!canViewReleaseHistory();label.replaceWith(button);
   button.addEventListener('click',()=>{
     if (!canViewReleaseHistory()) return;
     if(document.getElementById('releaseHistoryDialog'))return;
