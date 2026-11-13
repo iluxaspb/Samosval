@@ -79,15 +79,7 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     return a;
   };
   const guard = (job) => {
-    const stripped = (x) => {
-      const y = D.copy(x || {});
-      delete y.request;
-      return y;
-    };
-    const requestOnly =
-      job.before?.data &&
-      JSON.stringify(stripped(job.before.data)) ===
-        JSON.stringify(stripped(job.data));
+    const requestOnly = R.isRequestOnlyChange(job.before?.data, job.data);
     const area = job.key.endsWith("/config")
       ? requestOnly
         ? "request"
@@ -156,7 +148,11 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
   const storeSave = s.store.save.bind(s.store);
   s.store.save = async (key, ...args) => {
     const targetId = key.startsWith("_") ? s.object?.id : key.split("/")[0];
-    await s.confirmForeignWrite(targetId);
+    // Запись заявки меняет только поле request: состав смены не затрагивается,
+    // поэтому подтверждение «Изменение другого адреса» не нужно.
+    const [, data, base] = args;
+    if (!R.isRequestOnlyChange(base?.data, data))
+      await s.confirmForeignWrite(targetId);
     return storeSave(key, ...args);
   };
   const storeResolve = s.store.resolve.bind(s.store);

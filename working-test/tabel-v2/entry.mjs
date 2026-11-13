@@ -27,7 +27,7 @@ async function openInner(
     await opened.dispose(); opened = null;
   }
   let requestObject = null;
-  if (requestFirst && !host.shift) {
+  if (requestFirst) {
     if (!document.querySelector("[data-tabel-v2-css]")) {
       const l = document.createElement("link");
       l.rel = "stylesheet";
