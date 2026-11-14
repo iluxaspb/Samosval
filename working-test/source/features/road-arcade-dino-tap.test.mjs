@@ -69,13 +69,13 @@ test('кнопка: перетаскивание не вызывает прыж�
   assert.ok(fab.indexOf('dragged=true') < fab.indexOf("dinoInput.jump=true"), 'после начала перетаскивания прыжок не должен срабатывать');
 });
 
-test('версия 1.7.10: shell.html, working-test-release.js, release-history.js', () => {
-  assert.match(shellSource, /name="working-test-version" content="1\.7\.10"/, 'meta working-test-version в shell.html');
-  assert.match(shellSource, /Версия: 1\.7\.10/, 'span.version-text в shell.html');
-  assert.match(releaseSource, /version:'1\.7\.10'/, 'версия в working-test-release.js');
-  assert.match(historySource, /version:'1\.7\.10'/, 'запись 1.7.10 в release-history.js');
-  const first = historySource.indexOf("'1.7.10'");
-  assert.ok(first > 0 && first < historySource.indexOf("'1.7.9'"), 'запись 1.7.10 должна быть первой в списке');
+test('версия 1.7.11: shell.html, working-test-release.js, release-history.js', () => {
+  assert.match(shellSource, /name="working-test-version" content="1\.7\.11"/, 'meta working-test-version в shell.html');
+  assert.match(shellSource, /Версия: 1\.7\.11/, 'span.version-text в shell.html');
+  assert.match(releaseSource, /version:'1\.7\.11'/, 'версия в working-test-release.js');
+  assert.match(historySource, /version:'1\.7\.11'/, 'запись 1.7.11 в release-history.js');
+  const first = historySource.indexOf("'1.7.11'");
+  assert.ok(first > 0 && first < historySource.indexOf("'1.7.10'"), 'запись 1.7.11 должна быть первой в списке');
 });
 
 // Смоук: смоделированный DOM без canvas-механики — renderDino-подобный

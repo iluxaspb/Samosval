@@ -216,7 +216,14 @@
     // (например, сброс стека отмены/восстановления).
     try { window.dispatchEvent(new CustomEvent('wt-auth-session-changed', { detail: { uid: user && user.uid ? user.uid : null } })); } catch (_) {}
     if (typeof wtSessionHandler !== 'function') return;
-    try { wtSessionHandler(user); } catch (error) { if (typeof reportSyncError === 'function') reportSyncError('auth', error); }
+    try { wtSessionHandler(user); } catch (error) {
+      // 1.7.11: ошибка обработчика сессии роняла wtApplyAuthUser до запуска
+      // NAS-рантайма — UI навсегда оставался на «Проверка учётной записи…».
+      // Выводим её в консоль и сохраняем для страховочного таймера (04-subscriptions).
+      console.error('working-test: ошибка обработчика сессии (wtSessionHandler):', error);
+      if (typeof wtAuthCheckLastError !== 'undefined') { try { wtAuthCheckLastError = error; } catch (_) {} }
+      if (typeof reportSyncError === 'function') reportSyncError('auth', error);
+    }
   }
   function wtApplyLocalSession(profile) {
     const status = wtProfileStatus(profile);

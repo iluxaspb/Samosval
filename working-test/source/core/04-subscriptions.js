@@ -1,4 +1,7 @@
   let lineCountAuditStop = null, lineCountAuditKey = '';
+  // 1.7.11: страховка проверки учётной записи (см. wtApplyAuthUser) и
+  // последняя ошибка обработчика сессии (кладётся в 05-authentication.js).
+  let wtAuthCheckTimer = null, wtAuthCheckLastError = null;
   function syncLineCountAudit() {
     if(isNasRuntime()){lineCountAuditStop?.();lineCountAuditStop=null;return;}
     const shift = state.shift;
@@ -318,12 +321,26 @@
       state = { trucks:[], objects:[], logs:[], truckStatus:{}, shift:null, archive:[], trash:[], audit:[], notifications:[], users:[], requests:[], plugins:[], patches:[] };
       loadCache(); offlineRemoteStatuses={...state.truckStatus};offlineRemoteLogs=state.logs.slice();offlineProjectState(); renderAll();
       document.getElementById('userBadgeLabel').textContent = '👤 Проверка учётной записи…';
+      // 1.7.11: страховка от вечного «Проверка учётной записи…». Если за 45
+      // секунд проверка не завершилась (роль не установлена и NAS-клиент не
+      // создан), показываем понятную ошибку вместо молчаливого спиннера.
+      if (wtAuthCheckTimer) { clearTimeout(wtAuthCheckTimer); }
+      wtAuthCheckTimer = setTimeout(() => {
+        wtAuthCheckTimer = null;
+        if (sessionGeneration !== authSessionGeneration) return; // сессия уже сменилась
+        if (currentUserRole || currentUserStatus || nasRuntimeClient) return; // проверка завершилась
+        const badge = document.getElementById('userBadgeLabel');
+        if (badge) badge.textContent = '👤 Не удалось проверить учётную запись';
+        const detail = wtAuthCheckLastError ? (wtAuthCheckLastError.message || String(wtAuthCheckLastError)) : 'нет данных';
+        console.error('working-test: проверка учётной записи не завершилась за 45 с; последняя ошибка:', wtAuthCheckLastError || detail);
+        try { showToastEl('👤 Не удалось проверить учётную запись. Обновите страницу или войдите заново', true); } catch (_) {}
+      }, 45000);
       updateSyncUI();
       document.getElementById('authOverlay').style.display = 'none';
       // Общий режим данных хранится в документе Firebase. После перехода на
       // локальный вход Firebase-сессии нет, поэтому документ не читаем: иначе
       // пользователь увидел бы ложную ошибку доступа.
-      if (typeof auth !== 'undefined' && auth.currentUser) {
+      if (auth && auth.currentUser) {
         await ensureWorkingAuthority();
         try { watchWorkingAuthority(); } catch (_) {}
       }
