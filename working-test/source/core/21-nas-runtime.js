@@ -175,7 +175,7 @@
       nasSyncApi()?.reset?.(nasSyncRetry);
       nasResumePolling?.();
       await nasRefreshLine().catch(()=>{});
-      if(live())void replayNasOfflineJournal();
+      if(live())void replayNasOfflineJournal().catch(()=>{});
     }catch(_){
       // Краткий обрыв связи: подписка повторит попытку сама. Без уведомлений.
     }finally{nasWakeInFlight=false;}
@@ -225,7 +225,7 @@
       if(hasTabAccess('archive')||hasTabAccess('analytics'))reads.push(refreshNasArchive);
       if(canAdmin())reads.push(refreshNasAdministration);
       await Promise.allSettled(reads.map(read=>{try{return Promise.resolve(read());}catch(error){return Promise.reject(error);}}));
-      if(live())void replayNasOfflineJournal();
+      if(live())void replayNasOfflineJournal().catch(()=>{});
       return true;
     }catch(_){return false;}
     finally{nasActivityInFlight=false;
@@ -288,7 +288,7 @@
           if(session.identityReady&&!session.profile&&!registering){registering=true;void ensureNasPendingAccount(user).catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-registration',error);}).finally(()=>{registering=false;});}
           if(session.profile?.status==='active'&&(session.permissions.tabs.includes('line')||session.permissions.tabs.includes('trucks')||session.permissions.tabs.includes('timesheet')))void refreshNasObjects().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-objects',error);});
           if(canAdmin())void refreshNasAdministration().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-admin',error);});},
-        onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal();},
+        onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal().catch(()=>{});},
         onError:error=>{if(epoch!==nasRuntimeEpoch)return;reportSyncError('nas',error);}
       });};nasResumePolling();
       // Отсчёт тишины подписки начинается сразу: иначе до первого сеанса

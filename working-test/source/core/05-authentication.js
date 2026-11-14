@@ -122,8 +122,11 @@
     const accessToken = data && typeof data.accessToken === 'string' ? data.accessToken : '';
     const refreshToken = data && typeof data.refreshToken === 'string' ? data.refreshToken : '';
     if (!accessToken || !refreshToken) throw Object.assign(Error('Сервер не выдал токены сеанса.'), { code: 'invalid-session' });
-    wtSession = { profile, accessToken, refreshToken, expiresAt: Number(data.expiresAt) || 0 };
-    wtSessionUser = null;
+    const session = { profile, accessToken, refreshToken, expiresAt: Number(data.expiresAt) || 0 };
+    // Объект-владелец живёт, пока жив uid: продление сеанса (refresh) не должно
+    // пересоздавать его, иначе клиент данных увидит «смену сессии» после простоя.
+    if (!wtSessionUser || wtSessionUser.uid !== profile.uid) wtSessionUser = null;
+    wtSession = session;
     try {
       localStorage.setItem(WT_AUTH_ACCESS_KEY, accessToken);
       localStorage.setItem(WT_AUTH_REFRESH_KEY, refreshToken);

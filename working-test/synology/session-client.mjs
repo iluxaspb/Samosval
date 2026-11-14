@@ -26,7 +26,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   if(base.protocol!=='https:'||base.username||base.password||base.search||base.hash)throw TypeError('invalid-api-url');
   const apiRoot=base.href.replace(/\/$/,'');
   if(typeof getUser!=='function'||typeof fetchImpl!=='function'||typeof workspaceId!=='string'||!/^[\w-]{1,128}$/.test(workspaceId)||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw TypeError('invalid-client-options');
-  const owner=getUser();
+  let owner=getUser();
   if(!owner||typeof owner.uid!=='string'||!owner.uid||typeof owner.getIdToken!=='function')throw new NasClientError('authentication-required');
   const uid=owner.uid, controllers=new Set(), subscriptions=new Set(); let stopped=false;
   // После сворачивания приложения сокет и таймеры могут «умереть»: снаружи
@@ -51,7 +51,14 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     if(globalThis.location?.reload)setTimeout(()=>globalThis.location.reload(),50);
     throw new NasClientError('dataset-restored-reload',{status:409});
   }
-  function guard(){if(stopped||getUser()!==owner||owner.uid!==uid)throw new NasClientError('session-changed');}
+  // Смена сессии — это смена uid (или выход), а не новый объект с тем же uid:
+  // после продления сеанса объект-владелец может быть пересоздан, uid тот же.
+  function guard(){
+    if(stopped)throw new NasClientError('session-changed');
+    const current=getUser();
+    if(!current||current.uid!==uid)throw new NasClientError('session-changed');
+    if(current!==owner)owner=current;
+  }
   function backgroundRequest(path,options){
     guard();const existing=backgroundReads.get(path);if(existing)return existing;
     const work=backgroundTail.then(()=>request(path,options));
@@ -259,7 +266,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   function subscribeLine({onSession,onSnapshot,onError,intervalMs=4000}={}) {
     guard();
     if(![onSession,onSnapshot,onError].every(f=>typeof f==='function')||!Number.isSafeInteger(intervalMs)||intervalMs<1000||intervalMs>60000)throw TypeError('invalid-subscription-options');
-    let closed=false,timer,inFlight=false,wakeRequested=false;
+    let closed=false,timer,inFlight=false,wakeRequested=false,recoveryAttempts=0,rescheduled=false;
     const teardowns=[];
     const close=()=>{closed=true;clearTimeout(timer);if(subscriptionWake===wake)subscriptionWake=null;for(const off of teardowns)off();teardowns.length=0;subscriptions.delete(close);}; subscriptions.add(close);
     const schedule=delay=>{if(closed)return;clearTimeout(timer);timer=setTimeout(tick,delay);};
@@ -300,8 +307,22 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
           error.phase='watchdog';error.message+=': watchdog';reject(error);
         },30000);});
         await Promise.race([work,deadline]);
-      }catch(error){if(closed)return;onError(error);if(error.code==='session-changed'){close();return;}}
-      finally{clearTimeout(watchdog);inFlight=false;if(!closed){if(wakeRequested){wakeRequested=false;schedule(0);}else schedule(intervalMs);}}
+        recoveryAttempts=0;
+      }catch(error){
+        if(closed)return;
+        onError(error);
+        if(error.code==='session-changed'){
+          // Реальный выход — это смена uid или getUser()===null. Если объект
+          // владельца пересоздан с тем же uid (продление после простоя), живём:
+          // повторный вход с бэкоффом вместо close() навсегда.
+          const current=getUser();
+          if(!current||current.uid!==uid){close();return;}
+          recoveryAttempts=Math.min(recoveryAttempts+1,4);
+          rescheduled=true;
+          schedule([2000,5000,10000,30000][recoveryAttempts-1]);
+          return;
+        }
+      }finally{clearTimeout(watchdog);inFlight=false;if(!closed){if(rescheduled){rescheduled=false;}else if(wakeRequested){wakeRequested=false;schedule(0);}else schedule(intervalMs);}}
     }
     subscriptionWake=wake;void tick();return close;
   }

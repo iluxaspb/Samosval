@@ -70,10 +70,10 @@ test('кнопка: перетаскивание не вызывает прыж�
 });
 
 test('версия 1.7.8: shell.html, working-test-release.js, release-history.js', () => {
-  assert.match(shellSource, /name="working-test-version" content="1\.7\.8"/, 'meta working-test-version в shell.html');
-  assert.match(shellSource, /Версия: 1\.7\.8/, 'span.version-text в shell.html');
-  assert.match(releaseSource, /version:'1\.7\.8'/, 'версия в working-test-release.js');
-  assert.match(historySource, /version:'1\.7\.8'/, 'запись 1.7.8 в release-history.js');
+  assert.match(shellSource, /name="working-test-version" content="1\.7\.9"/, 'meta working-test-version в shell.html');
+  assert.match(shellSource, /Версия: 1\.7\.9/, 'span.version-text в shell.html');
+  assert.match(releaseSource, /version:'1\.7\.9'/, 'версия в working-test-release.js');
+  assert.match(historySource, /version:'1\.7\.9'/, 'запись 1.7.8 в release-history.js');
   const first = historySource.indexOf("'1.7.8'");
   assert.ok(first > 0 && first < historySource.indexOf("'1.7.7'"), 'запись 1.7.8 должна быть первой в списке');
 });
