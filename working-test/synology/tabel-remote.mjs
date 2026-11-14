@@ -1,5 +1,5 @@
 // Optional NAS backend for the existing durable Tabel Store. No Firebase fallback.
-export function createTabelRemote({baseUrl,getIdToken,fetchImpl=globalThis.fetch,guard=()=>{},timeoutMs=20000,pollMs=10000,datasetEpoch=0}={}) {
+export function createTabelRemote({baseUrl,getIdToken,fetchImpl=globalThis.fetch,guard=()=>{},timeoutMs=20000,pollMs=5000,datasetEpoch=0}={}) {
   let base;
   try {base=new URL(baseUrl);} catch {throw TypeError('invalid-api-url');}
   if (base.protocol!=='https:' || base.username || base.password || base.search || base.hash) throw TypeError('invalid-api-url');

@@ -1932,13 +1932,41 @@ export async function mount(s, host) {
     async refresh() {
       if (disposed || !sheetId) return;
       const current = s.store.get(key());
+      const sheetChanged =
+        current?.data && JSON.stringify(current.data) !== JSON.stringify(sheet);
+      // Detect structural growth of the linked table: new days become new
+      // columns and a cell-only patch cannot add them.
+      const dimsBefore = (() => {
+        if (sheetId !== "linked") return null;
+        return (
+          visibleDays.map((d) => D.dayKey(d.date, d.shift)).join(",") +
+          "|" +
+          linkedRows.map((r) => r.id).join(",")
+        );
+      })();
       if (current?.data) {
         base = current;
         sheet = current.data;
-        // Incoming day records are the source of linkedRows and visibleDays.
-        allDays = s.days();
-        refreshVisibleCells();
       }
+      // Incoming day records are the source of linkedRows and visibleDays.
+      // Live updates (another user's edit) must repaint without a full
+      // remount: keep scroll, focus and the active editor. Structural sheet
+      // changes (rows/merges/styles) still need draw(); day-value changes
+      // are patched in place cell by cell.
+      allDays = s.days();
+      if (sheetChanged) draw();
+      else if (sheetId === "linked") {
+        // dimensions() re-derives visibleDays/linkedRows from the refreshed
+        // allDays; the length-only check above compared stale variables that
+        // only dimensions() itself updates, hiding new days/rows.
+        dimensions();
+        const dimsAfter =
+          visibleDays.map((d) => D.dayKey(d.date, d.shift)).join(",") +
+          "|" +
+          linkedRows.map((r) => r.id).join(",");
+        if (dimsBefore !== dimsAfter) draw();
+        else refreshVisibleCells();
+      } else refreshVisibleCells();
     },
     finish: () => (dirty ? queueCommit() : chain),
     snapshot() {
