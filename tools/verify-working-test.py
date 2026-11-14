@@ -49,7 +49,7 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.7.9'
+REQUIRED_VERSION = '1.7.10'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
 FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
@@ -351,13 +351,22 @@ def check_modules(entry_text, model, manifest, build_id):
         return
     if len(set(names)) != len(names):
         fail('модули/порядок', 'повторяющиеся имена модулей в модели')
-    # состав набора модулей: тот же, что в тестовом релизе, кроме переименования
+    # состав набора модулей: база совпадает с тестовым релизом, кроме
+    # переименования и осознанных отличий 1.7.10: слой патчей удалён
+    # (функционал перенесён в модули features/), добавлен модуль связи.
+    WT_ONLY_MODULES = {
+        'undo-redo', 'analytics-v2', 'reset-hold', 'pretty-confirm',
+        'ticker-name', 'nav-sort', 'fix-log-delete', 'anim-speeds',
+        'admin-compact', 'nas-connection',
+    }
+    WT_REMOVED_MODULES = {'built-in-patches'}
     if REFERENCE_MODEL.is_file():
         reference = [m.get('name') for m in json.loads(read(REFERENCE_MODEL))['modules']]
         mapped = ['working-test-release' if name == 'test-release' else name for name in reference]
-        if mapped != names:
-            only_ref = [n for n in mapped if n not in names]
-            only_new = [n for n in names if n not in mapped]
+        expected = [n for n in mapped if n not in WT_REMOVED_MODULES]
+        only_ref = [n for n in expected if n not in names]
+        only_new = [n for n in names if n not in mapped and n not in WT_ONLY_MODULES]
+        if only_ref or only_new:
             fail('модули/порядок', 'набор модулей отличается от тестового релиза; '
                  'лишние: %s; отсутствуют: %s' % (only_new or '—', only_ref or '—'))
     seen = set()
@@ -553,9 +562,9 @@ def check_firebase(texts):
     joined = '\n'.join(text for _, text in texts)
     if not re.search(r'projectId\s*:\s*["\']%s["\']' % FIREBASE_PROJECT, joined):
         fail('firebase/поставщик', 'в снимке working-test нет projectId: "%s"' % FIREBASE_PROJECT)
-    if not re.search(r'authDomain\s*:\s*["\']%s[."\']' % FIREBASE_PROJECT, joined):
+    if not re.search(r'authDomain\s*:\s*["\']%s[."\'i]' % FIREBASE_PROJECT, joined):
         fail('firebase/поставщик', 'в снимке нет authDomain проекта %s' % FIREBASE_PROJECT)
-    if re.search(r'(projectId|authDomain)\s*:\s*["\']samosval-offline[.\"\']', joined):
+    if re.search(r'(projectId|authDomain)\s*:\s*["\']samosval-offline[."\'i]', joined):
         fail('firebase/поставщик', 'в снимке остался проект samosval-offline: версия должна работать с рабочей базой samosval-test')
     if 'ubuntu-candidate' in joined:
         fail('firebase/поставщик', 'в снимке остался маркер ubuntu-candidate')
@@ -564,11 +573,19 @@ def check_firebase(texts):
 
 
 def check_firebase_app_name(sources):
-    """Именованное приложение Firebase изолирует persistence IndexedDB от теста."""
+    """С 1.7.10 Firebase SDK в рабочей версии НЕ загружается: приложение
+    целиком работает через Ubuntu API. Проверяем инвариант вместо имени
+    приложения: ни один исходник не грузит compat-SDK и не вызывает
+    initializeApp; флаг FIREBASE_SDK_PRESENT есть и по умолчанию «SDK нет»."""
     texts = runtime_texts(sources)
     joined = '\n'.join(text for _, text in texts)
+    if re.search(r'<script[^>]+src="[^"]*firebase[^"]*"', joined):
+        fail('firebase/поставщик', 'в снимке осталась загрузка firebase-скрипта (SDK должен отсутствовать)')
+        return
     init_calls = []
     for name, text in texts:
+        if name.endswith('.test.mjs') or name.endswith('.test.js'):
+            continue  # тесты не поставляются в браузер: literal в проверках допустим
         for match in re.finditer(r'initializeApp\s*\(', text):
             depth, cursor, arguments = 0, match.end(), ''
             while cursor < len(text) and len(arguments) < 400:
@@ -579,26 +596,21 @@ def check_firebase_app_name(sources):
                     if depth == 0:
                         break
                     depth -= 1
-                # Capture ALL arguments (including commas at depth 0) so the
-                # second argument of initializeApp(config, 'name') is visible.
                 arguments += char
                 cursor += 1
             init_calls.append((name, arguments))
-    if not init_calls:
-        fail('firebase/поставщик',
-             'в снимке нет вызова initializeApp — приложение Firebase не создаётся')
+    if init_calls:
+        for name, arguments in init_calls:
+            fail('firebase/поставщик',
+                 '%s вызывает initializeApp — в рабочей версии SDK не инициализируется' % name)
         return
-    named = [call for call in init_calls
-             if re.search(r'[\'"]%s[\'"]' % re.escape(FIREBASE_APP_NAME), call[1])]
-    if not named:
+    if 'FIREBASE_SDK_PRESENT' not in joined:
         fail('firebase/поставщик',
-             'initializeApp не создаёт именованное приложение %r: persistence IndexedDB '
-             'будет общим с тестовым релизом' % FIREBASE_APP_NAME)
-    if not re.search(r'(?:firebase\.app|getApp)\s*\(\s*[\'"]%s[\'"]'
-                     % re.escape(FIREBASE_APP_NAME), joined):
-        fail('firebase/поставщик',
-             'приложение %r нигде не запрашивается по имени: остальные модули могут '
-             'работать с приложением по умолчанию' % FIREBASE_APP_NAME)
+             'в снимке нет флага FIREBASE_SDK_PRESENT: обращения firebase.* '
+             'должны быть защищены явным признаком отсутствия SDK')
+    shell = read(SHELL)
+    if re.search(r'<script[^>]+src="[^"]*firebase[^"]*"', shell):
+        fail('firebase/поставщик', 'shell.html всё ещё грузит Firebase SDK')
 
 
 # ---------- 6. service worker ----------

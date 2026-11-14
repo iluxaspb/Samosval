@@ -479,6 +479,9 @@
 
     // ===== Авто-миграция =====
     async function autoMigrate() {
+      // Firestore-миграция старых записей уведомлений: в рабочей версии
+      // SDK не загружается, уведомления хранит сервер Ubuntu — нечего мигрировать.
+      return;
       try {
         const snap = await refs.notifications.orderBy('timestamp', 'desc').limit(50).get();
         if (snap.empty) return;

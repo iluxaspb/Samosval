@@ -412,7 +412,6 @@
     if (tab === 'requests' || tab === 'users') renderAdminPanel();
     if (tab === 'requests') refreshRegistrationRequests();
     if (tab === 'plugins') renderPluginsList();
-    if (tab === 'patches') renderPatchesList();
     if (tab === 'console') renderConsole();
     if (tab === 'appsettings') renderAppSettingsIfActive();
   }

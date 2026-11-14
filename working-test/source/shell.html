@@ -9,15 +9,13 @@
   <title>Учет самосвалов и Табель</title>
 
   <script src="./working-test/src/storage.js"></script>
-  <script src="./working-test/vendor/firebase-app-compat-10.8.0.js"></script>
-  <script src="./working-test/vendor/firebase-auth-compat-10.8.0.js"></script>
-  <script src="./working-test/vendor/firebase-firestore-compat-10.8.0.js"></script>
+  <!-- Firebase SDK удалён в 1.7.10: рабочая версия всегда работает через Ubuntu API -->
   <script src="./working-test/vendor/html2pdf-0.10.1.bundle.min.js"></script>
 
   <!-- TEST-MODULE:style-04 -->
   <!-- TEST-MODULE:style-05 -->
   <meta name="test-data-provider" content="firebase">
-  <meta name="working-test-version" content="1.7.9">
+  <meta name="working-test-version" content="1.7.10">
   <meta name="working-test-build" content="0000000000000000">
 </head>
 <body>
@@ -61,7 +59,7 @@
         <span id="syncBadge" class="sync-badge"></span>
       </button>
       <div class="user-stack">
-        <span class="version-text" title="История изменений">Версия: 1.7.9</span>
+        <span class="version-text" title="История изменений">Версия: 1.7.10</span>
         <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       </div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
@@ -227,7 +225,6 @@
       <button class="admin-tab-btn" onclick="switchAdminTab('users', this)">Юзеры</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('permissions', this)">Права</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('plugins', this)">🧩 Расширения</button>
-      <button class="admin-tab-btn" onclick="switchAdminTab('patches', this)">🔧 Патчи</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('console', this)">🖥 Консоль</button>
       <button class="admin-tab-btn" onclick="switchAdminTab('appsettings', this)">⚙️ Настройки</button>
     </div>
@@ -259,15 +256,6 @@
       <div id="pluginsListContainer"></div>
     </div>
 
-    <div id="admin-sub-patches" class="admin-section">
-      <div class="section-title" style="margin-top:0;">🔧 Патчи ядра программы</div>
-      <div style="font-size:12px; color:var(--muted); margin-bottom:12px; line-height:1.5;">
-        Патчи применяются автоматически при загрузке. Если патч сломан — программа продолжит работать, а ошибка будет видна в консоли. Если хотите откатить изменения — выключите галочку или удалите патч, затем обновите страницу.
-      </div>
-      <button class="btn btn-quick" style="width:100%; margin-bottom:16px;" onclick="openPatchModal()">➕ Добавить патч</button>
-      <div id="patchesListContainer"></div>
-    </div>
-
     <div id="admin-sub-console" class="admin-section">
       <div class="section-title" style="margin-top:0;">🖥 Консоль отладки</div>
       <div style="font-size:11px; color:var(--muted); margin-bottom:10px; line-height:1.4;">
@@ -294,7 +282,6 @@
           <div class="form-group">
             <label for="testBackendMode">Подключение</label>
             <select id="testBackendMode" class="form-control" onchange="setTestBackendMode(this.value)" aria-describedby="testBackendModeNote" disabled>
-              <option value="firebase">Только Firebase</option>
               <option value="ubuntu">Только Ubuntu</option>
             </select>
           </div>
@@ -409,68 +396,6 @@
   </div>
 </div>
 
-<div id="patchEditModal" class="modal" onclick="if(event.target===this)closePatchModal()">
-  <div class="modal-content" style="max-width: 900px;">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h3 id="patchModalTitle">Новый патч</h3>
-      <button class="btn-del" onclick="closePatchModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="editPatchId">
-      
-      <div class="form-group">
-        <label>Название патча</label>
-        <input type="text" id="patchName" class="form-control" placeholder="Например: Точечка при ТТН">
-      </div>
-      
-      <div class="form-group">
-        <label>Тип патча</label>
-        <select id="patchType" class="form-control" onchange="togglePatchType()">
-          <option value="function">🔁 Заменить функцию (вставить полную версию функции)</option>
-          <option value="replace">🔍 Найти и заменить (точечная правка)</option>
-        </select>
-      </div>
-
-      <div id="patchFunctionMode">
-        <div class="form-group">
-          <label>Код функции</label>
-          <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">
-            Пример: <code>window.renderReport = function() { ... };</code>
-          </div>
-          <textarea id="patchCodeFunction" class="form-control" spellcheck="false" style="min-height:300px;"></textarea>
-          <div style="display:flex; gap:8px; margin-top: 8px;">
-            <button class="btn btn-secondary btn-small" style="flex:1;" onclick="clearPatchField('patchCodeFunction')">🗑 Очистить</button>
-            <button class="btn btn-secondary btn-small" style="flex:1;" onclick="pastePatchField('patchCodeFunction')">📋 Вставить</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="patchReplaceMode" style="display:none;">
-        <div class="form-group">
-          <label>Имя функции (без скобок, например: renderReport)</label>
-          <input type="text" id="patchFnName" class="form-control" placeholder="renderReport">
-          <div style="font-size:11px; color:var(--muted); margin-top:4px;">
-            Функция должна быть объявлена как <code>function renderReport()</code> или <code>async function renderReport()</code>. Функции внутри стрелочных выражений и констант (<code>const</code>) не поддерживаются.
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Найти (точный текст из исходного кода)</label>
-          <textarea id="patchFind" class="form-control" spellcheck="false" style="min-height:100px; font-family:monospace;"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Заменить на</label>
-          <textarea id="patchReplace" class="form-control" spellcheck="false" style="min-height:100px; font-family:monospace;"></textarea>
-        </div>
-      </div>
-
-    </div>
-    <div style="display:flex; gap:10px; margin-top:10px;">
-      <button class="btn btn-quick" style="flex:1;" onclick="savePatch()">💾 Сохранить</button>
-      <button class="btn btn-secondary" onclick="closePatchModal()">Отмена</button>
-    </div>
-  </div>
-</div>
-
 <div id="startShiftModal" class="modal" onclick="if(event.target===this)closeStartShiftModal()">
   <div class="modal-content">
     <div style="display:flex; justify-content:space-between; align-items:center;"><h3>Выбор объекта</h3><button class="btn-del" onclick="closeStartShiftModal()">✕</button></div>
@@ -547,9 +472,16 @@
 <!-- TEST-MODULE:auto-backup -->
 
 <!-- TEST-MODULE:history-recorder -->
-<!-- === BAKED PATCHES START === -->
-<!-- TEST-MODULE:built-in-patches -->
-<!-- === BAKED PATCHES END === -->
+<!-- === BAKED PATCHES: слой патчей удалён в 1.7.10, живой функционал перенесён в features/ === -->
+<!-- TEST-MODULE:undo-redo -->
+<!-- TEST-MODULE:analytics-v2 -->
+<!-- TEST-MODULE:reset-hold -->
+<!-- TEST-MODULE:pretty-confirm -->
+<!-- TEST-MODULE:ticker-name -->
+<!-- TEST-MODULE:nav-sort -->
+<!-- TEST-MODULE:fix-log-delete -->
+<!-- TEST-MODULE:anim-speeds -->
+<!-- TEST-MODULE:admin-compact -->
 
 <!-- Test-only reversible line card stacking fix -->
 <!-- TEST-MODULE:line-card-layers -->

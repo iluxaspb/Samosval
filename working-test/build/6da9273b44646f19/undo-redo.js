@@ -105,7 +105,6 @@
   // ===== Стеки =====
   const stackKey=()=>isNasRuntime()?'wt_undo_redo_nas_v1:'+nasStorageScope():'wt_undo_redo_v3:'+firebaseConfig.projectId+':'+WORKSPACE_ID+':'+currentUid;
   const MAX_SIZE = 300;
-  const MAX_CLOUD_SIZE = 30;
   let undoStack = [];
   let redoStack = [];
   let stackOwner='';
@@ -129,19 +128,10 @@
     if(cloudHistoryLoading||!navigator.onLine||!canUndo())return;
     cloudHistoryLoading=true;const historyUid=currentUid;
     try{
-      if(isNasRuntime()){
-        const client=nasRuntimeClient,snapshot=await client.readHistory();if(currentUid!==historyUid||client!==nasRuntimeClient)return;
-        const rows=snapshot.items.map(x=>({...x,nas:true,user:x.userName,description:({arrive:'Прибытие',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'}[x.type]||x.type)+' · '+truckName(x.truckId),operations:[]})).sort((a,b)=>a.timestamp-b.timestamp);
-        undoStack=rows.filter(x=>!x.undone);redoStack=rows.filter(x=>x.undone);saveStacks();refreshUI();return;
-      }
-      const snap=await Promise.race([refs.audit.orderBy('timestamp','desc').limit(300).get({source:'server'}),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Нет связи с журналом')),4000))]);
-      if(currentUid!==historyUid)return;
-      const rows=snap.docs.map(d=>{const x=d.data();return x.eventType==='history'&&x.history?{...x.history,id:d.id}:null;}).filter(Boolean);
-      const seen=new Set(rows.map(x=>x.id));
-      const legacy=[...undoStack,...redoStack].filter(x=>!seen.has(x.id));
-      undoStack=[...rows.filter(x=>!x.undone),...legacy.filter(x=>!x.undone)].sort((a,b)=>a.timestamp-b.timestamp).slice(-MAX_SIZE);
-      redoStack=[...rows.filter(x=>x.undone),...legacy.filter(x=>x.undone)].sort((a,b)=>a.timestamp-b.timestamp).slice(-MAX_SIZE);
-      saveStacks();refreshUI();
+      // Рабочая версия всегда NAS: журнал истории приходит из Ubuntu API.
+      const client=nasRuntimeClient,snapshot=await client.readHistory();if(currentUid!==historyUid||client!==nasRuntimeClient)return;
+      const rows=snapshot.items.map(x=>({...x,nas:true,user:x.userName,description:({arrive:'Прибытие',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'}[x.type]||x.type)+' · '+truckName(x.truckId),operations:[]})).sort((a,b)=>a.timestamp-b.timestamp);
+      undoStack=rows.filter(x=>!x.undone);redoStack=rows.filter(x=>x.undone);saveStacks();refreshUI();return;
     }catch(e){console.warn('Журнал:',e.message);}finally{cloudHistoryLoading=false;}
   }
   function saveStacks(){
@@ -534,15 +524,8 @@
   setTimeout(() => { buildUI(); refreshUI(); }, 2000);
 
   try {
-    firebase.app('working-test').auth().onAuthStateChanged(() => {undoStack=[];redoStack=[];
-      setTimeout(() => { buildUI(); refreshUI(); }, 200);
-      setTimeout(() => { buildUI(); refreshUI(); }, 1000);
-      setTimeout(() => { buildUI(); refreshUI(); }, 2500);
-    });
-  } catch(e) {}
-  // Вход теперь выполняет локальный сервер Ubuntu: сброс стека должен
-  // происходить по событию локальной сессии, а не только по Firebase.
-  try {
+    // Вход выполняет локальный сервер Ubuntu: сброс стека — по событию
+    // локальной сессии (Firebase SDK в рабочей версии не загружается).
     window.addEventListener('wt-auth-session-changed', () => {undoStack=[];redoStack=[];
       setTimeout(() => { buildUI(); refreshUI(); }, 200);
       setTimeout(() => { buildUI(); refreshUI(); }, 1000);

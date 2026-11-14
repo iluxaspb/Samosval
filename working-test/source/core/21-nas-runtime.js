@@ -42,6 +42,7 @@
   const nasCommandFlights=new Map();
   function stopNasRuntime() {
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
+    nasConnectionStop();
     nasWakeStop?.();nasWakeStop=null;nasWakeInFlight=false;nasWakeAt=0;
     if(nasActivityTimer&&typeof clearInterval==='function'){clearInterval(nasActivityTimer);nasActivityTimer=null;}
     nasActivityTimer=null;nasActivityInFlight=false;nasActivityPending=false;nasActivityGate=null;
@@ -168,7 +169,12 @@
       nasDropHungReads();
       try{nasRuntimeClient?.abortInflight?.();}catch(_){}
       // Probe идёт отдельным запросом: зависшие фоновые чтения его не держат.
-      if(typeof client.probe==='function')await client.probe();else await client.readSession();
+      let probeOk=false;
+      try{if(typeof client.probe==='function')await client.probe(15000);else await client.readSession();probeOk=true;}catch(_){probeOk=false;}
+      // Результат пробы питает единый супервизор связи: восстановление
+      // подтверждается сразу, а не по 15-с таймауту его цикла.
+      if(probeOk)nasConnection?.reportSuccess?.();else nasConnection?.reportFailure?.('transport');
+      if(!probeOk)return;
       if(!live())return;
       offlineTransportRecovered();
       // Связь подтверждена: ошибки источников читаем заново без задержки.
@@ -181,6 +187,57 @@
     }finally{nasWakeInFlight=false;}
   }
   function nasActivityApi(){return typeof WorkingTestNasActivity!=='undefined'?WorkingTestNasActivity:null;}
+  // Единый канал восстановления связи (1.7.10): состояние одно на всё
+  // приложение, повторы — только здесь. Пока супервизор считает связь
+  // потерянной, каналы не шлют собственных повторов.
+  let nasConnection=null;
+  function nasConnectionOnline(){return !nasConnection||nasConnection.snapshot().online;}
+  function nasConnectionStop(){try{nasConnection?.stop?.();}catch(_){}nasConnection=null;}
+  // «Сердце» связи: любой успешный ответ канала подтверждает связь, любая
+  // транспортная ошибка любого канала — единственный сигнал потери.
+  // Вызывается из markSync/reportSyncError (03-formatting.js).
+  function nasConnectionHeart(ok,error){
+    if(!nasConnection)return;
+    try{
+      if(ok)nasConnection.reportSuccess();
+      else nasConnection.reportFailure(error?.name==='TypeError'||!navigator?.onLine?'browser-offline':'transport');
+    }catch(_){}
+  }
+  function nasStartConnection(client,epoch){
+    const api=typeof WorkingTestNasConnection!=='undefined'?WorkingTestNasConnection:null;
+    if(!api)return;
+    nasConnectionStop();
+    nasConnection=api.create({
+      probe:async()=>{
+        if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Сеанс изменился');
+        // Проба — лёгкий GET /api/v1/session с 15-с таймаутом.
+        if(typeof client.probe==='function')return await client.probe(15000);
+        return await client.readSession();
+      },
+      log:text=>{console.log(text);},
+      emit:(kind,detail)=>{
+        try{window.dispatchEvent(new CustomEvent('samosval-working-test-connection',{detail:{kind,...detail}}));}catch(_){}
+        if(kind==='offline'){
+          // Одно сообщение на переход, а не по одному на каждый канал.
+          showToastEl('📴 Нет связи с сервером, переподключаюсь…',true);
+        }else if(kind==='online'){
+          showToastEl('✅ Связь восстановлена',false);
+          // Один общий цикл перечитывания: линия первой (урок 1.6.0).
+          nasDropHungReads();
+          nasSyncApi()?.reset?.(nasSyncRetry);
+          nasResumePolling?.();
+          void nasRefreshLine().catch(()=>{}).then(()=>{
+            if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)return;
+            const reads=[refreshNasObjects,refreshNasSettings,refreshNasAuxiliary,refreshNasGames];
+            if(hasTabAccess('archive')||hasTabAccess('analytics'))reads.push(refreshNasArchive);
+            if(canAdmin())reads.push(refreshNasAdministration);
+            return Promise.allSettled(reads.map(read=>{try{return Promise.resolve(read());}catch(_){return Promise.resolve();}}));
+          }).then(()=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient)void replayNasOfflineJournal().catch(()=>{});});
+        }
+        try{updateSyncUI();}catch(_){}
+      }
+    });
+  }
   // Быстрая проверка связи при возврате из фона: лёгкий probe() прерывает
   // мёртвые сокеты (abortInflight) и снимает «Работа локально» за секунды,
   // не дожидаясь полной серии nasActiveRefresh и её reads.
@@ -189,7 +246,7 @@
     if(typeof navigator!=='undefined'&&navigator.onLine===false)return;
     if(typeof document!=='undefined'&&document.hidden)return;
     try{client.abortInflight?.();}catch(_){}
-    Promise.resolve(client.probe()).then(()=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient)offlineTransportRecovered();},()=>{});
+    Promise.resolve(client.probe()).then(()=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient){offlineTransportRecovered();nasConnection?.reportSuccess?.();}},()=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient)nasConnection?.reportFailure?.('transport');});
   }
   function nasActivityGateState(){if(!nasActivityGate){const api=nasActivityApi();nasActivityGate=api?api.createGate({minGap:4000}):{lastAt:0,minGap:4000,pending:false};}return nasActivityGate;}
   // Приложение активно на экране: вкладка видима и сеть есть.
@@ -202,6 +259,13 @@
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
     if(!client||epoch!==nasRuntimeEpoch||currentUserStatus!=='active')return false;
     if(!nasScreenActive())return false;
+    // Периодический опрос не идёт, пока супервизор считает связь потерянной:
+    // он сам перечитает все источники после первой успешной пробы.
+    if(reason==='poll'&&!nasConnectionOnline())return false;
+    // Оффлайн по решению супервизора: не шлём новые запросы каналов до
+    // восстановления пробы. Исключение — браузер сообщил «сеть вернулась»:
+    // это и есть сигнал для пробуждения.
+    if(reason!=='online'&&!nasConnectionOnline())return false;
     const api=nasActivityApi(),gate=nasActivityGateState();
     const allowed=api?api.allow(gate,Date.now(),force):true;
     if(!allowed){nasActivityPending=true;return false;}
@@ -239,10 +303,12 @@
       'nas-settings':refreshNasSettings,'nas-admin':refreshNasAdministration};
   }
   // Надзиратель: повторяет чтение только упавших источников с нарастающей
-  // паузой. Ничего не делает, когда приложение свёрнуто или сети нет.
+  // паузой. Ничего не делает, когда приложение свёрнуто, сети нет или связь
+  // потеряна по решению единого супервизора (повторы делает только он).
   function nasSyncSupervisorTick(){
     if(typeof document!=='undefined'&&document.hidden)return;
     if(typeof navigator!=='undefined'&&!navigator.onLine)return;
+    if(!nasConnectionOnline())return;
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
     if(!client||epoch!==nasRuntimeEpoch||currentUserStatus!=='active')return;
     const resume=nasSyncApi();if(!resume)return;
@@ -265,7 +331,8 @@
     try{
       const {createNasClient}=await loadNasSessionClient();
       if(epoch!==nasRuntimeEpoch||wtAuthUser()!==user||currentUid!==user.uid)return;
-      const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>wtAuthUser(),workspaceId:WORKSPACE_ID});nasRuntimeClient=client;
+      const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>wtAuthUser(),workspaceId:WORKSPACE_ID,timeoutMs:15000});nasRuntimeClient=client;
+      nasStartConnection(client,epoch);
       // Pulse: proves this phone is alive and tells the servers how many phones
       // still see the primary. Failover needs many phones, not one.
       const pulse=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;if(typeof client.writeAuthorityPresence!=='function')return;try{client.writeAuthorityPresence({}).catch(()=>{});}catch(_){}};
@@ -510,7 +577,7 @@
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');
     const {createNasClient}=await loadNasSessionClient();
     if(getUser()!==user)throw Error('Сеанс регистрации изменился');
-    const client=createNasClient({baseUrl: nasApiBase(), getUser,workspaceId:WORKSPACE_ID});
+    const client=createNasClient({baseUrl: nasApiBase(), getUser,workspaceId:WORKSPACE_ID,timeoutMs:15000});
     try{return await client.registerPending({nickname:sanitizeName(user.email||'')});}finally{client.stop();}
   }
   async function refreshNasAdministration() {

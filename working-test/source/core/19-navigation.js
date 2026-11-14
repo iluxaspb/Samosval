@@ -72,7 +72,7 @@
       return {session, workspace: wsRef, refs,
         users:async()=>state.users.length?state.users:(await usersRef.get()).docs.map(d=>({...d.data(),id:d.id})),
         transaction:fn=>db.runTransaction(fn),
-        documentId:()=>firebase.firestore.FieldPath.documentId(),
+        documentId:()=>(FIREBASE_SDK_PRESENT && typeof firebase!=='undefined' ? firebase.firestore.FieldPath.documentId() : 'firebase-unavailable'),
         get shift(){return state.shift;}, get objects(){return state.objects;},
         snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive}),
         createObject:async(name,startDate)=>{

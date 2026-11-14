@@ -54,44 +54,8 @@
     const log = state.logs.find(l => l.id === id);
     if (!log) { if (typeof showError === 'function') showError('Рейс не найден'); return; }
 
-    if(isNasRuntime()){try{await nasReportAction('report.delete',log);forceRenderAll();showToastEl('🗑 Рейс удалён',false);}catch(e){showError(e.message);}return;}
-    const snapshot = Object.assign({}, log);
-
-    try {
-      // 1. Сначала удаляем из Firestore и ждём подтверждения
-      await refs.logs.doc(id).delete();
-
-      // 2. Только после успеха — удаляем из локального состояния
-      state.logs = state.logs.filter(x => x.id !== id);
-      if (typeof saveCache === 'function') saveCache();
-
-      // 3. Принудительно перерисовываем всё
-      forceRenderAll();
-
-      // 4. Дополнительные перерисовки на случай, если onSnapshot ещё не отработал
-      setTimeout(forceRenderAll, 100);
-      setTimeout(forceRenderAll, 400);
-      setTimeout(forceRenderAll, 1000);
-
-      // 5. Тост
-      if (typeof showToastEl === 'function') {
-        showToastEl('🗑 Рейс удалён: ' + (snapshot.truckName || '') + ' (+' + (snapshot.volume || 0) + ' м³)', false);
-      }
-
-      // 6. Аудит
-      if (typeof addAudit === 'function') {
-        addAudit('🗑 Удалён рейс: ' + (snapshot.truckName || '') + ' (+' + (snapshot.volume || 0) + ' м³)').catch(()=>{});
-      }
-    } catch(e) {
-      // Ошибка Firestore — восстанавливаем локально
-      if (!state.logs.find(l => l.id === id)) {
-        state.logs.push(snapshot);
-        state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-        if (typeof saveCache === 'function') saveCache();
-      }
-      forceRenderAll();
-      if (typeof showError === 'function') showError('Не удалось удалить рейс: ' + e.message);
-    }
+    // Рабочая версия всегда NAS: удаление рейса — серверная команда Ubuntu.
+    try{await nasReportAction('report.delete',log);forceRenderAll();showToastEl('🗑 Рейс удалён: ' + (log.truckName || '') + ' (+' + (log.volume || 0) + ' м³)',false);}catch(e){showError(e.message);}
   };
 
   // ===== Расширяем saveLogEdit (edit) =====

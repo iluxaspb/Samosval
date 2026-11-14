@@ -129,26 +129,40 @@ const firebaseConfig = {
   const WORKING_TEST_UBUNTU_API_BASE = (typeof location !== 'undefined' && location.hostname === 'samosval-test.iluxa.pro')
     ? location.origin
     : 'https://samosval-test.iluxa.pro';
-  const workingFirebaseApp = firebase.initializeApp(firebaseConfig, 'working-test');
-  // Явный запрос именованного приложения для верификатора и изоляции persistence
-  if (firebase.app('working-test') !== workingFirebaseApp) {
-    throw new Error('Ошибка инициализации именованного приложения working-test');
+  // Рабочая версия всегда работает через Ubuntu API (NAS-рантайм). Firebase
+  // SDK не загружается (см. shell.html): все обращения firebase.* в активном
+  // коде — за флагом FIREBASE_SDK_PRESENT, который здесь всегда false.
+  // firebaseConfig остаётся: projectId используется в ключах localStorage.
+  const FIREBASE_SDK_PRESENT = typeof firebase !== 'undefined';
+  const workingFirebaseApp = null;
+  const auth = null;
+  // Заглушка db/refs для мёртвых Firebase-веток: построение цепочки
+  // (.collection().doc()) ничего не бросает, но любой await такого объекта
+  // отклоняется понятной ошибкой — мёртвые ветки падают громко, а загрузка
+  // приложения не ломается.
+  function makeFirebaseStub() {
+    const unavailable = new Error('Firebase SDK не загружен: рабочая версия использует Ubuntu API');
+    const stub = new Proxy(function () {}, {
+      get(target, key) {
+        if (key === 'then') return (resolve, reject) => Promise.reject(unavailable).then(resolve, reject);
+        if (key === 'catch' || key === 'finally') return (fn) => Promise.reject(unavailable)[key](fn);
+        if (key === Symbol.toPrimitive || key === 'toString') return () => 'firebase-unavailable';
+        return stub;
+      },
+      apply() { return stub; }
+    });
+    return stub;
   }
-  const auth = workingFirebaseApp.auth();
+  let secondaryApp;
+  if (FIREBASE_SDK_PRESENT) {
+    // Инвариант NAS-сборки: SDK не загружается. Если скрипты вернули в shell,
+    // падаем громко на старте, а не по загадочным ошибкам в рантайме.
+    throw new Error('Firebase SDK загружен, но рабочая версия работает только через Ubuntu API');
+  }
+  const db = makeFirebaseStub();
   // Legacy versions stored passwords in localStorage. Remove these credentials.
   try { localStorage.removeItem('working-test-saved-pass'); } catch (e) { console.warn('Не удалось очистить старый пароль', e); }
-  const db = workingFirebaseApp.firestore();
-  let secondaryApp;
-  try { secondaryApp = firebase.initializeApp(firebaseConfig, 'working-test-secondary'); } catch (e) { secondaryApp = firebase.app('working-test-secondary'); }
-  try { db.settings({ experimentalForceLongPolling: true }); } catch (e) {}
-  window.TestStorageState={persistent:false,error:null};
-  try { db.enablePersistence({ synchronizeTabs: true }).then(()=>{window.TestStorageState.persistent=true;}).catch(e=>{window.TestStorageState.error=e?.code||e?.message;}); } catch (e) {window.TestStorageState.error=e?.message;}
-
-  // Isolated test connection: production project must never be used here.
-  const TEST_FIREBASE_PROJECT_ID = 'samosval-test';
-  if (workingFirebaseApp.options.projectId !== TEST_FIREBASE_PROJECT_ID) {
-    throw new Error('Защита тестовой версии: подключён неверный Firebase-проект');
-  }
+  window.TestStorageState = FIREBASE_SDK_PRESENT ? window.TestStorageState : { persistent: false, error: 'firebase-sdk-not-loaded' };
   const WT_STORAGE_PREFIX = 'working-test:';
   const WORKSPACE_ID = 'main_workspace';
   const wsRef = db.collection('workspaces').doc(WORKSPACE_ID);

@@ -65,7 +65,7 @@
   function markSync(source, fromCache, hasPendingWrites, docCount) {
     if (syncState.errors) delete syncState.errors[source];
     syncState.fromCache[source] = !!fromCache; syncState.docCount[source] = docCount || 0;
-    if (!fromCache) { syncState.everConnected[source] = true; syncState.lastSuccessAt = Date.now(); if(source==='status'||source==='shift')offlineTransportRecovered(); }
+    if (!fromCache) { syncState.everConnected[source] = true; syncState.lastSuccessAt = Date.now(); if(source==='status'||source==='shift')offlineTransportRecovered();try{if(typeof nasConnectionHeart==='function')nasConnectionHeart(true);}catch(_){} }
     syncState.pendingWrites[source] = !!hasPendingWrites;
     if (!hasPendingWrites) delete syncState.pendingWrites[source];
     updateSyncUI();
@@ -78,7 +78,7 @@
   }
   function reportSyncError(source, error) {
     syncState.errors = syncState.errors || {};
-    syncState.errors[source] = { code: error?.code || 'unknown', message: error?.message || String(error), at: Date.now() }; if(offlineTransportError(error))offlineTransportFailed(error);
+    syncState.errors[source] = { code: error?.code || 'unknown', message: error?.message || String(error), at: Date.now() }; if(offlineTransportError(error))offlineTransportFailed(error);try{if(offlineTransportError(error))nasConnectionHeart(false,error);}catch(_){}
     console.error('[sync:' + source + ']', error);
     updateSyncUI();
   }

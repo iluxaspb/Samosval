@@ -212,8 +212,8 @@
               permissions: {view: hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit')}}),
             data: () => ({objects: state.objects, shift: state.shift, trucks: state.trucks,
               statuses: state.truckStatus, logs: state.logs, audit: state.audit, archive: state.archive}),
-            transaction: fn => (window.__historyRawTransaction || db.runTransaction.bind(db))(fn),
-            serverTimestamp: () => firebase.firestore.FieldValue.serverTimestamp(),
+            transaction: fn => (window.__historyRawTransaction || (typeof db!=='undefined'&&db.runTransaction?db.runTransaction.bind(db):fn=>Promise.reject(new Error('Firebase SDK не загружен'))))(fn),
+            serverTimestamp: () => (FIREBASE_SDK_PRESENT && typeof firebase!=='undefined' ? firebase.firestore.FieldValue.serverTimestamp() : {__stubServerTimestamp:true}),
             leave: () => switchTab('line', document.getElementById('nav-line'))
           },
           db: db, refs: refs, state: state, user: { email: currentEmail, role: currentUserRole, name: getUserName() },

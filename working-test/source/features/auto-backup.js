@@ -115,7 +115,7 @@ try { (function(){
       if (value.__backupType === 'timestamp' && Object.keys(value).length === 3 && Number.isInteger(value.seconds) &&
           value.seconds >= -62135596800 && value.seconds <= 253402300799 &&
           Number.isInteger(value.nanoseconds) && value.nanoseconds >= 0 && value.nanoseconds < 1000000000) {
-        return hydrate ? new firebase.firestore.Timestamp(value.seconds, value.nanoseconds) : value;
+        return hydrate ? (FIREBASE_SDK_PRESENT && typeof firebase !== 'undefined' ? new firebase.firestore.Timestamp(value.seconds, value.nanoseconds) : new Date(value.seconds * 1000)) : value;
       }
       if (value.__backupType === 'date' && Object.keys(value).length === 2 && typeof value.value === 'string' &&
           new Date(value.value).toISOString() === value.value) return hydrate ? new Date(value.value) : value;
