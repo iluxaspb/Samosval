@@ -19,7 +19,7 @@
     },
     {
       "url": "./manifest-test.webmanifest",
-      "sha256": "379149c95d8fcf01caa5c2a10e03c934ac29548e60f6e06c6105a3c97137ae27"
+      "sha256": "8d2a08f2dd9cf0fcdf44434ab531cea0eab7426926c926644714faa838fc5c8d"
     },
     {
       "url": "./app/vendor/firebase-app-compat-10.8.0.js",
