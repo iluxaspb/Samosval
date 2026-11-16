@@ -1,17 +1,17 @@
 {
-  "version": "22d73c90ec4ce44a",
-  "release": "3.4.50",
+  "version": "3903af517cc77cb2",
+  "release": "3.4.51",
   "source_commit": "40dc13cad9da52c674a946e4c3d16aa2566ceef2",
   "source_test_build": "4c7262d7ecc74f2f",
   "channel": "production-with-timesheet",
   "assets": [
     {
       "url": "./index.html",
-      "sha256": "89a0425a6218323e1325bd674a760ef9f75d2127c6eeb1a5d48544dd1854e860"
+      "sha256": "c839da810db5346426bdbd27f47c710b8ad3ebe147a8f0aa88116111ba4cb3fe"
     },
     {
       "url": "./manifest.json",
-      "sha256": "9e025678a228ddd287d82a07e45521039ce182513543ab6def574501a5202275"
+      "sha256": "9e804e6c7766fc4e8caa935a6772c39eb8dbd14bc4c760b61b0e204296acbdef"
     },
     {
       "url": "./icon.svg",
