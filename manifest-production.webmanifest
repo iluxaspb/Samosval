@@ -1,0 +1,26 @@
+{
+  "id": "./index.html",
+  "name": "Самосвалы — Рабочая версия",
+  "short_name": "Самосвалы",
+  "description": "Рабочая версия: данные на сервере Ubuntu, вход локальный",
+  "lang": "ru",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1d4ed8",
+  "icons": [
+    {
+      "src": "./working-test/icons/icon-production-blue-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./working-test/icons/icon-production-blue-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

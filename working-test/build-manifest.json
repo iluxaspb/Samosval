@@ -5,11 +5,23 @@
   "assets": [
     {
       "url": "./index-working-test.html",
-      "sha256": "91c8354a1d727919a6e45cd3f93edb32f883cd00f495be62087d94d8c992a065"
+      "sha256": "7bb5ba1ebe2c1527b9a84ae629402fe3c36b4ebbc05a7d9726a2e3c48440f3e5"
     },
     {
       "url": "./manifest-working-test.webmanifest",
       "sha256": "3f240da39ad8ce819765fcf0886a88f48a92626bce1dbeff49dcdcaefeb84f96"
+    },
+    {
+      "url": "./manifest-production.webmanifest",
+      "sha256": "d3c1b096b0caa12341fad5f427ba94a898d4fb0cb58977bc5f3ed859ae008344"
+    },
+    {
+      "url": "./working-test/icons/icon-production-blue-192.png",
+      "sha256": "ace7fe84e7d951890055ef6a10d1ddf38f2007421786f84051484e1917986fb1"
+    },
+    {
+      "url": "./working-test/icons/icon-production-blue-512.png",
+      "sha256": "3b19f4c1a16c1442276c37e3455e626a42c312ec08b9aec8be23966ece9a07c1"
     },
     {
       "url": "./working-test/icons/icon-192.png",
