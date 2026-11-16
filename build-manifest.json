@@ -9,7 +9,7 @@
     },
     {
       "url": "./manifest-working-test.webmanifest",
-      "sha256": "a7356f431d6e42068653f896bbacf41d87a5fdbcc6e862b86c21244002aa7fd1"
+      "sha256": "d9a8a0e1fd1953aff9754ba64d41d1925cf9f00ad1cf211adfd7c955ee583b92"
     },
     {
       "url": "./manifest-production.webmanifest",
@@ -25,11 +25,11 @@
     },
     {
       "url": "./working-test/icons/icon-192.png",
-      "sha256": "ace7fe84e7d951890055ef6a10d1ddf38f2007421786f84051484e1917986fb1"
+      "sha256": "9b40db6108a46bea017637d409bfda0941d0048305735fa48db7cc4328da2202"
     },
     {
       "url": "./working-test/icons/icon-512.png",
-      "sha256": "3b19f4c1a16c1442276c37e3455e626a42c312ec08b9aec8be23966ece9a07c1"
+      "sha256": "13cec01f4285c0afa29f543101a93cf26baf48f3ba43645320052e5786b2e9e1"
     },
     {
       "url": "./working-test/icons/icon-working-green-192.svg",
