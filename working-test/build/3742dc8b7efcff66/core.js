@@ -4179,6 +4179,7 @@ const firebaseConfig = {
     let e = localStorage.getItem('working-test-saved-email_test347'); if(e) document.getElementById('userBadgeLabel').textContent = '👤 ' + sanitizeName(e);
     document.getElementById('newTruckType').addEventListener('change', toggleVolInput);
     setTimeout(runMaxQueue, 2000);
+    preloadTabelV2Modules();
   });
   setInterval(updateSyncUI, 3000);
   setInterval(offlineReplayJournal, 8000);
@@ -4186,9 +4187,28 @@ const firebaseConfig = {
 
   // Built-in test module. No plugin installation or production writes.
   let tabelV2Opening = false;
+  // Индикатор «Открываю табель…» — показывается в момент нажатия кнопки,
+  // пока грузятся модули tabel-v2 и справочник объектов (раньше до 8+ секунд
+  // кнопка молчала и экран оставался пустым).
+  function showTabelOpeningIndicator() {
+    let overlay = document.getElementById('tabel-v2-opening');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'tabel-v2-opening';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.6);color:#fff;font:600 16px/1.4 system-ui,sans-serif;text-align:center;';
+      overlay.textContent = 'Открываю табель…';
+      document.body.append(overlay);
+    }
+    overlay.hidden = false;
+  }
+  function hideTabelOpeningIndicator() {
+    const overlay = document.getElementById('tabel-v2-opening');
+    if (overlay) overlay.remove();
+  }
   async function openTabelV2(settingsOnly, requestFirst = false) {
     if (tabelV2Opening) return;
     tabelV2Opening = true;
+    showTabelOpeningIndicator();
     try {
       // В режиме Ubuntu табель строится по справочнику объектов. Если справочник
       // ещё не пришёл, таблица открывается пустой — поэтому сначала дожидаемся его.
@@ -4213,7 +4233,29 @@ const firebaseConfig = {
       // Табель подсвечивается в нижней панели, остальные вкладки гаснут.
       document.querySelectorAll('.nav-btn').forEach(e=>e.classList.remove('active'));
       const nb = document.getElementById('nav-tabel-v2'); if (nb) nb.classList.add('active');
-    } catch (error) { showError(error.message || 'Табель не открылся'); } finally { tabelV2Opening = false; }
+    } catch (error) { showError(error.message || 'Табель не открылся'); } finally { hideTabelOpeningIndicator(); tabelV2Opening = false; }
+  }
+
+  // Фоновая предзагрузка модулей табеля: после старта приложения, в свободное
+  // время (requestIdleCallback / setTimeout), грузим entry.mjs и workspace.css,
+  // чтобы первый клик по «Табель» не ждал сети на медленном соединении.
+  let tabelModulesPreloaded = false;
+  function preloadTabelV2Modules() {
+    if (tabelModulesPreloaded) return;
+    tabelModulesPreloaded = true;
+    const preload = () => {
+      import(new URL('./working-test/tabel-v2/entry.mjs', document.baseURI).href)
+        .catch(e => { tabelModulesPreloaded = false; console.warn('Табель: предзагрузка', e.message); });
+      if (!document.querySelector('[data-tabel-v2-css]')) {
+        const l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = new URL('./working-test/tabel-v2/workspace.css', document.baseURI);
+        l.dataset.tabelV2Css = '';
+        document.head.append(l);
+      }
+    };
+    const ric = globalThis.requestIdleCallback;
+    if (typeof ric === 'function') ric(preload, { timeout: 4000 }); else setTimeout(preload, 3000);
   }
 
 
