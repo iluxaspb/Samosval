@@ -1,0 +1,38 @@
+{
+  "id": "./index-working-test.html",
+  "name": "Рабочая тестовая версия Самосвал",
+  "short_name": "Тестовая Самосвал",
+  "description": "Рабочая версия: данные на сервере Ubuntu, вход локальный",
+  "lang": "ru",
+  "start_url": "./index-working-test.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#15803d",
+  "icons": [
+    {
+      "src": "./working-test/icons/icon-working-green-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./working-test/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./working-test/icons/icon-working-green-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./working-test/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
