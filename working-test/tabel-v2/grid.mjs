@@ -632,11 +632,15 @@ export async function mount(s, host) {
     if (sheetId === "linked") table.classList.add("tn-linked");
     else table.classList.remove("tn-linked");
     if (sheetId === "linked") {
+      // Даты прилипают сразу под адресом: его фактическая высота плюс
+      // высота залипающей шапки колонок в full-режиме (26px, см. workspace.css).
+      const theadH = table.querySelector("thead")?.getBoundingClientRect().height || 0;
       table
         .querySelectorAll("tbody tr:nth-child(2)>*")
         .forEach(
           (td) =>
             (td.style.top =
+              theadH +
               (table.querySelector(".tn-address")?.getBoundingClientRect()
                 .height || 27 * scale) + "px"),
         );

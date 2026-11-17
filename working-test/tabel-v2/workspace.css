@@ -587,6 +587,10 @@ dialog.tn footer {
 .tn-linked tbody tr:nth-child(1) > * {
   top: 0;
 }
+/* Full-режим: над адресом залипает thead (26px) — адрес сразу под ним. */
+.tn-grid.tn-grid-axis.tn-linked tbody tr:nth-child(1) > * {
+  top: 26px;
+}
 .tn-linked .tn-address td {
   padding: 4px 6px;
   white-space: normal;
