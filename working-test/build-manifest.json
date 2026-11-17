@@ -1,20 +1,7 @@
 {
-  "version": "1147c063427b74bf",
-  "channel": "working-1.7.13-recovery2",
-  "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
+  "version": "5d3a07565b53c31a",
+  "channel": "working-1.7.16",
   "assets": [
-    {
-      "url": "./manifest-production.webmanifest",
-      "sha256": "9a8cb04bc34d94cda077666a05cc7c4a21ec04dad5367654e48fbd28a20fb574"
-    },
-    {
-      "url": "./working-test/icons/icon-production-blue-192.png",
-      "sha256": "ace7fe84e7d951890055ef6a10d1ddf38f2007421786f84051484e1917986fb1"
-    },
-    {
-      "url": "./working-test/icons/icon-production-blue-512.png",
-      "sha256": "3b19f4c1a16c1442276c37e3455e626a42c312ec08b9aec8be23966ece9a07c1"
-    },
     {
       "url": "./working-test/icons/icon-192.png",
       "sha256": "9b40db6108a46bea017637d409bfda0941d0048305735fa48db7cc4328da2202"
@@ -25,7 +12,7 @@
     },
     {
       "url": "./working-test/src/pwa.js",
-      "sha256": "92aebd002a272d5dd60daab17adb74cd126a9f5960586d83be2b821dbd725bf7"
+      "sha256": "c296c7d47e981ae120383c6aa3d7740ad3beb7a78cf12deacfdb3acbe46f0d69"
     },
     {
       "url": "./working-test/src/storage.js",
@@ -269,7 +256,7 @@
     },
     {
       "url": "./working-test/tabel-v2/grid.mjs",
-      "sha256": "28b902f6909b08606f3ca692a1c8d08cd893c008acac20d5d14b4ce0f155576f"
+      "sha256": "953231890945da09e8055b2572d2f7473ab3e164fdee5ff10a6e024e119749ff"
     },
     {
       "url": "./working-test/tabel-v2/history-view.mjs",
@@ -444,140 +431,140 @@
       "sha256": "57ec8efe1d2e4f631388a0ef3fbf3a654e6fc2f160bcb3225d2a35c287813548"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/admin-compact.js",
+      "url": "./working-test/build/5d3a07565b53c31a/admin-compact.js",
       "sha256": "b1e486079ebefc26e2a7da884368700d97212369dc3b6f35e56503970dca2ba3"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/analytics-v2.js",
+      "url": "./working-test/build/5d3a07565b53c31a/analytics-v2.js",
       "sha256": "5c718285580754f538ed43f0e5b9776842f8f4ff3f6350646346667696f1a6c8"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/anim-speeds.js",
+      "url": "./working-test/build/5d3a07565b53c31a/anim-speeds.js",
       "sha256": "8e2e737e35e3a306343c77a012a2508ab821432d8ae93303a034d129dcaaeaed"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/auto-backup.js",
+      "url": "./working-test/build/5d3a07565b53c31a/auto-backup.js",
       "sha256": "c04e222b588b5a67cc9cc95436637288a4afd5b8d6971997d71ddae159f9a317"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/closed-shift-duplicates.js",
+      "url": "./working-test/build/5d3a07565b53c31a/closed-shift-duplicates.js",
       "sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/confirm-bridge.js",
+      "url": "./working-test/build/5d3a07565b53c31a/confirm-bridge.js",
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/core.js",
+      "url": "./working-test/build/5d3a07565b53c31a/core.js",
       "sha256": "f609f8d7a5f34f6ec182f213c7054f9e04b8194601000e294621960efa553ff3"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/firebase-traffic-dashboard.js",
+      "url": "./working-test/build/5d3a07565b53c31a/firebase-traffic-dashboard.js",
       "sha256": "07713b52ee0f055ef2b645f38cb4d82f8c00c12be24298e349bcf31a8395c945"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/firebase-traffic-hook.js",
+      "url": "./working-test/build/5d3a07565b53c31a/firebase-traffic-hook.js",
       "sha256": "7e4c7cdb603fad5f12b29cfca7407067cf9814e9520dd15a604773a729c6bcd3"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/firebase-traffic-inference.js",
+      "url": "./working-test/build/5d3a07565b53c31a/firebase-traffic-inference.js",
       "sha256": "c2d63b6ef3512a31009621466011cf6ea72167fe62df4b49249bf40b78f59222"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/fix-log-delete.js",
+      "url": "./working-test/build/5d3a07565b53c31a/fix-log-delete.js",
       "sha256": "f1e5cd94d94a0187d96aa942e23aa22a79acd72d2491e3966022932d23003cd9"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/gai-report-toggle.js",
+      "url": "./working-test/build/5d3a07565b53c31a/gai-report-toggle.js",
       "sha256": "584a1b9bfb8c3edd8229fe73be5db55788dc251c182b545c27a4cac1b9c1455a"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/game-coins-v2.js",
+      "url": "./working-test/build/5d3a07565b53c31a/game-coins-v2.js",
       "sha256": "6ddd31217217f195abee6e17f0e1a8f612fb3113d0233e4cfb94c30d755619f9"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/global-interface-haptics.js",
+      "url": "./working-test/build/5d3a07565b53c31a/global-interface-haptics.js",
       "sha256": "f1b8613f85be1745740cecd2c7f57287a8408644a1109360972897ef8401578b"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/history-recorder.js",
+      "url": "./working-test/build/5d3a07565b53c31a/history-recorder.js",
       "sha256": "251adb91bf8643af8835eb7a88659af5fc006e52841f7c06fa8f5ec21503198a"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/line-card-layers.js",
+      "url": "./working-test/build/5d3a07565b53c31a/line-card-layers.js",
       "sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/nav-sort.js",
+      "url": "./working-test/build/5d3a07565b53c31a/nav-sort.js",
       "sha256": "f3dcd96edb1d4d7cdb73821b87f903ded07fcae820ad2c9616e3c8cbe533ddf3"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/offline-feedback.js",
+      "url": "./working-test/build/5d3a07565b53c31a/offline-feedback.js",
       "sha256": "94b6082bc2d2939da2214787ad258b870c426ef0475220b7dd364d3959498db7"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/paper-viewer.js",
+      "url": "./working-test/build/5d3a07565b53c31a/paper-viewer.js",
       "sha256": "81fc33f0faf0bdd09f8778dc3bfba25ae9568bd2ae8af999f0ff297accacb125"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/pretty-confirm.js",
+      "url": "./working-test/build/5d3a07565b53c31a/pretty-confirm.js",
       "sha256": "039eab5aaa5d9aa9cedd1aea095cbaa446e7721987b4c34704a6c4ec8e00fd1f"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/release-history.js",
-      "sha256": "804a9cefe678a33b2d39da55913801a2022e1a1bd267acfb8d6068de91b61e00"
+      "url": "./working-test/build/5d3a07565b53c31a/release-history.js",
+      "sha256": "ce04597d17d77969d4d4a301f8efb586eced12f0b519958379c2e9be929af572"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/reset-hold.js",
+      "url": "./working-test/build/5d3a07565b53c31a/reset-hold.js",
       "sha256": "73358e81d097998f74f256c72f235337d8263536b898ea9a7ab2f79b0a7625be"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/reset-settings.js",
+      "url": "./working-test/build/5d3a07565b53c31a/reset-settings.js",
       "sha256": "45bd5eba801d2d67758dfac630657ce95666c83fd187d80b58349a450b507775"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/road-arcade-core.js",
+      "url": "./working-test/build/5d3a07565b53c31a/road-arcade-core.js",
       "sha256": "8c8f45e563b8c1aaf4ffa0537969cd374779f0aba6f9a4709badb34254621081"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/road-arcade-runtime.js",
+      "url": "./working-test/build/5d3a07565b53c31a/road-arcade-runtime.js",
       "sha256": "84d7347578bdb4103e152734361361c629cfdf225582f5a4ef605931ce4245b9"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/road-arcade-ui.js",
+      "url": "./working-test/build/5d3a07565b53c31a/road-arcade-ui.js",
       "sha256": "43a3c4ea463b3942defaf619d4bffcdaf2d84738ef95e771dcaa99c1c3a371b2"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/road-jokes-v1.js",
+      "url": "./working-test/build/5d3a07565b53c31a/road-jokes-v1.js",
       "sha256": "a25b2e30bfd8a2c8c3bf9665b3c8aa3ec2768df99085b0df90ed637c155d1bfa"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/road-season-effects-v1.js",
+      "url": "./working-test/build/5d3a07565b53c31a/road-season-effects-v1.js",
       "sha256": "1447fe55145ad75200008647e0071d8b65d8bf9c9eaa2eef10a6a5b86f7e1592"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/road-shop-v1.js",
+      "url": "./working-test/build/5d3a07565b53c31a/road-shop-v1.js",
       "sha256": "37279a9991c2dff3a4434eae11ebb8974dde0b91c59bd28e105383b86345c821"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/settings-hub.js",
+      "url": "./working-test/build/5d3a07565b53c31a/settings-hub.js",
       "sha256": "86478c35b6feccc0e80afc39e5a713323b3c8290fba86eba03b796d1a852337e"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/ticker-name.js",
+      "url": "./working-test/build/5d3a07565b53c31a/ticker-name.js",
       "sha256": "c3c5d0a42867f385683dee426df51a82a8ae98a107672889d705eb2a361dc16f"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/trip-analytics.js",
+      "url": "./working-test/build/5d3a07565b53c31a/trip-analytics.js",
       "sha256": "c8940046633e4541ccf906193ceb854bb781d8d760185ba7ce3eab3db41761a2"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/undo-redo.js",
+      "url": "./working-test/build/5d3a07565b53c31a/undo-redo.js",
       "sha256": "90f20a8c66026d89181aa7a20a927bc15c90bafe8ee9bc08d0e490aab0a1a9ae"
     },
     {
-      "url": "./working-test/build/3742dc8b7efcff66/working-test-release.js",
-      "sha256": "1e9a992f75a98e9c65effc5e7887c83b1daa6275a0d6a2bbf4367637bf0c2b48"
+      "url": "./working-test/build/5d3a07565b53c31a/working-test-release.js",
+      "sha256": "9c78828b7c7be8286383973b6746cd80560541a21a2683e64bde8715ca07c9f1"
     }
   ]
 }

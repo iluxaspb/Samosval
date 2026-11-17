@@ -742,7 +742,11 @@ export async function mount(s, host) {
         value=nf==='percent'?D.fmt(number*100)+'%':number.toLocaleString('ru-RU',{minimumFractionDigits:Number(nf),maximumFractionDigits:Number(nf)});
       }
       const contractor=sheetId==='linked'&&pcol===0&&r>1?linkedRows[r-2]:null;
-      td.replaceChildren(document.createTextNode(String(value??'')));
+      if(sheetId==='linked'&&r===0){
+        const div=document.createElement('div');
+        div.textContent=String((s.config().name||s.object.address||s.object.location)??'');
+        td.replaceChildren(div);
+      }else td.replaceChildren(document.createTextNode(String(value??'')));
       if(contractor?.contractor!==undefined&&contractor?.contractor!==null){const small=document.createElement('small');small.className='tn-grid-contractor';small.textContent=contractor.contractorName;td.append(small);}
       td.style.cssText=css(cellStyle(k));
     }
