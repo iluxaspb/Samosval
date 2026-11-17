@@ -5,11 +5,7 @@
   "assets": [
     {
       "url": "./index.html",
-      "sha256": "7bb5ba1ebe2c1527b9a84ae629402fe3c36b4ebbc05a7d9726a2e3c48440f3e5"
-    },
-    {
-      "url": "./manifest-working-test.webmanifest",
-      "sha256": "d9a8a0e1fd1953aff9754ba64d41d1925cf9f00ad1cf211adfd7c955ee583b92"
+      "sha256": "4182b83fa7a719078ac3c0139adc93c478e6c55cf1a278afdaeb990dea4e01a5"
     },
     {
       "url": "./manifest-production.webmanifest",
@@ -30,14 +26,6 @@
     {
       "url": "./working-test/icons/icon-512.png",
       "sha256": "13cec01f4285c0afa29f543101a93cf26baf48f3ba43645320052e5786b2e9e1"
-    },
-    {
-      "url": "./working-test/icons/icon-working-green-192.svg",
-      "sha256": "5adecae541207c423ade1044a1fa3606222f640efb7c67bf56b80a0c8e22d847"
-    },
-    {
-      "url": "./working-test/icons/icon-working-green-512.svg",
-      "sha256": "555f05fd65d00b3b3fee32e7c8d766332bede661cf79887c539e132fd67d586d"
     },
     {
       "url": "./working-test/src/pwa.js",
