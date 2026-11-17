@@ -1,16 +1,8 @@
 {
-  "version": "3742dc8b7efcff66",
-  "channel": "working-1.7.13",
+  "version": "1147c063427b74bf",
+  "channel": "working-1.7.13-recovery2",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
-    {
-      "url": "./index-working-test.html",
-      "sha256": "7bb5ba1ebe2c1527b9a84ae629402fe3c36b4ebbc05a7d9726a2e3c48440f3e5"
-    },
-    {
-      "url": "./manifest-working-test.webmanifest",
-      "sha256": "d9a8a0e1fd1953aff9754ba64d41d1925cf9f00ad1cf211adfd7c955ee583b92"
-    },
     {
       "url": "./manifest-production.webmanifest",
       "sha256": "9a8cb04bc34d94cda077666a05cc7c4a21ec04dad5367654e48fbd28a20fb574"
@@ -30,14 +22,6 @@
     {
       "url": "./working-test/icons/icon-512.png",
       "sha256": "13cec01f4285c0afa29f543101a93cf26baf48f3ba43645320052e5786b2e9e1"
-    },
-    {
-      "url": "./working-test/icons/icon-working-green-192.svg",
-      "sha256": "5adecae541207c423ade1044a1fa3606222f640efb7c67bf56b80a0c8e22d847"
-    },
-    {
-      "url": "./working-test/icons/icon-working-green-512.svg",
-      "sha256": "555f05fd65d00b3b3fee32e7c8d766332bede661cf79887c539e132fd67d586d"
     },
     {
       "url": "./working-test/src/pwa.js",
