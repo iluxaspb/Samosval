@@ -1,7 +1,7 @@
 /* Installation and offline shell only. All mutations stay in the existing queues. */
 (function () {
   'use strict';
-  const eligible = /^https?:$/.test(location.protocol) && (location.pathname.endsWith('/index.html') || location.pathname.endsWith('/'));
+  const eligible = /^https?:$/.test(location.protocol) && location.pathname.endsWith('/index-working-test.html');
   // Read the script actually opened, not the latest manifest on the server. The meta fallback survives HTML export.
   const buildVersion = document.currentScript?.src?.match(/\/working-test\/build\/([a-f0-9]{16})\/pwa\.js(?:[?#]|$)/)?.[1]
     || document.querySelector('meta[name="working-test-build"]')?.content || '';
@@ -312,7 +312,7 @@
       await waitForActivation(verified.version);
       await assertUpdateSafe();
       message('Обновление установлено. Перезапускаю…');updateProgress('restart','Запускаю новую сборку. Рейсы и табель сохранены.');
-      location.replace('./index.html?update=' + encodeURIComponent(verified.version));
+      location.replace('./index-working-test.html?update=' + encodeURIComponent(verified.version));
     } catch(error) {
       if (downloadDeadline) clearTimeout(downloadDeadline);
       if (stallTimer) clearInterval(stallTimer);
