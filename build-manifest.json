@@ -1,10 +1,22 @@
 {
-  "version": "77d1141691e964ca",
-  "channel": "production-1.7.18",
+  "version": "19c2d7fa13ba1911",
+  "channel": "production-1.7.19",
   "assets": [
     {
       "url": "./index.html",
-      "sha256": "320e9757d09559f413511fb9b4455531ec4f250614905873da86386132e8fda6"
+      "sha256": "e804178ac251497e1a3f75efaab407e8ed29fb3d092e191216791663acff1190"
+    },
+    {
+      "url": "./working-test/icons/icon-production-blue-192.png",
+      "sha256": "ace7fe84e7d951890055ef6a10d1ddf38f2007421786f84051484e1917986fb1"
+    },
+    {
+      "url": "./working-test/icons/icon-production-blue-512.png",
+      "sha256": "3b19f4c1a16c1442276c37e3455e626a42c312ec08b9aec8be23966ece9a07c1"
+    },
+    {
+      "url": "./manifest-production.webmanifest",
+      "sha256": "9a8cb04bc34d94cda077666a05cc7c4a21ec04dad5367654e48fbd28a20fb574"
     },
     {
       "url": "./working-test/icons/icon-192.png",
@@ -16,7 +28,7 @@
     },
     {
       "url": "./working-test/src/pwa.js",
-      "sha256": "c296c7d47e981ae120383c6aa3d7740ad3beb7a78cf12deacfdb3acbe46f0d69"
+      "sha256": "f2702465fbba002b74f896af71141ad39547af7f8cc8e228adbeae3d068190df"
     },
     {
       "url": "./working-test/src/storage.js",
@@ -569,18 +581,6 @@
     {
       "url": "./working-test/build/77d1141691e964ca/working-test-release.js",
       "sha256": "97debef700e086e13e8a50bf0794078a9856ca6c80f9a08b55fbc6be912b6411"
-    },
-    {
-      "url": "./working-test/icons/icon-production-blue-192.png",
-      "sha256": "ace7fe84e7d951890055ef6a10d1ddf38f2007421786f84051484e1917986fb1"
-    },
-    {
-      "url": "./working-test/icons/icon-production-blue-512.png",
-      "sha256": "3b19f4c1a16c1442276c37e3455e626a42c312ec08b9aec8be23966ece9a07c1"
-    },
-    {
-      "url": "./manifest-production.webmanifest",
-      "sha256": "9a8cb04bc34d94cda077666a05cc7c4a21ec04dad5367654e48fbd28a20fb574"
     }
   ]
 }
