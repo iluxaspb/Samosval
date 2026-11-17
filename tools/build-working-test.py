@@ -42,5 +42,9 @@ def build():
     sw=(SOURCE/'service-worker.js').read_text(); sw=re.sub(r"const VERSION = '[^']+';","const VERSION = '"+build_id+"';",sw); sw=re.sub(r'^const PREFIX = .*;$',"const PREFIX = 'samosval-working-test-shell-';",sw,flags=re.M); sw=re.sub(r'^const RECORDS = .*;$',lambda m:'const RECORDS = '+json.dumps(records,separators=(',',':'))+';',sw,flags=re.M); sw=sw.replace('index-test.html','index-working-test.html'); sw=re.sub(r'(?:WORKING_)?TEST_PWA_','WORKING_TEST_PWA_',sw)
     (ROOT/'sw-working-test.js').write_text(sw)
     (APP/'build-manifest.json').write_text(json.dumps({'version':build_id,'channel':'working-'+release,'baseline_commit':spec.get('baseline_commit'),'assets':records},indent=2)+'\n')
+    # Лёгкий файл номера версии: страница проверяет его ПО СЕТИ в обход кэша
+    # SW (он не входит в RECORDS и не перехватывается). Позволяет застрявшему
+    # клиенту увидеть новую версию мгновенно.
+    (ROOT/'version.json').write_text(json.dumps({'version':release,'build':build_id},ensure_ascii=False,separators=(',',':'))+'\n')
     print(json.dumps({'release':release,'build':build_id,'assets':len(records)}))
 if __name__=='__main__': build()

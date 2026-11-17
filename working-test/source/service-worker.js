@@ -6,8 +6,36 @@ const CACHE = PREFIX + VERSION;
 const RECORDS = [{"url":"./index-working-test.html","sha256":"62b31848dcbf4fa2f8cec276a5afa13ef3172ba85ec8f4d53554f7c9d4608efe"},{"url":"./manifest-working-test.webmanifest","sha256":"379149c95d8fcf01caa5c2a10e03c934ac29548e60f6e06c6105a3c97137ae27"},{"url":"./working-test/src/features/timesheet-core.js","sha256":"85e282fe2ce0223f71f1215e2d9826c4ab3747aed62012533cea82a0f125907e"},{"url":"./working-test/src/features/timesheet-app.js","sha256":"b42ff6ce485150a99865e5359a5015300431ec778b4d73ba79b5237e2a2712de"},{"url":"./working-test/src/styles/timesheet-css.css","sha256":"eef779cfa5fdd0edad39ca45793549b49050e4b13858d65cfb49a665a060157a"},{"url":"./working-test/src/pwa.js","sha256":"cb529c5e4374b1b4398b8d9ab95e313b971cce8a1e600db14f1f161a62462ef5"},{"url":"./working-test/vendor/firebase-app-compat-10.8.0.js","sha256":"94842f6f47f9077e6eec909936bac5924ad95bca8db73425dd48715f47a9d5b6"},{"url":"./working-test/vendor/firebase-auth-compat-10.8.0.js","sha256":"3adf710ab8cffed4e8afc1e4368e636d8f97633409291c39f83500516526a524"},{"url":"./working-test/vendor/firebase-firestore-compat-10.8.0.js","sha256":"1b122566975332a8b7059e1b435df73122b6e4947b312360b518936be219b6fc"},{"url":"./working-test/vendor/html2pdf-0.10.1.bundle.min.js","sha256":"85e6ee9ce246e3ae4424313f7e46a5ed860a28d757811de8dc9c43f306049d65"},{"url":"./working-test/vendor/caveat.css","sha256":"51379e1bf96c50d0ebabe82c65a8d426ba516e1c9d9fc6916a35dcdad2f55863"},{"url":"./working-test/vendor/caveat-0.ttf","sha256":"012f33f9814bf9614973983335c3a375fe267c094e7c09a02a276cd1dcd4180a"},{"url":"./working-test/vendor/caveat-1.ttf","sha256":"f4365d9874c1b64026aca48786cf835a5decf2c740c06de04dbb05ce8c93ff37"},{"url":"./working-test/icons/icon-192.png","sha256":"cb63c9b1cab9bfe3b4946d03b2f46772083c76ad03938e4f24581cd4480cedc4"},{"url":"./working-test/icons/icon-512.png","sha256":"4e57fcca475e0141b5242f471600fe4cc9e527be267e8337b927b3e2e99d9e64"}];
 const BASE = new URL('./', self.location.href);
 const PAGE = new URL('index-working-test.html', BASE).href;
+// Лёгкий файл номера версии (version.json): его service worker НЕ кэширует и
+// не перехватывает — страница всегда читает его по сети в обход кэша.
+const VERSION_FILE = new URL('version.json', BASE).href;
 const ALLOWED = new Set(RECORDS.map(r => new URL(r.url, BASE).href));
 const COMPLETE = new URL('working-test/.complete-' + VERSION, BASE).href;
+// Навигация (запрос самой страницы) всегда идёт на сервер первым делом:
+// network-first. Кэш используется только как запасной вариант офлайн. Так
+// зависший клиент сразу получает свежий index со ссылками на новую сборку,
+// а не вечную старую страницу из кэша.
+const respondNetworkFirst = async request => {
+  try {
+    const response = await fetch(new Request(request,{cache:'reload',credentials:'same-origin'}));
+    if (response.ok) {
+      const url = new URL(request.url);
+      const isPage = url.pathname === new URL(PAGE).pathname;
+      if (isPage) {
+        const record = RECORDS.find(r=>new URL(r.url,BASE).href===PAGE);
+        if (record && await hash(await response.clone().arrayBuffer()) === record.sha256) {
+          const cache = await caches.open(CACHE);
+          await cache.put(PAGE,response.clone());
+        }
+      }
+      return response;
+    }
+  } catch (_) {/* сеть недоступна — отдаём сохранённую копию ниже */}
+  const cache = await caches.open(CACHE);
+  const cached = await cache.match(PAGE);
+  if (cached) return cached;
+  return new Response('Нет соединения и сохранённой копии страницы. Подключитесь к сети и откройте приложение заново.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8'}});
+};
 let completedFiles=0;
 async function publishProgress(){
   const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
@@ -94,7 +122,16 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== BASE.origin) return; // Firebase/Auth/Storage/MAX keep their existing protocols.
+  // version.json всегда идёт мимо кэша service worker: страница проверяет
+  // номер версии по сети, иначе клиент вечно видит старую версию.
+  if (url.href === VERSION_FILE) return;
   const isPage = url.pathname === new URL(PAGE).pathname;
+  // Навигационный запрос страницы: network-first (свежий index со ссылками на
+  // новую сборку), сохранённая копия — только запасной вариант офлайн.
+  if (event.request.mode === 'navigate' && isPage) {
+    event.respondWith(respondNetworkFirst(event.request));
+    return;
+  }
   const key = isPage ? PAGE : url.href;
   if (!ALLOWED.has(key)) return; // In particular: index.html and all other pages are outside this cache.
   event.respondWith((async () => {
@@ -117,8 +154,9 @@ self.addEventListener('message', event => {
   if(type==='WORKING_TEST_PWA_PRUNE'){
     event.waitUntil((async()=>{
       const keys=(await caches.keys()).filter(key=>key.startsWith(PREFIX)&&key!==CACHE);
-      // Keep two older complete app shells for existing windows and recovery.
-      for(const key of keys.slice(0,-2))await caches.delete(key);
+      // Keep three older app shells (rule: last 3 releases stay available) for
+      // existing windows and recovery.
+      for(const key of keys.slice(0,-3))await caches.delete(key);
     })());return;
   }
   if (!port || (type !== 'WORKING_TEST_PWA_STATUS' && type !== 'WORKING_TEST_PWA_APPLY')) return;

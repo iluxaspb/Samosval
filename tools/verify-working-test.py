@@ -49,7 +49,7 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.7.15'
+REQUIRED_VERSION = '1.7.16'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
 FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
@@ -95,6 +95,7 @@ ALLOWED_NEW_FILES = {
     'index-working-test.html',
     'manifest-working-test.webmanifest',
     'sw-working-test.js',
+    'version.json',
     'tools/build-working-test.py',
     'tools/verify-working-test.py',
     'update-working-test.html',
