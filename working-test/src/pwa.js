@@ -59,7 +59,7 @@
   function stateShift() { return typeof window.__testGetShift === 'function' ? window.__testGetShift() : null; }
   function render() {
     const s = state();
-    const hasUpdate=(!!latestPublished&&latestPublished.version!==buildVersion)||s.updateReady;
+    const hasUpdate=(!!latestPublished&&updateNeeded(latestPublished.version))||s.updateReady;
     updateBanner.hidden=!hasUpdate;
     updateApply.disabled=manualUpdateBusy||!navigator.onLine;
     updateApply.textContent=manualUpdateBusy?'Устанавливаю…':'Установить';
@@ -84,6 +84,21 @@
     else if (s.waiting) status.textContent += ' Обновление ожидает, но целостность файлов ещё не подтверждена. Повторите проверку с интернетом; текущие данные не изменены.';
     if (s.installed) status.textContent += ' Приложение установлено.';
     window.dispatchEvent(new CustomEvent('test-pwa-state',{detail:s}));
+  }
+  // Подтверждённая версия АКТИВНОГО воркера: '' — пока не знаем или нет
+  // регистрации. Ключевой ориентир автообновления: страница (buildVersion)
+  // может быть уже новой по network-first, а офлайн-кэш — старым.
+  function confirmedActiveVersion() {
+    if (!registration?.active || registration.active !== confirmedActive) return '';
+    return activeVersion;
+  }
+  // Установка нужна, пока опубликованная сборка не совпадает И с открытой
+  // страницей, И с активным воркером (если его версия подтверждена).
+  function updateNeeded(published) {
+    if (!published) return false;
+    if (published !== buildVersion) return true;
+    const active = confirmedActiveVersion();
+    return !!active && active !== published;
   }
   function workerStatus(worker) {
     if (!worker) return Promise.resolve(null);
@@ -279,7 +294,7 @@
       if (manifest && manifest.version !== latest.version) {
         console.warn('Рабочая тестовая: манифест расходится с фактической сборкой', manifest.version, latest.version);
       }
-      if (latest.version === buildVersion) {
+      if (latest.version === buildVersion && !updateNeeded(latest.version)) {
         message('Уже открыта актуальная сборка ' + (releaseVersion || buildVersion) + '.');updateProgress('done','У вас уже установлена актуальная сборка.',1,1);
         return;
       }
@@ -308,7 +323,7 @@
       const verified = await Promise.race([waitForVerifiedBuild(latest.version), tooLong]);
       clearTimeout(downloadDeadline); downloadDeadline = null; clearInterval(stallTimer); stallTimer = null; downloadWatch = null;
       await assertUpdateSafe();
-      if (verified.version === buildVersion) {
+      if (verified.version === buildVersion && !updateNeeded(verified.version)) {
         // Фактическая активная сборка уже совпадает с открытой: 90-секундное
         // ожидание активации не нужно.
         message('Уже открыта актуальная сборка ' + (releaseVersion || buildVersion) + '.');
@@ -402,14 +417,14 @@
   const pageStartedAt=Date.now();let autoApplyAt=0;
   async function autoApplyUpdate(){
     if(manualUpdateBusy||!eligible||!navigator.onLine||document.hidden)return;
-    if(!latestPublished||latestPublished.version===buildVersion)return;
+    if(!latestPublished||!updateNeeded(latestPublished.version))return;
     // Одна и та же версия не повторяется бесконечно в рамках сессии.
     const seenKey='wt_auto_update:'+latestPublished.version;
     try { if (sessionStorage.getItem(seenKey)) return; } catch (_) {}
     if(Date.now()-pageStartedAt<30000)return;
     if(autoApplyAt&&Date.now()-autoApplyAt<300000)return;
     autoApplyAt=Date.now();
-    try{await assertUpdateSafe();}catch(_){return;} // есть несохранённое — человек нажмёт сам
+    try{await assertUpdateSafe();}catch(_){bannerMessage.textContent='Обновление отложено: есть несохранённые данные. Сохраните их и нажмите «Установить».';return;} // есть несохранённое — человек нажмёт сам
     try { sessionStorage.setItem(seenKey,'1'); } catch (_) {}
     bannerMessage.textContent='Новая версия найдена — устанавливаю автоматически.';
     updateMessage.textContent='Новая версия найдена — устанавливаю автоматически.';
@@ -458,6 +473,6 @@
     doc.querySelectorAll('link[rel="manifest"],link[rel="apple-touch-icon"]').forEach(n=>n.remove());
     return '<!DOCTYPE html>\n'+doc.documentElement.outerHTML;
   }
-  window.TestPWA={snapshot:state,inlineHtml,checkForUpdates:discoverPublishedUpdate,installUpdate:installPublishedUpdate};
+  window.TestPWA={snapshot:state,inlineHtml,checkForUpdates:discoverPublishedUpdate,installUpdate:installPublishedUpdate,__autoApplyUpdate:autoApplyUpdate};
   checkForUpdates();discoverPublishedUpdate().then(()=>autoApplyUpdate());render();
 })();
