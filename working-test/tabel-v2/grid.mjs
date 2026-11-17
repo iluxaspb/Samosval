@@ -746,6 +746,9 @@ export async function mount(s, host) {
         value=nf==='percent'?D.fmt(number*100)+'%':number.toLocaleString('ru-RU',{minimumFractionDigits:Number(nf),maximumFractionDigits:Number(nf)});
       }
       const contractor=sheetId==='linked'&&pcol===0&&r>1?linkedRows[r-2]:null;
+      // Sticky-офсет строки дат задаётся draw() inline; cssText его затирает —
+      // сохраняем, иначе после живой перекраски даты съезжают вниз (зазор 16px).
+      const keepTop=sheetId==='linked'&&r===1?td.style.top:'';
       if(sheetId==='linked'&&r===0){
         const div=document.createElement('div');
         div.textContent=String((s.config().name||s.object.address||s.object.location)??'');
@@ -753,6 +756,7 @@ export async function mount(s, host) {
       }else td.replaceChildren(document.createTextNode(String(value??'')));
       if(contractor?.contractor!==undefined&&contractor?.contractor!==null){const small=document.createElement('small');small.className='tn-grid-contractor';small.textContent=contractor.contractorName;td.append(small);}
       td.style.cssText=css(cellStyle(k));
+      if(keepTop) td.style.top=keepTop;
     }
     mark();
   }

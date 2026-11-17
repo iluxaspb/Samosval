@@ -90,7 +90,7 @@ test('(в) версия видна на экране входа — до вхо�
   const login = shell.slice(shell.indexOf('id="authOverlay"'), shell.indexOf('id="pendingScreen"'));
   assert.ok(login.length > 100, 'не найден экран входа в shell.html');
   assert.match(login, /class="version-text auth-version"/, 'на экране входа нужен видимый элемент версии (class version-text)');
-  assert.match(login, /Версия: 1\.7\.17/, 'на экране входа должен стоять номер текущей версии');
+  assert.match(login, /Версия: 1\.7\.18/, 'на экране входа должен стоять номер текущей версии');
 });
 
 test('(в) версия в настройках видна всегда, а не только администратору (обе копии)', () => {
