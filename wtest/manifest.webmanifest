@@ -1,0 +1,26 @@
+{
+  "id": "./index.html",
+  "name": "Самосвалы — Тест",
+  "short_name": "Самосвал Тест",
+  "description": "Тестовая копия рабочей версии: предварительные правки перед выпуском",
+  "lang": "ru",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#dc2626",
+  "icons": [
+    {
+      "src": "./working-test/icons/icon-test-red-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./working-test/icons/icon-test-red-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
