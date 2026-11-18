@@ -16,7 +16,7 @@ SRC_BUILD = '19c2d7fa13ba1911'
 # Новый уникальный build: 16 hex, отличается от рабочего.
 WTEST_BUILD = 'afe5701dfa13ba19'
 assert re.fullmatch(r'[a-f0-9]{16}', WTEST_BUILD) and WTEST_BUILD != SRC_BUILD, WTEST_BUILD
-VERSION = '1.7.19-test.1'
+VERSION = '1.7.19-test.2'
 
 
 def sha256(path):
@@ -98,6 +98,8 @@ def main():
     with open(os.path.join(ROOT, 'sw-working-test.js'), encoding='utf-8') as f:
         sw = f.read()
     sw = sw.replace(f"const VERSION = '{SRC_BUILD}';", f"const VERSION = '{WTEST_BUILD}';")
+    sw = sw.replace("const PREFIX = 'samosval-working-test-shell-';", "const PREFIX = 'samosval-wtest-shell-';")
+    assert "const PREFIX = 'samosval-wtest-shell-';" in sw
     m = re.search(r'const RECORDS = (\[.*?\]);', sw, re.S)
     assert m
     records = json.loads(m.group(1))

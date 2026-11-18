@@ -1,11 +1,11 @@
 {
   "version": "afe5701dfa13ba19",
-  "channel": "wtest-1.7.19-test.1",
+  "channel": "wtest-1.7.19-test.2",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index.html",
-      "sha256": "479fbe833ce20be7fa316c6e5409a926e5ab3968028bd6dd0eb5b34583f7b574"
+      "sha256": "355036f88d90638e26ea0f87b55715aba3dda06846dc35450aa91935a631c573"
     },
     {
       "url": "./working-test/icons/icon-test-red-192.png",
@@ -581,7 +581,7 @@
     },
     {
       "url": "./working-test/build/afe5701dfa13ba19/working-test-release.js",
-      "sha256": "ed94a34a1fec9dc5db758743c8a0bc40151f49440d26283c4121452167cb5768"
+      "sha256": "ed83f6300b442eeb43bc6f061d8774cc8466de82d8e3dbf900a35402df215d17"
     }
   ]
 }
