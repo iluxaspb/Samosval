@@ -5,13 +5,15 @@ const validId=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(valu
 export function normalizeShiftStart(input) {
   if(!input||typeof input!=='object'||Array.isArray(input)||!validId(input.id)||!validId(input.objectId)||!Number.isSafeInteger(input.createdAt)||input.createdAt<=0)throw fail('invalid-start-operation');
   // User identity, object name and shift timestamps are resolved on the server.
-  return {type:'start',id:input.id,objectId:input.objectId,createdAt:input.createdAt};
+  // workShift is optional for old clients; when absent the hour-based fallback applies.
+  if(input.workShift!==undefined&&input.workShift!=='day'&&input.workShift!=='night')throw fail('invalid-start-operation');
+  return {type:'start',id:input.id,objectId:input.objectId,createdAt:input.createdAt,...(input.workShift?{workShift:input.workShift}:{})};
 }
 export function shiftStartPayload(op,object,actor,now=Date.now()) {
   const name=object?.name;
   if(typeof name!=='string'||!name.trim()||name.length>500||object.deleted||object.disabled)throw fail('object-not-available',409);
   const startDate=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',year:'numeric'}).format(now).replaceAll('/','.');
-  return {id:'shift_'+op.id,objectId:op.objectId,objectName:name.trim(),startDate,startedAt:now,startedBy:actor.display_name,startedByUid:actor.uid,isActive:true};
+  return {id:'shift_'+op.id,objectId:op.objectId,objectName:name.trim(),startDate,startedAt:now,startedBy:actor.display_name,startedByUid:actor.uid,isActive:true,...(op.workShift?{workShift:op.workShift}:{})};
 }
 export async function startShiftOperation(pool,uid,input,workspaceId=process.env.WORKSPACE_ID||'main_workspace') {
   const op=normalizeShiftStart(input),hash=createHash('sha256').update(JSON.stringify(op)).digest('hex');

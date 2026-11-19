@@ -1,11 +1,12 @@
-  async function startShiftWithObject(objName, objId) {
+  async function startShiftWithObject(objName, objId, workShift) {
     if (startShiftInFlight || !requireEdit('start_shift')) return;
+    if(!workShift){appNotice('Выберите тип смены: дневная или ночная');return;}
     if(state.shift?.closing){showError('Сначала завершите закрытие предыдущей смены');return;}
     if(offlinePendingCount()){showError('Сначала синхронизируйте действия предыдущей смены');return;}
     if(state.shift?.isActive)return;
     startShiftInFlight=true;
     try {
-      if(isNasRuntime()){await nasBusinessCommand('start','current',{objectId:objId});await nasRefreshLine();closeStartShiftModal();showToastEl('Смена начата',false);openTabelShiftForLine(objName,objId);return;}
+      if(isNasRuntime()){await nasBusinessCommand('start','current',{objectId:objId,workShift});await nasRefreshLine();closeStartShiftModal();showToastEl('Смена начата',false);openTabelShiftForLine(objName,objId);return;}
       await cleanupOldShiftData(); await clearAllNotifications();
       let sid = 'shift_' + Date.now();
       await tfAwait(refs.shift.set({ id: sid, objectName: objName, objectId: objId||'', startDate: nowDateStr(), startedAt: Date.now(), startedBy: getUserName(), isActive: true }));
@@ -24,7 +25,7 @@
     if(!objId||!permissionsLoaded||currentUserStatus!=='active'||!hasTabAccess('timesheet'))return;
     try{
       const module=await import(new URL('./working-test/tabel-v2/entry.mjs',document.baseURI).href);
-      const result=await module.ensureDay(tabelV2Host(),{objectId:objId,date:lineDateIso(nowDateStr()),kind:'day'});
+      const result=await module.ensureDay(tabelV2Host(),{objectId:objId,date:lineDateIso(state.shift?.startDate||nowDateStr()),kind:state.shift?.workShift||'day'});
       if(result?.created)showToastEl('Смена открыта и в табеле · ' + objName,false);
     }catch(error){console.warn('[tabel] Автооткрытие смены:',error.message);}
   }
@@ -131,15 +132,28 @@
     let c = document.getElementById('existingObjectsList');
     let objs = state.objects.slice().sort((a,b)=>a.name.localeCompare(b.name));
     c.innerHTML = objs.length === 0 ? '<div style="color:var(--muted);font-size:12px;">Нет объектов</div>' : objs.map(o=>`<div style="background:var(--bg);padding:10px;border-radius:8px;margin-bottom:6px;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;"><span>🏢 <b>${escapeHtml(o.name)}</b></span><button class="btn btn-quick btn-small" onclick="startShiftFromBase('${o.id}')">Выбрать</button></div>`).join('');
-    document.getElementById('newObjectNameInput').value = ''; document.getElementById('startShiftModal').classList.add('open');
+    document.getElementById('newObjectNameInput').value = '';
+    selectWorkShift(null);
+    document.getElementById('startShiftModal').classList.add('open');
   }
   function closeStartShiftModal() { document.getElementById('startShiftModal').classList.remove('open'); }
-  async function startShiftFromBase(id) { let o=state.objects.find(x=>x.id===id); if(o) await startShiftWithObject(o.name, o.id); }
+  // Тип смены выбирается явно при открытии и фиксируется вместе с датой: время
+  // закрытия (01:00–03:00, через 2 дня) больше не влияет на тип и дату смены.
+  function selectWorkShift(kind) {
+    window.__startShiftWorkShift = kind || null;
+    document.querySelectorAll('#startShiftModal [data-work-shift]').forEach(b=>b.classList.toggle('btn-quick', b.dataset.workShift===kind));
+  }
+  function requireWorkShiftChoice() {
+    if (window.__startShiftWorkShift) return window.__startShiftWorkShift;
+    appNotice('Дневная смена или ночная? Выберите тип смены'); return null;
+  }
+  async function startShiftFromBase(id) { let o=state.objects.find(x=>x.id===id); if(o) await startShiftWithObject(o.name, o.id, requireWorkShiftChoice()); }
   async function confirmStartShift() {
     if (!requireEdit('start_shift')) return; let n = document.getElementById('newObjectNameInput').value.trim(); if (!n) { appNotice('Введите имя'); return; }
+    const workShift = requireWorkShiftChoice(); if (!workShift) return;
     let ex = state.objects.find(o=>o.name.toLowerCase()===n.toLowerCase());
-    if (ex) await startShiftWithObject(ex.name, ex.id);
-    else { try { if(isNasRuntime()){const result=await nasSaveRecord('object','',{name:n},0);await startShiftWithObject(n,result.result.id);return;}let r=refs.objects.doc(); await tfAwait(r.set({name:n, createdAt:Date.now(), createdBy:getUserName()})); await startShiftWithObject(n, r.id); } catch(e){ showError(e.message); } }
+    if (ex) await startShiftWithObject(ex.name, ex.id, workShift);
+    else { try { if(isNasRuntime()){const result=await nasSaveRecord('object','',{name:n},0);await startShiftWithObject(n,result.result.id,workShift);return;}let r=refs.objects.doc(); await tfAwait(r.set({name:n, createdAt:Date.now(), createdBy:getUserName()})); await startShiftWithObject(n, r.id, workShift); } catch(e){ showError(e.message); } }
   }
   function openChangeObjectModal() {
     if (!requireEdit('edit_line') || !state.shift) return;

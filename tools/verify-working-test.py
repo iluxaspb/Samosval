@@ -49,7 +49,7 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.7.19'
+REQUIRED_VERSION = '1.7.20'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
 FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
@@ -106,6 +106,7 @@ ALLOWED_NEW_FILES = {
     'server/tests/replica-materialize.test.mjs',
     'server/src/arcade-rules.mjs',
     'server/src/game-store.mjs',
+    'server/src/shift-start.mjs',
 }
 ALLOWED_NEW_PREFIXES = ('working-test/',)
 
