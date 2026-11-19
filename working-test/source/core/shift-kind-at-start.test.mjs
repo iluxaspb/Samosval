@@ -41,3 +41,42 @@ test('15-shifts.js: ensureDay берёт дату и тип открытой с�
   assert.match(shiftsSource, /ensureDay\(tabelV2Host\(\),\{objectId:objId,date:lineDateIso\(state\.shift\?\.startDate\|\|nowDateStr\(\)\),kind:state\.shift\?\.workShift\|\|'day'\}\)/, 'дата и тип из state.shift');
   assert.doesNotMatch(shiftsSource, /ensureDay\([^)]*kind:'day'/, 'жёсткое kind:\'day\' больше не используется');
 });
+
+test('15-shifts.js: обе двери открытия смены идут через requireWorkShiftChoice', () => {
+  assert.match(shiftsSource, /startShiftFromBase\(id\)[^\n]*startShiftWithObject\(o\.name,\s*o\.id,\s*requireWorkShiftChoice\(\)\)/, 'startShiftFromBase требует выбора типа');
+  assert.match(shiftsSource, /confirmStartShift\(\)[\s\S]{0,400}?requireWorkShiftChoice\(\)/, 'confirmStartShift требует выбора типа');
+  assert.match(shiftsSource, /if\(!workShift\)\{appNotice\('Выберите тип смены: дневная или ночная'\);return;\}/, 'startShiftWithObject блокирует пустой тип');
+});
+
+test('shell.html + 15-shifts.js: выбранная кнопка типа смены явно подсвечена', () => {
+  const shell = readFileSync(join(here, '..', 'shell.html'), 'utf8');
+  assert.match(shell, /data-work-shift="day"[^>]*aria-pressed="false"|aria-pressed="false"[^>]*data-work-shift="day"/, 'кнопка Дневная с aria-pressed');
+  assert.match(shell, /data-work-shift="night"[^>]*aria-pressed="false"|aria-pressed="false"[^>]*data-work-shift="night"/, 'кнопка Ночная с aria-pressed');
+  assert.match(shiftsSource, /classList\.toggle\('ws-selected',on\)/, 'selectWorkShift переключает класс ws-selected');
+  assert.match(shiftsSource, /setAttribute\('aria-pressed',on\?'true':'false'\)/, 'selectWorkShift переключает aria-pressed');
+  const css = readFileSync(join(here, '..', 'styles', 'style-04.css'), 'utf8');
+  assert.match(css, /\.btn-secondary\.ws-selected\s*\{\s*background:\s*var\(--success\)/, 'залитая зелёная подсветка выбранной кнопки');
+});
+
+// sourcePeriod (material-transfer.mjs): добыча попадает в день/ночь по типу смены,
+// а не по времени записей/закрытия. Тест падает, если workShift игнорируется.
+const {sourcePeriod} = await import('../../tabel-v2/material-transfer.mjs');
+
+test('sourcePeriod: workShift day — вечерние записи 20:00-21:00 остаются дневной сменой', () => {
+  const startedAt = Date.parse('2026-11-18T07:00:00Z'); // 10:00 МСК 18.11
+  const closedAt = Date.parse('2026-11-18T18:00:00Z');  // 21:00 МСК 18.11, записи до 20:00-21:00
+  assert.deepEqual(sourcePeriod({startDate:'18.11.2026', startedAt, closedAt, workShift:'day'}), {date:'2026-11-18', shift:'day'});
+});
+
+test('sourcePeriod: workShift night — открытие днём остаётся ночной сменой', () => {
+  const startedAt = Date.parse('2026-11-18T09:00:00Z'); // 12:00 МСК 18.11 — по часу фолбэк дал бы day
+  const closedAt = Date.parse('2026-11-18T18:00:00Z');  // 21:00 МСК
+  assert.deepEqual(sourcePeriod({startDate:'18.11.2026', startedAt, closedAt, workShift:'night'}), {date:'2026-11-18', shift:'night'});
+});
+
+test('sourcePeriod: без workShift — прежний фолбэк по часу открытия', () => {
+  const dayStart = Date.parse('2026-11-18T07:00:00Z');  // 10:00 МСК
+  const nightStart = Date.parse('2026-11-18T19:00:00Z'); // 22:00 МСК
+  assert.deepEqual(sourcePeriod({startDate:'18.11.2026', startedAt: dayStart}), {date:'2026-11-18', shift:'day'});
+  assert.deepEqual(sourcePeriod({startDate:'18.11.2026', startedAt: nightStart}), {date:'2026-11-18', shift:'night'});
+});

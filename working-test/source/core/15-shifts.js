@@ -141,7 +141,7 @@
   // закрытия (01:00–03:00, через 2 дня) больше не влияет на тип и дату смены.
   function selectWorkShift(kind) {
     window.__startShiftWorkShift = kind || null;
-    document.querySelectorAll('#startShiftModal [data-work-shift]').forEach(b=>b.classList.toggle('btn-quick', b.dataset.workShift===kind));
+    document.querySelectorAll('#startShiftModal [data-work-shift]').forEach(b=>{const on=b.dataset.workShift===kind;b.classList.toggle('ws-selected',on);b.classList.toggle('btn-quick',on);b.setAttribute('aria-pressed',on?'true':'false');});
   }
   function requireWorkShiftChoice() {
     if (window.__startShiftWorkShift) return window.__startShiftWorkShift;

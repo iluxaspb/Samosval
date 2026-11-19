@@ -147,6 +147,8 @@
 
     .btn-danger { background: var(--danger); }
     .btn-secondary { background: var(--border); color: var(--text); }
+    /* Выбранный тип смены в окне открытия: залитая зелёная кнопка */
+    .btn-secondary.ws-selected { background: var(--success); color: #fff; border: 2px solid #bbf7d0; box-shadow: 0 0 0 3px rgba(34,197,94,0.35); }
     .btn-small { padding: 8px 12px; font-size: 13px; min-height: 38px; }
     .btn-restore { background: #8b5cf6; }
 
