@@ -22,7 +22,18 @@ test('real HTTP phone auth, ACL, epoch, authority, legacy read and field isolati
  assert.equal((await req(ids[0],{...patch,brand:'evil'})).status,400);
  assert.equal((await req(ids[0],patch)).status,200);
  assert.equal((await (await req(ids[0])).json()).phones[0].phone,patch.phone);
- for(const path of ['/api/v1/catalog','/api/v1/line/snapshot']){const res=await req(ids[0],null,{},path);assert.equal(res.status,200);assert.equal((await res.text()).includes(patch.phone),false);}
+ for(const path of ['/api/v1/catalog','/api/v1/line/snapshot','/api/v1/history','/api/v1/replica/journal']){const res=await req(ids[0],null,{},path);assert.equal(res.status,200,path);assert.equal((await res.text()).includes(patch.phone),false,path);}
+ assert.equal((await req(ids[0],patch)).status,409);
+ await pool.query("UPDATE line_trucks SET payload=jsonb_build_object('deleted',true) WHERE truck_id='http_truck'");
+ assert.equal((await (await req(ids[0])).json()).phones.some(r=>r.truckId==='http_truck'),false);
+ assert.equal((await req(ids[0],patch)).status,409);
+ await pool.query("UPDATE line_trucks SET payload='{}' WHERE truck_id='http_truck'");
+ await pool.query("UPDATE server_authority SET provider='firebase' WHERE workspace_id='main_workspace'");
+ assert.equal((await req(ids[0],{truckId:'http_truck',phone:'+12025550199'})).status,409);
+ const seq=Number((await pool.query("SELECT f2s_seq FROM replica_cursor WHERE workspace_id='main_workspace'")).rows[0].f2s_seq);
+ const replica=await req(ids[0],{baseSeq:seq,operations:[{id:'phone-http-delete-896-'+Date.now(),kind:'doc.delete',payload:{collection:'trucks',path:'workspaces/main_workspace/trucks/http_truck'}}]}, {},'/api/v1/replica/apply');
+ assert.equal(replica.status,200);assert.equal((await pool.query("SELECT * FROM line_trucks WHERE truck_id='http_truck'")).rowCount,0);assert.equal((await pool.query("SELECT * FROM truck_phones WHERE truck_id='http_truck'")).rowCount,0);
+ await pool.query("UPDATE server_authority SET provider='ubuntu' WHERE workspace_id='main_workspace'");
  await pool.query("INSERT INTO role_permissions(role,action,allowed) VALUES('viewer','view_truck_phone',true) ON CONFLICT(role,action) DO UPDATE SET allowed=true");
  assert.equal((await req(ids[1])).status,200);assert.equal((await req(ids[1],patch)).status,403);
  await pool.query("DELETE FROM role_permissions WHERE role='viewer' AND action='view_truck_phone'");assert.equal((await req(ids[1])).status,403);

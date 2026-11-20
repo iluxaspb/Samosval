@@ -15,10 +15,17 @@ test('PostgreSQL native checkpoints preserve Tabel, source import, atomic before
  assert.equal((await submitBackup(pool,uid,restore,ws)).replayed,true);assert.equal((await pool.query('SELECT count(*)::int n FROM workspace_backups WHERE workspace_id=$1',[ws])).rows[0].n,2);
  assert.equal((await readBackups(pool,uid,id,ws)).payload.native.truck_phones[0].phone,'+123456789');
  await pool.query("UPDATE workspace_backups SET payload=payload #- '{native,truck_phones}' WHERE workspace_id=$1 AND backup_id=$2",[ws,id]);
- await submitBackup(pool,uid,{id:'legacy',type:'backup.restore',backupId:id,sections:{base:true}},ws);
- assert.equal((await pool.query('SELECT phone FROM truck_phones WHERE workspace_id=$1',[ws])).rows[0].phone,'+123456789');
+ await pool.query("INSERT INTO line_trucks VALUES ($1,'absent-in-legacy','{}',1)",[ws]);
+ await pool.query("INSERT INTO truck_phones VALUES ($1,'absent-in-legacy','+12025550199')",[ws]);
+ const legacyRestore=await submitBackup(pool,uid,{id:'legacy',type:'backup.restore',backupId:id,sections:{base:true}},ws);
+ assert.equal((await pool.query("SELECT * FROM line_trucks WHERE workspace_id=$1 AND truck_id='absent-in-legacy'",[ws])).rowCount,0);
+ assert.equal((await pool.query("SELECT * FROM truck_phones WHERE workspace_id=$1 AND truck_id='absent-in-legacy'",[ws])).rowCount,0);
+ assert.ok((await readBackups(pool,uid,legacyRestore.result.beforeBackupId,ws)).payload.native.truck_phones.some(r=>r.truck_id==='absent-in-legacy'));
+ await submitBackup(pool,uid,{id:'recover_absent',type:'backup.restore',backupId:legacyRestore.result.beforeBackupId,sections:{base:true}},ws);
+ assert.equal((await pool.query("SELECT phone FROM truck_phones WHERE workspace_id=$1 AND truck_id='absent-in-legacy'",[ws])).rows[0].phone,'+12025550199');
+ assert.equal((await pool.query("SELECT phone FROM truck_phones WHERE workspace_id=$1 AND truck_id='phone-truck'",[ws])).rows[0].phone,'+123456789');
  await pool.query("DELETE FROM line_trucks WHERE workspace_id=$1 AND truck_id='phone-truck'",[ws]);
- assert.equal((await pool.query('SELECT * FROM truck_phones WHERE workspace_id=$1',[ws])).rowCount,0);
+ assert.equal((await pool.query("SELECT * FROM truck_phones WHERE workspace_id=$1 AND truck_id='phone-truck'",[ws])).rowCount,0);
  // The before-restore checkpoint is a new-format backup and recovers both rows.
  await submitBackup(pool,uid,{id:'recover',type:'backup.restore',backupId:result.result.beforeBackupId,sections:{base:true}},ws);
  assert.equal((await pool.query('SELECT phone FROM truck_phones WHERE workspace_id=$1',[ws])).rows[0].phone,'+123456789');
