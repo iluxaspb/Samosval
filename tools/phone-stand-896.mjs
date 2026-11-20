@@ -154,6 +154,12 @@ try{
   assert.equal(await ev("truckPhoneRows.get('synthetic_truck')"),'+12025550100');
  });
  await scenario('full handleLogout confirmation, server revocation, reload and same uid login',async()=>{
+  // Establish the account explicitly; the preceding ACL scenario ends as viewer.
+  await ev("wtClearSession();wtNotifySession(null);wtShowAuthScreens('signed-out')");
+  await login('admin');
+  const uidBefore=await ev('wtAuthUser().uid');
+  assert.equal(uidBefore,'synthetic_admin');
+  assert.equal(await ev('currentUid'),uidBefore);
   const old=await ev('wtAccessToken()');
   const marker=await ev("window.qaDocumentMarker=String(Math.random())");
   await ev('void handleLogout()');
@@ -166,6 +172,9 @@ try{
   assert.equal(await ev("document.querySelectorAll('a.truck-phone').length"),0);
   assert.equal(await ev(`fetch('/api/v1/truck-phones',{headers:{Authorization:${JSON.stringify('Bearer '+old)}}}).then(r=>r.status)`),401);
   await login('admin');await until(()=>ev("truckPhoneRows.get('synthetic_truck')==='+12025550100'"),'same uid after reload');
+  const uidAfter=await ev('wtAuthUser().uid');
+  assert.equal(uidAfter,uidBefore);
+  assert.equal(await ev('currentUid'),uidBefore);
  });
  await scenario('deterministic restore overlap, phone-first and restore-first SQL lock orders',async()=>{
   // Independent fetch requests avoid incidental runtime epoch reload while
