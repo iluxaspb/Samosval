@@ -2,8 +2,41 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {installPhoneEvidence,installPhoneFormQA} from './phone-form-qa.mjs';
+import {installPhoneEvidence,installPhoneFormQA,capturePhoneLineFacts} from './phone-form-qa.mjs';
 const stand=fs.readFileSync(new URL('./phone-stand-896.mjs',import.meta.url),'utf8');
+
+test('synthetic seed statuses satisfy the real Line membership predicate',()=>{
+ const seed=fs.readFileSync(new URL('./phone-browser-seed.mjs',import.meta.url),'utf8');
+ const formatting=fs.readFileSync(new URL('../working-test/source/core/03-formatting.js',import.meta.url),'utf8');
+ const predicate=formatting.match(/function getActiveLineIds\(\) \{[^\n]+/)[0];
+ const payload=seed.match(/INSERT INTO line_truck_statuses[^\n]+\[id,(\{[^\n]+?\})\]\);/)[1];
+ const status=vm.runInNewContext(`(${payload})`);
+ const context=vm.createContext({state:{truckStatus:{synthetic_truck:status,synthetic_empty:status}}});
+ assert.deepEqual(Array.from(vm.runInContext(`${predicate};getActiveLineIds()`,context)),['synthetic_truck','synthetic_empty']);
+ // The old fixture proves why an active shift/catalog entry is insufficient.
+ context.state.truckStatus={synthetic_truck:{arrived:false,ttnStatus:'pending'}};
+ assert.deepEqual(Array.from(vm.runInContext('getActiveLineIds()',context)),[]);
+});
+
+test('Line diagnostics distinguish absent membership, absent card and absent tel without mutation or raw data',()=>{
+ const state={shift:{id:'synthetic_shift',secret:'private'},trucks:[{id:'synthetic_truck',number:'private'}],truckStatus:{synthetic_truck:{onLine:false}}};
+ let card=null;
+ const container={querySelector:()=>card,querySelectorAll:()=>card?[card]:[]};
+ const context=vm.createContext({state,document:{getElementById:()=>container},getActiveLineIds:()=>state.truckStatus.synthetic_truck.onLine?['synthetic_truck']:[],truckPhoneRows:new Map([['synthetic_truck','+12025550100']]),hasPermission:()=>true});
+ const facts=()=>JSON.parse(JSON.stringify(vm.runInContext(`(${capturePhoneLineFacts.toString()})()`,context)));
+ const before=JSON.stringify(state);
+ assert.equal(facts().activeTarget,false);assert.equal(facts().cardPresent,false);
+ assert.equal(JSON.stringify(state),before);
+ state.truckStatus.synthetic_truck.onLine=true;
+ assert.equal(facts().activeTarget,true);assert.equal(facts().cardPresent,false);
+ card={querySelector:()=>null};assert.equal(facts().cardPresent,true);assert.equal(facts().expectedTel,false);
+ card.querySelector=selector=>selector==='a.truck-phone'||selector==='a[href="tel:+12025550100"]'?{}:null;
+ assert.equal(facts().expectedTel,true);assert.equal(facts().expectedMap,true);
+ assert.ok(Object.values(facts()).every(v=>typeof v==='boolean'||typeof v==='number'));
+ assert.doesNotMatch(JSON.stringify(facts()),/private|synthetic_shift|12025550100/);
+ assert.match(stand,/evidence\.lineBeforeReload=[\s\S]*Page.reload[\s\S]*evidence\.lineAfterReload=/);
+ assert.match(stand,/finally\{[\s\S]*evidence\.finalLine=/);
+});
 
 test('forms are pinned to one open dialog and cancel/removal precedes reopening',()=>{
  assert.doesNotMatch(stand,/document\.querySelector\('dialog (input|form|\[)/);

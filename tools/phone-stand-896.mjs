@@ -5,7 +5,7 @@ import {chromium,until} from './phone-cdp.mjs';
 import {ROLES} from '../server/src/identity-rules.mjs';
 import {restoreOverlap} from './phone-restore-overlap.mjs';
 import {installAuthFixtureTransport} from './phone-auth-fixture.mjs';
-import {installPhoneEvidence,installPhoneFormQA} from './phone-form-qa.mjs';
+import {installPhoneEvidence,installPhoneFormQA,capturePhoneLineFacts} from './phone-form-qa.mjs';
 
 const base=process.env.PHONE_QA_BASE,origin='https://samosval-test.iluxa.pro:18499';
 assert.ok(base?.includes('/browser-fix.')&&process.env.PGHOST===base+'/socket');
@@ -112,6 +112,7 @@ try{
   assert.ok(await ev("!!document.querySelector('#globalTrucksManageList a[href=\"tel:+12025550100\"]')"));
   // Inspect href only; never navigate/call tel.
   await ev("switchTab('line');renderLine()");
+  evidence.lineBeforeReload=await ev(`(${capturePhoneLineFacts.toString()})()`);
   assert.ok(await ev("!!document.querySelector('.truck-card[data-truck-id=synthetic_truck] a[href=\"tel:+12025550100\"]')"));
   assert.equal(await ev('JSON.stringify(offlinePendingOps())'),queue);
   const reloadMarker=await ev('window.qaPhoneReloadMarker=String(Math.random())');
@@ -121,11 +122,16 @@ try{
   assert.deepEqual(evidence.reloadGET,{status:200,ubuntu:true,expectedRows:1});
   evidence.sqlAfterReload=await readPhoneSQL();
   assert.deepEqual(evidence.sqlAfterReload,evidence.sqlAfterPOST);
+  await until(()=>ev("!!state.shift && state.trucks.some(t=>t.id==='synthetic_truck') && getActiveLineIds().includes('synthetic_truck')"),'real Line snapshot after reload');
+  await ev("switchTab('line');renderLine()");
+  evidence.lineAfterReload=await ev(`(${capturePhoneLineFacts.toString()})()`);
+  assert.ok(await ev("!!document.querySelector('.truck-card[data-truck-id=synthetic_truck] a[href=\"tel:+12025550100\"]')"));
   await ev("switchTab('trucks');renderGlobalTrucksManage()");
   assert.ok(await ev("!!document.querySelector('#globalTrucksManageList a[href=\"tel:+12025550100\"]')"));
   const after=(await pool.query("SELECT jsonb_build_object('trucks',(SELECT jsonb_agg(t ORDER BY truck_id) FROM line_trucks t),'logs',(SELECT jsonb_agg(t ORDER BY log_id) FROM line_logs t),'statuses',(SELECT jsonb_agg(t ORDER BY truck_id) FROM line_truck_statuses t),'shifts',(SELECT jsonb_agg(t ORDER BY shift_id) FROM shifts t)) AS data")).rows[0].data;
   assert.deepEqual(after,baseline);
   }finally{
+   try{evidence.finalLine=await ev(`(${capturePhoneLineFacts.toString()})()`);}catch{evidence.lineUnavailable=true;}
    try{evidence.dom=await ev(`({dialogCount:document.querySelectorAll('dialog').length,dialogs:[...document.querySelectorAll('dialog')].slice(0,8).map(d=>({open:d.open,phoneForm:!!d.querySelector('input[name=phone]'),alertPresent:!!d.querySelector('[role=alert]')?.textContent,timeout:!!d.querySelector('[role=alert]')?.textContent.includes('api-timeout')})),context:window.qaPhoneTruckId==='synthetic_truck',expectedMap:typeof truckPhoneRows!=='undefined'&&truckPhoneRows.get('synthetic_truck')==='+12025550100',http:window.__qaPhoneHTTP?.slice(-16)})`);}catch{evidence.domUnavailable=true;}
    try{evidence.finalSQL=await readPhoneSQL();}catch{evidence.sqlUnavailable=true;}
    writeFileSync(base+'/phone-form-evidence.json',JSON.stringify(evidence,null,2));

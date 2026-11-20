@@ -20,6 +20,23 @@ export function installPhoneFormQA(){
  };
 }
 
+// Read-only, bounded facts: no DOM text/HTML, raw state, identifiers or phone values.
+export function capturePhoneLineFacts(){
+ const id='synthetic_truck',status=state.truckStatus[id];
+ const container=document.getElementById('trucksLineList');
+ const card=container?.querySelector('.truck-card[data-truck-id=synthetic_truck]');
+ return {
+  shiftPresent:!!state.shift,expectedShift:state.shift?.id==='synthetic_shift',
+  truckPresent:state.trucks.some(t=>t.id===id),statusPresent:!!status,
+  onLine:status?.onLine===true,activeTarget:getActiveLineIds().includes(id),
+  activeCount:getActiveLineIds().length,cardCount:container?.querySelectorAll('.truck-card').length??0,
+  cardPresent:!!card,phoneLinkPresent:!!card?.querySelector('a.truck-phone'),
+  expectedTel:!!card?.querySelector('a[href="tel:+12025550100"]'),
+  expectedMap:truckPhoneRows.get(id)==='+12025550100',
+  canView:hasPermission('view_truck_phone'),canCall:hasPermission('call_truck_phone')
+ };
+}
+
 // QA-only observation: never retain credentials, headers, raw bodies or phone numbers.
 export function installPhoneEvidence(){
  const original=window.fetch.bind(window);

@@ -14,7 +14,8 @@ try{
  for(const [id,data] of Object.entries(docs.trucks))await pool.query("INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES('main_workspace',$1,$2)",[id,data]);
  await pool.query("INSERT INTO workspace_objects(workspace_id,object_id,payload) VALUES('main_workspace','synthetic_site',$1)",[docs.objects.synthetic_site]);
  await pool.query("INSERT INTO shifts VALUES('main_workspace','synthetic_shift',true,$1)",[docs.shift.current]);
- for(const id of docs.shift.current.activeLineIds)await pool.query("INSERT INTO line_truck_statuses VALUES('main_workspace',$1,'synthetic_shift',$2)",[id,{arrived:false,ttnStatus:'pending'}]);
+ // Line membership comes from status.onLine, not shift.activeLineIds.
+ for(const id of docs.shift.current.activeLineIds)await pool.query("INSERT INTO line_truck_statuses VALUES('main_workspace',$1,'synthetic_shift',$2)",[id,{onLine:true,arriveStatus:false,ttnStatus:false}]);
  await pool.query("INSERT INTO line_logs VALUES('main_workspace','synthetic_log','synthetic_shift','synthetic_truck',$1)",[docs.logs.synthetic_log]);
  await pool.query("INSERT INTO workspace_settings(workspace_id,payload) VALUES('main_workspace',$1)",[{cycleMinutes:15}]);
  await pool.query("INSERT INTO workspace_services_state VALUES('main_workspace',$1)",[sha]);
