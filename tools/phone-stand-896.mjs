@@ -7,7 +7,8 @@ import {restoreOverlap} from './phone-restore-overlap.mjs';
 
 const base=process.env.PHONE_QA_BASE,origin='https://samosval-test.iluxa.pro:18499';
 assert.ok(base?.includes('/browser-fix.')&&process.env.PGHOST===base+'/socket');
-assert.notEqual(readlinkSync('/proc/self/ns/net'),readlinkSync('/proc/1/ns/net'));
+assert.match(process.env.PHONE_HOST_NS||'',/^net:\[[0-9]+\]$/);
+assert.notEqual(readlinkSync('/proc/self/ns/net'),process.env.PHONE_HOST_NS);
 const pool=new pg.Pool({host:process.env.PGHOST,database:'samosval_test',user:process.env.POSTGRES_USER});
 let browser;const results=[];
 async function scenario(name,fn){try{await fn();results.push({name,status:'PASS'});console.log('PASS',name);}catch(e){results.push({name,status:'FAIL',error:e.message});throw e;}finally{writeFileSync(base+'/results.json',JSON.stringify(results,null,2));}}

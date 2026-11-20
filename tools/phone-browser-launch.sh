@@ -8,12 +8,13 @@ if [ "$(id -u)" != 0 ] && [ "${PHONE_BROWSER_NS:-}" != 1 ]; then
  export PHONE_HOST_NS=$(readlink /proc/self/ns/net)
  exec sudo -n --preserve-env=PHONE_HOST_NS,PHONE_REVIEWED_COMMIT unshare -n bash "$0"
 fi
+[[ "${PHONE_HOST_NS:-}" =~ ^net:\[[0-9]+\]$ ]] || exit 1
 [ "$(readlink /proc/self/ns/net)" != "$PHONE_HOST_NS" ] || exit 1
 if [ "$(id -u)" = 0 ]; then
  ip link set lo up
  exec setpriv --reuid=iluxa --regid=iluxa --init-groups env HOME=/home/iluxa PHONE_BROWSER_NS=1 bash "$0"
 fi
-[ "$(readlink /proc/self/ns/net)" != "$(readlink /proc/1/ns/net)" ] || exit 1
+[ "$(readlink /proc/self/ns/net)" != "$PHONE_HOST_NS" ] || exit 1
 [ -z "$(ip route show)" ] && [ -z "$(ip -6 route show)" ] || exit 1
 available=$(df -Pk "$ROOT" | python3 -c 'import sys; print(sys.stdin.readlines()[-1].split()[3])')
 [ "$available" -ge 225280 ] || { printf 'BLOCKED: need 220 MiB free before isolated browser run, have %s KiB\n' "$available"; exit 1; }
