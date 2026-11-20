@@ -4,7 +4,7 @@ export async function seedServices(pool,{workspaceId='main_workspace',sha256}={}
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
-    if((await client.query('SELECT current_database() AS name')).rows[0].name!=='samosval_test')throw fail('test-database-required');
+    if((await client.query('SELECT current_database() AS name')).rows[0].name!=='samosval_working_test_reserve')throw fail('test-database-required');
     await client.query('SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE',[workspaceId]);
     for(const table of ['workspace_settings','game_records','workspace_services_state']){
       await client.query(`LOCK TABLE ${table} IN EXCLUSIVE MODE`);
@@ -12,7 +12,7 @@ export async function seedServices(pool,{workspaceId='main_workspace',sha256}={}
     }
     const identity=(await client.query('SELECT initialized,import_sha256 FROM identity_state WHERE id=1')).rows[0];
     const source=(await client.query('SELECT workspace_id,source_project,counts FROM migration_imports WHERE sha256=$1',[sha256])).rows[0];
-    if(!identity?.initialized||identity.import_sha256!==sha256||!source||source.workspace_id!==workspaceId||source.source_project!=='samosval-offline')throw fail('wrong-import-source');
+    if(!identity?.initialized||identity.import_sha256!==sha256||!source||source.workspace_id!==workspaceId||!['samosval-offline','samosval-test'].includes(source.source_project))throw fail('wrong-import-source');
     const config=(await client.query("SELECT payload FROM migration_documents WHERE import_sha256=$1 AND document_path='settings/appConfig'",[sha256])).rows;
     if(config.length!==1||!map(config[0].payload))throw fail('settings-source-missing',409);
     const cycle=(await client.query('SELECT cycle_minutes FROM workspaces WHERE id=$1',[workspaceId])).rows[0].cycle_minutes;

@@ -28,7 +28,7 @@ export async function auxiliaryEntries(client,ws){
  const state=(await client.query('SELECT initialized,import_sha256 FROM identity_state WHERE id=1')).rows[0];
  if(!state?.initialized)throw fail('identity-not-ready',409);
  const source=(await client.query('SELECT workspace_id,source_project FROM migration_imports WHERE sha256=$1',[state.import_sha256])).rows[0];
- if(source?.workspace_id!==ws||source.source_project!=='samosval-offline')throw fail('auxiliary-source-mismatch',409);
+ if(source?.workspace_id!==ws||!['samosval-offline','samosval-test'].includes(source.source_project))throw fail('auxiliary-source-mismatch',409);
  const data=Object.fromEntries(collections.map(c=>[c,new Map()]));
  for(const collection of collections){
   const prefix=`workspaces/${ws}/${collection}/`;

@@ -56,7 +56,7 @@ export function readTabel(pool,uid,{key,objectId,cursor='',kind='records'}={}) {
       if (!canRead(actor,key,config)) throw fail('forbidden',403);
       return {record:current};
     }
-    if (kind === 'history' && !manager(actor)) throw fail('forbidden',403);
+    if (kind === 'history' && !manager(actor) && !actor.permissions.includes('tabel_tab_history')) throw fail('forbidden',403);
     const config = (await getRow(client,objectId+'/config')).data;
     const history = kind === 'history';
     const rows = (await client.query(history

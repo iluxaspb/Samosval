@@ -30,6 +30,10 @@ function settle(head,player,action,available,day){
   p.marioCoins+=coins;p.net+=coins;delta=coins;payout=coins;
   if(p.unlocked<=action.level&&action.level<LEVELS)p.unlocked=action.level+1;
   result={type:'mario_finish',coins,score:Number.isInteger(action.score)?action.score:0,bonus:Number.isInteger(action.jumpBonus)?action.jumpBonus:0,unlocked:p.unlocked};
+ }else if(action.kind==='dino'){
+  const coins=Number.isInteger(action.coins)?Math.max(0,Math.min(99,action.coins)):0;
+  p.net+=coins;delta=coins;payout=coins;
+  result={type:'dino_run',coins,score:Number.isInteger(action.score)?action.score:0};
  }else if(action.kind==='purchase'){
   if(!Number.isInteger(action.price)||action.price<0||available<action.price)throw Error('Монет пока недостаточно.');cost=action.price;
  }else throw Error('Неизвестное игровое действие');
