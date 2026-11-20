@@ -4,6 +4,7 @@ import pg from '../server/node_modules/pg/lib/index.js';
 import {chromium,until} from './phone-cdp.mjs';
 import {ROLES} from '../server/src/identity-rules.mjs';
 import {restoreOverlap} from './phone-restore-overlap.mjs';
+import {installAuthFixtureTransport} from './phone-auth-fixture.mjs';
 
 const base=process.env.PHONE_QA_BASE,origin='https://samosval-test.iluxa.pro:18499';
 assert.ok(base?.includes('/browser-fix.')&&process.env.PGHOST===base+'/socket');
@@ -16,11 +17,18 @@ try{
  await until(async()=>{try{return (await fetch('http://127.0.0.1:18099/health/live')).ok;}catch{return false;}},'API readiness');
  browser=await chromium(base,process.env.PHONE_CHROMIUM);
  const ev=browser.evaluate;
+ // QA adapter persists across reload/legacy navigation, not in shipped assets.
+ await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installAuthFixtureTransport.toString()})()`});
  await browser.send('Page.navigate',{url:origin+'/index-working-test.html'});
  await until(()=>ev("typeof handleLogin==='function' && !!document.getElementById('authEmail')"),'built application');
  async function login(role){
+  const diagnosticStart=await ev('window.__qaAuthHTTP.length');
   await ev(`document.getElementById('authEmail').value=${JSON.stringify(role+'@example.test')};document.getElementById('authPassword').value='Synthetic-only-889!';handleLogin()`);
-  await until(()=>ev(`typeof nasRuntimeClient!=='undefined' && !!nasRuntimeClient && currentUserRole===${JSON.stringify(role)} && currentUserStatus==='active'`),'real auth '+role);
+  await until(async()=>{
+   const failures=await ev(`window.__qaAuthHTTP.slice(${diagnosticStart}).filter(r=>r.status>=400)`);
+   if(failures.length){writeFileSync(base+'/auth-http.json',JSON.stringify(failures,null,2));throw Error('QA auth HTTP failure: '+JSON.stringify(failures.at(-1)));}
+   return ev(`typeof nasRuntimeClient!=='undefined' && !!nasRuntimeClient && currentUserRole===${JSON.stringify(role)} && currentUserStatus==='active'`);
+  },'real auth '+role);
   await until(()=>ev("state.trucks.some(t=>t.id==='synthetic_truck')"),'line seed');
  }
  await scenario('new Chromium profile, mobile built app, auth and epoch > 0',async()=>{
