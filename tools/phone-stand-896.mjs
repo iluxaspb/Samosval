@@ -26,17 +26,18 @@ try{
  await browser.send('Page.navigate',{url:origin+'/index-working-test.html'});
  await until(()=>read("typeof handleLogin==='function' && !!document.getElementById('authEmail')"),'built application');
  async function login(role){
-  const diagnosticStart=await ev('window.__qaAuthHTTP.length');
+  const diagnosticStart=browser.collector.authMark();
   // Login can trigger checkEpoch -> reload (fresh profile has epoch 0, fixture 7).
   // Do not retain its Promise handle across that document transition.
   await ev(`document.getElementById('authEmail').value=${JSON.stringify(role+'@example.test')};document.getElementById('authPassword').value='Synthetic-only-889!';void handleLogin()`);
   await until(async()=>{
-   const failures=await read(`window.__qaAuthHTTP.slice(${diagnosticStart}).filter(r=>r.status>=400)`);
-   if(failures===false)return false;
-   if(failures.length){writeFileSync(base+'/auth-http.json',JSON.stringify(failures,null,2));throw Error('QA auth HTTP failure: '+JSON.stringify(failures.at(-1)));}
-   return read(`typeof nasRuntimeClient!=='undefined' && !!nasRuntimeClient && currentUserRole===${JSON.stringify(role)} && currentUserStatus==='active'`);
+   browser.collector.assertAuthSince(diagnosticStart);
+   const active=await read(`typeof nasRuntimeClient!=='undefined' && !!nasRuntimeClient && currentUserRole===${JSON.stringify(role)} && currentUserStatus==='active'`);
+   browser.collector.assertAuthSince(diagnosticStart);
+   return active;
   },'real auth '+role);
   await until(()=>read("typeof state!=='undefined' && state.trucks.some(t=>t.id==='synthetic_truck')"),'line seed');
+  browser.collector.assertAuthSince(diagnosticStart);
  }
  await scenario('new Chromium profile, mobile built app, auth and epoch > 0',async()=>{
   assert.equal(await ev('innerWidth'),393);
@@ -273,7 +274,7 @@ try{
   assert.ok(browser.network.some(r=>r.url===origin+'/api/v1/truck-phones'));
   assert.equal(browser.network.some(r=>r.url.includes(':18091')),false);
   const api=browser.network.filter(r=>r.url.includes('/api/'));assert.ok(api.every(r=>r.url.startsWith(origin+'/api/')));
-  assert.deepEqual(browser.errors,[]);assert.deepEqual(await ev('window.__qaRejections'),[]);
+  browser.collector.assertNoExceptions();
  });
  console.log('Browser scenarios complete; HTTP/backup extended assertions are separate focused tests. No publication.');
 }finally{if(browser)await browser.close();await pool.end();}
