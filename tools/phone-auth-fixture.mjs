@@ -3,7 +3,9 @@
 export function installAuthFixtureTransport(){
  const original=window.fetch.bind(window);
  window.__qaAuthHTTP=[];
- const codes=new Set(['dataset-restored-reload','identity-not-ready','invalid-credentials','account-disabled','pending-approval','origin-not-allowed','server-error','invalid-json','unsupported-media-type','invalid-session']);
+ // Literal protocol codes from index.mjs auth routes, identity-store/rules and
+ // dataset-guard. Never log arbitrary server strings, even code-shaped ones.
+ const codes=new Set(['dataset-restored-reload','identity-not-ready','identity-email-required','email-already-exists','invalid-request','invalid-credentials','invalid-password','invalid-nickname','account-disabled','pending-approval','origin-not-allowed','server-error','invalid-json','unsupported-media-type','invalid-session','invalid-session-id','invalid-reset-token','body-too-large','database-unavailable','unauthorized','forbidden']);
  window.fetch=async(input,options)=>{
   const url=new URL(typeof input==='string'?input:input.url,location.href);
   if(url.origin!==location.origin||!/^\/api\/v1\/auth\/[a-z-]+$/.test(url.pathname))return original(input,options);

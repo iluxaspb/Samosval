@@ -3,6 +3,23 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {installAuthFixtureTransport} from './phone-auth-fixture.mjs';
 import {installDatasetGuard,datasetRequest} from '../server/src/dataset-guard.mjs';
+import fs from 'node:fs';
+
+test('diagnostics preserve known server auth codes including duplicate email and fallback',async()=>{
+ const files=['index.mjs','identity-store.mjs','identity-rules.mjs','dataset-guard.mjs'];
+ const server=files.map(f=>fs.readFileSync(new URL('../server/src/'+f,import.meta.url),'utf8')).join('\n');
+ const known=['email-already-exists','invalid-request','identity-email-required','invalid-password','invalid-nickname','invalid-reset-token','invalid-session-id','body-too-large','database-unavailable','unauthorized','forbidden'];
+ for(const code of [...known,'secret-shaped-code','token=SECRET']){
+  if(known.includes(code))assert.ok(server.includes("'"+code+"'")||server.includes('"'+code+'"'),code+' must originate in server');
+  const logs=[];const response=new Response(JSON.stringify({error:code,accessToken:'SECRET',detail:'SECRET'}),{status:409});
+  const window={fetch:async url=>url==='/health/live'?new Response('{}',{headers:{'X-Samosval-Epoch':'7'}}):response};
+  const context=vm.createContext({window,Headers,Request,URL,location:{href:'https://qa.invalid/',origin:'https://qa.invalid'},console:{info:s=>logs.push(s)}});
+  vm.runInContext(`(${installAuthFixtureTransport.toString()})()`,context);
+  assert.equal(await window.fetch('/api/v1/auth/register',{method:'POST'}),response);
+  assert.equal(window.__qaAuthHTTP[0].code,known.includes(code)?code:'unrecognized-error');
+  assert.equal(logs.join('').includes('SECRET'),false);
+ }
+});
 
 test('real dataset guard rejects epoch-less auth BEGIN at fixture epoch 7',async()=>{
  let connect;const pool={on:(event,fn)=>{connect=fn;},query:async()=>({rows:[{restore_epoch:'7'}]})};installDatasetGuard(pool);
