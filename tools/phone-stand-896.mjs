@@ -3,6 +3,7 @@ import {readlinkSync,writeFileSync} from 'node:fs';
 import pg from '../server/node_modules/pg/lib/index.js';
 import {chromium,until} from './phone-cdp.mjs';
 import {ROLES} from '../server/src/identity-rules.mjs';
+import {restoreOverlap} from './phone-restore-overlap.mjs';
 
 const base=process.env.PHONE_QA_BASE,origin='https://samosval-test.iluxa.pro:18499';
 assert.ok(base?.includes('/browser-fix.')&&process.env.PGHOST===base+'/socket');
@@ -103,19 +104,30 @@ try{
   await pool.query("DELETE FROM truck_phones WHERE truck_id='synthetic_delete'");
   await ev("qaMode='hold';qaStart({truckId:'synthetic_delete',phone:'+12025550102'})");await until(()=>ev('qaHeld.length===3'),'POST held');
   const count=browser.network.filter(r=>r.url.endsWith('/api/v1/truck-phones')).length;
-  await ev('window.qaReadDone=false;truckPhoneRequest().then(()=>qaReadDone=true)');
+  await ev('window.qaReadDone=false;void truckPhoneRequest().then(()=>qaReadDone=true)');
   assert.equal(await ev('qaReadDone'),false);assert.equal(browser.network.filter(r=>r.url.endsWith('/api/v1/truck-phones')).length,count);
   await ev('qaRelease(2)');await until(()=>ev('qaReadDone'),'GET waits write');
   assert.equal(await ev("truckPhoneRows.get('synthetic_delete')"),'+12025550102');
  });
- await scenario('bad body, HTTP failure, timeout: no false UI success; catalog remains available',async()=>{
+ await scenario('isolated faults: committed bad body vs unsent HTTP error/abort-aware timeout',async()=>{
   // Dedicated real client with short deadline; production configuration unchanged.
   for(const mode of ['badbody','error','hang']){
-   await ev(`window.qaSavedClient=nasRuntimeClient;window.qaTestClient=(await loadNasSessionClient()).createNasClient({baseUrl:nasApiBase(),getUser:()=>wtAuthUser(),timeoutMs:150});await qaTestClient.readSession();nasRuntimeClient=qaTestClient;qaMode='${mode}';addTruckPhone('synthetic_empty');document.querySelector('dialog input').value='+12025550109';document.querySelector('dialog form').requestSubmit();`);
+   // Each fault starts empty. badbody is an uncertain *committed* write;
+   // error/hang below deliberately fail before dispatch, not server failures.
+   await pool.query("DELETE FROM truck_phones WHERE truck_id='synthetic_empty'");
+   await ev(`resetTruckPhones();window.qaSavedClient=nasRuntimeClient;window.qaFaultAborted=false;window.qaFaultDispatches=0;window.qaFaultFetch=(url,options)=>{if(String(url).endsWith('/api/v1/truck-phones')){if('${mode}'==='error')return Promise.resolve(new Response(JSON.stringify({error:'injected-before-dispatch'}),{status:503,headers:{'Content-Type':'application/json'}}));if('${mode}'==='hang')return new Promise((resolve,reject)=>{const abort=()=>{qaFaultAborted=true;reject(new DOMException('Aborted','AbortError'));};if(options.signal.aborted)abort();else options.signal.addEventListener('abort',abort,{once:true});});qaFaultDispatches++;return qaOriginalFetch(url,options).then(()=>new Response('<not-json>',{status:200,headers:{'Content-Type':'application/json'}}));}return qaOriginalFetch(url,options);};window.qaTestClient=(await loadNasSessionClient()).createNasClient({baseUrl:nasApiBase(),getUser:()=>wtAuthUser(),fetchImpl:qaFaultFetch,timeoutMs:500});await qaTestClient.readSession();nasRuntimeClient=qaTestClient;addTruckPhone('synthetic_empty');document.querySelector('dialog input').value='+12025550109';document.querySelector('dialog form').requestSubmit();`);
    await until(()=>ev("!!document.querySelector('dialog[open] [role=alert]')?.textContent"),'visible '+mode+' failure');
    assert.ok(await ev("!!document.querySelector('dialog[open]')"));
-   await ev("document.querySelector('dialog [type=button]').click();nasRuntimeClient=qaSavedClient;qaTestClient.stop();nasRuntimeClient.readCatalog()");
+   assert.equal(await ev("truckPhoneRows.has('synthetic_empty')"),false);
+   const rows=(await pool.query("SELECT phone FROM truck_phones WHERE truck_id='synthetic_empty'")).rows;
+   assert.deepEqual(rows,mode==='badbody'?[{phone:'+12025550109'}]:[]);
+   assert.equal(await ev('qaFaultDispatches'),mode==='badbody'?1:0);
+   if(mode==='hang'){assert.equal(await ev('qaFaultAborted'),true);assert.ok((await ev("document.querySelector('dialog [role=alert]').textContent")).includes('api-timeout'));}
+   await ev("document.querySelector('dialog [type=button]').click();nasRuntimeClient=qaSavedClient;qaTestClient.stop();await nasRuntimeClient.readCatalog();await refreshTruckPhones()");
+   assert.equal(await ev("truckPhoneRows.has('synthetic_empty')"),mode==='badbody');
   }
+  await pool.query("DELETE FROM truck_phones WHERE truck_id='synthetic_empty'");
+  await ev('await refreshTruckPhones()');
  });
  await scenario('late GET/POST/errors across real logout/login same uid and runtime; view revoke/regrant DOM',async()=>{
   // wtClearSession/wtNotifySession are the same auth chain used by handleLogout;
@@ -141,23 +153,29 @@ try{
   await ev('applyNasSession(await nasRuntimeClient.readSession());await refreshTruckPhones()');
   assert.equal(await ev("truckPhoneRows.get('synthetic_truck')"),'+12025550100');
  });
- await scenario('restore during in-flight GET and POST: real middleware fences old dataset',async()=>{
-  // Use a fresh client for each epoch. The runtime may reload on an epoch
-  // change; run these HTTP fences with real tokens in Chromium, not mock data.
-  const loginData=await ev("fetch('/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'admin@example.test',password:'Synthetic-only-889!'})}).then(r=>r.json())");
-  const token=loginData.accessToken;assert.ok(token);
-  const request=async(path,body,epoch)=>ev(`(async()=>{const r=await qaOriginalFetch(${JSON.stringify(origin)}+${JSON.stringify(path)},{method:${body===undefined?"'GET'":"'POST'"},headers:{Authorization:${JSON.stringify('Bearer '+token)},'Content-Type':'application/json','X-Samosval-Epoch':${JSON.stringify(String(epoch))},'X-Samosval-Generation':'3'},${body===undefined?'':`body:JSON.stringify(${JSON.stringify(body)}),`}});return {status:r.status,data:await r.json()};})()`);
-  const saved=await request('/api/v1/backups',{id:'stand896_save',type:'backup.create',backupType:'manual',description:'Synthetic restore fence'},7);assert.equal(saved.status,200);
-  for(const method of ['GET','POST']){
-   const epoch=Number((await pool.query("SELECT restore_epoch FROM workspaces WHERE id='main_workspace'")).rows[0].restore_epoch);
-   // Overlap real HTTP with restore. Exact lock ordering must be checked by
-   // tester; this assertion alone does not prove both transaction interleavings.
-   await ev(`void(window.qaRestorePending=qaOriginalFetch('/api/v1/truck-phones',{method:'${method}',headers:{Authorization:${JSON.stringify('Bearer '+token)},'Content-Type':'application/json','X-Samosval-Epoch':'${epoch}','X-Samosval-Generation':'3'},${method==='POST'?"body:JSON.stringify({truckId:'synthetic_empty',phone:'+12025550109'}),":''}}).then(async r=>({status:r.status,data:await r.json()})));`);
-   const restored=await request('/api/v1/backups',{id:'stand896_restore_'+method,type:'backup.restore',backupId:saved.data.result.meta.id,sections:{base:true}},epoch);assert.equal(restored.status,200);
-   await ev('qaRestorePending');
-   assert.equal((await request('/api/v1/truck-phones',{truckId:'synthetic_empty',phone:'+12025550109'},epoch)).status,409);
-   assert.equal((await pool.query("SELECT * FROM truck_phones WHERE truck_id='synthetic_empty' AND phone='+12025550109'")).rowCount,0);
-  }
+ await scenario('full handleLogout confirmation, server revocation, reload and same uid login',async()=>{
+  const old=await ev('wtAccessToken()');
+  const marker=await ev("window.qaDocumentMarker=String(Math.random())");
+  await ev('void handleLogout()');
+  await until(()=>ev("!!document.querySelector('.pcm-overlay .pcm-btn-confirm')"),'logout confirmation');
+  // Activate the actual confirmation control; no replacement of appConfirm.
+  await ev("document.querySelector('.pcm-overlay .pcm-btn-confirm').click()");
+  await until(async()=>{try{return await ev(`window.qaDocumentMarker!==${JSON.stringify(marker)} && typeof wtAuthUser==='function' && wtAuthUser()===null && localStorage.getItem('wt_refresh_token')===null`);}catch{return false;}},'real logout navigation');
+  assert.equal(await ev("localStorage.getItem('wt_access_token')"),null);
+  assert.equal(await ev("typeof truckPhoneRows!=='undefined' ? truckPhoneRows.size : 0"),0);
+  assert.equal(await ev("document.querySelectorAll('a.truck-phone').length"),0);
+  assert.equal(await ev(`fetch('/api/v1/truck-phones',{headers:{Authorization:${JSON.stringify('Bearer '+old)}}}).then(r=>r.status)`),401);
+  await login('admin');await until(()=>ev("truckPhoneRows.get('synthetic_truck')==='+12025550100'"),'same uid after reload');
+ });
+ await scenario('deterministic restore overlap, phone-first and restore-first SQL lock orders',async()=>{
+  // Independent fetch requests avoid incidental runtime epoch reload while
+  // exercising real HTTP middleware. Abort deadline prevents stuck cleanup.
+  const token=await ev('wtAccessToken()');assert.ok(token);
+  const request=async(path,body,epoch)=>{const r=await fetch('http://127.0.0.1:18099'+path,{method:body===undefined?'GET':'POST',headers:{Origin:origin,Authorization:'Bearer '+token,'Content-Type':'application/json','X-Samosval-Epoch':String(epoch),'X-Samosval-Generation':'3'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(20000)});return {status:r.status,data:await r.json()};};
+  // Stop polling only for SQL scheduling; browser UI was verified above.
+  await ev('stopNasRuntime()');
+  const evidence=await restoreOverlap(pool,request);
+  writeFileSync(base+'/restore-overlap.json',JSON.stringify(evidence,null,2));
  });
  await scenario('old actual 1.7.21 client on same synthetic API',async()=>{
   await browser.send('Page.navigate',{url:origin+'/legacy/index-working-test.html'});
