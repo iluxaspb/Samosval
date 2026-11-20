@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import {readlinkSync,writeFileSync} from 'node:fs';
 import pg from '../server/node_modules/pg/lib/index.js';
-import {chromium,until} from './phone-cdp.mjs';
+import {chromium,until,navigationProbe} from './phone-cdp.mjs';
 import {ROLES} from '../server/src/identity-rules.mjs';
 import {restoreOverlap} from './phone-restore-overlap.mjs';
 import {installAuthFixtureTransport} from './phone-auth-fixture.mjs';
-import {installPhoneEvidence,installPhoneFormQA,capturePhoneLineFacts} from './phone-form-qa.mjs';
+import {installPhoneEvidence,installPhoneFormQA,capturePhoneLineFacts,capturePhoneTelGeometry,assertPhoneTelGeometry} from './phone-form-qa.mjs';
 
 const base=process.env.PHONE_QA_BASE,origin='https://samosval-test.iluxa.pro:18499';
 assert.ok(base?.includes('/browser-fix.')&&process.env.PGHOST===base+'/socket');
@@ -18,29 +18,34 @@ try{
  await until(async()=>{try{return (await fetch('http://127.0.0.1:18099/health/live')).ok;}catch{return false;}},'API readiness');
  browser=await chromium(base,process.env.PHONE_CHROMIUM);
  const ev=browser.evaluate;
+ const read=expression=>navigationProbe(ev,expression);
  // QA adapter persists across reload/legacy navigation, not in shipped assets.
  await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installAuthFixtureTransport.toString()})()`});
  await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPhoneEvidence.toString()})()`});
  await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPhoneFormQA.toString()})()`});
  await browser.send('Page.navigate',{url:origin+'/index-working-test.html'});
- await until(()=>ev("typeof handleLogin==='function' && !!document.getElementById('authEmail')"),'built application');
+ await until(()=>read("typeof handleLogin==='function' && !!document.getElementById('authEmail')"),'built application');
  async function login(role){
   const diagnosticStart=await ev('window.__qaAuthHTTP.length');
-  await ev(`document.getElementById('authEmail').value=${JSON.stringify(role+'@example.test')};document.getElementById('authPassword').value='Synthetic-only-889!';handleLogin()`);
+  // Login can trigger checkEpoch -> reload (fresh profile has epoch 0, fixture 7).
+  // Do not retain its Promise handle across that document transition.
+  await ev(`document.getElementById('authEmail').value=${JSON.stringify(role+'@example.test')};document.getElementById('authPassword').value='Synthetic-only-889!';void handleLogin()`);
   await until(async()=>{
-   const failures=await ev(`window.__qaAuthHTTP.slice(${diagnosticStart}).filter(r=>r.status>=400)`);
+   const failures=await read(`window.__qaAuthHTTP.slice(${diagnosticStart}).filter(r=>r.status>=400)`);
+   if(failures===false)return false;
    if(failures.length){writeFileSync(base+'/auth-http.json',JSON.stringify(failures,null,2));throw Error('QA auth HTTP failure: '+JSON.stringify(failures.at(-1)));}
-   return ev(`typeof nasRuntimeClient!=='undefined' && !!nasRuntimeClient && currentUserRole===${JSON.stringify(role)} && currentUserStatus==='active'`);
+   return read(`typeof nasRuntimeClient!=='undefined' && !!nasRuntimeClient && currentUserRole===${JSON.stringify(role)} && currentUserStatus==='active'`);
   },'real auth '+role);
-  await until(()=>ev("state.trucks.some(t=>t.id==='synthetic_truck')"),'line seed');
+  await until(()=>read("typeof state!=='undefined' && state.trucks.some(t=>t.id==='synthetic_truck')"),'line seed');
  }
  await scenario('new Chromium profile, mobile built app, auth and epoch > 0',async()=>{
   assert.equal(await ev('innerWidth'),393);
   assert.equal(await ev('localStorage.getItem("wt_access_token")'),null);
   await login('admin');
-  await until(()=>ev("truckPhoneRows instanceof Map"),'phone runtime');
+  await until(()=>read("typeof truckPhoneRows!=='undefined' && truckPhoneRows instanceof Map"),'phone runtime');
   assert.equal(await ev('nasApiBase()'),origin);
   assert.equal((await pool.query("SELECT restore_epoch FROM workspaces WHERE id='main_workspace'")).rows[0].restore_epoch,'7');
+  writeFileSync(base+'/cdp-initial-scenario.json',JSON.stringify(browser.diagnostic(),null,2));
  });
  // All HTTP traffic originates inside Chromium at the synthetic HTTPS origin.
  await ev(`window.qaHTTP=async(path,body,headers={})=>{const r=await fetch(path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+wtAccessToken(),'Content-Type':'application/json','X-Samosval-Epoch':'7','X-Samosval-Generation':'3',...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:r.status,text:await r.text()};};`);
@@ -113,11 +118,13 @@ try{
   // Inspect href only; never navigate/call tel.
   await ev("switchTab('line');renderLine()");
   evidence.lineBeforeReload=await ev(`(${capturePhoneLineFacts.toString()})()`);
+  evidence.telBeforeReload=await ev(`(${capturePhoneTelGeometry.toString()})()`);
+  assertPhoneTelGeometry(evidence.telBeforeReload);
   assert.ok(await ev("!!document.querySelector('.truck-card[data-truck-id=synthetic_truck] a[href=\"tel:+12025550100\"]')"));
   assert.equal(await ev('JSON.stringify(offlinePendingOps())'),queue);
   const reloadMarker=await ev('window.qaPhoneReloadMarker=String(Math.random())');
   await browser.send('Page.reload');
-  await until(()=>ev(`window.qaPhoneReloadMarker!==${JSON.stringify(reloadMarker)} && typeof truckPhoneRows!=='undefined' && truckPhoneRows.get('synthetic_truck')==='+12025550100'`),'phone survives actual reload');
+  await until(()=>read(`window.qaPhoneReloadMarker!==${JSON.stringify(reloadMarker)} && typeof truckPhoneRows!=='undefined' && truckPhoneRows.get('synthetic_truck')==='+12025550100'`),'phone survives actual reload');
   evidence.reloadGET=await independentPhoneRead();
   assert.deepEqual(evidence.reloadGET,{status:200,ubuntu:true,expectedRows:1});
   evidence.sqlAfterReload=await readPhoneSQL();
@@ -125,6 +132,8 @@ try{
   await until(()=>ev("!!state.shift && state.trucks.some(t=>t.id==='synthetic_truck') && getActiveLineIds().includes('synthetic_truck')"),'real Line snapshot after reload');
   await ev("switchTab('line');renderLine()");
   evidence.lineAfterReload=await ev(`(${capturePhoneLineFacts.toString()})()`);
+  evidence.telAfterReload=await ev(`(${capturePhoneTelGeometry.toString()})()`);
+  assertPhoneTelGeometry(evidence.telAfterReload);
   assert.ok(await ev("!!document.querySelector('.truck-card[data-truck-id=synthetic_truck] a[href=\"tel:+12025550100\"]')"));
   await ev("switchTab('trucks');renderGlobalTrucksManage()");
   assert.ok(await ev("!!document.querySelector('#globalTrucksManageList a[href=\"tel:+12025550100\"]')"));
@@ -231,7 +240,7 @@ try{
   await until(()=>ev("!!document.querySelector('.pcm-overlay .pcm-btn-confirm')"),'logout confirmation');
   // Activate the actual confirmation control; no replacement of appConfirm.
   await ev("document.querySelector('.pcm-overlay .pcm-btn-confirm').click()");
-  await until(async()=>{try{return await ev(`window.qaDocumentMarker!==${JSON.stringify(marker)} && typeof wtAuthUser==='function' && wtAuthUser()===null && localStorage.getItem('wt_refresh_token')===null`);}catch{return false;}},'real logout navigation');
+  await until(()=>read(`window.qaDocumentMarker!==${JSON.stringify(marker)} && typeof wtAuthUser==='function' && wtAuthUser()===null && localStorage.getItem('wt_refresh_token')===null`),'real logout navigation');
   assert.equal(await ev("localStorage.getItem('wt_access_token')"),null);
   assert.equal(await ev("typeof truckPhoneRows!=='undefined' ? truckPhoneRows.size : 0"),0);
   assert.equal(await ev("document.querySelectorAll('a.truck-phone').length"),0);
@@ -253,7 +262,7 @@ try{
  });
  await scenario('old actual 1.7.21 client on same synthetic API',async()=>{
   await browser.send('Page.navigate',{url:origin+'/legacy/index-working-test.html'});
-  await until(()=>ev("typeof handleLogin==='function'"),'legacy loaded');
+  await until(()=>read("typeof handleLogin==='function'"),'legacy loaded');
   await until(()=>ev("typeof nasRuntimeClient!=='undefined' && nasRuntimeClient && currentUserStatus==='active' && state.trucks.length>0"),'legacy real session and line');
   assert.equal(await ev('typeof truckPhoneRequest'),'undefined');
   await ev("switchTab('trucks');renderGlobalTrucksManage()");
