@@ -97,6 +97,7 @@ const firebaseConfig = {
   const ALL_ACTIONS = [
     'timesheet_edit', 'timesheet_manage', 'timesheet_export',
     'start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'undo_action',
+    'view_truck_phone', 'call_truck_phone', 'add_truck_phone',
     'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'import_backup',
     'view_card_stats', 'view_header', 'undo_any', 'view_gai_report', 'view_reis_in_ticker'
   ];
@@ -105,6 +106,7 @@ const firebaseConfig = {
     start_shift: 'Начать смену', close_shift: 'Закрыть смену', edit_line: 'Изменять линию',
     action_arrive: 'Кнопка «Приехал»', action_load: 'Кнопка «Погрузка»', action_ttn: 'Кнопка «ТТН»',
     undo_action: 'Отменять СВОИ действия', undo_any: 'Отменять действия ЛЮБОГО пользователя',
+    view_truck_phone: 'Читать телефон самосвала', call_truck_phone: 'Кнопка Позвонить', add_truck_phone: 'Добавлять отсутствующий телефон',
     edit_logs: 'Редактировать рейсы', manage_trucks: 'Управлять базой самосвалов', manage_objects: 'Управлять базой объектов',
     archive_edit: 'Редактировать архив', archive_delete: 'Удалять из архива', import_backup: 'Импорт бэкапа',
     view_card_stats: 'Показывать рейсы/объем на карточках', view_header: 'Показывать верхнюю панель (шапку)',
