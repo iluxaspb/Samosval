@@ -5,7 +5,7 @@ import {chromium,until} from './phone-cdp.mjs';
 import {ROLES} from '../server/src/identity-rules.mjs';
 import {restoreOverlap} from './phone-restore-overlap.mjs';
 import {installAuthFixtureTransport} from './phone-auth-fixture.mjs';
-import {installPhoneEvidence} from './phone-form-qa.mjs';
+import {installPhoneEvidence,installPhoneFormQA} from './phone-form-qa.mjs';
 
 const base=process.env.PHONE_QA_BASE,origin='https://samosval-test.iluxa.pro:18499';
 assert.ok(base?.includes('/browser-fix.')&&process.env.PGHOST===base+'/socket');
@@ -21,6 +21,7 @@ try{
  // QA adapter persists across reload/legacy navigation, not in shipped assets.
  await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installAuthFixtureTransport.toString()})()`});
  await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPhoneEvidence.toString()})()`});
+ await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPhoneFormQA.toString()})()`});
  await browser.send('Page.navigate',{url:origin+'/index-working-test.html'});
  await until(()=>ev("typeof handleLogin==='function' && !!document.getElementById('authEmail')"),'built application');
  async function login(role){
@@ -46,13 +47,16 @@ try{
  const http=(path,body,headers={})=>ev(`qaHTTP(${JSON.stringify(path)},${body===undefined?'undefined':JSON.stringify(body)},${JSON.stringify(headers)})`);
  // Pin the actual open form, not the first (possibly closing) dialog in DOM.
  async function openPhoneForm(truckId){
-  assert.equal(await ev("document.querySelectorAll('dialog').length"),0,'previous form removed');
+  await ev(`qaPhoneForm.begin(${JSON.stringify(truckId)})`);
   await ev(`addTruckPhone(${JSON.stringify(truckId)})`);
   await until(()=>ev("document.querySelectorAll('dialog[open] input[name=phone]').length===1"),'one open phone form');
-  await ev(`window.qaPhoneDialog=document.querySelector('dialog[open]');window.qaPhoneTruckId=${JSON.stringify(truckId)};if(document.querySelectorAll('dialog[open]').length!==1)throw Error('ambiguous open dialog');`);
+  await ev(`qaPhoneForm.pin(${JSON.stringify(truckId)})`);
  }
- const submitPhoneForm=phone=>ev(`if(!qaPhoneDialog.isConnected||!qaPhoneDialog.open||qaPhoneDialog!==document.querySelector('dialog[open]'))throw Error('stale QA form');qaPhoneDialog.querySelector('input[name=phone]').value=${JSON.stringify(phone)};qaPhoneDialog.querySelector('form').requestSubmit()`);
- const waitFormRemoved=()=>until(()=>ev('!qaPhoneDialog.isConnected'),'closed phone form removed');
+ const submitPhoneForm=phone=>ev(`qaPhoneForm.current().querySelector('input[name=phone]').value=${JSON.stringify(phone)};qaPhoneForm.current().querySelector('form').requestSubmit()`);
+ const waitFormRemoved=async()=>{
+  await ev('window.qaClosingPhoneDialog=qaPhoneDialog;if(!qaClosingPhoneDialog)throw Error("missing QA phone form")');
+  await until(()=>ev('!qaClosingPhoneDialog.isConnected'),'specific closed phone form removed');
+ };
  const readPhoneSQL=async()=>{
   const rows=(await pool.query("SELECT truck_id,phone FROM truck_phones WHERE workspace_id='main_workspace' ORDER BY truck_id")).rows;
   return {rows:rows.map(r=>({truckId:['synthetic_truck','synthetic_empty','synthetic_delete'].includes(r.truck_id)?r.truck_id:'unrecognized',expectedPhone:r.phone==='+12025550100'}))};
@@ -85,10 +89,10 @@ try{
   const evidence={truckId:'synthetic_truck'};
   try{
   const queue=await ev('JSON.stringify(offlinePendingOps())');
-  await ev("switchTab('trucks');renderGlobalTrucksManage();window.qaDirectoryButton=[...document.querySelectorAll('#globalTrucksManageList button.truck-phone')].find(b=>b.getAttribute('onclick')===\"addTruckPhone('synthetic_truck')\");if(!qaDirectoryButton)throw Error('synthetic truck button missing');qaDirectoryButton.click();window.qaPhoneDialog=document.querySelector('dialog[open]');window.qaPhoneTruckId='synthetic_truck'");
+  await ev("switchTab('trucks');renderGlobalTrucksManage();window.qaDirectoryButton=[...document.querySelectorAll('#globalTrucksManageList button.truck-phone')].find(b=>b.getAttribute('onclick')===\"addTruckPhone('synthetic_truck')\");if(!qaDirectoryButton)throw Error('synthetic truck button missing');qaPhoneForm.begin('synthetic_truck');qaDirectoryButton.click();qaPhoneForm.pin('synthetic_truck')");
   assert.equal(await ev("document.querySelectorAll('dialog[open] input[name=phone]').length"),1);
   const posts=browser.network.filter(r=>r.url.endsWith('/api/v1/truck-phones')&&r.method==='POST').length;
-  await ev("qaPhoneDialog.querySelector('[type=button]').click()");
+  await ev("qaPhoneForm.current().querySelector('[type=button]').click()");
   await waitFormRemoved();
   assert.equal(browser.network.filter(r=>r.url.endsWith('/api/v1/truck-phones')&&r.method==='POST').length,posts);
   const start=await ev('__qaPhoneHTTP.length');
@@ -169,14 +173,14 @@ try{
    await ev(`resetTruckPhones();window.qaSavedClient=nasRuntimeClient;window.qaFaultAborted=false;window.qaFaultDispatches=0;window.qaFaultFetch=(url,options)=>{if(String(url).endsWith('/api/v1/truck-phones')){if('${mode}'==='error')return Promise.resolve(new Response(JSON.stringify({error:'injected-before-dispatch'}),{status:503,headers:{'Content-Type':'application/json'}}));if('${mode}'==='hang')return new Promise((resolve,reject)=>{const abort=()=>{qaFaultAborted=true;reject(new DOMException('Aborted','AbortError'));};if(options.signal.aborted)abort();else options.signal.addEventListener('abort',abort,{once:true});});qaFaultDispatches++;return qaOriginalFetch(url,options).then(()=>new Response('<not-json>',{status:200,headers:{'Content-Type':'application/json'}}));}return qaOriginalFetch(url,options);};window.qaTestClient=(await loadNasSessionClient()).createNasClient({baseUrl:nasApiBase(),getUser:()=>wtAuthUser(),fetchImpl:qaFaultFetch,timeoutMs:500});await qaTestClient.readSession();nasRuntimeClient=qaTestClient;`);
    await openPhoneForm('synthetic_empty');
    await submitPhoneForm('+12025550109');
-   await until(()=>ev("!!document.querySelector('dialog[open] [role=alert]')?.textContent"),'visible '+mode+' failure');
-   assert.ok(await ev("!!document.querySelector('dialog[open]')"));
+   await until(()=>ev("!!qaPhoneForm.current().querySelector('[role=alert]')?.textContent"),'visible '+mode+' failure');
+   assert.ok(await ev("qaPhoneForm.current().open"));
    assert.equal(await ev("truckPhoneRows.has('synthetic_empty')"),false);
    const rows=(await pool.query("SELECT phone FROM truck_phones WHERE truck_id='synthetic_empty'")).rows;
    assert.deepEqual(rows,mode==='badbody'?[{phone:'+12025550109'}]:[]);
    assert.equal(await ev('qaFaultDispatches'),mode==='badbody'?1:0);
    if(mode==='hang'){assert.equal(await ev('qaFaultAborted'),true);assert.ok((await ev("qaPhoneDialog.querySelector('[role=alert]').textContent")).includes('api-timeout'));}
-   await ev("qaPhoneDialog.querySelector('[type=button]').click()");
+   await ev("qaPhoneForm.current().querySelector('[type=button]').click()");
    await waitFormRemoved();
    await ev("nasRuntimeClient=qaSavedClient;qaTestClient.stop();await nasRuntimeClient.readCatalog();await refreshTruckPhones()");
    assert.equal(await ev("truckPhoneRows.has('synthetic_empty')"),mode==='badbody');

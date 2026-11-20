@@ -1,3 +1,25 @@
+// QA-only DOM correlation; unrelated shell dialogs are not phone forms.
+export function installPhoneFormQA(){
+ let before,truckId,pinned;
+ const forms=()=>[...document.querySelectorAll('dialog')].filter(d=>d.isConnected&&d.querySelector('form input[name=phone]'));
+ window.qaPhoneForm={
+  begin(id){
+   if(pinned?.isConnected||forms().length)throw Error('previous phone form not removed');
+   before=new Set(document.querySelectorAll('dialog'));truckId=id;pinned=null;
+  },
+  pin(id){
+   const candidates=forms();
+   if(!before||id!==truckId||candidates.length!==1||!candidates[0].open||before.has(candidates[0]))throw Error('ambiguous or stale phone form');
+   pinned=candidates[0];window.qaPhoneDialog=pinned;window.qaPhoneTruckId=id;
+  },
+  current(){
+   const candidates=forms();
+   if(!pinned?.isConnected||!pinned.open||candidates.length!==1||candidates[0]!==pinned||window.qaPhoneDialog!==pinned||window.qaPhoneTruckId!==truckId)throw Error('stale QA phone form');
+   return pinned;
+  }
+ };
+}
+
 // QA-only observation: never retain credentials, headers, raw bodies or phone numbers.
 export function installPhoneEvidence(){
  const original=window.fetch.bind(window);

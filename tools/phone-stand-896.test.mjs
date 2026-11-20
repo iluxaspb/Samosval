@@ -2,19 +2,67 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {installPhoneEvidence} from './phone-form-qa.mjs';
+import {installPhoneEvidence,installPhoneFormQA} from './phone-form-qa.mjs';
 const stand=fs.readFileSync(new URL('./phone-stand-896.mjs',import.meta.url),'utf8');
 
 test('forms are pinned to one open dialog and cancel/removal precedes reopening',()=>{
  assert.doesNotMatch(stand,/document\.querySelector\('dialog (input|form|\[)/);
- assert.match(stand,/!qaPhoneDialog\.isConnected/);
- assert.match(stand,/qaPhoneDialog!==document\.querySelector\('dialog\[open\]'\)/);
+ assert.doesNotMatch(stand,/querySelectorAll\('dialog'\)\.length"\),0/);
+ assert.doesNotMatch(stand,/document\.querySelector\('dialog\[open\]'\)/);
+ assert.match(stand,/!qaClosingPhoneDialog\.isConnected/);
+ assert.match(stand,/qaPhoneForm\.current\(\)\.querySelector\('form'\)\.requestSubmit/);
+ assert.match(stand,/qaPhoneForm\.begin\('synthetic_truck'\);qaDirectoryButton\.click\(\);qaPhoneForm\.pin\('synthetic_truck'\)/);
  assert.match(stand,/await waitFormRemoved\(\);[\s\S]*await openPhoneForm\('synthetic_truck'\)/);
  assert.match(stand,/getAttribute\('onclick'\)===\\"addTruckPhone\('synthetic_truck'\)/);
  assert.match(stand,/evidence\.sqlAfterPOST=await readPhoneSQL\(\)/);
  assert.match(stand,/evidence\.independentGET=await independentPhoneRead\(\)/);
  assert.match(stand,/Page.reload[\s\S]*evidence\.reloadGET=await independentPhoneRead\(\)/);
  assert.match(stand,/finally\{[\s\S]*phone-form-evidence\.json/);
+});
+
+function formHarness(){
+ const dialogs=[];
+ const dialog=(phone=false,open=false)=>{
+  const d={isConnected:true,open,querySelector:selector=>phone&&selector==='form input[name=phone]'?{}:null};
+  dialogs.push(d);return d;
+ };
+ // The three persistent non-phone dialogs from the failed run, plus an open
+ // unrelated dialog to catch accidental first-open-dialog selection.
+ for(let i=0;i<3;i++)dialog();dialog(false,true);
+ const context=vm.createContext({document:{querySelectorAll:()=>dialogs.filter(d=>d.isConnected)}});context.window=context;
+ vm.runInContext(`(${installPhoneFormQA.toString()})()`,context);
+ return {context,dialog,qa:context.qaPhoneForm};
+}
+
+test('phone lifecycle ignores shell dialogs but requires removal of the specific old node',async()=>{
+ const {context,dialog,qa}=formHarness();
+ qa.begin('synthetic_truck');const first=dialog(true,true);qa.pin('synthetic_truck');
+ assert.equal(qa.current(),first);
+ first.open=false;
+ assert.throws(()=>qa.current(),/stale/);
+ assert.throws(()=>qa.begin('synthetic_empty'),/previous phone form not removed/);
+ // Exercise the actual wait helper with a unit-only polling stub (no CDP).
+ const waitSource=stand.match(/const waitFormRemoved=(async\(\)=>\{[\s\S]*?\n \});/)[1];
+ let polls=0;
+ context.ev=source=>vm.runInContext(source,context);
+ context.until=async predicate=>{assert.equal(await predicate(),false);polls++;first.isConnected=false;assert.equal(await predicate(),true);};
+ await vm.runInContext(`(${waitSource})()`,context);
+ assert.equal(polls,1);assert.equal(context.qaClosingPhoneDialog,first);
+ qa.begin('synthetic_empty');const second=dialog(true,true);qa.pin('synthetic_empty');
+ assert.equal(qa.current(),second);assert.notEqual(second,first);
+ assert.equal(context.qaPhoneTruckId,'synthetic_empty');
+});
+
+test('phone identity rejects missing, closed, ambiguous, replaced and wrong-context forms',()=>{
+ const {context,dialog,qa}=formHarness();
+ qa.begin('synthetic_truck');assert.throws(()=>qa.pin('synthetic_truck'),/ambiguous/);
+ const first=dialog(true,false);assert.throws(()=>qa.pin('synthetic_truck'),/ambiguous/);
+ first.open=true;assert.throws(()=>qa.pin('synthetic_empty'),/ambiguous/);
+ const extra=dialog(true,true);assert.throws(()=>qa.pin('synthetic_truck'),/ambiguous/);
+ extra.isConnected=false;qa.pin('synthetic_truck');assert.equal(qa.current(),first);
+ context.qaPhoneTruckId='synthetic_empty';assert.throws(()=>qa.current(),/stale/);
+ context.qaPhoneTruckId='synthetic_truck';context.qaPhoneDialog=extra;assert.throws(()=>qa.current(),/stale/);
+ context.qaPhoneDialog=first;first.isConnected=false;dialog(true,true);assert.throws(()=>qa.current(),/stale/);
 });
 
 test('observer correlates actual POST response without changing it or leaking raw data',async()=>{
