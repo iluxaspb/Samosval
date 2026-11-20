@@ -1,17 +1,25 @@
 /* Phone data is deliberately separate from cached line/catalog payloads. */
-let truckPhoneRows=new Map();
+let truckPhoneRows=new Map(),truckPhoneSequence=0,truckPhoneWrite=null;
+function resetTruckPhones(){truckPhoneSequence++;truckPhoneRows.clear();truckPhoneWrite=null;}
 async function truckPhoneRequest(body){
- const user=wtAuthUser();if(!user)throw Error('Требуется вход');
- const token=await user.getIdToken();
- const response=await fetch(WORKING_TEST_UBUNTU_API_BASE+'/api/v1/truck-phones',{method:body?'POST':'GET',cache:'no-store',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
- if(!response.ok)throw Error('Телефон не сохранён / недоступен (HTTP '+response.status+')');
- const result=await response.json();
- if(wtAuthUser()?.uid!==user.uid||!hasPermission('view_truck_phone'))throw Error('Права изменились');
- truckPhoneRows=new Map(result.phones.map(row=>[row.truckId,row.phone]));
+ const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+ if(!client||!hasPermission('view_truck_phone'))throw Error('Требуется вход и право просмотра');
+ // Reads wait for the current write; an older read may never erase its result.
+ if(!body&&truckPhoneWrite){await truckPhoneWrite;return;}
+ if(body&&truckPhoneWrite)throw Error('Сохранение уже выполняется');
+ const sequence=++truckPhoneSequence;
+ const work=body?client.submitTruckPhone(body):client.readTruckPhones();
+ if(body)truckPhoneWrite=work;
+ try{
+  const result=await work;
+  if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch||sequence!==truckPhoneSequence||!hasPermission('view_truck_phone'))throw Error('Сессия или права изменились');
+  truckPhoneRows=new Map(result.phones.map(row=>[row.truckId,row.phone]));
+ }catch(error){if(client===nasRuntimeClient&&epoch===nasRuntimeEpoch&&sequence===truckPhoneSequence&&(error.code==='dataset-restored-reload'||error.code==='session-changed'||error.status===403))resetTruckPhones();throw error;}
+ finally{if(truckPhoneWrite===work)truckPhoneWrite=null;}
 }
 async function refreshTruckPhones(){
- truckPhoneRows.clear();
- if(hasPermission('view_truck_phone'))try{await truckPhoneRequest();}catch(e){console.warn('Телефоны недоступны');}
+ if(!hasPermission('view_truck_phone')){resetTruckPhones();return;}
+ try{await truckPhoneRequest();renderLine();renderGlobalTrucksManage();}catch(e){console.warn('Телефоны недоступны');}
 }
 function truckPhoneMarkup(t){
  if(!hasPermission('view_truck_phone'))return '';

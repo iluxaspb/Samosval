@@ -41,6 +41,7 @@
   let nasSyncRetry=nasSyncNewState(), nasSyncTimer=null, nasLastSessionAt=0, nasHiddenAt=0;
   const nasCommandFlights=new Map();
   function stopNasRuntime() {
+    if(typeof resetTruckPhones==='function')resetTruckPhones();
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
     nasConnectionStop();
     nasWakeStop?.();nasWakeStop=null;nasWakeInFlight=false;nasWakeAt=0;
@@ -99,6 +100,7 @@
     currentUserRole=profile?.role||null;currentUserStatus=active?'active':profile?.status==='disabled'||profile?.deleted?'disabled':'pending';
     currentUserNickname=profile?.nickname||sanitizeName(currentEmail);
     permissionsConfig=active?{...(currentUserRole==='admin'?permissionsConfig:{}),[currentUserRole]:session.permissions}:{};permissionsLoaded=!!active;
+    if((!active||!hasPermission('view_truck_phone'))&&typeof resetTruckPhones==='function')resetTruckPhones();
     // The NAS session arrives over authenticated HTTPS from the server, so it
     // is the server confirmation for profile and permissions. Without this the
     // game wallet reported "ready" while every action was refused as unsynced.
@@ -543,7 +545,7 @@
     if(nasCatalogRead)return nasCatalogRead;
     const work=(async()=>{const catalog=await client.readCatalog();if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||!hasTabAccess('line')&&!hasTabAccess('trucks')&&!hasTabAccess('timesheet'))return;
       markSync('nas-objects',false,false,catalog.objects.length);nasCatalogSnapshot=catalog;state.trucks=catalog.trucks.map(row=>({...row.data,id:row.id,revision:row.revision}));state.objects=catalog.objects.map(row=>({...row.data,id:row.id,revision:row.revision}));if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName);
-      await refreshTruckPhones();
+      void refreshTruckPhones();
       markSync('objects',false,false,state.objects.length);saveCache();window.dispatchEvent(new Event('samosval-working-test-objects-changed'));
     })();nasCatalogRead=work;try{return await work;}finally{if(nasCatalogRead===work)nasCatalogRead=null;}
   }

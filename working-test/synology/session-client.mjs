@@ -92,7 +92,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
         const previous=write?null:readCache.get(path);
         phase='response-headers';
         const response=await abortable(fetchImpl(apiRoot+path,{method:write?'POST':'GET',
-          headers:write?{'X-Samosval-Epoch':String(datasetEpoch),'X-Samosval-Generation':String(authorityGeneration),Authorization:'Bearer '+token,'Content-Type':'application/json'}:{Authorization:'Bearer '+token,...(previous?{'If-None-Match':previous.etag}:{})},
+          headers:write?{'X-Samosval-Epoch':String(datasetEpoch),'X-Samosval-Generation':String(authorityGeneration),Authorization:'Bearer '+token,'Content-Type':'application/json'}:{Authorization:'Bearer '+token,'X-Samosval-Epoch':String(datasetEpoch),...(previous?{'If-None-Match':previous.etag}:{})},
           ...(write?{body}:{}),signal:controller.signal,redirect:'error',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'}),controller.signal);
         guard();checkEpoch(response);httpStatus=response.status;
         if(response.status===401&&attempt===0)continue;
@@ -327,5 +327,8 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     subscriptionWake=wake;void tick();return close;
   }
   function stop(){stopped=true;readCache.clear();for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  return Object.freeze({scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,probe,stop,wake,abortInflight,readAuthority,submitAuthority,writeAuthorityPresence,authority});
+  const validatePhones=x=>record(x)&&x.source==='ubuntu'&&Array.isArray(x.phones)&&x.phones.every(r=>record(r)&&typeof r.truckId==='string'&&/^\+[1-9][0-9]{7,14}$/.test(r.phone));
+  const readTruckPhones=()=>request('/api/v1/truck-phones',{validate:validatePhones});
+  const submitTruckPhone=operation=>request('/api/v1/truck-phones',{operation,validate:validatePhones});
+  return Object.freeze({readTruckPhones,submitTruckPhone,scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,probe,stop,wake,abortInflight,readAuthority,submitAuthority,writeAuthorityPresence,authority});
 }
