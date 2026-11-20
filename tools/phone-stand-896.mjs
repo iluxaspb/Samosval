@@ -5,7 +5,7 @@ import {chromium,until,navigationProbe} from './phone-cdp.mjs';
 import {ROLES} from '../server/src/identity-rules.mjs';
 import {restoreOverlap} from './phone-restore-overlap.mjs';
 import {installAuthFixtureTransport} from './phone-auth-fixture.mjs';
-import {installPhoneEvidence,installPhoneFormQA,capturePhoneLineFacts,capturePhoneTelGeometry,assertPhoneTelGeometry} from './phone-form-qa.mjs';
+import {installPhoneEvidence,installPhoneFormQA,capturePhoneLineFacts,capturePhoneTelGeometry,assertPhoneTelGeometry,waitPhoneTelGeometry} from './phone-form-qa.mjs';
 
 const base=process.env.PHONE_QA_BASE,origin='https://samosval-test.iluxa.pro:18499';
 assert.ok(base?.includes('/browser-fix.')&&process.env.PGHOST===base+'/socket');
@@ -128,7 +128,7 @@ try{
   // Inspect href only; never navigate/call tel.
   await ev("switchTab('line');renderLine()");
   evidence.lineBeforeReload=await ev(`(${capturePhoneLineFacts.toString()})()`);
-  evidence.telBeforeReload=await ev(`(${capturePhoneTelGeometry.toString()})()`);
+  evidence.telBeforeReload=await waitPhoneTelGeometry(()=>ev(`(${capturePhoneTelGeometry.toString()})()`),facts=>{evidence.telBeforeReload=facts;},until);
   assertPhoneTelGeometry(evidence.telBeforeReload);
   assert.ok(await ev("!!document.querySelector('.truck-card[data-truck-id=synthetic_truck] a[href=\"tel:+12025550100\"]')"));
   assert.equal(await ev('JSON.stringify(offlinePendingOps())'),queue);
@@ -142,7 +142,7 @@ try{
   await until(()=>ev("!!state.shift && state.trucks.some(t=>t.id==='synthetic_truck') && getActiveLineIds().includes('synthetic_truck')"),'real Line snapshot after reload');
   await ev("switchTab('line');renderLine()");
   evidence.lineAfterReload=await ev(`(${capturePhoneLineFacts.toString()})()`);
-  evidence.telAfterReload=await ev(`(${capturePhoneTelGeometry.toString()})()`);
+  evidence.telAfterReload=await waitPhoneTelGeometry(()=>ev(`(${capturePhoneTelGeometry.toString()})()`),facts=>{evidence.telAfterReload=facts;},until);
   assertPhoneTelGeometry(evidence.telAfterReload);
   assert.ok(await ev("!!document.querySelector('.truck-card[data-truck-id=synthetic_truck] a[href=\"tel:+12025550100\"]')"));
   await ev("switchTab('trucks');renderGlobalTrucksManage()");

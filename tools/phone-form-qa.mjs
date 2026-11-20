@@ -42,21 +42,43 @@ export function capturePhoneTelGeometry(){
  const link=document.querySelector('#trucksLineList .truck-card[data-truck-id=synthetic_truck] a.truck-phone');
  if(!link)return {present:false};
  const rect=link.getBoundingClientRect();
- let visible=true,pointerEnabled=true;
+ let visible=true,pointerEnabled=true,depth=0,activeAnimations=0;
+ const visibilityBlockers=[];
  for(let node=link;node;node=node.parentElement){
   const style=getComputedStyle(node);
-  if(style.display==='none'||style.visibility==='hidden'||style.visibility==='collapse'||Number(style.opacity)===0)visible=false;
+  const displayNone=style.display==='none',visibilityHidden=style.visibility==='hidden',visibilityCollapse=style.visibility==='collapse',opacityZero=Number(style.opacity)===0;
+  if(displayNone||visibilityHidden||visibilityCollapse||opacityZero){
+   visible=false;
+   // Fixed HTML type allowlist; no IDs/classes, text, attributes or CSS strings.
+   const elementType=['a','div','section','main','body','html','span','article'].includes(node.localName)?node.localName:'other';
+   if(visibilityBlockers.length<16)visibilityBlockers.push({depth,elementType,displayNone,visibilityHidden,visibilityCollapse,opacityZero});
+  }
   if(style.pointerEvents==='none')pointerEnabled=false;
+  // Only this node, not sibling/subtree animations (e.g. infinite sync dot).
+  activeAnimations+=(node.getAnimations?.()||[]).filter(a=>a.pending||['running','paused'].includes(a.playState)).length;
+  depth++;
  }
  const inViewport=rect.left>=0&&rect.top>=0&&rect.right<=innerWidth&&rect.bottom<=innerHeight;
  const hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
  return {present:true,expectedTel:link.getAttribute('href')==='tel:+12025550100',viewportWidth:innerWidth,viewportHeight:innerHeight,
-  x:rect.left,y:rect.top,width:rect.width,height:rect.height,visible,pointerEnabled,inViewport,hitTarget:!!hit&&(hit===link||link.contains(hit))};
+  x:rect.left,y:rect.top,width:rect.width,height:rect.height,visible,pointerEnabled,inViewport,hitTarget:!!hit&&(hit===link||link.contains(hit)),visibilityBlockers,activeAnimations};
 }
 export function assertPhoneTelGeometry(facts){
  if(!facts.present||!facts.expectedTel||facts.viewportWidth!==393||facts.viewportHeight!==852||
   ![facts.x,facts.y,facts.width,facts.height].every(Number.isFinite)||facts.width<=0||facts.height<=0||
   !facts.visible||!facts.pointerEnabled||!facts.inViewport||!facts.hitTarget)throw Error('Mobile Line tel geometry/visibility/hit-test failed');
+}
+
+// Use the stand's existing until/deadline, never alter CSS, finish animations,
+// replay renderLine or relax the visibility gate. Keep last facts on timeout.
+export async function waitPhoneTelGeometry(capture,observe,until){
+ let facts;
+ await until(async()=>{
+  facts=await capture();observe(facts);
+  if(facts.activeAnimations!==0)return false;
+  try{assertPhoneTelGeometry(facts);return true;}catch{return false;}
+ },'mobile Line tel settled');
+ return facts;
 }
 
 // QA-only observation: never retain credentials, headers, raw bodies or phone numbers.
