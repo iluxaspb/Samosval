@@ -1,0 +1,26 @@
+// QA-only observation: never retain credentials, headers, raw bodies or phone numbers.
+export function installPhoneEvidence(){
+ const original=window.fetch.bind(window);
+ window.__qaPhoneHTTP=[];
+ window.fetch=async(input,options)=>{
+  const url=new URL(typeof input==='string'?input:input.url,location.href);
+  if(url.origin!==location.origin||url.pathname!=='/api/v1/truck-phones')return original(input,options);
+  const method=options?.method||(input instanceof Request?input.method:'GET');
+  const record={sequence:__qaPhoneHTTP.length+1,method,status:null};
+  if(method==='POST'){
+   let body;try{body=JSON.parse(options?.body);}catch{}
+   record.truckId=['synthetic_truck','synthetic_empty','synthetic_delete'].includes(body?.truckId)?body.truckId:'unrecognized';
+   record.expectedPhone=body?.phone?.replace(/[ ()-]/g,'')==='+12025550100';
+  }
+  __qaPhoneHTTP.push(record);
+  try{
+   const response=await original(input,options);record.status=response.status;
+   // Observe a clone without delaying delivery to the application.
+   void response.clone().json().then(data=>{
+    record.ubuntu=data?.source==='ubuntu';record.validPhones=Array.isArray(data?.phones);
+    record.expectedRows=Array.isArray(data?.phones)?data.phones.filter(r=>r.truckId==='synthetic_truck'&&r.phone==='+12025550100').length:0;
+   },()=>{record.invalidJSON=true;});
+   return response;
+  }catch(error){record.transportFailure=true;throw error;}
+ };
+}
