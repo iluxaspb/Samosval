@@ -1,6 +1,20 @@
 // Minimal dependency-free Chromium CDP driver (Node 26 native WebSocket).
 import {spawn} from 'node:child_process';
 import {writeFileSync} from 'node:fs';
+export async function evaluateCdp(send,expression){
+ // REPL top-level await supports statement snippets, but may return an
+ // unawaited Promise even with awaitPromise:true. Inspect BEFORE serialization.
+ let r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:false,replMode:true});
+ const checked=result=>{if(result.exceptionDetails)throw Error(result.exceptionDetails.exception?.description||result.exceptionDetails.text);return result;};
+ checked(r);
+ const objectId=r.result?.objectId;
+ if(!objectId)return r.result?.value;
+ try{
+  if(r.result.subtype==='promise')r=await send('Runtime.awaitPromise',{promiseObjectId:objectId,returnByValue:true});
+  else r=await send('Runtime.callFunctionOn',{objectId,functionDeclaration:'function(){return this;}',returnByValue:true});
+  checked(r);return r.result?.value;
+ }finally{await send('Runtime.releaseObject',{objectId});}
+}
 export async function chromium(base, executable){
  const child=spawn(executable,['--headless','--no-sandbox','--ignore-certificate-errors','--disable-background-networking','--disable-dev-shm-usage','--host-resolver-rules=MAP samosval-test.iluxa.pro 127.0.0.1, MAP * ~NOTFOUND','--user-data-dir='+base+'/chrome','--remote-debugging-port=19222','about:blank'],{stdio:['ignore','ignore','pipe']});
  child.stderr.on('data',()=>{});
@@ -14,7 +28,7 @@ export async function chromium(base, executable){
   if(m.method==='Network.requestWillBeSent')network.push({url:m.params.request.url,method:m.params.request.method});
  }};
  const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq,timer=setTimeout(()=>{pending.delete(id);reject(Error('CDP timeout: '+method));},45000);pending.set(id,{resolve,reject,timer});ws.send(JSON.stringify({id,method,params}));});
- const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true,replMode:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result?.value;};
+ const evaluate=expression=>evaluateCdp(send,expression);
  await send('Page.enable');await send('Runtime.enable');await send('Network.enable');await send('Emulation.setDeviceMetricsOverride',{width:393,height:852,deviceScaleFactor:1,mobile:true});
  await send('Page.addScriptToEvaluateOnNewDocument',{source:"window.__qaRejections=[];addEventListener('unhandledrejection',e=>__qaRejections.push(String(e.reason?.message||e.reason)));"});
  return {send,evaluate,errors,network,async close(){writeFileSync(base+'/network.json',JSON.stringify(network,null,2));writeFileSync(base+'/pageerrors.json',JSON.stringify(errors,null,2));try{await send('Browser.close');}catch{}ws.close();child.kill();}};
