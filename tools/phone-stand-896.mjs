@@ -37,6 +37,7 @@ try{
    return active;
   },'real auth '+role);
   await until(()=>read("typeof state!=='undefined' && state.trucks.some(t=>t.id==='synthetic_truck')"),'line seed');
+  await browser.collector.waitAuthSince(diagnosticStart);
   browser.collector.assertAuthSince(diagnosticStart);
  }
  await scenario('new Chromium profile, mobile built app, auth and epoch > 0',async()=>{
@@ -72,8 +73,16 @@ try{
   const anon=await ev("fetch('/api/v1/truck-phones').then(r=>r.status)");assert.equal(anon,401);
   // Real password login gives a real middleware identity, not a forged role.
   for(const status of ['pending','disabled']){
+   const negativeStart=browser.collector.authMark();
    const r=await ev(`fetch('/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'${status}@example.test',password:'Synthetic-only-889!'})}).then(async r=>({status:r.status,data:await r.json()}))`);
-   if(status==='disabled')assert.ok(r.status>=400);else {assert.ok(r.data.pending===true||!r.data.accessToken);}
+   await browser.collector.waitAuthSettled(negativeStart);
+   if(status==='disabled'){
+    assert.equal(r.status,403);assert.equal(r.data.error,'account-disabled');
+    const rows=browser.collector.snapshot().auth.slice(negativeStart);
+    assert.equal(rows.length,1,'one explicit disabled login response');
+    browser.collector.allowAuthFailure(rows[0].sequence,{route:'/api/v1/auth/login',status:403});
+   }else {assert.equal(r.status,200);assert.ok(r.data.pending===true||!r.data.accessToken);}
+   browser.collector.assertAuthSince(negativeStart);
   }
   for(const role of ROLES){
    const session=await ev(`fetch('/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'${role}@example.test',password:'Synthetic-only-889!'})}).then(r=>r.json())`);
@@ -275,6 +284,7 @@ try{
   assert.equal(browser.network.some(r=>r.url.includes(':18091')),false);
   const api=browser.network.filter(r=>r.url.includes('/api/'));assert.ok(api.every(r=>r.url.startsWith(origin+'/api/')));
   browser.collector.assertNoExceptions();
+  await browser.collector.assertClean();
  });
  console.log('Browser scenarios complete; HTTP/backup extended assertions are separate focused tests. No publication.');
 }finally{if(browser)await browser.close();await pool.end();}

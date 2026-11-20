@@ -8,13 +8,30 @@ export function cdpErrorCollector(){
  const documentId=loader=>{if(!documents.has(loader))documents.set(loader,documents.size+1);return documents.get(loader);};
  const copy=rows=>rows.map(row=>({...row}));
  const failures=start=>auth.slice(start).filter(row=>row.status>=400||row.transportFailure);
+ const incomplete=start=>auth.slice(start).filter(row=>!row.complete);
+ const waitAuthSettled=async(start,ms=30000)=>{
+  const end=Date.now()+ms;
+  while(incomplete(start).length){
+   if(Date.now()>=end)throw Error('QA auth requests incomplete: '+JSON.stringify(incomplete(start)));
+   await new Promise(resolve=>setTimeout(resolve,10));
+  }
+ };
  return {
   authMark:()=>auth.length,
   authFailuresSince:start=>copy(failures(start)),
   get errors(){return copy(exceptions);},
   get rejections(){return copy(exceptions.filter(row=>row.kind==='unhandled-rejection'));},
   snapshot:()=>({auth:copy(auth),exceptions:copy(exceptions)}),
-  assertAuthSince(start){if(failures(start).length)throw Error('QA auth failure: '+JSON.stringify(failures(start)));},
+  assertAuthSince(start){const unexpected=failures(start).filter(row=>!row.expectedFailure);if(unexpected.length)throw Error('QA auth failure: '+JSON.stringify(unexpected));},
+  waitAuthSettled,
+  async waitAuthSince(start,ms){await waitAuthSettled(start,ms);this.assertAuthSince(start);},
+  async assertClean(ms){await this.waitAuthSince(0,ms);this.assertNoExceptions();},
+  // A single terminal response, never a route-wide or interval-wide exemption.
+  allowAuthFailure(sequence,{route,status}){
+   const row=auth[sequence-1];
+   if(!row?.complete||row.transportFailure||row.route!==route||row.status!==status||status<400||status>=500)throw Error('QA expected auth response mismatch');
+   row.expectedFailure=true;
+  },
   assertNoExceptions(){if(exceptions.length)throw Error('QA browser exception: '+JSON.stringify(exceptions));},
   event(method,params){
    if(method==='Runtime.exceptionThrown'){
@@ -25,22 +42,25 @@ export function cdpErrorCollector(){
    if(method==='Network.requestWillBeSent'){
     // Redirect responses belong to the preceding request, before reusing its ID.
     const previous=requests.get(params.requestId);
-    if(previous&&params.redirectResponse)previous.status=params.redirectResponse.status;
+    if(previous&&params.redirectResponse){previous.status=params.redirectResponse.status;previous.complete=true;}
     requests.delete(params.requestId);
     const url=new URL(params.request.url);
     if(!/^\/api\/v1\/auth\/[a-z-]+$/.test(url.pathname))return;
     const route=['login','register','refresh','logout','session','reset-password'].includes(url.pathname.split('/').at(-1))?url.pathname:'/api/v1/auth/other';
-    const row={sequence:auth.length+1,document:documentId(params.loaderId),route,status:null};
+    const row={sequence:auth.length+1,document:documentId(params.loaderId),route,status:null,complete:false};
     auth.push(row);requests.set(params.requestId,row);
    }
    if(method==='Network.responseReceived'){
     const row=requests.get(params.requestId);if(row)row.status=params.response.status;
    }
    if(method==='Network.loadingFailed'){
-    const row=requests.get(params.requestId);if(row)row.transportFailure=true;
+    const row=requests.get(params.requestId);if(row){row.transportFailure=true;row.complete=true;}
     requests.delete(params.requestId);
    }
-   if(method==='Network.loadingFinished')requests.delete(params.requestId);
+   if(method==='Network.loadingFinished'){
+    const row=requests.get(params.requestId);if(row)row.complete=true;
+    requests.delete(params.requestId);
+   }
   }
  };
 }
