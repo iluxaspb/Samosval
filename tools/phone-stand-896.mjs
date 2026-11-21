@@ -272,8 +272,22 @@ try{
  });
  await scenario('old actual 1.7.21 client on same synthetic API',async()=>{
   await browser.send('Page.navigate',{url:origin+'/legacy/index-working-test.html'});
-  await until(()=>read("typeof handleLogin==='function'"),'legacy loaded');
-  await until(()=>ev("typeof nasRuntimeClient!=='undefined' && nasRuntimeClient && currentUserStatus==='active' && state.trucks.length>0"),'legacy real session and line');
+  await until(()=>read("typeof handleLogin==='function' && !!document.getElementById('authEmail')"),'legacy loaded');
+  // Client storage is keyed by page path (working-test/src/storage.js), so a
+  // session opened on /index-working-test.html is deliberately invisible here.
+  // Sign in on THIS page through its own form and handleLogin: same synthetic
+  // account, same real middleware, real tokens; nothing is transplanted.
+  const legacyAuthStart=browser.collector.authMark();
+  await ev(`document.getElementById('authEmail').value=${JSON.stringify('admin@example.test')};document.getElementById('authPassword').value='Synthetic-only-889!';void handleLogin()`);
+  await until(async()=>{
+   browser.collector.assertAuthSince(legacyAuthStart);
+   const active=await read("typeof nasRuntimeClient!=='undefined' && !!nasRuntimeClient && currentUserStatus==='active'");
+   browser.collector.assertAuthSince(legacyAuthStart);
+   return active;
+  },'legacy real auth admin');
+  await browser.collector.waitAuthSince(legacyAuthStart);
+  assert.ok(browser.collector.snapshot().auth.slice(legacyAuthStart).some(row=>row.route==='/api/v1/auth/login'&&row.status===200),'legacy page obtained its own real session');
+  await until(()=>read("typeof state!=='undefined' && state.trucks.length>0"),'legacy real session and line');
   assert.equal(await ev('typeof truckPhoneRequest'),'undefined');
   await ev("switchTab('trucks');renderGlobalTrucksManage()");
   assert.ok(await ev("document.getElementById('globalTrucksManageList').textContent.includes('Synthetic')"));
