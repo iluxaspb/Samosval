@@ -49,12 +49,15 @@ for(const [name,source] of [['core',core],['animated replacement',animated]]){
    assert.equal(html.includes(entry.phone),false,`raw phone in card mask ${mask}`);
    assert.equal(html.includes('addTruckPhone'),false,`legacy add button mask ${mask}`);
    // Иконка-кнопка есть ровно при праве view_truck_phone и только в своей карточке.
-   const iconCount=target.split('class="truck-phone-btn"').length-1;
+   const iconCount=target.split('truck-phone-btn').length-1;
    assert.equal(iconCount,mask&1?1:0,`icon mask ${mask}`);
    assert.equal(target.includes("openTruckPhoneModal('synthetic_truck')"),!!(mask&1),`open mask ${mask}`);
-   assert.equal(empty.includes('class="truck-phone-btn"'),mask&1?true:false,`second card icon follows the same permission mask ${mask}`);
+   assert.equal(empty.includes('truck-phone-btn'),mask&1?true:false,`second card icon follows the same permission mask ${mask}`);
    assert.equal(empty.includes("openTruckPhoneModal('synthetic_truck')"),false,`no cross-card handler mask ${mask}`);
    assert.equal(empty.includes("openTruckPhoneModal('synthetic_empty')"),!!(mask&1),`own handler mask ${mask}`);
+   // Модификатор tp-has-phone — ровно при непустом номере в базе (у synthetic_truck он есть, у synthetic_empty нет).
+   assert.equal(target.includes('tp-has-phone'),!!(mask&1),`green modifier with phone mask ${mask}`);
+   assert.equal(empty.includes('tp-has-phone'),false,`no green modifier without phone mask ${mask}`);
    if(mask&1){
     assert.match(target,/type="button"[^>]*aria-label="Телефон самосвала"/,'кнопка-иконка должна быть кнопкой с подписью');
     assert.match(target,/title="Телефон водителя"/,'подсказка иконки');
@@ -71,5 +74,12 @@ for(const [name,source] of [['core',core],['animated replacement',animated]]){
   const html=render(source,null,permissionsFor(7));
   assert.doesNotMatch(html,/href="tel:/);
   assert.equal(html.includes("openTruckPhoneModal('synthetic_truck')"),true);
+ });
+ test(`${name}: an empty stored phone leaves the icon in its default look`,()=>{
+  const html=render(source,{phone:'',driverName:null},permissionsFor(7));
+  const card=html.split(/<div class="truck-card /).slice(1).find(c=>c.includes('data-truck-id="synthetic_truck"'));
+  assert.ok(card,'карточка на месте');
+  assert.ok(card.includes('truck-phone-btn'),'иконка есть');
+  assert.equal(card.includes('tp-has-phone'),false,'пустой номер — без зелёного модификатора');
  });
 }

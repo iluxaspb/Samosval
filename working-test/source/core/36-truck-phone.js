@@ -42,7 +42,10 @@ async function refreshTruckPhones(){
 function truckPhoneIcon(t){
  if(!hasPermission('view_truck_phone')||!t)return '';
  const id=escapeHtml(String(t.id==null?'':t.id));
- return `<button class="truck-phone-btn" type="button" onclick="openTruckPhoneModal('${id}')" aria-label="Телефон самосвала" title="Телефон водителя"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7A2 2 0 0 1 22 16.9z"/></svg></button>`;
+ // tp-has-phone помечает карточки с сохранённым номером — иконка подсвечивается зелёным (style-04.css).
+ const entry=truckPhoneEntry(t.id);
+ const cls=entry&&entry.phone?'truck-phone-btn tp-has-phone':'truck-phone-btn';
+ return `<button class="${cls}" type="button" onclick="openTruckPhoneModal('${id}')" aria-label="Телефон самосвала" title="Телефон водителя"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7A2 2 0 0 1 22 16.9z"/></svg></button>`;
 }
 function truckPhoneModalMarkup(view){
  const truck=view.truck||{},entry=truckPhoneEntry(truck.id),phone=entry?entry.phone:'',name=entry&&entry.driverName?entry.driverName:'';
