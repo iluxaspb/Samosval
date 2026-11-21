@@ -11,19 +11,22 @@ export function phonePatch(value){
  if(!phone)throw fail('phone-required');
  return {truckId:value.truckId,phone};
 }
-export async function phoneAccess(client,uid,action){
- const user=(await client.query('SELECT role,status FROM app_users WHERE uid=$1 FOR SHARE',[uid])).rows[0];
+export async function phoneAccess(client,uid,action,{lock=true}={}){
+ const user=(await client.query('SELECT role,status FROM app_users WHERE uid=$1'+(lock?' FOR SHARE':''),[uid])).rows[0];
  if(!user||user.status!=='active')throw fail('forbidden',403);
  if(user.role==='admin')return;
- const rows=(await client.query('SELECT action FROM role_permissions WHERE role=$1 AND allowed=true FOR SHARE',[user.role])).rows;
+ const rows=(await client.query('SELECT action FROM role_permissions WHERE role=$1 AND allowed=true'+(lock?' FOR SHARE':''),[user.role])).rows;
  const rights=new Set(rows.map(r=>r.action));
  if(!rights.has('view_truck_phone')||!rights.has(action))throw fail('forbidden',403);
 }
 export async function truckPhones(pool,uid,input){
  const patch=input===undefined?null:phonePatch(input),client=await pool.connect();
  try{
-  await client.query('BEGIN');
-  await phoneAccess(client,uid,patch?'add_truck_phone':'view_truck_phone');
+  // A plain list read takes a snapshot only: a read-only transaction takes no dataset
+  // advisory lock, so a running restore cannot block it. Writes keep the locking BEGIN.
+  const readOnly=!patch;
+  await client.query(readOnly?'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY':'BEGIN');
+  await phoneAccess(client,uid,readOnly?'view_truck_phone':'add_truck_phone',{lock:!readOnly});
   if(patch){
    const truck=(await client.query("SELECT payload FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2 FOR UPDATE",[process.env.WORKSPACE_ID||'main_workspace',patch.truckId])).rows[0];
    if(!truck||truck.payload.deleted)throw fail('truck-not-available',409);
