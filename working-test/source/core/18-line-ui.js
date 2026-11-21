@@ -20,7 +20,7 @@
       let ttnTxt = ttn ? '📄 Забрал ТТН ✓' : '📄 Забрать ТТН';
       let statsHtml = showStats ? (isGAI ? `<div class="truck-summary">Рейсов: <b>${tLogs.length}</b></div>` : `<div class="truck-summary">Рейсов: <b>${tLogs.length}</b> | <b>${sum} м³</b></div>`) : '';
       let loadBtnTxt = isGAI ? '⚡ Погрузка' : '⚡ Погрузка (+' + t.defaultVol + 'м³)';
-      return `<div class="truck-card ${isA?'arrived':''} ${faded?'faded':''}" data-truck-id="${t.id}"><div class="truck-header"><div class="truck-name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>${escapeHtml(t.brand)}</b>${renderRussianPlate(t.number)}<span style="font-size:13px;color:var(--muted);">${isGAI?'': '('+t.defaultVol+' м³)'}</span>${isA?`<span style="color:#f59e0b;font-size:12px;">(${escapeHtml(st.arriveBy||'')})</span>`:''}${offlineFlag?`<span style="font-size:10px;font-weight:700;color:#f59e0b;">☁️ ОФЛАЙН</span>`:''}</div>${statsHtml}</div><div class="last-load-info">⏱ Последняя: <b class="time-ago-card" data-timestamp="${lTs}">${lTs>0?formatTimeAgo(lTs):'—'}</b></div><div class="action-row">${arrBtn}<button class="btn btn-quick" ${!canEditLoad||!isA?'disabled':''} ${canEditLoad&&isA?`onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${loadBtnTxt}</button><button class="btn btn-ttn ${ttn?'active-ttn':''}" ${!canEditTtn?'disabled':''} ${canEditTtn?`onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${ttnTxt}</button></div></div>`;
+      return `<div class="truck-card ${isA?'arrived':''} ${faded?'faded':''}" data-truck-id="${t.id}"><div class="truck-header"><div class="truck-name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>${escapeHtml(t.brand)}</b>${renderRussianPlate(t.number)}<span style="font-size:13px;color:var(--muted);">${isGAI?'': '('+t.defaultVol+' м³)'}</span>${isA?`<span style="color:#f59e0b;font-size:12px;">(${escapeHtml(st.arriveBy||'')})</span>`:''}${offlineFlag?`<span style="font-size:10px;font-weight:700;color:#f59e0b;">☁️ ОФЛАЙН</span>`:''}</div>${truckPhoneIcon(t)}${statsHtml}</div><div class="last-load-info">⏱ Последняя: <b class="time-ago-card" data-timestamp="${lTs}">${lTs>0?formatTimeAgo(lTs):'—'}</b></div><div class="action-row">${arrBtn}<button class="btn btn-quick" ${!canEditLoad||!isA?'disabled':''} ${canEditLoad&&isA?`onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${loadBtnTxt}</button><button class="btn btn-ttn ${ttn?'active-ttn':''}" ${!canEditTtn?'disabled':''} ${canEditTtn?`onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${ttnTxt}</button></div></div>`;
     }).join('');
     if (Object.keys(oldP).length) {
       c.querySelectorAll('.truck-card').forEach(card => { let old = oldP[card.dataset.truckId]; if(old === undefined) return; let delta = old - card.getBoundingClientRect().top;
@@ -62,20 +62,56 @@
     if (!brand || !num) { appNotice('Заполните марку и госномер'); return; }
     if (!isGAI && (isNaN(vol) || vol <= 0)) { appNotice('Укажите объем'); return; }
     try {
-      if(isNasRuntime()){await nasSaveRecord('truck',id,{brand,number:num,defaultVol:isGAI?0:vol,isGAI},Number(document.getElementById('editTruckId').dataset.nasRevision));cancelEditTruck();return;}
+      const editedId = id;
+      if(isNasRuntime()){await nasSaveRecord('truck',id,{brand,number:num,defaultVol:isGAI?0:vol,isGAI},Number(document.getElementById('editTruckId').dataset.nasRevision));await saveTruckPhoneFromBase(editedId);cancelEditTruck();return;}
       if (id) { await tfAwait(refs.trucks.doc(id).update({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, updatedAt: Date.now() })); addAudit(`Обновлен самосвал: ${brand} ${num}`).catch(()=>{}); showToastEl('✏️ Обновлено', false); }
       else { let r = refs.trucks.doc(); await tfAwait(r.set({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, createdAt: Date.now(), createdBy: getUserName() })); addAudit(`Добавлен самосвал: ${brand} ${num}`).catch(()=>{}); showToastEl('➕ Добавлено', false); }
+      await saveTruckPhoneFromBase(editedId);
       cancelEditTruck();
     } catch(e) { showError(e.message); }
+  }
+  // Телефон и имя водителя сохраняются отдельной записью: сбой телефона не отменяет
+  // сохранение самого самосвала. Пустое поле телефона = «телефон не менять».
+  async function saveTruckPhoneFromBase(id) {
+    if(!id || !hasPermission('view_truck_phone') || !hasPermission('add_truck_phone')) return;
+    // Телефон живёт только на Ubuntu-бэкенде: в firebase-режиме поля не сохраняем.
+    if(typeof isNasRuntime === 'function' && !isNasRuntime()) return;
+    const field = document.getElementById('newTruckPhone'); if(!field) return;
+    if(!String(field.value||'').trim()) return;
+    const phone = truckPhoneNormalizeInput(field.value);
+    if(!phone) { appNotice('Телефон не сохранён: нужен номер с плюсом и 8–15 цифрами'); return; }
+    const nameField = document.getElementById('newTruckDriver');
+    const driverName = truckPhoneCleanName(nameField ? nameField.value : '');
+    if(driverName === undefined) { appNotice('Телефон не сохранён: в имени допустимы буквы, цифры, пробел, точка, дефис, апостроф (до 80)'); return; }
+    try { await truckPhoneRequest({ truckId:id, phone, driverName }); }
+    catch(e) { showError('Телефон не сохранён: ' + (e && e.message ? e.message : 'ошибка')); }
+  }
+  function fillTruckPhoneFields(id) {
+    const phoneGroup = document.getElementById('truckPhoneGroup'), driverGroup = document.getElementById('truckDriverGroup');
+    const phoneField = document.getElementById('newTruckPhone'), driverField = document.getElementById('newTruckDriver');
+    if(!phoneGroup || !driverGroup || !phoneField || !driverField) return;
+    const canView = hasPermission('view_truck_phone'), canEdit = canView && hasPermission('add_truck_phone');
+    const entry = canView ? truckPhoneEntry(id) : null;
+    phoneGroup.style.display = canView ? 'block' : 'none';
+    driverGroup.style.display = canView ? 'block' : 'none';
+    phoneField.value = entry && entry.phone ? entry.phone : '';
+    driverField.value = entry && entry.driverName ? entry.driverName : '';
+    phoneField.disabled = !canEdit; phoneField.readOnly = !canEdit;
+    driverField.disabled = !canEdit; driverField.readOnly = !canEdit;
   }
   function editGlobalTruck(id) {
     if(!requireEdit('manage_trucks')) return; let t=findTruck(id); if(!t) return;
     document.getElementById('editTruckId').dataset.nasRevision=String(nasRecordRevision('truck',id)||'');document.getElementById('editTruckId').value=t.id; document.getElementById('newTruckType').value=t.isGAI?'gai':'regular';
     document.getElementById('newTruckBrand').value=t.brand; document.getElementById('newTruckNumber').value=t.number; document.getElementById('newTruckVol').value=t.defaultVol||'';
     document.getElementById('formCardTitle').textContent='Редактировать'; document.getElementById('saveTruckBtn').textContent='💾 Сохранить'; document.getElementById('cancelEditBtn').style.display='block'; window.scrollTo(0,0); toggleVolInput();
+    fillTruckPhoneFields(t.id);
+    if(hasPermission('view_truck_phone')&&!truckPhoneEntry(t.id))truckPhoneRequest().then(()=>{if(document.getElementById('editTruckId').value===t.id)fillTruckPhoneFields(t.id);}).catch(()=>{});
   }
   function cancelEditTruck() {
     document.getElementById('editTruckId').value=''; document.getElementById('newTruckType').value='regular'; document.getElementById('newTruckBrand').value=''; document.getElementById('newTruckNumber').value=''; document.getElementById('newTruckVol').value='';
+    const phoneGroup=document.getElementById('truckPhoneGroup'),driverGroup=document.getElementById('truckDriverGroup'),phoneField=document.getElementById('newTruckPhone'),driverField=document.getElementById('newTruckDriver');
+    if(phoneGroup)phoneGroup.style.display='none'; if(driverGroup)driverGroup.style.display='none';
+    if(phoneField){phoneField.value='';phoneField.disabled=true;phoneField.readOnly=true;} if(driverField){driverField.value='';driverField.disabled=true;driverField.readOnly=true;}
     document.getElementById('formCardTitle').textContent='Добавить самосвал'; document.getElementById('saveTruckBtn').textContent='➕ Добавить'; document.getElementById('cancelEditBtn').style.display='none'; toggleVolInput();
   }
   function toggleVolInput() { document.getElementById('volumeGroup').style.display = document.getElementById('newTruckType').value === 'gai' ? 'none' : 'block'; }
