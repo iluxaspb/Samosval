@@ -16,14 +16,16 @@ test('real HTTP phone auth, ACL, epoch, authority, legacy read and field isolati
  assert.equal((await req(null)).status,401);assert.equal((await req(ids[2])).status,401);
  assert.equal((await req(ids[0],null,{Origin:'https://evil.invalid'})).status,403);
  assert.equal((await req(ids[1])).status,403);
- const patch={truckId:'http_truck',phone:'+123456789'};
+ const patch={truckId:'http_truck',phone:'+123456789',driverName:'Иван Петров'};
  assert.equal((await req(ids[0],patch,{'X-Samosval-Epoch':'6'})).status,409);
  assert.equal((await req(ids[0],patch,{'X-Samosval-Generation':'2'})).status,409);
  assert.equal((await req(ids[0],{...patch,brand:'evil'})).status,400);
  assert.equal((await req(ids[0],patch)).status,200);
- assert.equal((await (await req(ids[0])).json()).phones[0].phone,patch.phone);
+ assert.equal((await (await req(ids[0])).json()).phones[0].phone,patch.phone);assert.equal((await (await req(ids[0])).json()).phones[0].driverName,'Иван Петров');
  for(const path of ['/api/v1/catalog','/api/v1/line/snapshot','/api/v1/history','/api/v1/replica/journal']){const res=await req(ids[0],null,{},path);assert.equal(res.status,200,path);assert.equal((await res.text()).includes(patch.phone),false,path);}
- assert.equal((await req(ids[0],patch)).status,409);
+ assert.equal((await req(ids[0],patch)).status,200);
+ assert.equal((await req(ids[0],{...patch,phone:'+12025550199',driverName:'Пётр'})).status,200);
+ assert.equal((await (await req(ids[0])).json()).phones[0].driverName,'Пётр');
  await pool.query("UPDATE line_trucks SET payload=jsonb_build_object('deleted',true) WHERE truck_id='http_truck'");
  assert.equal((await (await req(ids[0])).json()).phones.some(r=>r.truckId==='http_truck'),false);
  assert.equal((await req(ids[0],patch)).status,409);

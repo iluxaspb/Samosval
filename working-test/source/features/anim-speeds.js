@@ -393,7 +393,7 @@
           <div class="truck-identity">
             <div class="truck-brand">${escapeHtml(t.brand)}</div>
             <div class="truck-plate-wrap">${renderRussianPlate(t.number)}</div>
-            ${truckPhoneMarkup(t)}
+            ${truckPhoneIcon(t)}
           </div>
           <div class="truck-info">${infoHtml}</div>
         </div>

@@ -8,7 +8,7 @@ const phone=read('../core/36-truck-phone.js');
 const core=read('../core/18-line-ui.js').split("  window.addEventListener(")[0];
 const animated=read('./anim-speeds.js').split('  // ===== renderLine =====')[1].split('  // ===== UI в настройках =====')[0];
 
-function render(source,phoneValue,permissions){
+function render(source,entry,permissions){
  const trucks=[{id:'synthetic_truck',brand:'Synthetic',number:'TEST',defaultVol:10},{id:'synthetic_empty',brand:'Empty',number:'EMPTY',defaultVol:10}];
  const list={innerHTML:'',querySelectorAll:()=>[]};
  const elements={trucksLineList:list};
@@ -19,37 +19,57 @@ function render(source,phoneValue,permissions){
   settings:{},getTimings:()=>({}),getActiveLineIds:()=>trucks.map(t=>t.id),
   getLogs:()=>[],findTruck:id=>trucks.find(t=>t.id===id),
   hasPermission:action=>permissions.has(action),offlinePendingForTruck:()=>false,
-  escapeHtml:value=>value,renderRussianPlate:value=>value,formatLoadAge:()=>'-'
+  escapeHtml:value=>String(value==null?'':value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
+  renderRussianPlate:value=>value,formatLoadAge:()=>'-'
  });
  context.window=context;
  vm.runInContext(phone,context);
- context.phoneValue=phoneValue;
- vm.runInContext("truckPhoneRows.set('synthetic_truck',phoneValue)",context);
+ context.entry=entry;
+ vm.runInContext('truckPhoneRows.set("synthetic_truck",entry)',context);
  vm.runInContext(source,context);
  vm.runInContext('renderLine()',context);
  return list.innerHTML;
 }
 
+const masks=[...Array(8).keys()];
+const permissionsFor=mask=>new Set(['view_truck_phone','add_truck_phone','call_truck_phone'].filter((_,i)=>mask&(1<<i)));
+
 for(const [name,source] of [['core',core],['animated replacement',animated]]){
- test(`${name}: real renderer includes permission-gated phone markup inside the matching card`,()=>{
-  const phoneValue='+12025550100';
-  for(let mask=0;mask<8;mask++){
-   const permissions=new Set(['view_truck_phone','add_truck_phone','call_truck_phone'].filter((_,i)=>mask&(1<<i)));
-   const html=render(source,phoneValue,permissions);
+ test(`${name}: the card carries only a phone icon button — no tel links at all`,()=>{
+  const entry={phone:'+12025550100',driverName:'Иван Петров'};
+  for(const mask of masks){
+   const html=render(source,entry,permissionsFor(mask));
    const cards=html.split(/<div class="truck-card /).slice(1);
    assert.equal(cards.length,2);
    const target=cards.find(card=>card.includes('data-truck-id="synthetic_truck"'));
    const empty=cards.find(card=>card.includes('data-truck-id="synthetic_empty"'));
    assert.ok(target);assert.ok(empty);
-   assert.equal(target.includes(`href="tel:${phoneValue}"`),!!((mask&1)&&(mask&4)),`tel mask ${mask}`);
-   assert.equal(target.includes(phoneValue),!!(mask&1),`view mask ${mask}`);
-   assert.equal(empty.includes('href="tel:'),false,'no cross-card phone');
-   assert.equal(empty.includes("addTruckPhone('synthetic_empty')"),(mask&7)===7,`add mask ${mask}`);
+   // Телефон в карточке больше не рисуется ни ссылкой, ни номером.
+   assert.doesNotMatch(html,/href="tel:/i,`tel link mask ${mask}`);
+   assert.equal(html.includes(entry.phone),false,`raw phone in card mask ${mask}`);
+   assert.equal(html.includes('addTruckPhone'),false,`legacy add button mask ${mask}`);
+   // Иконка-кнопка есть ровно при праве view_truck_phone и только в своей карточке.
+   const iconCount=target.split('class="truck-phone-btn"').length-1;
+   assert.equal(iconCount,mask&1?1:0,`icon mask ${mask}`);
+   assert.equal(target.includes("openTruckPhoneModal('synthetic_truck')"),!!(mask&1),`open mask ${mask}`);
+   assert.equal(empty.includes('class="truck-phone-btn"'),mask&1?true:false,`second card icon follows the same permission mask ${mask}`);
+   assert.equal(empty.includes("openTruckPhoneModal('synthetic_truck')"),false,`no cross-card handler mask ${mask}`);
+   assert.equal(empty.includes("openTruckPhoneModal('synthetic_empty')"),!!(mask&1),`own handler mask ${mask}`);
+   if(mask&1){
+    assert.match(target,/type="button"[^>]*aria-label="Телефон самосвала"/,'кнопка-иконка должна быть кнопкой с подписью');
+    assert.match(target,/title="Телефон водителя"/,'подсказка иконки');
+    assert.match(target,/<svg[^>]*width="16"[^>]*height="16"[^>]*stroke="currentColor"/,'inline SVG 16x16 с currentColor');
+   }
   }
  });
- test(`${name}: invalid phone is never interpolated into a tel link`,()=>{
-  const html=render(source,'javascript:invalid',new Set(['view_truck_phone','add_truck_phone','call_truck_phone']));
+ test(`${name}: a stored phone never reaches the card markup`,()=>{
+  const html=render(source,{phone:'javascript:invalid',driverName:null},permissionsFor(7));
   assert.doesNotMatch(html,/href="tel:|javascript:invalid/);
-  assert.ok(html.includes("addTruckPhone('synthetic_truck')"));
+  assert.equal(html.includes("openTruckPhoneModal('synthetic_truck')"),true);
+ });
+ test(`${name}: a truck without a phone still shows the icon and no dial link`,()=>{
+  const html=render(source,null,permissionsFor(7));
+  assert.doesNotMatch(html,/href="tel:/);
+  assert.equal(html.includes("openTruckPhoneModal('synthetic_truck')"),true);
  });
 }

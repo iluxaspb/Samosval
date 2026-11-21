@@ -327,7 +327,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     subscriptionWake=wake;void tick();return close;
   }
   function stop(){stopped=true;readCache.clear();for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
-  const validatePhones=x=>record(x)&&x.source==='ubuntu'&&Array.isArray(x.phones)&&x.phones.every(r=>record(r)&&typeof r.truckId==='string'&&/^\+[1-9][0-9]{7,14}$/.test(r.phone));
+  const validatePhones=x=>record(x)&&x.source==='ubuntu'&&Array.isArray(x.phones)&&x.phones.every(r=>record(r)&&typeof r.truckId==='string'&&/^\+[1-9][0-9]{7,14}$/.test(r.phone)&&(r.driverName===undefined||r.driverName===null||typeof r.driverName==='string'));
   const readTruckPhones=()=>request('/api/v1/truck-phones',{validate:validatePhones});
   const submitTruckPhone=operation=>request('/api/v1/truck-phones',{operation,validate:validatePhones});
   return Object.freeze({readTruckPhones,submitTruckPhone,scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,probe,stop,wake,abortInflight,readAuthority,submitAuthority,writeAuthorityPresence,authority});
