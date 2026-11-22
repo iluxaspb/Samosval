@@ -71,12 +71,15 @@ jobs:
             await client.query(readFileSync('sql/011_backups.sql','utf8'));
             await client.query(readFileSync('sql/012_notifications.sql','utf8'));
             await client.query(readFileSync('sql/013_server_control.sql','utf8'));
+            await client.query(readFileSync('sql/014_authority.sql','utf8'));
+            await client.query(readFileSync('sql/017_replica_stream.sql','utf8'));
+            await client.query(readFileSync('sql/019_line_timer_reset.sql','utf8'));
+            await client.query(readFileSync('sql/020_senior_foreman.sql','utf8'));
           } finally {
             await client.end();
           }
           NODE
-      - name: Verify TEST modular build without publishing
-        run: python3 ../tools/verify-test-modules.py
+      # verify-test-modules.py удалён вместе с мёртвым каналом test-app (ревизия 22.11.2026)
       - run: npm test
       - name: Tabel calculation and queue regressions
         working-directory: .
