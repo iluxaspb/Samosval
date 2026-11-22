@@ -38,6 +38,46 @@
       if (window.renderLine === entry.wrapped) window.renderLine = entry.original;
     };
   }
+  // === П4: заморозка пересборки линии при удержании/касании ===
+  // Карточки линии пересобираются через innerHTML; событие другого оператора
+  // могло уничтожить кнопку прямо во время удержания (holdTimer из core/17
+  // применяется к верному id, но кнопка «уезжала» из-под пальца). Пока идёт
+  // удержание (кнопка .holding) или касание контейнера линии (pointerdown до
+  // pointerup/cancel + грейс ~400 мс), перерисовка откладывается: расписание
+  // renderLine (scheduleRenderLine в core/04) при активном флаге только
+  // запоминает долг, а после снятия флага вызывает __lineFlushDeferred —
+  // ни одно чужое действие не теряется, перерисовка выполняется позже.
+  const LINE_HOLD_GRACE_MS = 400;
+  let linePointerDown = false, linePointerGraceTimer = null;
+  function lineHoldActive() {
+    const holding = (typeof document.querySelector === 'function') ? !!document.querySelector('.holding') : false;
+    return holding || linePointerDown || linePointerGraceTimer !== null;
+  }
+  window.__lineHoldActive = lineHoldActive;
+  function linePointerEnd() {
+    if (!linePointerDown) return;
+    linePointerDown = false;
+    clearTimeout(linePointerGraceTimer);
+    linePointerGraceTimer = setTimeout(() => {
+      linePointerGraceTimer = null;
+      if (!lineHoldActive() && typeof window.__lineFlushDeferred === 'function') window.__lineFlushDeferred();
+    }, LINE_HOLD_GRACE_MS);
+  }
+  // Регистрация слушателей вынесена за пределы vm-моков юнит-тестов
+  // (truck-phone-line.test.mjs исполняет этот файл без document.addEventListener).
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('pointerdown', e => {
+      const t = e.target;
+      if (t && typeof t.closest === 'function' && t.closest('#trucksLineList')) {
+        linePointerDown = true;
+        clearTimeout(linePointerGraceTimer);
+        linePointerGraceTimer = null;
+      }
+    }, true);
+    document.addEventListener('pointerup', linePointerEnd, true);
+    document.addEventListener('pointercancel', linePointerEnd, true);
+  }
+
   function renderLine() {
     let sc = document.getElementById('startShiftContainer'), ac = document.getElementById('activeShiftContainer'), cb = document.getElementById('changeObjBtn');
     if (!state.shift) { sc.style.display = (hasPermission('start_shift') || hasTabAccess('timesheet')) ? 'block' : 'none'; ac.style.display = 'none'; cb.style.display = 'none'; return; }
@@ -458,7 +498,8 @@
 
   function renderAll() {
     renderHeaderStats();
-    if (hasTabAccess('line')) renderLine();
+    // П4: перерисовка линии идёт через расписание, чтобы уважать удержания.
+    if (hasTabAccess('line')) scheduleRenderLine();
     if (hasTabAccess('report')) renderReport();
     if (hasTabAccess('archive')) renderArchive();
     if (hasTabAccess('trucks')) { renderGlobalTrucksManage(); renderGlobalObjectsManage(); }

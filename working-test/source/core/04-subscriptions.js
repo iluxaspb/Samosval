@@ -111,7 +111,25 @@
     }));
   }
 
-  function scheduleRenderLine() { if (renderLinePending) return; renderLinePending = true; setTimeout(() => { requestAnimationFrame(() => { renderLine(); renderLinePending = false; }); }, 50); }
+  // П4: перерисовка линии откладывается при активном удержании/касании карточек
+  // (window.__lineHoldActive из core/18). Отложенный долг выполняется после
+  // снятия флага через __lineFlushDeferred — действия другого оператора не
+  // теряются. Повторная проверка в rAF закрывает случай, когда удержание
+  // началось уже после того, как 50-мс таймер был запущен.
+  let renderLineDeferredByHold = false;
+  function scheduleRenderLine() {
+    if (typeof window.__lineHoldActive === 'function' && window.__lineHoldActive()) { renderLineDeferredByHold = true; return; }
+    if (renderLinePending) return; renderLinePending = true;
+    setTimeout(() => { requestAnimationFrame(() => {
+      if (typeof window.__lineHoldActive === 'function' && window.__lineHoldActive()) { renderLineDeferredByHold = true; renderLinePending = false; return; }
+      renderLine(); renderLinePending = false;
+    }); }, 50);
+  }
+  window.__lineFlushDeferred = function() {
+    if (!renderLineDeferredByHold) return;
+    renderLineDeferredByHold = false;
+    scheduleRenderLine();
+  }
   function scheduleRenderForTab(tabName, funcName) { let el = document.getElementById('tab-' + tabName); if (el && el.classList.contains('active') && typeof window[funcName] === 'function') { if (funcName === 'renderLine') scheduleRenderLine(); else window[funcName](); } }
   function scheduleRender(funcName) { if (typeof window[funcName] === 'function') window[funcName](); }
 
