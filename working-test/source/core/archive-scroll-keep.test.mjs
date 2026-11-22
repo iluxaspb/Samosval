@@ -110,3 +110,80 @@ test("поведение: повторная сборка не теряет гр
   const h = runRenderArchive(0);
   assert.match(h.container.innerHTML, /Объект Б/, "группы объектов на месте после перерисовки");
 });
+
+// === Ф3 (владелец, 1.8.1): горизонтальная прокрутка отчёта архивной смены ===
+// «Схлопывается обратно к самосвалам» — администратор листает таблицу отчёта
+// (paper-scroll-wrapper, колонки «Рейс 1..N») влево к дальним рейсам, а
+// фоновый снапшот вызывает renderArchive → openArchiveModal → innerHTML —
+// scrollLeft обнуляется и таблица возвращается к колонке «Самосвал».
+test("исходник: горизонтальная прокрутка отчёта читается до innerHTML и восстанавливается после", () => {
+  const body = functionBody("renderArchiveModalContent");
+  const innerAt = body.search(/\.innerHTML\s*=/);
+  assert.ok(innerAt > 0, "отчёт перестраивается через innerHTML");
+  const readAt = body.indexOf("keepScrollLeft");
+  assert.ok(readAt > 0 && readAt < innerAt, "scrollLeft читается ДО перестроения отчёта");
+  assert.match(body, /\.scrollLeft\s*=\s*keepScrollLeft/, "scrollLeft восстанавливается после перестроения");
+});
+
+// Поведенческий прогон: реальная функция renderArchiveModalContent на мини-харнесе.
+// «Браузер» до innerHTML отдаёт старый wrapper (прокрученный к дальним рейсам),
+// после innerHTML — новый со scrollLeft=0.
+function runModalRender({ scrollLeftBefore = 0, logs = [] } = {}) {
+  const oldWrapper = { scrollLeft: scrollLeftBefore };
+  const newWrapper = { scrollLeft: 0 };
+  let rebuilt = false;
+  const modalBody = {
+    _html: "",
+    scrollTop: 0,
+    set innerHTML(v) { this._html = String(v); rebuilt = true; },
+    get innerHTML() { return this._html; },
+    querySelector: (sel) => (sel === ".paper-scroll-wrapper" ? (rebuilt ? newWrapper : oldWrapper) : null),
+  };
+  const byId = { modalArchiveBody: modalBody };
+  const context = {
+    hasTabAccess: () => true,
+    hasPermission: () => true,
+    document: {
+      getElementById: (id) => byId[id] || (byId[id] = { textContent: "", style: {} }),
+    },
+    state: { archive: [] },
+    findTruck: () => null,
+    objectTitle: (id, name) => name || id,
+    escapeHtml: (s) => String(s),
+    resolveUserDisplayName: () => "Имя",
+    viewingArchiveGAITable: false,
+    viewingArchiveId: "a1",
+    window: {},
+  };
+  const shift = {
+    id: "a1",
+    date: "2026-11-01",
+    objectId: "o1",
+    objectName: "Объект А",
+    activeLineIds: [],
+    ttnStatus: {},
+    logs: logs.length ? logs : [
+      { truckId: "t1", volume: 10, timeStr: "08:00", createdBy: "u1" },
+      { truckId: "t1", volume: 8, timeStr: "09:00", createdBy: "u1" },
+      { truckId: "t2", volume: 6, timeStr: "08:30", createdBy: "u1" },
+    ],
+  };
+  vm.runInNewContext(
+    functionBody("renderArchiveModalContent") + "\nrenderArchiveModalContent(shift);",
+    { ...context, shift },
+  );
+  return { modalBody, oldWrapper, newWrapper };
+}
+
+test("поведение: горизонтальная прокрутка отчёта переживает фоновую перерисовку", () => {
+  const h = runModalRender({ scrollLeftBefore: 420 });
+  assert.ok(h.modalBody.innerHTML.includes("paper-scroll-wrapper"), "отчёт собран");
+  assert.equal(h.newWrapper.scrollLeft, 420, "после перестроения таблица осталась на дальних рейсах, а не «схлопнулась к самосвалам»");
+});
+
+test("поведение: свежее открытие отчёта стартует с начала", () => {
+  // Модального DOM ещё нет: до innerHTML wrapper не существует.
+  const h = runModalRender({ scrollLeftBefore: 0 });
+  h.oldWrapper.scrollLeft = 0;
+  assert.equal(h.newWrapper.scrollLeft, 0, "новый просмотр начинается с первой колонки");
+});

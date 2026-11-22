@@ -58,6 +58,12 @@
   function toggleArchiveReportType() { viewingArchiveGAITable = !viewingArchiveGAITable; let s = state.archive.find(x=>x.id===viewingArchiveId); if (s) renderArchiveModalContent(s); }
   function renderArchiveModalContent(s) {
     if (!hasTabAccess('archive')) return; // === SECURITY ===
+    // Ф3: фоновые снапшоты вызывают renderArchive → openArchiveModal →
+    // этот рендер, и innerHTML сбрасывает горизонтальную прокрутку отчёта
+    // («схлопывался к самосвалам»). scrollLeft читается до перестроения
+    // и восстанавливается после — как вертикаль списка в renderArchive.
+    const bodyEl=document.getElementById('modalArchiveBody');
+    const keepScrollLeft=bodyEl?.querySelector('.paper-scroll-wrapper')?.scrollLeft||0;
     let logs = s.logs || []; let stdLogs = logs.filter(l=>!l.isGAI); let gaiLogs = logs.filter(l=>l.isGAI);
     let tV = stdLogs.reduce((x,y)=>x+y.volume,0);
     document.getElementById('modalArchiveTitle').textContent = s.date;
@@ -100,6 +106,8 @@
       html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectTitle(s.objectId,s.objectName))} (ГАИ)</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Рейсов ГАИ: <b>${gaiLogs.length}</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
     }
     document.getElementById('modalArchiveBody').innerHTML = toggleBtnHtml + html;
+    const keepWrapper=document.getElementById('modalArchiveBody').querySelector('.paper-scroll-wrapper');
+    if (keepWrapper && keepScrollLeft) keepWrapper.scrollLeft = keepScrollLeft;
   }
   function closeArchiveModal() { document.getElementById('archiveModal').classList.remove('open'); viewingArchiveId=null; }
   async function restoreArchiveToShift() {
