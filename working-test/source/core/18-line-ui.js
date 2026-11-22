@@ -51,6 +51,13 @@
   setInterval(tickTimers, 1000);
 
   // === БАЗА САМОСВАЛОВ И ОБЪЕКТОВ ===
+  // Единая точка ветвления транспорта сохранения: в рабочей версии все
+  // записи идут через сервер Ubuntu (nasProvider всегда 'ubuntu'), поэтому
+  // firebase-ветки из функций сохранения удалены — ветвление живёт здесь.
+  async function saveLineEvent(nasWork) {
+    if (!isNasRuntime()) throw Error('Сохранение доступно только через сервер Ubuntu');
+    return nasWork();
+  }
   async function saveTruckToGlobalBase() {
     if (!requireEdit('manage_trucks')) return;
     let id = document.getElementById('editTruckId').value;
@@ -63,9 +70,7 @@
     if (!isGAI && (isNaN(vol) || vol <= 0)) { appNotice('Укажите объем'); return; }
     try {
       const editedId = id;
-      if(isNasRuntime()){await nasSaveRecord('truck',id,{brand,number:num,defaultVol:isGAI?0:vol,isGAI},Number(document.getElementById('editTruckId').dataset.nasRevision));await saveTruckPhoneFromBase(editedId);cancelEditTruck();return;}
-      if (id) { await tfAwait(refs.trucks.doc(id).update({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, updatedAt: Date.now() })); addAudit(`Обновлен самосвал: ${brand} ${num}`).catch(()=>{}); showToastEl('✏️ Обновлено', false); }
-      else { let r = refs.trucks.doc(); await tfAwait(r.set({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, createdAt: Date.now(), createdBy: getUserName() })); addAudit(`Добавлен самосвал: ${brand} ${num}`).catch(()=>{}); showToastEl('➕ Добавлено', false); }
+      await saveLineEvent(()=>nasSaveRecord('truck',id,{brand,number:num,defaultVol:isGAI?0:vol,isGAI},Number(document.getElementById('editTruckId').dataset.nasRevision)));
       await saveTruckPhoneFromBase(editedId);
       cancelEditTruck();
     } catch(e) { showError(e.message); }
@@ -117,20 +122,19 @@
   function toggleVolInput() { document.getElementById('volumeGroup').style.display = document.getElementById('newTruckType').value === 'gai' ? 'none' : 'block'; }
   async function deleteGlobalTruck(id) {
     if(!requireEdit('manage_trucks')) return; let t=findTruck(id); if(!t || !(await appConfirm('Удалить?'))) return;
-    try { if(isNasRuntime()){await nasDeleteRecord('truck',id,nasRecordRevision('truck',id));return;}let b=db.batch(); b.delete(refs.trucks.doc(id)); b.delete(refs.truckStatus.doc(id)); await tfAwait(b.commit()); await addAudit('🗑 Удалён самосвал: ' + t.brand + ' ' + t.number, {eventType:'truck_delete',truckId:id}); } catch(e){ showError(e.message); }
+    try { await saveLineEvent(()=>nasDeleteRecord('truck',id,nasRecordRevision('truck',id))); } catch(e){ showError(e.message); }
   }
   async function saveObjectToBase() {
     if (!requireEdit('manage_objects')) return;
     let id = document.getElementById('editObjectId').value, name = document.getElementById('newObjectNameBase').value.trim();
     if (!name) { appNotice('Введите имя'); return; }
-    try { if(isNasRuntime()){await nasSaveRecord('object',id,{name},Number(document.getElementById('editObjectId').dataset.nasRevision));cancelEditObject();return;}if (id) await tfAwait(refs.objects.doc(id).update({ name, updatedAt: Date.now() })); else await tfAwait(refs.objects.doc().set({ name, createdAt: Date.now(), createdBy: getUserName() })); await addAudit((id ? '✏️ Изменён объект: ' : '➕ Создан объект: ') + name, {eventType:id ? 'object_edit' : 'object_create'}); cancelEditObject(); showToastEl('Сохранено', false); }
-    catch(e){ showError(e.message); }
+    try { await saveLineEvent(()=>nasSaveRecord('object',id,{name},Number(document.getElementById('editObjectId').dataset.nasRevision)));cancelEditObject(); } catch(e){ showError(e.message); }
   }
   function editGlobalObject(id) { if(!requireEdit('manage_objects')) return; let o=state.objects.find(x=>x.id===id); if(!o) return; document.getElementById('editObjectId').dataset.nasRevision=String(nasRecordRevision('object',id)||'');document.getElementById('editObjectId').value=o.id; document.getElementById('newObjectNameBase').value=o.name; document.getElementById('formObjectCardTitle').textContent='Редактировать'; document.getElementById('saveObjectBtn').textContent='💾 Сохранить'; document.getElementById('cancelEditObjectBtn').style.display='block'; window.scrollTo(0,0); }
   function cancelEditObject() { document.getElementById('editObjectId').value=''; document.getElementById('newObjectNameBase').value=''; document.getElementById('formObjectCardTitle').textContent='Добавить объект'; document.getElementById('saveObjectBtn').textContent='➕ Добавить'; document.getElementById('cancelEditObjectBtn').style.display='none'; }
   async function deleteGlobalObject(id) {
     if(!requireEdit('manage_objects')) return; let o=state.objects.find(x=>x.id===id); if(!o || !(await appConfirm('Удалить?'))) return;
-    try { if(isNasRuntime()){await nasDeleteRecord('object',id,nasRecordRevision('object',id));return;}await tfAwait(refs.objects.doc(id).delete()); await addAudit('🗑 Удалён объект: ' + o.name, {eventType:'object_delete',targetObjectId:id}); } catch(e){ showError(e.message); }
+    try { await saveLineEvent(()=>nasDeleteRecord('object',id,nasRecordRevision('object',id))); } catch(e){ showError(e.message); }
   }
 
   // === АДМИН ПАНЕЛЬ ===
@@ -143,61 +147,18 @@
     document.querySelectorAll('[data-user-access]').forEach(input=>input.onchange=()=>setUserAccess(input.dataset.userAccess,input.checked));
   }
   async function setUserAccess(uid, enabled) {
-    if(isNasRuntime())return runNasAdminAction('user.access',{uid,enabled});
-    if(!canAdmin()||userAccessWrites.has(uid))return;
-    if(uid===currentUid){showError('Нельзя ограничить собственный доступ');renderAdminPanel();return;}
-    if(!navigator.onLine){showError('Для изменения доступа требуется подключение к сети');renderAdminPanel();return;}
-    userAccessWrites.add(uid);renderAdminPanel();
-    try{
-      const targetStatus=enabled?'active':'disabled';let targetName='';
-      await db.runTransaction(async tx=>{
-        if(!canAdmin())throw new Error('Нет прав администратора');
-        const ref=usersRef.doc(uid),snap=await tx.get(ref);
-        if(!snap.exists)throw new Error('Пользователь не найден. Обновите список');
-        const data=snap.data();
-        if(isForcedAdminEmail(data.email))throw new Error('Доступ владельца приложения защищён');
-        if(data.status==='pending')throw new Error('Сначала рассмотрите заявку пользователя');
-        targetName=data.nickname||data.email||uid;
-        if(data.status!==targetStatus)tx.update(ref,{status:targetStatus,accessChangedAt:Date.now(),accessChangedBy:currentEmail});
-      });
-      const user=state.users.find(u=>u.id===uid);if(user)user.status=targetStatus;
-      showToastEl(enabled?'Доступ пользователя восстановлен':'Доступ пользователя временно ограничен',false);
-      await addAudit((enabled?'🔓 Восстановлен доступ: ':'🔒 Ограничен доступ: ')+targetName,{eventType:'user_access',targetUid:uid,status:targetStatus});
-    }catch(e){showError('Не удалось изменить доступ: '+e.message);}
-    finally{userAccessWrites.delete(uid);renderAdminPanel();}
+    return saveLineEvent(()=>runNasAdminAction('user.access',{uid,enabled}));
   }
-  async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; if(isNasRuntime())return runNasAdminAction('user.nickname',{uid,nickname:nickname.trim()}); try { await tfAwait(usersRef.doc(uid).update({ nickname: nickname.trim() || null })); await addAudit('✏️ Изменено имя пользователя: ' + uid + ' → ' + nickname.trim(), {eventType:'user_nickname',targetUid:uid}); } catch(e) { showError(e.message); } }
-  async function changeUserRole(uid, newRole) { if (!canAdmin()) return; if(isNasRuntime())return runNasAdminAction('user.role',{uid,role:newRole}); try { await tfAwait(usersRef.doc(uid).update({ role: newRole })); await addAudit('🔐 Изменена роль пользователя: ' + uid + ' → ' + newRole, {eventType:'user_role',targetUid:uid}); } catch(e) { showError(e.message); } }
-  async function deleteUser(uid) { if (!canAdmin() || !(await appConfirm('Удалить доступ?'))) return; if(isNasRuntime())return runNasAdminAction('user.delete',{uid}); try { await tfAwait(usersRef.doc(uid).delete()); await addAudit('🗑 Удалён доступ пользователя: ' + uid, {eventType:'user_delete',targetUid:uid}); } catch(e) { showError(e.message); } }
+  async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; return saveLineEvent(()=>runNasAdminAction('user.nickname',{uid,nickname:nickname.trim()})); }
+  async function changeUserRole(uid, newRole) { if (!canAdmin()) return; return saveLineEvent(()=>runNasAdminAction('user.role',{uid,role:newRole})); }
+  async function deleteUser(uid) { if (!canAdmin() || !(await appConfirm('Удалить доступ?'))) return; return saveLineEvent(()=>runNasAdminAction('user.delete',{uid})); }
   const registrationDecisions = new Set();
   async function decideRegistration(reqId, approve) {
     if (!canAdmin() || registrationDecisions.has(reqId)) return;
     const role=document.getElementById('req_role_'+reqId)?.value || 'viewer';
     if (approve && !Object.prototype.hasOwnProperty.call(ROLES,role)) {showError('Выберите роль');return;}
     if (!approve && !(await appConfirm('Отклонить заявку и закрыть доступ пользователю?'))) return;
-    if(isNasRuntime())return runNasAdminAction(approve?'registration.approve':'registration.reject',approve?{uid:reqId,role}:{uid:reqId});
-    registrationDecisions.add(reqId);pendingStart();
-    try {
-      const cached=state.requests.find(r=>r.id===reqId) || state.users.find(u=>u.id===reqId&&u.status==='pending');
-      if (!cached) throw Error('Заявка не найдена. Обновите список');
-      let accountEmail='';
-      await db.runTransaction(async tx=>{
-        const requestRef=requestsRef.doc(reqId),request=await tx.get(requestRef);
-        const data=request.exists?request.data():cached;
-        const matches=state.users.filter(u=>u.status==='pending'&&u.email===data.email);
-        const uid=data.uid || (matches.length===1?matches[0].id:null);
-        if (!uid) throw Error('Это старая заявка без учётки Firebase. Пользователю нужно зарегистрироваться заново');
-        const profileRef=usersRef.doc(uid),profile=await tx.get(profileRef);
-        if (!profile.exists || profile.data().email!==data.email) throw Error('Учётка не соответствует заявке');
-        if (profile.data().status!=='pending') throw Error('Заявка уже рассмотрена');
-        accountEmail=profile.data().email;
-        tx.update(profileRef,approve?{role,status:'active',approvedAt:Date.now(),approvedBy:currentEmail,rejectionReason:null}:{status:'disabled',rejectedAt:Date.now(),rejectedBy:currentEmail,rejectionReason:'Заявка отклонена администратором.'});
-        if(request.exists)tx.delete(requestRef);
-      });
-      await addAudit((approve?'✅ Подтверждена регистрация: ':'⛔ Отклонена регистрация: ')+accountEmail+(approve?' · роль '+ROLES[role].label:''),{eventType:approve?'registration_approved':'registration_rejected'});
-      showToastEl(approve?'Доступ открыт':'Заявка отклонена',false);
-    }catch(e){showError(escapeHtml(e.message||'Не удалось обработать заявку'));}
-    finally{registrationDecisions.delete(reqId);pendingEnd();}
+    return saveLineEvent(()=>runNasAdminAction(approve?'registration.approve':'registration.reject',approve?{uid:reqId,role}:{uid:reqId}));
   }
   async function approveRequest(reqId) { return decideRegistration(reqId,true); }
   async function rejectRequest(reqId) { return decideRegistration(reqId,false); }
@@ -205,28 +166,22 @@
     if (!canAdmin()) return;
     const email = document.getElementById('newUserEmail').value.trim(); const pass = document.getElementById('newUserPassword').value; const role = document.getElementById('newUserRole').value;
     if (!email || !pass) { showError('Заполните поля'); return; }
-    if(isNasRuntime()){
-      // Учётную запись создаёт сервер Ubuntu. Пароль уходит только в запросе
-      // регистрации, в интерфейсе и журналах не сохраняется.
-      try{
-        const base=(typeof nasApiBase==='function'?nasApiBase():'').replace(/\/+$/,'');
-        if(!base)throw Error('Не настроен адрес сервера Ubuntu');
-        const response=await fetch(base+'/api/v1/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass,device:wtDeviceInfo()}),credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer'});
-        let payload=null;try{payload=await response.json();}catch(_){}
-        if(!response.ok)throw Error(wtAuthMessage(payload&&typeof payload.error==='string'?payload.error:'http-'+response.status));
-        const uid=payload&&payload.profile&&typeof payload.profile.uid==='string'?payload.profile.uid:'';
-        if(!uid)throw Error('Сервер не вернул учётную запись');
-        await refreshNasAdministration();
-        await nasAdminAction('registration.approve',{uid,role});
-        showToastEl('Пользователь создан на Ubuntu',false);
-      }
-      catch(error){showError('Создание доступа не завершено: '+error.message);}
-      finally{document.getElementById('newUserPassword').value='';}return;
+    // Учётную запись создаёт сервер Ubuntu. Пароль уходит только в запросе
+    // регистрации, в интерфейсе и журналах не сохраняется.
+    try{
+      const base=(typeof nasApiBase==='function'?nasApiBase():'').replace(/\/+$/,'');
+      if(!base)throw Error('Не настроен адрес сервера Ubuntu');
+      const response=await fetch(base+'/api/v1/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass,device:wtDeviceInfo()}),credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer'});
+      let payload=null;try{payload=await response.json();}catch(_){}
+      if(!response.ok)throw Error(wtAuthMessage(payload&&typeof payload.error==='string'?payload.error:'http-'+response.status));
+      const uid=payload&&payload.profile&&typeof payload.profile.uid==='string'?payload.profile.uid:'';
+      if(!uid)throw Error('Сервер не вернул учётную запись');
+      await refreshNasAdministration();
+      await nasAdminAction('registration.approve',{uid,role});
+      showToastEl('Пользователь создан на Ubuntu',false);
     }
-    // Ветка Firebase больше не используется: единственный сервер данных и
-    // учётных записей — Ubuntu. Оставлено честное сообщение вместо скрытого
-    // создания пользователя через Firebase Auth.
-    showError('Создание пользователей доступно только через сервер Ubuntu');
+    catch(error){showError('Создание доступа не завершено: '+error.message);}
+    finally{document.getElementById('newUserPassword').value='';}
   }
   function renderPermissionsMatrix(){
     const role=document.getElementById('permRoleSelect').value,config=permissionsConfig[role]||{tabs:[],actions:[]},cont=document.getElementById('permissionsMatrixContainer');
@@ -270,9 +225,7 @@
     // tabel_tab_* в роль, чтобы старые конфигурации не менялись без причины.
     const tabelAll = ['tabel_tab_request','tabel_tab_shift','tabel_tab_table','tabel_tab_catalog','tabel_tab_history'];
     if (tabelAll.every(id => actions.includes(id))) actions = actions.filter(id => !tabelAll.includes(id));
-    if(isNasRuntime())return runNasAdminAction('permissions.replace',{role,permissions:{tabs,actions}});
-    try { const update = {}; update[role] = { tabs, actions }; await tfAwait(permsRef.set(update, { merge: true })); addAudit(`Изменены права для роли: ${ROLES[role].label}`).catch(()=>{}); showToastEl('💾 Права сохранены', false); }
-    catch(e) { showError(e.message); }
+    return saveLineEvent(()=>runNasAdminAction('permissions.replace',{role,permissions:{tabs,actions}}));
   }
 
   // Панель длинных ошибок: одна на всё приложение, закрывается только
@@ -458,7 +411,7 @@
     if(!canAdmin()){showError('Время ходки задаёт администратор');return;}
     if(!navigator.onLine){showError('Для изменения общего времени ходки требуется связь');return;}
     const n=Math.max(15,parseInt(v)||15);
-    try{if(isNasRuntime())await nasSaveSettings({cycleMinutes:n});else await appConfigRef.set({cycleMinutes:n},{merge:true});settings.cycleMinutes=n;localStorage.setItem('working-test-settings',JSON.stringify(settings));renderAll();}
+    try{await saveLineEvent(()=>nasSaveSettings({cycleMinutes:n}));settings.cycleMinutes=n;localStorage.setItem('working-test-settings',JSON.stringify(settings));renderAll();}
     catch(e){showError('Время ходки не сохранено: '+e.message);}
   }
   function toggleSetting(k,v) { settings[k]=v; localStorage.setItem('working-test-settings', JSON.stringify(settings)); }
