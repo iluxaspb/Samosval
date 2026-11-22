@@ -3,19 +3,45 @@
   window.__resetHoldV5 = true;
 
   // ===== Значение по умолчанию для holdResetCycle =====
-  (function initDefault() {
+  // Настройка удержания живёт в общем ключе шелла 'working-test-settings'.
+  // Значение из прежнего отдельного ключа (см. константу ниже) переносится
+  // сюда один раз и удаляется.
+  const HOLD_SETTINGS_KEY = 'working-test-settings';
+  const HOLD_SETTINGS_LEGACY_KEY = 'working-test-settings-test347';
+  function readHoldSettings() {
+    try { return JSON.parse(localStorage.getItem(HOLD_SETTINGS_KEY) || '{}') || {}; }
+    catch(e) { return {}; }
+  }
+  function writeHoldSettings(stored) {
+    try { localStorage.setItem(HOLD_SETTINGS_KEY, JSON.stringify(stored)); } catch(e) {}
+  }
+  function migrateHoldSettings() {
     try {
-      const stored = JSON.parse(localStorage.getItem('working-test-settings-test347') || '{}');
+      const stored = readHoldSettings();
       if (typeof stored.holdResetCycle === 'undefined') {
-        stored.holdResetCycle = 0.5;
-        localStorage.setItem('working-test-settings-test347', JSON.stringify(stored));
+        let legacy = null;
+        try { legacy = JSON.parse(localStorage.getItem(HOLD_SETTINGS_LEGACY_KEY) || 'null'); } catch(e) {}
+        if (legacy && typeof legacy.holdResetCycle !== 'undefined') {
+          stored.holdResetCycle = legacy.holdResetCycle;
+          writeHoldSettings(stored);
+        }
       }
+      localStorage.removeItem(HOLD_SETTINGS_LEGACY_KEY);
     } catch(e) {}
+  }
+  (function initDefault() {
+    migrateHoldSettings();
+    const stored = readHoldSettings();
+    if (typeof stored.holdResetCycle === 'undefined') {
+      stored.holdResetCycle = 0.5;
+      writeHoldSettings(stored);
+    }
   })();
 
   function getHoldResetCycle() {
+    migrateHoldSettings();
     try {
-      const stored = JSON.parse(localStorage.getItem('working-test-settings-test347') || '{}');
+      const stored = readHoldSettings();
       const v = parseFloat(stored.holdResetCycle);
       return (!isNaN(v) && v >= 0.1) ? v : 0.5;
     } catch(e) { return 0.5; }
@@ -241,9 +267,9 @@
       v = Math.max(0.1, Math.min(5, v));
       v = Math.round(v * 10) / 10;
 
-      const stored = JSON.parse(localStorage.getItem('working-test-settings-test347') || '{}');
+      const stored = readHoldSettings();
       stored.holdResetCycle = v;
-      localStorage.setItem('working-test-settings-test347', JSON.stringify(stored));
+      writeHoldSettings(stored);
       settings.holdResetCycle = v;
       inp.value = v;
 
