@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Очередь на сохранение — осмотр</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:#14161a; color:#e8eaed;
+         font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  h1 { font-size:20px; margin:0 0 8px; }
+  .intro { background:#1e2128; border:1px solid #333944; border-radius:12px;
+           padding:12px 14px; margin-bottom:16px; font-size:15px; color:#c9cdd4; }
+  .empty { background:#12241a; border:1px solid #2e5b40; border-radius:12px;
+           padding:18px 14px; text-align:center; font-size:17px; color:#8fd6a4; }
+  section { margin:0 0 22px; }
+  section > h2 { font-size:18px; margin:0 0 10px; color:#9ab3ff; }
+  .card { background:#1e2128; border:1px solid #333944; border-radius:12px;
+          padding:12px 14px; margin-bottom:12px; }
+  .card.error { border-color:#7a3030; }
+  .title { font-size:17px; font-weight:600; margin:0 0 4px; }
+  .meta { font-size:13px; color:#9aa0aa; margin-bottom:6px; }
+  .meta .err { color:#ff8a80; }
+  details { margin:6px 0; }
+  summary { cursor:pointer; color:#8ab4f8; font-size:14px; user-select:none; }
+  pre { margin:6px 0 0; font-size:12px; white-space:pre-wrap; word-break:break-all;
+        background:#14161a; border-radius:8px; padding:8px; color:#bdc1c6; }
+  button { display:block; width:100%; margin-top:10px; padding:14px; font-size:17px;
+           border-radius:12px; border:1px solid #7a3030; background:#3a1d1d;
+           color:#ff8a80; cursor:pointer; }
+  button:active { background:#4a2424; }
+</style>
+</head>
+<body>
+<h1>Что не сохранено</h1>
+<div class="intro">Эта страница помогает разобраться, какое изменение не сохранено и блокирует обновление. Удаление отменяет изменение — оно не попадёт на сервер.</div>
+<div id="root"></div>
+<script>
+(function(){
+  'use strict';
+  var NAS_OPERATION_TITLES = {
+    'shift.object':'Смена объекта','line.add':'Добавление самосвала на линию','line.remove':'Снятие самосвала с линии',
+    'truck.create':'Создание самосвала','truck.update':'Изменение самосвала','truck.delete':'Удаление самосвала',
+    'object.create':'Создание объекта','object.update':'Изменение объекта','object.delete':'Удаление объекта',
+    'report.update':'Изменение рейса','report.delete':'Удаление рейса',
+    'settings.patch':'Изменение настроек','settings.rewards':'Изменение наград',
+    'game.play':'Действие в мини-игре','game.grant':'Начисление монет',
+    'prepare':'Подготовка закрытия смены','finish':'Закрытие смены',
+    'auxiliary.save':'Изменение записи','auxiliary.delete':'Удаление записи'
+  };
+  var NAS_IDENTITY_TITLES = {
+    'user.access':'Изменение доступа пользователя','user.nickname':'Изменение имени пользователя','user.role':'Смена роли пользователя',
+    'user.delete':'Удаление пользователя','permissions.replace':'Изменение прав роли',
+    'registration.approve':'Одобрение заявки','registration.reject':'Отклонение заявки'
+  };
+  var TRIP_TITLES = { arrive:'Прибытие', load:'Погрузка', ttn:'Отметка ТТН', reset:'Сброс таймера' };
+
+  function readKey(key){
+    try { var raw = localStorage.getItem(key); if(!raw) return null;
+      var val = JSON.parse(raw); return Array.isArray(val) ? val : null;
+    } catch(e) { return null; }
+  }
+  function writeKey(key, arr){ localStorage.setItem(key, JSON.stringify(arr)); }
+  function fmtTime(ms){
+    var n = Number(ms); if(!n || !isFinite(n)) return '';
+    try { return new Date(n).toLocaleString('ru-RU'); } catch(e){ return String(ms); }
+  }
+  function safeJson(v){
+    try { return JSON.stringify(v, null, 1); } catch(e){ return String(v); }
+  }
+  function findKeys(prefix){
+    var out = [];
+    for (var i=0; i<localStorage.length; i++){
+      var k = localStorage.key(i);
+      if (k && k.indexOf(prefix) === 0) out.push(k);
+    }
+    return out.sort();
+  }
+  function cardTitle(kind, entry){
+    var op = entry && entry.operation || entry;
+    var t = op && op.type;
+    if (kind === 'identity') return NAS_IDENTITY_TITLES[t] || 'Изменение доступа';
+    if (kind === 'trips') return (TRIP_TITLES[t] || 'Операция рейса') + (op.truckName ? ' · ' + op.truckName : (op.truckId ? ' · ' + op.truckId : ''));
+    var title = NAS_OPERATION_TITLES[t] || '';
+    if (!title && op && ('objectId' in op) && !t) title = 'Открытие смены';
+    return title || 'Команда сервера';
+  }
+  function renderCard(root, key, index, entry, kind){
+    var card = document.createElement('div'); card.className = 'card';
+    if (entry && entry.lastError) card.classList.add('error');
+    var title = document.createElement('p'); title.className = 'title';
+    title.textContent = cardTitle(kind, entry);
+    card.appendChild(title);
+    var meta = document.createElement('div'); meta.className = 'meta';
+    var parts = [];
+    if (entry && entry.createdAt) parts.push('создано: ' + fmtTime(entry.createdAt));
+    else if (entry && entry.at) parts.push('время: ' + fmtTime(entry.at));
+    var opId = entry && entry.operation && entry.operation.id;
+    if (opId) parts.push('id: ' + opId);
+    meta.textContent = parts.join(' · ');
+    card.appendChild(meta);
+    if (entry && entry.lastError){
+      var err = document.createElement('div'); err.className = 'meta';
+      err.innerHTML = '<span class="err">ошибка: ' + String(entry.lastError.message||'').replace(/[<>&]/g, function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];})
+        + ' (статус ' + (entry.lastError.status||0) + ', ' + fmtTime(entry.lastError.at) + ')</span>';
+      card.appendChild(err);
+    }
+    if (entry && entry.failed){
+      var f = document.createElement('div'); f.className = 'meta';
+      f.innerHTML = '<span class="err">помечена как сбойная (failed)</span>';
+      card.appendChild(f);
+    }
+    var det = document.createElement('details');
+    var sum = document.createElement('summary'); sum.textContent = 'Подробности (JSON)'; det.appendChild(sum);
+    var pre = document.createElement('pre'); pre.textContent = safeJson(entry); det.appendChild(pre);
+    card.appendChild(det);
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.textContent = 'Удалить эту команду';
+    btn.onclick = function(){
+      var what = title.textContent + (entry && entry.createdAt ? ' (создано ' + fmtTime(entry.createdAt) + ')' : '');
+      var ok = confirm('Отбросить «' + what + '»?\n\nИзменение НЕ применено на сервере и будет отброшено (на сервере ничего не изменится). Продолжить?');
+      if (!ok) return;
+      var arr = readKey(key) || [];
+      var id = opId;
+      var rest;
+      if (id){
+        rest = arr.filter(function(x){ return !(x && x.operation && x.operation.id === id); });
+        if (rest.length === arr.length) rest = arr.filter(function(x){ return x !== entry; });
+      } else {
+        rest = arr.filter(function(x){ return x !== entry; });
+      }
+      writeKey(key, rest);
+      card.remove();
+      if (!rest.length) location.reload();
+    };
+    card.appendChild(btn);
+    root.appendChild(card);
+  }
+  function renderSection(root, heading, entries, key, kind){
+    var sec = document.createElement('section');
+    var h = document.createElement('h2');
+    h.textContent = heading + ': ' + entries.length;
+    sec.appendChild(h);
+    entries.forEach(function(entry, i){ renderCard(sec, key, i, entry, kind); });
+    root.appendChild(sec);
+  }
+
+  var root = document.getElementById('root');
+  var total = 0;
+  findKeys('samosval_nas_commands_v1:').forEach(function(key){
+    var arr = readKey(key); if (!arr || !arr.length) return;
+    total += arr.length;
+    renderSection(root, 'Команды сервера (' + key.slice('samosval_nas_commands_v1:'.length).slice(0,24) + '…)', arr, key, 'nas');
+  });
+  findKeys('samosval_working_test_offline_nas_v1:').forEach(function(key){
+    var arr = readKey(key); if (!arr || !arr.length) return;
+    total += arr.length;
+    renderSection(root, 'Рейсы', arr, key, 'trips');
+  });
+  findKeys('samosval_working_test_nas_identity_v1:').forEach(function(key){
+    var arr = readKey(key); if (!arr || !arr.length) return;
+    total += arr.length;
+    renderSection(root, 'Доступ и пользователи', arr, key, 'identity');
+  });
+
+  if (!total){
+    var empty = document.createElement('div'); empty.className = 'empty';
+    empty.textContent = 'Неподтверждённых изменений нет. Вернитесь в приложение и нажмите "Установить".';
+    root.appendChild(empty);
+  }
+})();
+</script>
+</body>
+</html>
