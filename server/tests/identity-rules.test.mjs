@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {identityClaims,registrationDraft,normalizeIdentityOperation,profileView,roleView} from '../src/identity-rules.mjs';
+import {identityClaims,registrationDraft,normalizeIdentityOperation,profileView,roleView,ROLES} from '../src/identity-rules.mjs';
 test('already verified claims expose UID/email only, not token role or client authority',()=>{
   assert.deepEqual(identityClaims({uid:'verified',email:'new@example.test',email_verified:false,role:'admin'}),{uid:'verified',email:'new@example.test',emailVerified:false});
   for(const decoded of [null,{}, {uid:1},{uid:''},{uid:'x'.repeat(129)}])assert.equal(identityClaims(decoded),null);
@@ -33,4 +33,10 @@ test('role view cannot turn a non-admin into an admin through a tab permission',
   assert.deepEqual(roleView('viewer',[{action:'tab_admin',allowed:true},{action:'tab_line',allowed:true},{action:'action_load',allowed:false}]),{tabs:['line'],actions:[]});
   assert.ok(roleView('foreman',[]).tabs.includes('timesheet'));
   assert.ok(roleView('admin',[]).tabs.includes('admin'));
+});
+test('senior_foreman is a known role with the foreman-style default tab view',()=>{
+  assert.ok(ROLES.includes('senior_foreman'));
+  const ok=normalizeIdentityOperation({id:'sf',type:'user.role',uid:'u',expectedRevision:1,role:'senior_foreman'});
+  assert.equal(ok.role,'senior_foreman');
+  assert.ok(roleView('senior_foreman',[]).tabs.includes('timesheet'));
 });

@@ -14,7 +14,7 @@ test('PostgreSQL serializes concurrent loads and stores durable idempotency rece
     await pool.query('INSERT INTO app_users(uid,email,display_name,role,status) VALUES ($1,$2,$3,$4,$5)',
       [uid,'ci@example.test','CI Operator','lopater','active']);
     await pool.query("INSERT INTO role_permissions(role,action,allowed) VALUES ('lopater','action_load',true) ON CONFLICT (role,action) DO UPDATE SET allowed=true");
-    await pool.query('INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3::jsonb)',
+    await pool.query("INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3::jsonb)",
       ['main_workspace',shiftId,JSON.stringify({id:shiftId})]);
     await pool.query('INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES ($1,$2,$3::jsonb)',
       ['main_workspace',truckId,JSON.stringify({brand:'Test',number:'001',defaultVol:12,isGAI:false})]);
@@ -44,6 +44,21 @@ test('PostgreSQL serializes concurrent loads and stores durable idempotency rece
       ['main_workspace',first.id,second.id]);
     assert.equal(receipt.rows[0].count,2);
     await assert.rejects(()=>submitLineOperation(pool,uid,{...winner,createdAt:winner.createdAt+1}),e=>e.status===409);
+    // Сброс таймера ходки: default deny без права line_timer_reset, разрешён с ним.
+    const reset={id:'ci_reset_'+id,type:'reset',truckId,shiftId,createdAt:Date.now()-1000,
+      expectedRevision:1,expectedTtnRevision:0,arrivalTimestamp:0,
+      lastLoadTimestamp:0,wantArrived:false,collect:false,cycleMinutes:15};
+    await assert.rejects(()=>submitLineOperation(pool,uid,reset),e=>e.status===403);
+    await pool.query("INSERT INTO role_permissions(role,action,allowed) VALUES ('lopater','line_timer_reset',true) ON CONFLICT (role,action) DO UPDATE SET allowed=true");
+    const resetDone=await submitLineOperation(pool,uid,reset);
+    assert.equal(resetDone.outcome,'rejected'); // устаревший expectedRevision: пропуск разрешён, конфликт редакций
+    const status=(await pool.query('SELECT payload FROM line_truck_statuses WHERE workspace_id=$1 AND truck_id=$2',['main_workspace',truckId])).rows[0].payload;
+    const resetFresh={...reset,id:'ci_reset2_'+id,expectedRevision:status.cycleRevision,lastLoadTimestamp:Number(status.lastLoadTimestamp||0)};
+    const resetOk=await submitLineOperation(pool,uid,resetFresh);
+    assert.equal(resetOk.outcome,'confirmed');
+    assert.equal(resetOk.status.lastLoadTimestamp,null);
+    await pool.query("UPDATE role_permissions SET allowed=false WHERE role='lopater' AND action='line_timer_reset'");
+    await assert.rejects(()=>submitLineOperation(pool,uid,{...resetFresh,id:'ci_reset3_'+id,expectedRevision:resetOk.status.cycleRevision,lastLoadTimestamp:0}),e=>e.status===403);
   }finally{
     const p=['main_workspace'];
     await pool.query('DELETE FROM line_audit WHERE workspace_id=$1 AND uid=$2',[...p,uid]).catch(()=>{});
@@ -53,6 +68,7 @@ test('PostgreSQL serializes concurrent loads and stores durable idempotency rece
     await pool.query('DELETE FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2',[...p,truckId]).catch(()=>{});
     await pool.query('DELETE FROM shifts WHERE workspace_id=$1 AND shift_id=$2',[...p,shiftId]).catch(()=>{});
     await pool.query('DELETE FROM app_users WHERE uid=$1',[uid]).catch(()=>{});
+    await pool.query("DELETE FROM role_permissions WHERE role='lopater' AND action='line_timer_reset'").catch(()=>{});
     await pool.end();
   }
 });

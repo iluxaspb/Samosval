@@ -46,9 +46,10 @@ test('TTN revision and identity are derived from server state',()=>{
   assert.equal(ok.status.ttnRevision,1);
   assert.equal(applyLineOperation({op:op('ttn'),before:ok.status,truck,actor,now}).reason,'ttn-changed');
 });
-test('reset is administrator-only',()=>{
+test('reset requires admin or the line_timer_reset permission',()=>{
   assert.equal(applyLineOperation({op:op('reset'),before:idle,truck,actor,now}).outcome,'rejected');
   assert.equal(applyLineOperation({op:op('reset'),before:idle,truck,actor:{...actor,isAdmin:true},now}).outcome,'confirmed');
+  assert.equal(applyLineOperation({op:op('reset'),before:idle,truck,actor:{...actor,canResetTimer:true},now}).outcome,'confirmed');
 });
 test('reject malformed, future and untrusted inputs',()=>{
   assert.equal(validateLineOperation(op('load')),null);
