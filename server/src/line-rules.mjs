@@ -28,7 +28,7 @@ export function applyLineOperation({op, before, truck, actor, cycleMinutes=15, n
   if (!before.onLine || before.shiftId !== op.shiftId) return reject('truck-not-on-line');
   if (!['arrive', 'load', 'ttn', 'reset'].includes(op.type)) return reject('unsupported');
   if (op.type === 'reset') {
-    if (!actor.isAdmin) return reject('permission-denied');
+    if (!actor.isAdmin && !actor.canResetTimer) return reject('permission-denied');
     if (revision !== expectedRevision || Number(before.lastLoadTimestamp||0)!==Number(op.lastLoadTimestamp||0))
       return reject('arrival-changed');
     const changes={lastLoadTimestamp:null,lastLoadBy:null,arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:revision+1,lastResetOperationId:op.id};

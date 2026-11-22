@@ -3,7 +3,7 @@ import {recordLineHistory} from './history-store.mjs';
 import { applyLineOperation, validateLineOperation } from './line-rules.mjs';
 
 const WORKSPACE_ID = process.env.WORKSPACE_ID || 'main_workspace';
-const ACTIONS = { arrive: 'action_arrive', load: 'action_load', ttn: 'action_ttn', reset: 'admin_only' };
+const ACTIONS = { arrive: 'action_arrive', load: 'action_load', ttn: 'action_ttn', reset: 'line_timer_reset' };
 const REPLAY_FIELDS = ['id','type','truckId','shiftId','createdAt','expectedRevision','expectedTtnRevision',
   'arrivalTimestamp','lastLoadTimestamp','wantArrived','collect','cycleMinutes','logId'];
 const forbidden = () => Object.assign(new Error('Forbidden'), {status:403,code:'forbidden'});
@@ -22,13 +22,12 @@ export async function submitLineOperation(pool, uid, input) {
       [uid])).rows[0];
     if (!profile || profile.status !== 'active') throw forbidden();
     const admin = profile.role === 'admin';
-    if (op.type === 'reset' && !admin) throw forbidden();
-    if (!admin) {
-      const permitted = (await client.query(
-        'SELECT allowed FROM role_permissions WHERE role=$1 AND action=$2 FOR SHARE',
-        [profile.role, ACTIONS[op.type]])).rows[0]?.allowed;
-      if (permitted !== true) throw forbidden();
-    }
+    // Все операции линии, включая сброс таймера ходки, проходят через матрицу
+    // role_permissions с default deny; администратор сохраняет полный доступ.
+    const permitted = (await client.query(
+      'SELECT allowed FROM role_permissions WHERE role=$1 AND action=$2 FOR SHARE',
+      [profile.role, ACTIONS[op.type]])).rows[0]?.allowed;
+    if (!admin && permitted !== true) throw forbidden();
 
     // A unique receipt serializes *same-ID* retries, even across API replicas.
     const receiptInsert = await client.query(
@@ -63,7 +62,7 @@ export async function submitLineOperation(pool, uid, input) {
       result = {outcome:'rejected',reason:'truck-not-on-line',status:before};
     else result = applyLineOperation({
       op, before, truck:truckRow.payload,
-      actor:{name:profile.display_name,email:profile.email,isAdmin:admin},
+      actor:{name:profile.display_name,email:profile.email,isAdmin:admin,canResetTimer:admin||permitted===true},
       cycleMinutes:workspace?.cycle_minutes||15,
       now:Date.now()
     });
