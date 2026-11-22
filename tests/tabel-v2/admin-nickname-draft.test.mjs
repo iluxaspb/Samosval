@@ -37,6 +37,15 @@ test('исходник: у поля ника нет onchange — сохране�
   assert.match(body, /data-nickname-save="/, 'кнопка «Сохранить» адресуется по data-nickname-save');
 });
 
+// Ф1 (ручная проверка 1.8.1): открытый список ролей закрывался фоновой перерисовкой.
+test('исходник: select роли адресуется по data-role-uid и входит в предикат удержания', () => {
+  const body = functionBody('renderAdminPanel');
+  assert.match(body, /select[^>]*data-role-uid=/, 'select роли помечен data-role-uid');
+  assert.match(body, /onchange="changeUserRole\(/, 'сохранение роли осталось мгновенным по onchange');
+  const pred = functionBody('adminDraftFieldActive');
+  assert.match(pred, /select\[data-role-uid\]/, 'фокус в select роли откладывает перерисовку');
+});
+
 test('исходник: перед перестроением списка значения и фокус сохраняются, после — восстанавливаются', () => {
   const body = functionBody('renderAdminPanel');
   assert.match(body, /collectDraftFields\(/, 'значения input ника собираются перед innerHTML');
@@ -92,15 +101,17 @@ function setup({ nickname = '' } = {}) {
       return true;
     },
   });
-  // Блок админ-панели: от userAccessWrites до updateUserNickname включительно.
+  // Блок админ-панели: от userAccessWrites до changeUserRole включительно.
   const from = lineUi.indexOf('const userAccessWrites');
-  const to = lineUi.indexOf('async function changeUserRole');
+  const to = lineUi.indexOf('const registrationDecisions');
   assert.ok(from >= 0 && to > from, 'не найден блок админ-панели в 18-line-ui.js');
-  vm.runInContext(lineUi.slice(from, to) + '\nthis.__fns={renderAdminPanel,updateUserNickname,adminDraftHoldActive,scheduleRenderAdminPanel};', context);
+  vm.runInContext(lineUi.slice(from, to) + '\nthis.__fns={renderAdminPanel,updateUserNickname,changeUserRole,adminDraftHoldActive,scheduleRenderAdminPanel};', context);
   const run = expr => vm.runInContext(expr, context);
   // Минимальная «DOM-модель» поля ника: рендер восстанавливает значения из
   // черновика, собранного до перестроения.
   doc.setNicknameField = field => { doc.nicknameField = { matches: () => true, ...field }; doc.activeElement = field.focused ? doc.nicknameField : null; };
+  // Ф1: select роли в фокусе (нативный список открыт) — matches отвечает за селектор select.
+  doc.setRoleSelectFocused = () => { doc.activeElement = { matches: sel => sel.includes('select'), tagName: 'SELECT' }; };
   return { doc, run, errors, submitted, timers, usersListContainer };
 }
 
@@ -145,4 +156,38 @@ test('ошибка сохранения показывает сообщение 
   assert.equal(submitted.length, 1);
   assert.equal(field.value, 'Витя', 'черновик сохраняется в поле после ошибки');
   assert.ok(errors.some(m => m.includes('Ник не сохранён')), 'администратор видит сообщение об ошибке');
+});
+
+// === Ф1 (ручная проверка 1.8.1): список ролей ===
+
+test('Ф1: пока select роли в фокусе (список открыт), перерисовка откладывается', async () => {
+  const { doc, run, timers, usersListContainer } = setup();
+  run('this.__fns.renderAdminPanel()');
+  const htmlBefore = usersListContainer.innerHTML;
+  doc.setRoleSelectFocused();
+  const timersBefore = timers.length;
+  await run('this.__fns.renderAdminPanel()');
+  assert.equal(run('this.__fns.adminDraftHoldActive()'), true, 'фокус в select роли распознаётся как активный ввод');
+  assert.equal(usersListContainer.innerHTML, htmlBefore, 'разметка списка не перестраивается — открытый список не закрывается');
+  assert.ok(timers.length > timersBefore, 'перерисовка отложена через таймер');
+});
+
+test('Ф1: после ухода фокуса из select отложенная перерисовка выполняется', async () => {
+  const { doc, run, timers, usersListContainer } = setup();
+  run('this.__fns.renderAdminPanel()');
+  doc.setRoleSelectFocused();
+  await run('this.__fns.renderAdminPanel()');
+  assert.ok(timers.length === 1, 'запланирована одна отложенная перерисовка');
+  doc.activeElement = null; // администратор выбрал роль, список закрылся
+  usersListContainer.innerHTML = '';
+  timers[0].fn();
+  assert.ok(usersListContainer.innerHTML.length > 0, 'список перестроен после снятия фокуса');
+});
+
+test('Ф1: смена роли по-прежнему отправляется сразу одним вызовом', async () => {
+  const { run, submitted } = setup();
+  await run('this.__fns.changeUserRole("uid_1","foreman")');
+  assert.equal(submitted.length, 1, 'onchange → один вызов admin-действия');
+  assert.equal(submitted[0].type, 'user.role');
+  assert.deepEqual({ ...submitted[0].payload }, { uid: 'uid_1', role: 'foreman' });
 });
