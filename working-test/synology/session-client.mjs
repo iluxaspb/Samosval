@@ -152,6 +152,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   const authority=()=>({provider:authorityProvider,generation:authorityGeneration});
   const readLine=()=>request('/api/v1/line/snapshot',{validate:x=>envelope(x,'samosval-line-snapshot',workspaceId)&&ids(x.trucks)&&ids(x.statuses)&&ids(x.logs)&&
     Number.isInteger(x.cycleMinutes)&&x.cycleMinutes>=15&&x.cycleMinutes<=10080&&
+    (x.restoredShifts===undefined||Array.isArray(x.restoredShifts)&&x.restoredShifts.every(r=>record(r)&&record(r.shift)&&r.shift.restored===true&&typeof r.shift.id==='string'&&ids(r.logs)&&r.logs.every(l=>l.shiftId===r.shift.id&&typeof l.truckId==='string')))&&
     (x.shift===null?x.statuses.length===0&&x.logs.length===0:record(x.shift)&&typeof x.shift.id==='string'&&x.shift.id.length>0&&(x.shift.isActive===true||x.shift.isActive===false&&x.shift.closing===true)&&
       x.statuses.every(s=>s.shiftId===x.shift.id)&&x.logs.every(l=>l.shiftId===x.shift.id&&typeof l.truckId==='string'))});
   const readArchive=()=>backgroundRequest('/api/v1/archive/snapshot',{validate:x=>envelope(x,'samosval-archive-snapshot',workspaceId)&&Number.isFinite(x.importedAt)&&ids(x.archives)&&ids(x.trash)});

@@ -12,22 +12,27 @@ export function normalizeReport(input){
  }return op;
 }
 const currentLog=async(c,ws,id)=>(await c.query('SELECT payload FROM line_logs WHERE workspace_id=$1 AND log_id=$2 FOR UPDATE',[ws,id])).rows[0]?.payload||null;
-const currentStatus=async(c,ws,id)=>(await c.query('SELECT payload FROM line_truck_statuses WHERE workspace_id=$1 AND truck_id=$2 FOR UPDATE',[ws,id])).rows[0]?.payload||null;
+// Статус самосвала адресуется по (truck, shift): правка рейса восстановленной
+// архивной смены не меняет статусы активной линии.
+const currentStatus=async(c,ws,id,shiftId)=>(await c.query('SELECT payload FROM line_truck_statuses WHERE workspace_id=$1 AND truck_id=$2 AND shift_id=$3 FOR UPDATE',[ws,id,shiftId])).rows[0]?.payload||null;
 async function writeState(c,ws,id,log,status,truckId){
  if(log)await c.query('INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES ($1,$2,$3,$4,$5) ON CONFLICT(workspace_id,log_id) DO UPDATE SET payload=EXCLUDED.payload',[ws,id,log.shiftId,log.truckId,log]);else await c.query('DELETE FROM line_logs WHERE workspace_id=$1 AND log_id=$2',[ws,id]);
- if(status)await c.query('UPDATE line_truck_statuses SET payload=$3 WHERE workspace_id=$1 AND truck_id=$2',[ws,truckId,status]);
+ if(status)await c.query('UPDATE line_truck_statuses SET payload=$3 WHERE workspace_id=$1 AND truck_id=$2 AND shift_id=$4',[ws,truckId,status,status.shiftId]);
 }
 export function submitReport(pool,uid,input,ws=WS){
  const op=normalizeReport(input);if(!op.id.startsWith('report_'))throw fail('invalid-report-id');
  return serviceCommand(pool,uid,op,ws,(c,u)=>serviceActor(c,u,'edit_logs'),async(c,actor)=>{
   const beforeLog=await currentLog(c,ws,op.logId);if(!beforeLog||!isDeepStrictEqual(reportVersion(beforeLog),op.expected))throw fail('report-changed',409);
   const shift=(await c.query('SELECT is_active,payload FROM shifts WHERE workspace_id=$1 AND shift_id=$2 FOR SHARE',[ws,beforeLog.shiftId])).rows[0];if(!shift?.is_active||shift.payload.closing)throw fail('shift-changed',409);
-  const beforeStatus=await currentStatus(c,ws,beforeLog.truckId);let log=null,status=beforeStatus;
+  const beforeStatus=await currentStatus(c,ws,beforeLog.truckId,beforeLog.shiftId);let log=null,status=beforeStatus;
   if(op.type==='report.update'){
    const [h,m]=op.data.timeStr.split(':').map(Number),timestamp=Math.floor((beforeLog.timestamp+10800000)/86400000)*86400000-10800000+(h*60+m)*60000;
    log={...beforeLog,...op.data,timestamp};
   }
-  if(beforeStatus?.lastLoadLogId===op.logId||log&&log.timestamp>Number(beforeStatus?.lastLoadTimestamp||0)){
+  // У восстановленной архивной смены нет статусов самосвалов: правится только
+  // сам рейс, статусы и ревизии активной линии не затрагиваются.
+  if(shift.payload?.restored)status=null;
+  else if(beforeStatus?.lastLoadLogId===op.logId||log&&log.timestamp>Number(beforeStatus?.lastLoadTimestamp||0)){
    const previous=(await c.query("SELECT log_id,payload FROM line_logs WHERE workspace_id=$1 AND truck_id=$2 AND shift_id=$3 AND log_id<>$4 ORDER BY (payload->>'timestamp')::bigint DESC,log_id DESC LIMIT 1",[ws,beforeLog.truckId,beforeLog.shiftId,op.logId])).rows[0];
    const other=previous?{...previous.payload,id:previous.log_id}:null;
    const latest=[log,other].filter(Boolean).sort((a,b)=>a.timestamp-b.timestamp||a.id.localeCompare(b.id)).at(-1)||null;
@@ -50,7 +55,7 @@ export async function reportHistoryOperation(pool,uid,input,ws=WS){
   const row=(await c.query('SELECT * FROM workspace_service_audit WHERE workspace_id=$1 AND operation_id=$2 FOR UPDATE',[ws,op.actionId])).rows[0];if(Number(row.revision)!==op.expectedRevision||row.undone!==(op.direction==='redo'))throw fail('history-changed',409);
   const expected=op.direction==='undo'?row.after_data:row.before_data,next=op.direction==='undo'?row.before_data:row.after_data;
   const shift=(await c.query('SELECT is_active,payload FROM shifts WHERE workspace_id=$1 AND shift_id=$2 FOR SHARE',[ws,next.shiftId])).rows[0];if(!shift?.is_active||shift.payload.closing)throw fail('shift-changed',409);
-  const log=await currentLog(c,ws,next.logId),current=await currentStatus(c,ws,next.truckId);
+  const log=await currentLog(c,ws,next.logId),current=await currentStatus(c,ws,next.truckId,next.shiftId);
   const strip=s=>s?Object.fromEntries(Object.entries(s).filter(([k])=>!['cycleRevision','ttnRevision'].includes(k))):null;
   if(!isDeepStrictEqual(log,expected.log)||!isDeepStrictEqual(strip(current),strip(expected.status)))throw fail('dependent-changes',409);
   const status=next.status?{...next.status,cycleRevision:Number(current?.cycleRevision||0)+1,ttnRevision:Number(current?.ttnRevision||0)+1}:null;

@@ -112,7 +112,7 @@
     document.querySelector('.container').style.display=active?'':'none';document.querySelector('nav').style.display=active?'flex':'none';
     if(!active){
       nasSettingsSnapshot=null;appConfig={};nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;window.__gameAccessChanged?.();
-      state.trucks=[];state.logs=[];state.truckStatus={};state.shift=null;state.archive=[];state.trash=[];state.audit=[];state.users=[];
+      state.trucks=[];state.logs=[];state.truckStatus={};state.shift=null;state.restoredShifts=[];state.archive=[];state.trash=[];state.audit=[];state.users=[];
       offlineRemoteStatuses={};offlineRemoteLogs=[];initialized=false;cancelHold();
       document.querySelectorAll('dialog[open]').forEach(d=>d.close());
       document.getElementById('registrationStatusText').textContent = session.identityReady
@@ -146,8 +146,17 @@
     }
     nasReceiptFloors.clear();
     state.shift=snapshot.shift;state.trucks=snapshot.trucks;
+    // Восстановленные для правок архивные смены живут параллельно активной
+    // линии: пользователь редактирует их через отчёт, не закрывая текущую.
+    state.restoredShifts=snapshot.restoredShifts||[];
+    // Рейсы восстановленных смен попадают в общий список: правки (✏️/X) ищут
+    // лог по id, а сводки активной смены фильтруются по shiftId и их не видят.
+    // offlineRemoteLogs — источник офлайн-проекции: кладём их туда, иначе
+    // offlineProjectState затрёт список своим срезом.
+    const restoredLogs=state.restoredShifts.flatMap(r=>r.logs);
+    offlineRemoteLogs=[...snapshot.logs,...restoredLogs];
     settings.cycleMinutes=snapshot.cycleMinutes;
-    offlineRemoteStatuses=Object.fromEntries(snapshot.statuses.map(s=>[s.id,s]));offlineRemoteLogs=snapshot.logs.slice();
+    offlineRemoteStatuses=Object.fromEntries(snapshot.statuses.map(s=>[s.id,s]));
     // NAS snapshots are authoritative: ticker load events must match confirmed logs.
     confirmedLoadIds=new Set(snapshot.logs.map(log=>log.id));
     offlineProjectState();initialized=true;
@@ -739,7 +748,10 @@
     if(!prepared){prepared=await nasBusinessCommand('close',shiftId+':prepare',{type:'prepare',shiftId});guard();localStorage.setItem(key,JSON.stringify(prepared));}
     if(prepared.shift?.id!==shiftId||prepared.archive&&prepared.archive.sourceShiftId!==shiftId)throw Error('Сохранённое закрытие относится к другой смене');
     await nasRefreshLine();guard();
-    if(prepared.archive){const module=await loadNasMaterialTransfer();guard();await module.transferClosedLine(nasTabelHost(),prepared.shift,prepared.archive);guard();}
+    // Восстановленная архивная смена уже переносила материал при исходном
+    // закрытии: повторного переноса в табель не делаем, только архивация.
+    const restoredShift=(state.restoredShifts||[]).some(r=>r.shift.id===shiftId);
+    if(prepared.archive&&!restoredShift){const module=await loadNasMaterialTransfer();guard();await module.transferClosedLine(nasTabelHost(),prepared.shift,prepared.archive);guard();}
     await nasBusinessCommand('close',shiftId+':finish',{type:'finish',shiftId});guard();
     localStorage.removeItem(key);
     await nasRefreshLine().catch(error=>reportSyncError('nas',error));guard();

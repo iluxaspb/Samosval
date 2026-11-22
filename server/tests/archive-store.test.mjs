@@ -32,10 +32,20 @@ test('PostgreSQL archive mutations keep original snapshots, serialize concurrent
       await send('purge','trash.purge','legacy',2);assert.equal((await readArchiveSnapshot(pool,uid,ws)).trash.length,0);
       assert.deepEqual((await pool.query('SELECT payload FROM migration_documents WHERE import_sha256=$1 ORDER BY document_path',[sha])).rows[0].payload,archive);
     });
-    await t.test('an active line prevents restoration without deleting any live data',async()=>{
+    await t.test('an active line no longer blocks restoration: the archive returns as a parallel restored shift',async()=>{
       await pool.query('INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',[ws,'live',{id:'live',isActive:true}]);
-      await assert.rejects(send('restore_live','archive.restore','restore',1),{code:'close-current-shift-first'});
-      assert.equal((await readArchiveSnapshot(pool,uid,ws)).archives.length,1);await pool.query('DELETE FROM shifts WHERE workspace_id=$1',[ws]);
+      const receipt=await send('restore_live','archive.restore','restore',1);
+      assert.equal(receipt.outcome,'confirmed');
+      assert.equal(receipt.result.shift.restored,true);
+      // Активная линия не тронута, restored-смена существует параллельно без статусов.
+      assert.equal((await pool.query('SELECT is_active FROM shifts WHERE workspace_id=$1 AND shift_id=$2',[ws,'live'])).rows[0].is_active,true);
+      assert.equal((await pool.query('SELECT count(*)::int n FROM line_truck_statuses WHERE workspace_id=$1',[ws])).rows[0].n,0);
+      assert.equal((await pool.query('SELECT count(*)::int n FROM line_logs WHERE workspace_id=$1 AND shift_id=$2',[ws,receipt.result.shift.id])).rows[0].n,2);
+      await pool.query('DELETE FROM line_logs WHERE workspace_id=$1',[ws]);
+      await pool.query('DELETE FROM shifts WHERE workspace_id=$1',[ws]);
+      // Возвращаем архив в исходное состояние: запись в migration_documents
+      // остаётся, «восстановление» отменяется удалением override-записи.
+      await pool.query("DELETE FROM archive_overrides WHERE workspace_id=$1 AND record_id='restore'",[ws]);
     });
     await t.test('restore commits a complete line once; retry keeps IDs, times, TTN and comments',async()=>{
       const a=await send('restore_once','archive.restore','restore',1),b=await send('restore_once','archive.restore','restore',1);assert.equal(b.replayed,true);assert.deepEqual(a.result,b.result);

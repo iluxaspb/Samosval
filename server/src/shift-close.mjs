@@ -42,7 +42,9 @@ export async function closeShiftOperation(pool,uid,input) {
       result={outcome:'confirmed',phase:'awaiting-material',shift,archive,archiveId:archive?archiveId:null};
     } else {
       if(row.is_active||!shift.closing)throw fail('shift-not-prepared',409);
-      if(archive?.totalTrips){
+      // Восстановленная архивная смена уже переносила материал при исходном
+      // закрытии: повторного подтверждения табеля не требуется.
+      if(archive?.totalTrips&&!shift.restored){
         if(!/^[A-Za-z0-9_-]+$/.test(shift.objectId||''))throw fail('missing-shift-object',409);
         const period=linePeriod(shift),key=shift.objectId+'/day:'+period.date+':'+period.kind;
         // Serialize with Tabel commits, so a simultaneous material correction cannot pass unnoticed.

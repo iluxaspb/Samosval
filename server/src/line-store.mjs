@@ -46,6 +46,9 @@ export async function submitLineOperation(pool, uid, input) {
     const shift = (await client.query(
       'SELECT is_active,payload FROM shifts WHERE workspace_id=$1 AND shift_id=$2 FOR SHARE',
       [WORKSPACE_ID,op.shiftId])).rows[0];
+    // Восстановленная для правок архивная смена не является линией: операции
+    // самосвалов к ней не применяются и активную линию не затрагивают.
+    const restored=shift?.payload?.restored===true;
     const statusRow = (await client.query(
       'SELECT payload FROM line_truck_statuses WHERE workspace_id=$1 AND truck_id=$2 FOR UPDATE',
       [WORKSPACE_ID,op.truckId])).rows[0];
@@ -57,7 +60,8 @@ export async function submitLineOperation(pool, uid, input) {
       [WORKSPACE_ID])).rows[0];
     const before = statusRow?.payload || {};
     let result;
-    if (!shift?.is_active || shift.payload?.closing) result = {outcome:'rejected',reason:'shift-changed',status:before};
+    if (restored) result = {outcome:'rejected',reason:'restored-shift-readonly',status:before};
+    else if (!shift?.is_active || shift.payload?.closing) result = {outcome:'rejected',reason:'shift-changed',status:before};
     else if (!statusRow || !truckRow || truckRow.payload.deleted || !before.onLine || before.shiftId!==op.shiftId)
       result = {outcome:'rejected',reason:'truck-not-on-line',status:before};
     else result = applyLineOperation({

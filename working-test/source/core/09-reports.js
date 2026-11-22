@@ -10,7 +10,16 @@
     document.getElementById('toggleReportBtn').textContent = '📄';
     pO.textContent = 'Объект: ' + (state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : '—'); pD.textContent = state.shift ? state.shift.startDate : '';
     gaiO.textContent = 'Объект: ' + (state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : '—'); gaiD.textContent = state.shift ? state.shift.startDate : '';
-    if (!state.shift) { mB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; gaiB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; lC.innerHTML = '<div class="empty-state">Нет рейсов</div>'; pV.textContent='0 м³'; gaiV.textContent='0'; return; }
+    if (!state.shift) { mB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; gaiB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>';
+      // Линия закрыта, но восстановленная смена остаётся: её рейсы редактируются.
+      const restOnly=(state.restoredShifts||[]).flatMap(r=>r.logs||[]);let canEditR=hasPermission('edit_logs');
+      lC.innerHTML = restOnly.length ? restOnly.map(l=>{
+        let a = resolveUserDisplayName(l.createdByEmail, l.createdBy); let au = a ? ` · 👤 ${escapeHtml(a)}` : '';
+        let volHtml = l.isGAI ? '<span style="color:#94a3b8;">(Рейс)</span>' : `<span style="color:var(--success);">+${l.volume} м³</span>`;
+        let commHtml = l.comment ? `<div class="log-comment">💬 ${escapeHtml(l.comment)}</div>` : '';
+        return `<div class="log-item"><div><div class="log-info">${truckLabelHtml(l.truckId, l.truckName)} — ${volHtml}</div><div class="log-meta">${escapeHtml(l.timeStr)}${au}</div>${commHtml}</div>${canEditR?`<div style="display:flex;gap:6px;"><button class="btn-edit" onclick="openEditLog('${l.id}')">✏️</button><button class="btn-del" onclick="deleteLog('${l.id}')">X</button></div>`:''}</div>`;
+      }).join('') : '<div class="empty-state">Нет рейсов</div>';
+      pV.textContent='0 м³'; gaiV.textContent='0'; renderRestoredShifts(); return; }
     let logs = getLogs(); let stdLogs = logs.filter(l=>!l.isGAI); let gaiLogs = logs.filter(l=>l.isGAI);
     let totV = stdLogs.reduce((s,l)=>s+l.volume,0); pV.textContent = totV + ' м³';
     let aIds = getActiveLineIds().filter(id => { let t = findTruck(id); return t && !t.isGAI; });
@@ -65,12 +74,17 @@
       return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tL.length}</span>${dupHtml}</div>${t.number?renderRussianPlate(t.number):''}</td>${cells}</tr>`;
     }).join('');
     let canEditL = hasPermission('edit_logs');
-    lC.innerHTML = logs.length === 0 ? '<div class="empty-state">Нет рейсов</div>' : logs.map(l=>{
+    // Журнал показывает и рейсы восстановленных архивных смен: они редактируются
+    // здесь же (report.*), при этом сводки активной смены их не учитывают.
+    const restoredLogs=(state.restoredShifts||[]).flatMap(r=>r.logs||[]);
+    const allLogs=[...logs,...restoredLogs.filter(l=>!logs.some(x=>x.id===l.id))];
+    lC.innerHTML = allLogs.length === 0 ? '<div class="empty-state">Нет рейсов</div>' : allLogs.map(l=>{
       let a = resolveUserDisplayName(l.createdByEmail, l.createdBy); let au = a ? ` · 👤 ${escapeHtml(a)}` : '';
       let volHtml = l.isGAI ? '<span style="color:#94a3b8;">(Рейс)</span>' : `<span style="color:var(--success);">+${l.volume} м³</span>`;
       let commHtml = l.comment ? `<div class="log-comment">💬 ${escapeHtml(l.comment)}</div>` : '';
       return `<div class="log-item"><div><div class="log-info">${truckLabelHtml(l.truckId, l.truckName)} — ${volHtml}</div><div class="log-meta">${escapeHtml(l.timeStr)}${au}${l.offlinePending?' · ☁️ офлайн':''}</div>${commHtml}</div>${canEditL&&!l.offlinePending?`<div style="display:flex;gap:6px;"><button class="btn-edit" onclick="openEditLog('${l.id}')">✏️</button><button class="btn-del" onclick="deleteLog('${l.id}')">X</button></div>`:''}</div>`;
     }).join('');
+    renderRestoredShifts();
   }
   function toggleReportType() { if (!hasPermission('view_gai_report')) { showError('Нет прав'); return; } showGAITable = !showGAITable; renderReport(); }
   function openEditLog(id) { if(!requireEdit('edit_logs')) return; let l=state.logs.find(x=>x.id===id); if(!l) return; editingLogId=id; document.getElementById('editLogTruckInfo').innerHTML=`<b>${escapeHtml(l.truckName)}</b>`; document.getElementById('editLogVolume').value=l.volume; document.getElementById('editLogTime').value=l.timeStr; document.getElementById('editLogComment').value=l.comment || ''; document.getElementById('editLogModal').classList.add('open'); }
@@ -88,6 +102,43 @@
     showToastEl('✅ Рейс обновлен', false);
   }
   async function deleteLog(id) { if(!requireEdit('edit_logs') || !(await appConfirm('Удалить?'))) return; if(isNasRuntime()){try{const log=state.logs.find(x=>x.id===id);if(log)await nasReportAction('report.delete',log);renderReport();}catch(e){showError(e.message);}return;} state.logs=state.logs.filter(x=>x.id!==id); saveCache(); renderReport(); tf(refs.logs.doc(id).delete()); }
+
+  // === ВОССТАНОВЛЕННЫЕ АРХИВНЫЕ СМЕНЫ (правки параллельно с активной линией) ===
+  // Решение владельца 23.11.2026: восстановленная из архива смена редактируется
+  // параллельно с активной. Рейсы правятся обычным журналом (report.*); блок
+  // ниже показывает сводку и возвращает смену в архив закрытием. Активная
+  // смена линии при этом не затрагивается (сервер разделяет их по shiftId).
+  function renderRestoredShifts() {
+    const box = document.getElementById('restoredShiftsContainer'); if (!box) return;
+    const restored = state.restoredShifts || [];
+    if (!restored.length) { box.hidden = true; box.innerHTML = ''; return; }
+    const canEdit = hasPermission('close_shift');
+    box.hidden = false;
+    box.innerHTML = restored.map(r => {
+      const s = r.shift, stdLogs = (r.logs||[]).filter(l=>!l.isGAI), gaiLogs=(r.logs||[]).filter(l=>l.isGAI);
+      const volume = stdLogs.reduce((sum,l)=>sum+Number(l.volume||0),0);
+      const title = escapeHtml(objectTitle(s.objectId, s.objectName)) + ' · ' + escapeHtml(s.startDate||'');
+      return `<div class="restored-shift-card" data-restored-shift="${escapeHtml(s.id)}">
+        <div class="restored-shift-head">
+          <div><b>♻️ Восстановленная смена: ${title}</b><div class="restored-shift-note">Редактируется параллельно с активной сменой. Правки рейсов — в журнале ниже.</div></div>
+          ${canEdit?`<button class="btn btn-secondary btn-small" onclick="closeRestoredShift('${escapeHtml(s.id)}')">📥 Вернуть в архив</button>`:''}
+        </div>
+        <div class="restored-shift-stats">Объём: <b>${volume} м³</b> · Рейсов: <b>${stdLogs.length}</b>${gaiLogs.length?` · ГАИ: <b>${gaiLogs.length}</b>`:''}</div>
+      </div>`;
+    }).join('');
+  }
+  async function closeRestoredShift(shiftId) {
+    if(!requireEdit('close_shift')) return;
+    const r=(state.restoredShifts||[]).find(x=>x.shift.id===shiftId); if(!r){showError('Смена уже изменена. Обновите страницу.');return;}
+    if(!(await appConfirm(`Вернуть восстановленную смену «${objectTitle(r.shift.objectId,r.shift.objectName)}» от ${r.shift.startDate} в архив?\n\nАктивная смена линии продолжит работать без изменений.`)))return;
+    if(!isNasRuntime()){showError('Возврат в архив доступен в режиме сервера Ubuntu');return;}
+    try{
+      // Материал уже переносился при исходном закрытии: повторного переноса нет,
+      // сервер не требует подтверждения табеля для restored-смены.
+      await nasCloseCurrentShift(shiftId);
+      showToastEl('✅ Восстановленная смена возвращена в архив. Активная смена не менялась.', false);
+    }catch(e){showError('Ошибка возврата в архив: '+e.message);}
+  }
 
   function exportCSV() {
     if (!state.shift) return;

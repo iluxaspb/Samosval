@@ -34,12 +34,16 @@ export async function startShiftOperation(pool,uid,input,workspaceId=process.env
     // Do not rely on a read-then-insert check for simultaneous operators.
     const workspace=(await client.query('SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE',[workspaceId])).rows[0];
     if(!workspace)throw fail('workspace-not-ready',409);
-    const unfinished=(await client.query("SELECT shift_id,is_active,payload FROM shifts WHERE workspace_id=$1 AND (is_active OR payload->>'closing'='true') ORDER BY shift_id FOR SHARE",[workspaceId])).rows;
+    // Restored-смены (архивные правки) не занимают линию: новая смена может
+    // стартовать, пока параллельно редактируется восстановленный архив.
+    const unfinished=(await client.query("SELECT shift_id,is_active,payload FROM shifts WHERE workspace_id=$1 AND (is_active OR payload->>'closing'='true') ORDER BY shift_id FOR SHARE",[workspaceId])).rows
+      .filter(x=>x.payload?.restored!==true);
     if(unfinished.some(x=>x.is_active))throw fail('shift-already-active',409);
     if(unfinished.length)throw fail('previous-shift-closing',409);
     // Finishing a close must archive and confirm material before clearing only
     // its own source rows. Starting never deletes historical or orphaned data.
-    const leftovers=(await client.query('SELECT EXISTS(SELECT 1 FROM line_logs WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM line_truck_statuses WHERE workspace_id=$1) AS found',[workspaceId])).rows[0]?.found;
+    // Рейсы restored-смен хранятся в line_logs и не считаются остатками линии.
+    const leftovers=(await client.query(`SELECT EXISTS(SELECT 1 FROM line_logs l LEFT JOIN shifts s ON s.workspace_id=l.workspace_id AND s.shift_id=l.shift_id WHERE l.workspace_id=$1 AND COALESCE(s.payload->>'restored','false')<>'true') OR EXISTS(SELECT 1 FROM line_truck_statuses WHERE workspace_id=$1) AS found`,[workspaceId])).rows[0]?.found;
     if(leftovers)throw fail('previous-line-data-remains',409);
     const object=(await client.query('SELECT payload FROM workspace_objects WHERE workspace_id=$1 AND object_id=$2 FOR SHARE',[workspaceId,op.objectId])).rows[0]?.payload;
     const shift=shiftStartPayload(op,object,{...profile,uid});

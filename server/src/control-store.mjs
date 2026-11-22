@@ -30,6 +30,8 @@ export async function submitControl(pool,uid,input,ws=WS){
     await client.query('SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE',[ws]);
     let before=null,after=null;
     if(op.type.startsWith('line.')){
+      const restored=(await client.query("SELECT 1 FROM shifts WHERE workspace_id=$1 AND shift_id=$2 AND payload->>'restored'='true'",[ws,op.shiftId])).rows[0];
+      if(restored)throw fail('restored-shift-readonly',409);
       await activeShift(client,ws,op.shiftId);
       const row=(await client.query('SELECT payload FROM line_truck_statuses WHERE workspace_id=$1 AND truck_id=$2 FOR UPDATE',[ws,op.truckId])).rows[0];
       const truck=(await client.query('SELECT payload FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2 FOR SHARE',[ws,op.truckId])).rows[0]?.payload;

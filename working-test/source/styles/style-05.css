@@ -1,1 +1,7 @@
 .version-text { color: #e11d48 !important; }
+/* Восстановленная архивная смена: карточка в журнале рейсов (правки параллельно с активной линией) */
+#restoredShiftsContainer { margin: 12px 0; display: grid; gap: 8px; }
+.restored-shift-card { background: var(--card); border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; }
+.restored-shift-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.restored-shift-note { font-size: 12px; color: var(--muted, #64748b); margin-top: 2px; }
+.restored-shift-stats { font-size: 13px; margin-top: 6px; }

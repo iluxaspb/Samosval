@@ -97,3 +97,18 @@
 **Симптом:** владелец: «горизонтальная прокрутка списка архива (влево — дальние рейсы) сбрасывается — схлопывается обратно к самосвалам». Поиск overflow-x в списке (#archiveContainer) ничего не даёт — контейнер списка вообще не скроллится горизонтально.
 **Причина:** речь об открытом отчёте архивной смены (модальное окно #archiveModal): широкая таблица с колонками «Рейс 1..N» листается внутри .paper-scroll-wrapper (overflow-x: auto). Фоновый снапшот → renderArchive → openArchiveModal(viewingArchiveId) → renderArchiveModalContent → innerHTML — scrollLeft обнуляется. Вертикаль списка (10-archive.js) — отдельный механизм (window.scrollY + container.scrollTop), он не покрывал модальное окно.
 **Что делать:** при жалобах на прокрутку уточнять, какой именно элемент скроллится (список/отчёт/лист ГАИ), и сохранять scrollLeft/scrollTop именно этого элемента вокруг innerHTML. Фикс — чтение scrollLeft до перестроения и восстановление после (та же схема, что вертикаль списка). См. feature/wtest-ui-fix-20261122, 10-archive.js renderArchiveModalContent.
+
+## 13. Урок 23.11.2026: параллельное восстановление архива — две блокировки и PK line_truck_statuses
+
+**Решение владельца 23.11.2026:** архивную смену можно восстановить для редактирования, НЕ закрывая активную смену линии.
+**Ловушки, найденные при реализации:**
+- Блокировка была ДВУСТОРОННЯЯ: клиент (10-archive.js restoreArchiveToShift) и сервер (archive-store.mjs «close-current-shift-first»). Убрать только клиентскую недостаточно.
+- PK line_truck_statuses = (workspace_id, truck_id): самосвал не может быть в статусах двух смен. Решение: restored-смена хранит ТОЛЬКО рейсы (line_logs), статусы не создаёт — они принадлежат активной линии.
+- line-read «multiple-active-shifts» (409): restored-смена помечается в payload флагом `restored:true` и исключается из выборки основной линии; отдаётся отдельно в `snapshot.restoredShifts`.
+- report-store адресует статус по (truck, shiftId), а не по truck: иначе правка архивного рейса перезаписывает ревизии активной линии. Для restored-смены статус вообще не трогается (`status=null`).
+- line-store/control-store отвергают операции линии для restored-смены (`restored-shift-readonly`) — состав линии restored не меняется.
+- shift-close finish не требует повторного переноса материала для restored (объём уже учтён при исходном закрытии).
+- shift-start: рейсы restored-смен в line_logs НЕ считаются «остатками линии» (иначе новая смена не стартует) — фильтр по payload->>'restored'.
+- Клиент: restored-логи кладутся в `offlineRemoteLogs` (а НЕ в state.logs напрямую) — иначе offlineProjectState затирает их своим срезом. Сводные таблицы отчёта фильтруются по shiftId активной и restored-логи не видят.
+- Полный прогон server/tests/*.test.mjs локально держит ~17 красных (replica/identity) — это старый долг ветки (см. п.3–4), сравнение с базовым коммитом подтвердило отсутствие новых регрессий.
+См. ветка feature/wtest-archive-parallel-20261123, тесты: server/tests/archive-parallel-restore.test.mjs, working-test/source/core/archive-parallel-restore.test.mjs.

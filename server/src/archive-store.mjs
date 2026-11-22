@@ -54,19 +54,30 @@ export function submitArchive(pool,uid,input,ws=WS){
     }else if(op.type==='trash.purge'){
       location='purged';payload=before;result={id:op.recordId,location,revision:op.expectedRevision+1};
     }else{
-      // Never clear a live line as a side effect of restoring an archive. The
-      // existing close flow must archive and confirm its material transfer first.
-      const shifts=(await client.query("SELECT shift_id FROM shifts WHERE workspace_id=$1 AND (is_active OR payload->>'closing'='true') FOR UPDATE",[ws])).rows;
-      if(shifts.length)throw fail('close-current-shift-first',409);
-      if((await client.query('SELECT EXISTS(SELECT 1 FROM line_logs WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM line_truck_statuses WHERE workspace_id=$1) AS found',[ws])).rows[0].found)throw fail('previous-line-data-remains',409);
+      // Решение владельца 23.11.2026: архивную смену можно восстановить для
+      // редактирования параллельно с активной сменой линии. Классический путь
+      // (линия свободна) сохранён: restored-смена становится единственной
+      // активной линией со статусами самосвалов.
+      const active=(await client.query("SELECT shift_id,payload FROM shifts WHERE workspace_id=$1 AND is_active AND payload->>'restored' IS DISTINCT FROM 'true' AND payload->>'closing' IS DISTINCT FROM 'true' FOR UPDATE",[ws])).rows;
+      const restoredOpen=(await client.query("SELECT shift_id FROM shifts WHERE workspace_id=$1 AND is_active AND payload->>'restored'='true' FOR UPDATE",[ws])).rows;
+      if(restoredOpen.length)throw fail('restored-shift-in-progress',409);
+      const parallel=active.length>0;
       const object=(await client.query('SELECT payload FROM workspace_objects WHERE workspace_id=$1 AND object_id=$2 FOR SHARE',[ws,before.objectId])).rows[0]?.payload;
       if(!object||object.deleted||object.disabled)throw fail('object-not-available',409);
       const line=restoredLine(before,op,actor,Date.now());
-      for(const status of line.statuses){const truck=(await client.query('SELECT payload FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2 FOR SHARE',[ws,status.id])).rows[0]?.payload;if(!truck||truck.deleted)throw fail('archive-truck-not-available',409);}
-      await client.query('INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',[ws,line.shift.id,line.shift]);
+      if(!parallel){
+        // Линия должна быть пустой: статусы и рейсы прошлой смены переносятся
+        // в архив только закрытием, и восстановление не может их затереть.
+        if((await client.query('SELECT EXISTS(SELECT 1 FROM line_logs WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM line_truck_statuses WHERE workspace_id=$1) AS found',[ws])).rows[0].found)throw fail('previous-line-data-remains',409);
+        for(const status of line.statuses){const truck=(await client.query('SELECT payload FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2 FOR SHARE',[ws,status.id])).rows[0]?.payload;if(!truck||truck.deleted)throw fail('archive-truck-not-available',409);}
+      }
+      // Параллельная восстановленная смена хранит только рейсы: статусы
+      // самосвалов принадлежат активной линии и не могут быть перезаписаны.
+      const shiftPayload=parallel?{...line.shift,restored:true,originalSourceShiftId:before.sourceShiftId||''}:line.shift;
+      await client.query('INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',[ws,line.shift.id,shiftPayload]);
       for(const log of line.logs)await client.query('INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES ($1,$2,$3,$4,$5)',[ws,log.id,line.shift.id,log.truckId,log]);
-      for(const status of line.statuses)await client.query('INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES ($1,$2,$3,$4)',[ws,status.id,line.shift.id,status]);
-      location='restored';payload=before;result={id:op.recordId,location,revision:op.expectedRevision+1,shift:line.shift};
+      if(!parallel)for(const status of line.statuses)await client.query('INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES ($1,$2,$3,$4)',[ws,status.id,line.shift.id,status]);
+      location='restored';payload=before;result={id:op.recordId,location,revision:op.expectedRevision+1,shift:shiftPayload};
     }
     await client.query('INSERT INTO archive_overrides(workspace_id,record_id,location,payload,revision) VALUES ($1,$2,$3,$4,$5) ON CONFLICT(workspace_id,record_id) DO UPDATE SET location=EXCLUDED.location,payload=EXCLUDED.payload,revision=EXCLUDED.revision',[ws,op.recordId,location,payload,op.expectedRevision+1]);
     return {before,after:{location,payload},result};

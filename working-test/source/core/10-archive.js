@@ -115,9 +115,14 @@
     if (!requireEdit('archive_edit') || !viewingArchiveId) return;
     const s = state.archive.find(x => x.id === viewingArchiveId); if (!s) return;
     if(isNasRuntime()){
-      if(state.shift?.isActive){showError('Сначала закройте текущую смену и подтвердите перенос в табель. После этого можно восстановить архив.');return;}
-      if(!(await appConfirm(`Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date}?`)))return;
-      try{await nasArchiveAction('archive.restore',viewingArchiveId);closeArchiveModal();showToastEl('Смена восстановлена на Ubuntu',false);}catch(error){showError('Ошибка восстановления: '+error.message);}return;
+      // Решение владельца 23.11.2026: архивная смена восстанавливается для
+      // правок параллельно с активной сменой линии — закрывать её не нужно.
+      const hasActive = state.shift && state.shift.isActive;
+      const msg = hasActive
+        ? `Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date} для правок?\n\nАктивная смена «${objectTitle(state.shift.objectId,state.shift.objectName)}» продолжит работать — восстановленная смена редактируется параллельно.`
+        : `Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date}?`;
+      if(!(await appConfirm(msg)))return;
+      try{await nasArchiveAction('archive.restore',viewingArchiveId);closeArchiveModal();showToastEl(hasActive?'✅ Архивная смена восстановлена для правок — параллельно с активной':'Смена восстановлена на Ubuntu',false);}catch(error){showError('Ошибка восстановления: '+error.message);}return;
     }
     const hasActive = state.shift && state.shift.isActive;
     const msg = hasActive ? `Активная смена "${objectTitle(state.shift.objectId,state.shift.objectName)}" будет заменена.\n\nВосстановить "${objectTitle(s.objectId,s.objectName)}" от ${s.date}?` : `Восстановить смену "${objectTitle(s.objectId,s.objectName)}" от ${s.date}?`;
