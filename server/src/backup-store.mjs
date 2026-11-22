@@ -3,9 +3,9 @@ import {serviceActor,serviceCommand,validId} from './service-command.mjs';
 import {auxiliaryEntries} from './auxiliary-store.mjs';
 import {readArchiveEntries} from './archive-read.mjs';
 const WS=process.env.WORKSPACE_ID||'main_workspace';
-const workspaceTables=['line_trucks','workspace_objects','shifts','line_truck_statuses','line_logs','shift_archives','archive_overrides','workspace_settings','workspace_aux_records','tabel_records'];
+const workspaceTables=['truck_phones','line_trucks','workspace_objects','shifts','line_truck_statuses','line_logs','shift_archives','archive_overrides','workspace_settings','workspace_aux_records','tabel_records'];
 const globalTables=['app_users','role_permissions','role_permission_versions','registration_requests'];
-const sectionTables={base:['line_trucks','workspace_objects'],archive:['shift_archives','archive_overrides'],shift:['shifts','line_truck_statuses','line_logs'],settings:['workspace_settings','workspace_aux_records','role_permissions','role_permission_versions'],users:['app_users','registration_requests'],tabel:['tabel_records']};
+const sectionTables={base:['truck_phones','line_trucks','workspace_objects'],archive:['shift_archives','archive_overrides'],shift:['shifts','line_truck_statuses','line_logs'],settings:['workspace_settings','workspace_aux_records','role_permissions','role_permission_versions'],users:['app_users','registration_requests'],tabel:['tabel_records']};
 export function normalizeBackup(input){
  if(!map(input)||!validId(input.id)||!['backup.create','backup.mark','backup.delete','backup.restore'].includes(input.type))throw fail('invalid-backup-operation');
  const op={id:input.id,type:input.type};
@@ -47,6 +47,9 @@ async function restore(c,ws,payload,sections,actor){
  if(!['ubuntu','synology'].includes(payload.source)||payload.version!==2||payload.workspaceId!==ws||payload.importSha256!==(await c.query('SELECT import_sha256 FROM identity_state WHERE id=1')).rows[0]?.import_sha256)throw fail('backup-source-mismatch',409);
  const tables=new Set(Object.entries(sections).filter(([,v])=>v).flatMap(([k])=>sectionTables[k]));
  const rows=structuredClone(payload.native),current={};for(const table of tables)current[table]=(await c.query(`SELECT * FROM ${table}`+(workspaceTables.includes(table)?' WHERE workspace_id=$1':''),workspaceTables.includes(table)?[ws]:[])).rows;
+ // Legacy backups did not know phones: preserve matching live phones. Removed
+ // trucks' phones remain recoverable in the atomic before_restore checkpoint.
+ if(tables.has('truck_phones')&&!Object.hasOwn(rows,'truck_phones'))rows.truck_phones=current.truck_phones.filter(p=>rows.line_trucks.some(t=>t.workspace_id===p.workspace_id&&t.truck_id===p.truck_id));
  // Revisions move forward even when saved contents move back.
  for(const table of ['line_trucks','workspace_objects','workspace_settings','archive_overrides','workspace_aux_records','app_users','role_permission_versions'])if(tables.has(table)){
   const keys={line_trucks:['truck_id'],workspace_objects:['object_id'],workspace_settings:['workspace_id'],archive_overrides:['record_id'],workspace_aux_records:['collection','record_id'],app_users:['uid'],role_permission_versions:['role']}[table],key=r=>keys.map(k=>r[k]).join('|'),old=new Map(current[table].map(r=>[key(r),Number(r.revision)]));
@@ -60,7 +63,7 @@ async function restore(c,ws,payload,sections,actor){
  if(tables.has('shifts')){const wanted=new Set(rows.shifts.map(r=>r.shift_id));for(const r of current.shifts)if(!wanted.has(r.shift_id))rows.shifts.push({...r,is_active:false,payload:{...r.payload,isActive:false,closing:false}});}
  if(tables.has('workspace_aux_records'))rows.workspace_aux_records=rows.workspace_aux_records.filter(r=>r.collection!=='audit').concat(current.workspace_aux_records.filter(r=>r.collection==='audit'));
  // Delete child rows first; then insert parents before children.
- const order=['registration_requests','line_truck_statuses','line_logs','workspace_aux_records','archive_overrides','shift_archives','tabel_records','workspace_settings','workspace_objects','line_trucks','role_permissions','role_permission_versions'];
+ const order=['truck_phones','registration_requests','line_truck_statuses','line_logs','workspace_aux_records','archive_overrides','shift_archives','tabel_records','workspace_settings','workspace_objects','line_trucks','role_permissions','role_permission_versions'];
  for(const table of order)if(tables.has(table))await c.query(`DELETE FROM ${table}`+(workspaceTables.includes(table)?' WHERE workspace_id=$1':''),workspaceTables.includes(table)?[ws]:[]);
  for(const table of ['app_users','shifts',...order.slice().reverse()])if(tables.has(table)){
   const columns=(await c.query('SELECT column_name FROM information_schema.columns WHERE table_schema=\'public\' AND table_name=$1 ORDER BY ordinal_position',[table])).rows.map(r=>r.column_name);

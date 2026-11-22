@@ -1,3 +1,4 @@
+import {truckPhones} from './truck-phone.mjs';
 import http from 'node:http';
 import {readServerControl,submitServerCommand,observeServerRequest} from './server-control.mjs';
 import {sendJson as send} from './json-response.mjs';
@@ -368,6 +369,13 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
       if(status===500)console.error('[identity-api] request failed',e?.code||e?.name||'unknown');
       return send(res,status,{error:status===500?'server-error':e.code||e.message});
     }
+  }
+  if(path==='/api/v1/truck-phones'&&['GET','POST'].includes(req.method)){
+    const uid=await verifyRequestUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
+    try{
+      if(req.method==='POST'&&!jsonBody(req))return send(res,415,{error:'unsupported-media-type'});
+      return send(res,200,await truckPhones(pool,uid,req.method==='POST'?await readJson(req,1024):undefined));
+    }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;return send(res,status,{error:status===500?'server-error':e.code||e.message});}
   }
   if((path==='/api/v1/catalog'&&req.method==='GET')||(path==='/api/v1/controls'&&req.method==='POST')){
     const uid=await verifyRequestUser(req);
