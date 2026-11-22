@@ -48,53 +48,12 @@
   }
 
   // ===== CSS =====
+  // Стили кнопки сброса (admin-can-hold) вынесены в styles/style-04.css
+  // (блок «Сброс таймера ходки»); старые инъекции чистим на случай обновления.
   ['reset-via-cooldown-css', 'reset-hold-css', 'reset-hold-v4-css', 'reset-hold-v5-css'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.remove();
   });
-
-  const css = document.createElement('style');
-  css.id = 'reset-hold-v5-css';
-  css.textContent = `
-    /* Кнопка Ходка в кулдауне для админа — выглядит как у лопатёров */
-    .btn-arrive.admin-can-hold {
-      background: #475569 !important;
-      color: #94a3b8 !important;
-      opacity: 0.6 !important;
-      cursor: pointer !important;
-      pointer-events: auto !important;
-      touch-action: none !important;
-      position: relative !important;
-      overflow: hidden !important;
-      user-select: none !important;
-      -webkit-user-select: none !important;
-    }
-    /* Прогресс-бар удержания — фиолетовый */
-    .btn-arrive.admin-can-hold::after {
-      content: "" !important;
-      position: absolute !important;
-      top: 0 !important;
-      left: 0 !important;
-      bottom: 0 !important;
-      background: rgba(139, 92, 246, 0.6) !important;
-      width: 0% !important;
-      z-index: 0 !important;
-      pointer-events: none !important;
-    }
-    .btn-arrive.admin-can-hold.admin-holding::after {
-      width: 100% !important;
-      transition: width var(--hold-duration, 0.5s) linear !important;
-    }
-    .btn-arrive.admin-can-hold > span {
-      position: relative !important;
-      z-index: 1 !important;
-    }
-    /* Лёгкое сжатие при нажатии, без изменения цвета */
-    .btn-arrive.admin-can-hold:active {
-      transform: scale(0.98) !important;
-    }
-  `;
-  document.head.appendChild(css);
 
   // ===== Функция сброса =====
   window.resetCycleViaCooldown = async function(truckId) {

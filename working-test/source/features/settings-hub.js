@@ -12,102 +12,10 @@ const sections=[
 const main=document.getElementById('settingsModal');
 const original=main?.querySelector('.modal-content > .modal-body');
 if(!main||!original||document.getElementById('settingsCategoryModal'))return;
-const css=document.createElement('style');css.id='test-settings-hub-css';
-css.textContent=`
-#settingsModal.settings-hub .settings-source {display:none!important}
-#settingsModal .settings-hub-intro {margin:12px 0;font-size:12px;line-height:1.5;color:var(--muted)}
-#settingsModal .settings-tiles {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:10px 0}
-#settingsModal .settings-tile {display:flex;flex-direction:column;min-width:0;min-height:103px;gap:7px;align-items:flex-start;
-text-align:left;border-radius:14px;border:1px solid var(--border);background:var(--bg);color:var(--text);padding:12px;cursor:pointer}
-#settingsModal .settings-tile:hover {border-color:var(--primary)}
-#settingsModal .settings-tile:active {transform:scale(.98)}
-#settingsModal .settings-tile:focus-visible,#settingsCategoryModal button:focus-visible {outline:2px solid #60a5fa;outline-offset:2px}
-#settingsModal .settings-tile[hidden] {display:none!important}
-#settingsModal .settings-tile-icon {font-size:21px}
-#settingsModal .settings-tile-label {font-weight:750;font-size:14px;line-height:1.2}
-#settingsModal .settings-tile-note {font-size:11px;line-height:1.35;color:var(--muted)}
-#settingsCategoryModal .modal-content {max-width:540px;max-height:90dvh;border-radius:18px}
-#settingsCategoryModal .settings-subhead {display:flex;align-items:center;gap:10px}
-#settingsCategoryModal .settings-subhead h3 {flex:1;font-size:16px;line-height:1.25}
-#settingsCategoryModal .settings-subhead button {min-width:40px;min-height:40px;border-radius:10px;
-border:1px solid var(--border);color:var(--text);background:var(--bg);cursor:pointer;font-size:16px}
-#settingsCategoryModal .settings-description {font-size:12px;color:var(--muted);margin:10px 0}
-#settingsCategoryModal .modal-body {overflow-y:auto;max-height:calc(90dvh - 180px)}
-#settingsCategoryModal .settings-pane[hidden] {display:none!important}
-#settingsCategoryModal .settings-pane>.settings-row {gap:8px}
-#settingsCategoryModal .settings-pane>.settings-row>div:first-child {font-size:13px}
-#settingsCategoryModal .settings-pane>.form-group {margin:0 0 13px}
-#settingsCategoryModal .settings-back-bottom {width:100%;min-height:44px}
-#settingsModal.settings-hub .modal-content,#settingsCategoryModal .modal-content{
- background:var(--card,#1e293b);border:1px solid rgba(148,163,184,.3);
- border-radius:20px;box-shadow:0 22px 54px rgba(0,0,0,.48);width:min(540px,100%)}
-/* Главная шестерёнка: выраженная рамка и безопасные поля вокруг всех плашек и кнопки. */
-#settingsModal.settings-hub{padding:14px!important}
-#settingsModal.settings-hub .modal-content{
- padding:0!important;max-height:90dvh;overflow:hidden;border-color:rgba(148,163,184,.55)!important}
-#settingsModal.settings-hub .modal-content>div:first-child{
- padding:18px 20px!important;border-bottom:1px solid var(--border,#334155);flex-shrink:0}
-#settingsModal.settings-hub .settings-hub-intro{
- margin:16px 18px 0!important;padding:0!important}
-#settingsModal.settings-hub .settings-tiles{
- margin:12px 16px 14px!important;padding:2px;min-height:0;overflow-y:auto;overflow-x:hidden}
-#settingsModal.settings-hub .modal-content>button{
- width:calc(100% - 36px)!important;margin:0 18px 18px!important;min-height:44px;flex-shrink:0}
-@media(max-width:380px){
- #settingsModal.settings-hub{padding:12px!important}
- #settingsModal.settings-hub .modal-content>div:first-child{padding:16px!important}
- #settingsModal.settings-hub .settings-hub-intro{margin:14px 14px 0!important}
- #settingsModal.settings-hub .settings-tiles{margin:10px 12px 12px!important}
- #settingsModal.settings-hub .modal-content>button{
-  width:calc(100% - 28px)!important;margin:0 14px 14px!important}
-}
-#settingsModal .settings-tile{background:linear-gradient(145deg,var(--bg,#0f172a),rgba(51,65,85,.65));
- border:1px solid rgba(148,163,184,.24);border-radius:15px;min-height:107px}
-#settingsModal .settings-tile-icon{display:grid;place-items:center;width:34px;height:34px;
- background:rgba(59,130,246,.15);border-radius:10px}
-#settingsCategoryModal .settings-subhead{padding-bottom:12px;border-bottom:1px solid var(--border)}
-#settingsCategoryModal .modal-content{padding:16px 18px}
-#settingsCategoryModal .settings-pane>.form-group,#settingsCategoryModal .settings-pane>.settings-row,
-#settingsCategoryModal .settings-pane>.soft-section{background:var(--bg,#0f172a);
- border:1px solid var(--border,#334155);border-radius:12px;padding:12px;margin:0 0 10px}
-#settingsCategoryModal .soft-section[hidden],#settingsCategoryModal .settings-pane>[hidden]{display:none!important}
-#settingsCategoryModal .soft-original-haptic{display:none!important}
-#settingsCategoryModal .soft-range-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
-#settingsCategoryModal .soft-value{font-size:13px;color:#93c5fd;font-weight:750;white-space:nowrap}
-#settingsCategoryModal .soft-ends{display:flex;justify-content:space-between;gap:10px;font-size:10px;color:var(--muted)}
-#settingsCategoryModal input.soft-range{height:34px!important;background:transparent!important;border:0!important;padding:0!important}
-#settingsCategoryModal .soft-preview{display:flex;gap:8px;justify-content:center;padding:16px;
- background:var(--bg,#0f172a);border:1px solid var(--border);border-radius:12px;margin:12px 0;overflow:hidden}
-#settingsCategoryModal .soft-preview span{display:block;width:46px;height:28px;border-radius:6px;background:#334155;border:1px solid #64748b}
-#settingsCategoryModal .soft-preview span:first-child{background:#155e75;border-color:#38bdf8}
-#settingsCategoryModal .soft-preview-button{width:100%;min-height:42px;background:var(--bg,#0f172a);
- color:var(--text);border:1px solid var(--border);border-radius:12px;cursor:pointer}
+// Стили хаба настроек вынесены в styles/style-04.css (блок «Хаб настроек»);
+// старые инъекции чистим на случай обновления канала.
+(document.getElementById('test-settings-hub-css')||{remove(){}}).remove?.();
 
-#settingsCategoryModal .settings-pane input[type=range]{width:100%;accent-color:var(--primary)}
-#settingsCategoryModal #speed-settings-block{border:0!important;margin:0!important;padding:0!important}
-#settingsCategoryModal #speed-settings-block .speed-slider-row{background:var(--bg,#0f172a);
- border:1px solid var(--border);border-radius:12px;padding:12px;margin:0 0 9px}
-#settingsCategoryModal #test-pwa-settings{margin:0!important;padding:0!important;border:0!important}
-#settingsCategoryModal #test-pwa-state{padding:12px;border:1px solid var(--border);
- border-radius:12px;background:var(--bg);line-height:1.5}
-#settingsCategoryModal #test-pwa-settings>button{display:flex;width:100%;min-height:44px;
- border-radius:12px;margin:0 0 9px!important;align-items:center;justify-content:center}
-#settingsCategoryModal #test-pwa-install{background:var(--primary,#3b82f6);color:#fff}
-#settingsCategoryModal #test-pwa-install[hidden]{display:none!important}
-#settingsCategoryModal #test-pwa-recovery-link{display:block;padding:11px 12px!important;
- border:1px solid rgba(59,130,246,.4);border-radius:12px;background:rgba(59,130,246,.1);
- color:#93c5fd!important;text-decoration:none;font-size:12px!important;line-height:1.5}
-#settingsCategoryModal #test-pwa-update-message:not(:empty){padding:10px 11px;
- border:1px solid var(--border);border-radius:10px;background:var(--bg)}
-#settingsCategoryModal #test-pwa-settings>p:last-child{border-top:1px solid var(--border);
- padding-top:12px;margin-top:14px;font-size:12px;line-height:1.6;color:var(--muted)}
-#settingsCategoryModal .settings-back-bottom{margin-top:10px;border-radius:12px}
-@media(max-width:380px){#settingsCategoryModal .modal-content{padding:12px}
-#settingsModal .settings-tile{min-height:100px;padding:10px}}
-@media(max-width:360px){#settingsModal .settings-tile{padding:10px;min-height:110px}}
-@media(prefers-reduced-motion:reduce){#settingsModal .settings-tile {transition:none}}
-`;
-document.head.append(css);
 const intro=document.createElement('p');intro.className='settings-hub-intro';
 intro.textContent='Выберите раздел. Настройки и способ их сохранения остались прежними.';
 const grid=document.createElement('div');grid.className='settings-tiles';
