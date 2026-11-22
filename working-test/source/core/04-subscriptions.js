@@ -134,6 +134,31 @@
   function scheduleRender(funcName) { if (typeof window[funcName] === 'function') window[funcName](); }
 
   const requestSyncStatus = {requests:false,users:false,errors:{}};
+  // Выбранная админом роль заявки не должна сбрасываться фоновым снапшотом
+  // users/requests (acceptRegistrationSnapshot перестраивает блок через
+  // innerHTML, и select#req_role_* сбрасывался до viewer). Пока админ
+  // взаимодействует с блоком заявок (фокус/открытый select), перерисовка
+  // откладывается; при перестроении значения select переживают innerHTML —
+  // сохраняются и восстанавливаются по id заявки.
+  let registrationRoleHoldTimer=null;
+  function registrationRoleHoldActive() {
+    const container=document.getElementById('requestsListContainer');
+    const active=document.activeElement;
+    return !!(active && typeof active.matches==='function' && active.matches('select')
+      && container && typeof container.contains==='function' && container.contains(active));
+  }
+  function scheduleRenderRegistrationRequests() {
+    clearTimeout(registrationRoleHoldTimer);
+    registrationRoleHoldTimer=setTimeout(()=>{registrationRoleHoldTimer=null;renderRegistrationRequests();},1000);
+  }
+  function saveRoleSelections(list) {
+    const roles={};
+    list.forEach(r=>{const sel=document.getElementById('req_role_'+r.id);if(sel&&sel.value)roles[r.id]=sel.value;});
+    return roles;
+  }
+  function restoreRoleSelections(list,roles) {
+    list.forEach(r=>{const v=roles[r.id];if(!v||!Object.prototype.hasOwnProperty.call(ROLES,v))return;const sel=document.getElementById('req_role_'+r.id);if(sel)sel.value=v;});
+  }
   function pendingRegistrationRequests() {
     const result=[];
     (state.requests||[]).forEach(r=>{
@@ -151,11 +176,17 @@
     if(!canAdmin())return;
     const container=document.getElementById('requestsListContainer');if(!container)return;
     const list=pendingRegistrationRequests();
+    // Пока админ взаимодействует с блоком заявок, фоновая перерисовка
+    // откладывается (паттерн refreshIncoming из tabel-v2/workspace.mjs):
+    // открытый select не захлопывается, выбор не сбрасывается.
+    if(registrationRoleHoldActive()){scheduleRenderRegistrationRequests();return;}
+    const savedRoles=saveRoleSelections(list);
     const count=document.getElementById('pendingCount');if(count)count.textContent=list.length;
     const messages=Object.entries(requestSyncStatus.errors).map(([source,error])=>source+': '+error);
     container.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px"><strong>Заявки на регистрацию · '+list.length+'</strong><button class="btn btn-secondary btn-small" id="refreshRegistrationRequestsBtn">Обновить заявки</button></div>'
       +(messages.length?'<div style="padding:10px;margin-bottom:12px;color:var(--warning);font-size:12px">Не удалось полностью загрузить заявки: '+escapeHtml(messages.join('; '))+'</div>':'')
       +(list.length?list.map(r=>`<div class="user-row"><div class="user-row-top"><div><strong>${escapeHtml(r.email)}</strong><div style="font-size:12px;color:var(--muted)">${escapeHtml(r.nickname||'')}</div></div><div class="pending-badge">Ожидает</div></div><div class="user-row-bottom"><select id="req_role_${escapeHtml(r.id)}" class="form-control" style="padding:6px;font-size:12px">${Object.keys(ROLES).map(role=>`<option value="${role}" ${role==='viewer'?'selected':''}>${escapeHtml(ROLES[role].label)}</option>`).join('')}</select><button class="btn btn-quick btn-small" data-approve-request="${escapeHtml(r.id)}">Подтвердить</button><button class="btn btn-secondary btn-small" data-reject-request="${escapeHtml(r.id)}">Отклонить</button></div></div>`).join(''):'<div class="empty-state">'+(requestSyncStatus.requests&&requestSyncStatus.users&&!messages.length?'Нет заявок':messages.length?'Проверьте доступ к базе и нажмите «Обновить заявки»':'Загружаем заявки и ожидающие учётки…')+'</div>');
+    restoreRoleSelections(list,savedRoles);
     container.querySelector('#refreshRegistrationRequestsBtn').onclick=()=>refreshRegistrationRequests();
     container.querySelectorAll('[data-approve-request]').forEach(b=>b.onclick=()=>approveRequest(b.dataset.approveRequest));
     container.querySelectorAll('[data-reject-request]').forEach(b=>b.onclick=()=>rejectRequest(b.dataset.rejectRequest));
