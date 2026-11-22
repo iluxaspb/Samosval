@@ -275,7 +275,28 @@
     catch(e) { showError(e.message); }
   }
 
-  function showError(msg) { console.error(msg); if (!navigator.onLine) { showToastEl(`📴 Нет сети`, true); return; } showToastEl(`⚠️ ${escapeHtml(msg)}`, true); }
+  // Панель длинных ошибок: одна на всё приложение, закрывается только
+  // кнопкой «Понятно» (без таймера и закрытия по клику мимо панели).
+  function showErrorPanel(html) {
+    let panel = document.getElementById('errorPanel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'errorPanel';
+      panel.className = 'error-panel';
+      panel.setAttribute('role', 'alert');
+      panel.innerHTML = '<div class="error-panel-text"></div><button type="button" class="btn btn-secondary error-panel-close">Понятно</button>';
+      panel.querySelector('.error-panel-close').addEventListener('click', () => panel.classList.remove('open'));
+      document.body.appendChild(panel);
+    }
+    panel.querySelector('.error-panel-text').innerHTML = html;
+    panel.classList.add('open');
+  }
+  function showError(msg) {
+    console.error(msg);
+    if (!navigator.onLine) { showToastEl(`📴 Нет сети`, true); return; }
+    if (String(msg).length > 60) { showErrorPanel(`⚠️ ${escapeHtml(msg)}`); return; }
+    showToastEl(`⚠️ ${escapeHtml(msg)}`, true);
+  }
   function resetToast(t) { t.className = 'toast'; t.innerHTML = ''; }
   function showToastEl(html, isError, isUndo) {
     if(window.__gameDeferToast?.(html,isError,isUndo))return;
@@ -398,7 +419,7 @@
       showToastEl('↩️ Отменено',false,true);
     } catch(e) {
       reportSyncError('undo',e);
-      showError('Действие не отменено: ' + escapeHtml(e.message || 'Ошибка Firebase') + ' [' + escapeHtml(e.code || 'unknown') + ']');
+      showErrorPanel('Действие не отменено: ' + escapeHtml(e.message || 'Ошибка Firebase') + ' [' + escapeHtml(e.code || 'unknown') + ']');
     } finally { pendingEnd(); undoActionInFlight=false; }
   }
   async function addAudit(text, details = {}) {

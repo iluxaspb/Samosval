@@ -297,13 +297,14 @@
               }
             }
             offlineNotifyAccepted(op,result).catch(e=>console.warn('[offline effects]',e));
-          }else showToastEl('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)),true);
+          }else showErrorPanel('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)));
         }catch(e){
           if(e.code==='auth-session-stale')break;
           if(offlineTransportError(e)){offlineTransportFailed(e);break;}
           if(!navigator.onLine||['aborted','cancelled'].includes(e.code)){offlineServerRetryAt=Date.now()+1500;break;}
           offlineResolve(op.id,'rejected',e.code||e.message||'error');offlineProjectState();refreshLineViews();
           showToastEl('⚠️ Офлайн-действие отклонено: '+escapeHtml(e.message||e.code||'ошибка'),true);
+          showErrorPanel('⚠️ Офлайн-действие отклонено: '+escapeHtml(e.message||e.code||'ошибка'));
         }
       }
     }finally{

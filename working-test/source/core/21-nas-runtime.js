@@ -655,7 +655,7 @@
           if(!saved)continue;
           Object.assign(saved,{status:result.outcome,result:result.reason||result.outcome,resolvedAt:Date.now(),effectsDelivered:true,savedResult:{status:result.status||null,log:result.log||null}});
           offlineJournalWrite(all);offlineAdoptResult(op,result);offlineTransportRecovered();
-          if(result.outcome==='rejected')showToastEl('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)),true);
+          if(result.outcome==='rejected')showErrorPanel('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)));
         }catch(error){
           if(!live())return;
           // HTTP/auth/transport failures have no business receipt. Keep the intent.
