@@ -586,7 +586,7 @@
     }
     if(isNasRuntime()){
       if(identity&&nasGameReady&&nasGameSnapshot){records=nasGameSnapshot.records;coinAdjustmentRows=nasGameSnapshot.adjustments;ready=true;error='';rankSnapshotConfirmed=true;notifyPenalties(records);}
-      else{ready=false;rankSnapshotConfirmed=false;error=identity?'Дождитесь связи с игровым кошельком Synology.':'';}
+      else{ready=false;rankSnapshotConfirmed=false;error=identity?'Дождитесь связи с сервером.':'';}
       paint();observeRankProgress();return;
     }
     if(identity&&!unsubscribe){

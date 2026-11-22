@@ -32,7 +32,7 @@
     unsubscribers.push(refs.shift.onSnapshot({ includeMetadataChanges: true }, doc => { state.shift = doc.exists ? Object.assign({id:doc.id}, doc.data()) : null; if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName); offlineProjectState();syncLineCountAudit();markSync('shift', doc.metadata.fromCache, doc.metadata.hasPendingWrites, doc.exists?1:0); if(!initialized) initialized=true; saveCache(); scheduleRender('renderAll'); }, e=>reportSyncError('shift', e)));
     unsubscribers.push(refs.archive.onSnapshot({ includeMetadataChanges: true }, s => { state.archive = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('archive', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('archive', 'renderArchive'); scheduleRenderForTab('analytics', 'renderAnalytics'); scheduleRender('renderHeaderStats'); }, e=>reportSyncError('archive', e)));
     unsubscribers.push(refs.trash.onSnapshot({ includeMetadataChanges: true }, s => { state.trash = s.docs.map(d => Object.assign({id:d.id}, d.data())); state.trash.sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0)); markSync('trash', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('archive', 'renderTrash'); }, e=>reportSyncError('trash', e)));
-    unsubscribers.push(refs.audit.orderBy('timestamp','desc').limit(200).onSnapshot({includeMetadataChanges:true},s => { state.audit = s.docs.map(d => Object.assign({id:d.id}, d.data()));if(canAdmin())window.FirebaseTrafficInference?.captureAudit(state.audit);if(!s.metadata.hasPendingWrites)window.__historyAcceptAudit?.(state.audit); markSync('audit', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); scheduleRenderForTab('analytics', 'renderAnalytics'); }, e=>reportSyncError('audit', e)));
+    unsubscribers.push(refs.audit.orderBy('timestamp','desc').limit(200).onSnapshot({includeMetadataChanges:true},s => { state.audit = s.docs.map(d => Object.assign({id:d.id}, d.data()));if(!s.metadata.hasPendingWrites)window.__historyAcceptAudit?.(state.audit); markSync('audit', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); scheduleRenderForTab('analytics', 'renderAnalytics'); }, e=>reportSyncError('audit', e)));
     unsubscribers.push(refs.notifications.orderBy('timestamp','desc').limit(50).onSnapshot({ includeMetadataChanges: true }, s => { state.notifications = s.docs.map(d => Object.assign({id:d.id}, d.data())); offlineProjectTicker(); markSync('notifications', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); renderStatusTicker(); }, e=>reportSyncError('notifications', e)));
     unsubscribers.push(refs.plugins.onSnapshot({ includeMetadataChanges: true }, s => { state.plugins = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('plugins', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); initPlugins(); if (canAdmin() && document.getElementById('tab-admin')?.classList.contains('active')) renderPluginsList(); }, e=>reportSyncError('plugins', e)));
     if (canAdmin()) {
@@ -195,7 +195,7 @@
   function acceptRegistrationSnapshot(source,snapshot) {
     if(!canAdmin())return;
     const records=snapshot.docs.map(d=>({...d.data(),id:d.id}));
-    if(source==='users'){state.users=records;window.FirebaseTrafficInference?.captureUsers(records);}else state.requests=records;
+    if(source==='users'){state.users=records;}else state.requests=records;
     markSync(source,!!snapshot.metadata?.fromCache,!!snapshot.metadata?.hasPendingWrites,records.length);
     if(!snapshot.metadata?.fromCache)requestSyncStatus[source]=true;
     delete requestSyncStatus.errors[source];
@@ -440,8 +440,6 @@
         if (activeProfileKey === profileKey) return;
         activeProfileKey = profileKey;
         startSync(sessionGeneration); startAdminSync(); startAppConfigSync(sessionGeneration); setTimeout(() => { if (sessionIsCurrent()) runMaxQueue(); }, 1200);
-        // Минутная репликация изменений в резерв Ubuntu (только когда владелец — Firebase).
-        startReplica();
         loadAndApplyPatches().catch(e => { if (sessionIsCurrent()) reportSyncError('patches', e); });
         } catch(e) { reportSyncError('profile', e); }
       }, e => {
@@ -477,7 +475,6 @@
     startTabelBackground();
     const versionAllowed = permissionsLoaded && canAdmin();
     if (versionAllowed) document.body.setAttribute('data-release-admin', '1'); else document.body.removeAttribute('data-release-admin');
-    if(versionAllowed){window.FirebaseTraffic?.enableLocal();if(window.FirebaseTraffic?.active()){window.FirebaseTrafficInference?.enable();window.FirebaseTrafficInference?.captureUsers(state.users);window.FirebaseTrafficInference?.captureAudit(state.audit);}}else window.FirebaseTraffic?.disableLocal();
     const historyAllowed=canViewReleaseHistory();document.body.toggleAttribute('data-release-history',historyAllowed);
     const releaseButton=document.querySelector('#mainHeader .version-text');if(releaseButton){releaseButton.disabled=!historyAllowed;releaseButton.title=historyAllowed?'История изменений':'Номер сборки';}
     if (!historyAllowed) document.getElementById('releaseHistoryDialog')?.close();
