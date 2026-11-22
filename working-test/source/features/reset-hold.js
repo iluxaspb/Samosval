@@ -57,7 +57,7 @@
 
   // ===== Функция сброса =====
   window.resetCycleViaCooldown = async function(truckId) {
-    if (!canAdmin()) { showError('Только для администратора'); return; }
+    if (!hasPermission('line_timer_reset')) { showError('Нет права сбрасывать таймер ходки'); return; }
     const st = state.truckStatus[truckId];
     if (!st) return;
     const t = findTruck(truckId);
@@ -133,7 +133,7 @@
   }
 
   document.addEventListener('pointerdown', (e) => {
-    if (!canAdmin()) return;
+    if (typeof hasPermission !== 'function' || !hasPermission('line_timer_reset')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     const btn = e.target.closest('.btn-arrive');
     if (!btn) return;
@@ -161,7 +161,7 @@
     if (!list) return;
     list.querySelectorAll('.truck-card[data-truck-id] .btn-arrive').forEach(btn => {
       if (isCooldownArrive(btn)) {
-        if (canAdmin()) btn.classList.add('admin-can-hold');
+        if (typeof hasPermission === 'function' && hasPermission('line_timer_reset')) btn.classList.add('admin-can-hold');
         else btn.classList.remove('admin-can-hold');
       } else {
         btn.classList.remove('admin-can-hold');
