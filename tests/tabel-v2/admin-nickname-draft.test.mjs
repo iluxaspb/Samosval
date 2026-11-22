@@ -37,13 +37,21 @@ test('исходник: у поля ника нет onchange — сохране�
   assert.match(body, /data-nickname-save="/, 'кнопка «Сохранить» адресуется по data-nickname-save');
 });
 
-// Ф1 (ручная проверка 1.8.1): открытый список ролей закрывался фоновой перерисовкой.
+// Ф1: открытый список ролей (select) не должен закрываться фоновой перерисовкой.
 test('исходник: select роли адресуется по data-role-uid и входит в предикат удержания', () => {
   const body = functionBody('renderAdminPanel');
   assert.match(body, /select[^>]*data-role-uid=/, 'select роли помечен data-role-uid');
   assert.match(body, /onchange="changeUserRole\(/, 'сохранение роли осталось мгновенным по onchange');
   const pred = functionBody('adminDraftFieldActive');
   assert.match(pred, /select\[data-role-uid\]/, 'фокус в select роли откладывает перерисовку');
+});
+
+// Ф2: кнопки «Сохранить»/«Отмена» появляются только после ввода.
+test('исходник: кнопки действий ника скрыты по умолчанию и адресуются по data-nickname-actions', () => {
+  const body = functionBody('renderAdminPanel');
+  assert.match(body, /data-nickname-actions[^>]*style="display:none/, 'контейнер кнопок скрыт в разметке');
+  assert.match(body, /data-nickname-cancel="/, 'кнопка «Отмена» адресуется по data-nickname-cancel');
+  assert.match(body, /setNicknameActionsVisible\(/, 'видимость кнопок управляется программно');
 });
 
 test('исходник: перед перестроением списка значения и фокус сохраняются, после — восстанавливаются', () => {
@@ -68,11 +76,29 @@ test('исходник: ошибка сохранения ника не очищ
 // выполняем реальный блок админ-панели из 18-line-ui.js в песочнице vm.
 function setup({ nickname = '' } = {}) {
   const timers = [];
-  const usersListContainer = { innerHTML: '', querySelectorAll: () => [], contains: () => true };
+  // Минимальная «DOM-модель» строки пользователя: поле ника, контейнер
+  // кнопок (скрыт по умолчанию) и сами кнопки. Рендер в харнесе не парсит
+  // innerHTML — тесты регистрируют элементы через doc.setNicknameField.
+  const actions = { style: { display: 'none' }, get hidden() { return this.style.display === 'none'; } };
+  const saveBtn = { dataset: { nicknameSave: 'uid_1' }, onclick: null };
+  const cancelBtn = { dataset: { nicknameCancel: 'uid_1' }, onclick: null };
+  const row = {
+    querySelector: sel => (sel === '[data-nickname-actions]' ? actions : null),
+  };
+  const usersListContainer = {
+    innerHTML: '',
+    contains: () => true,
+    querySelectorAll: sel => {
+      if (sel === '[data-nickname-uid]') return doc.nicknameField ? [doc.nicknameField] : [];
+      if (sel === '[data-nickname-save]') return [saveBtn];
+      if (sel === '[data-nickname-cancel]') return [cancelBtn];
+      return [];
+    },
+  };
   const doc = {
     getElementById: id => (id === 'usersListContainer' ? usersListContainer : null),
     querySelectorAll: () => [],
-    querySelector: () => null,
+    querySelector: () => doc.nicknameField || null,
     addEventListener() {},
     activeElement: null,
   };
@@ -105,14 +131,17 @@ function setup({ nickname = '' } = {}) {
   const from = lineUi.indexOf('const userAccessWrites');
   const to = lineUi.indexOf('const registrationDecisions');
   assert.ok(from >= 0 && to > from, 'не найден блок админ-панели в 18-line-ui.js');
-  vm.runInContext(lineUi.slice(from, to) + '\nthis.__fns={renderAdminPanel,updateUserNickname,changeUserRole,adminDraftHoldActive,scheduleRenderAdminPanel};', context);
+  vm.runInContext(lineUi.slice(from, to) + '\nthis.__fns={renderAdminPanel,updateUserNickname,saveUserNicknameDraft,cancelUserNicknameDraft,changeUserRole,adminDraftHoldActive,scheduleRenderAdminPanel};', context);
   const run = expr => vm.runInContext(expr, context);
-  // Минимальная «DOM-модель» поля ника: рендер восстанавливает значения из
-  // черновика, собранного до перестроения.
-  doc.setNicknameField = field => { doc.nicknameField = { matches: () => true, ...field }; doc.activeElement = field.focused ? doc.nicknameField : null; };
-  // Ф1: select роли в фокусе (нативный список открыт) — matches отвечает за селектор select.
+  // Поле ника: рендер восстанавливает значения из черновика, собранного до
+  // перестроения; контейнер кнопок ищется через родителя поля.
+  doc.setNicknameField = field => {
+    doc.nicknameField = { parentElement: row, matches: () => true, oninput: null, ...field };
+    if (field.focused) doc.activeElement = doc.nicknameField;
+    else doc.activeElement = null;
+  };
   doc.setRoleSelectFocused = () => { doc.activeElement = { matches: sel => sel.includes('select'), tagName: 'SELECT' }; };
-  return { doc, run, errors, submitted, timers, usersListContainer };
+  return { doc, run, errors, submitted, timers, usersListContainer, actions, saveBtn, cancelBtn };
 }
 
 test('черновик ника переживает фоновую перерисовку списка', async () => {
@@ -158,7 +187,7 @@ test('ошибка сохранения показывает сообщение 
   assert.ok(errors.some(m => m.includes('Ник не сохранён')), 'администратор видит сообщение об ошибке');
 });
 
-// === Ф1 (ручная проверка 1.8.1): список ролей ===
+// === Ф1 (владелец, 1.8.1): открытый список ролей закрывался фоновой перерисовкой ===
 
 test('Ф1: пока select роли в фокусе (список открыт), перерисовка откладывается', async () => {
   const { doc, run, timers, usersListContainer } = setup();
@@ -190,4 +219,81 @@ test('Ф1: смена роли по-прежнему отправляется с
   assert.equal(submitted.length, 1, 'onchange → один вызов admin-действия');
   assert.equal(submitted[0].type, 'user.role');
   assert.deepEqual({ ...submitted[0].payload }, { uid: 'uid_1', role: 'foreman' });
+});
+
+// === Ф2 (владелец, 1.8.1): кнопки действий ника появляются только после ввода ===
+
+test('Ф2: без ввода кнопки «Сохранить»/«Отмена» скрыты', () => {
+  const { run, usersListContainer } = setup();
+  run('this.__fns.renderAdminPanel()');
+  assert.match(usersListContainer.innerHTML, /data-nickname-actions[^>]*style="display:none/, 'в разметке кнопки скрыты по умолчанию');
+});
+
+test('Ф2: после ввода появляются «Сохранить» и «Отмена»; кнопки привязаны', () => {
+  const { doc, run, actions, saveBtn, cancelBtn } = setup({ nickname: 'Вова' });
+  run('this.__fns.renderAdminPanel()');
+  // Поле не в фокусе — реальная (не отложенная) перерисовка привязывает oninput.
+  doc.setNicknameField({ value: 'Вова', focused: false, dataset: { nicknameUid: 'uid_1' } });
+  run('this.__fns.renderAdminPanel()');
+  assert.equal(actions.hidden, true, 'исходное значение — кнопки скрыты');
+  doc.nicknameField.value = 'Витя';
+  doc.nicknameField.oninput();
+  assert.equal(actions.hidden, false, 'после ввода кнопки показаны');
+  assert.equal(typeof saveBtn.onclick, 'function', '«Сохранить» привязана');
+  assert.equal(typeof cancelBtn.onclick, 'function', '«Отмена» привязана');
+});
+
+test('Ф2: «Отмена» возвращает исходный ник и прячет кнопки', () => {
+  const { doc, run, actions, submitted } = setup({ nickname: 'Вова' });
+  run('this.__fns.renderAdminPanel()');
+  doc.setNicknameField({ value: 'Вова', focused: false, dataset: { nicknameUid: 'uid_1' } });
+  run('this.__fns.renderAdminPanel()');
+  doc.nicknameField.value = 'Витя';
+  doc.nicknameField.oninput();
+  assert.equal(actions.hidden, false);
+  run('this.__fns.cancelUserNicknameDraft("uid_1")');
+  assert.equal(doc.nicknameField.value, 'Вова', 'поле возвращает исходный ник');
+  assert.equal(actions.hidden, true, 'кнопки спрятаны');
+  assert.equal(submitted.length, 0, 'отмена ничего не отправляет');
+});
+
+test('Ф2: состояние ввода переживает фоновую перерисовку — кнопки остаются видимыми', async () => {
+  const { doc, run, actions } = setup({ nickname: 'Вова' });
+  run('this.__fns.renderAdminPanel()');
+  doc.setNicknameField({ value: 'Вова', focused: false, dataset: { nicknameUid: 'uid_1' } });
+  run('this.__fns.renderAdminPanel()');
+  doc.nicknameField.value = 'Витя';
+  doc.nicknameField.oninput();
+  // Поле не в фокусе (администратор ушёл из поля) — фоновая перерисовка выполняется.
+  await run('this.__fns.renderAdminPanel()');
+  assert.equal(doc.nicknameField.value, 'Витя', 'черновик сохранён');
+  assert.equal(actions.hidden, false, 'кнопки по-прежнему видны для изменённого ника');
+});
+
+test('Ф2: после успешного сохранения кнопки исчезают', async () => {
+  const { doc, run, actions, submitted } = setup({ nickname: 'Вова' });
+  run('this.__fns.renderAdminPanel()');
+  doc.setNicknameField({ value: 'Вова', focused: false, dataset: { nicknameUid: 'uid_1' } });
+  run('this.__fns.renderAdminPanel()');
+  doc.nicknameField.value = 'Витя';
+  doc.nicknameField.oninput();
+  assert.equal(actions.hidden, false);
+  await run('this.__fns.saveUserNicknameDraft("uid_1")');
+  assert.equal(submitted.length, 1, 'ник отправлен');
+  assert.deepEqual({ ...submitted[0].payload }, { uid: 'uid_1', nickname: 'Витя' });
+  assert.equal(actions.hidden, true, 'после сохранения кнопки спрятаны');
+});
+
+test('Ф2: при ошибке сохранения черновик и кнопки остаются', async () => {
+  const { doc, run, actions, errors } = setup({ nickname: 'Вова' });
+  run('this.__fns.renderAdminPanel()');
+  doc.setNicknameField({ value: 'Вова', focused: false, dataset: { nicknameUid: 'uid_1' } });
+  run('this.__fns.renderAdminPanel()');
+  doc.nicknameField.value = 'Витя';
+  doc.nicknameField.oninput();
+  doc.failNickname = true;
+  await run('this.__fns.saveUserNicknameDraft("uid_1")');
+  assert.equal(doc.nicknameField.value, 'Витя', 'черновик не потерян');
+  assert.equal(actions.hidden, false, 'кнопки остались — можно повторить или отменить');
+  assert.ok(errors.some(m => m.includes('Ник не сохранён')));
 });

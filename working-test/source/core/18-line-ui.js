@@ -219,15 +219,17 @@
 
   // === АДМИН ПАНЕЛЬ ===
   const userAccessWrites=new Set();
-  // Черновик ника: ввод живёт в поле до явного «Сохранить» (кнопка рядом с
-  // полем). Фоновые перестроения списка (nasActiveRefresh ~15 с, снапшоты
-  // users/requests) не должны уничтожать напечатанный текст: пока поле в
-  // фокусе, перерисовка откладывается (паттерн refreshIncoming из
+  // Черновик ника: ввод живёт в поле до явного «Сохранить». Фоновые
+  // перестроения списка (nasActiveRefresh ~15 с, снапшоты users/requests)
+  // не должны уничтожать напечатанный текст: пока поле в фокусе,
+  // перерисовка откладывается (паттерн refreshIncoming из
   // tabel-v2/workspace.mjs), а при перестроении значения и фокус полей
   // переживают innerHTML (сохранение/восстановление по data-nickname-uid).
-  // Ф1 (ручная проверка 1.8.1): открытый список ролей закрывался фоновой
-  // перерисовкой ~15 с — тот же механизм удержания распространён на select
-  // роли; сохранение роли осталось мгновенным по onchange.
+  // Ф1 (1.8.1): то же удержание действует для select роли — открытый
+  // список ролей не должен закрываться фоновой перерисовкой; выбор роли
+  // по-прежнему отправляется мгновенно по onchange.
+  // Ф2 (1.8.1): кнопки «Сохранить/Отмена» скрыты, пока не начат ввод ника.
+  const nicknameDrafts=new Set();
   let adminDraftHoldTimer=null;
   function adminDraftFieldActive() {
     const active=document.activeElement, container=document.getElementById('usersListContainer');
@@ -247,6 +249,30 @@
   function restoreDraftFields(container,drafts) {
     container.querySelectorAll('[data-nickname-uid]').forEach(f=>{const d=drafts[f.dataset.nicknameUid];if(!d)return;f.value=d.value;if(d.focused)f.focus();});
   }
+  // Ф2: кнопки «Сохранить/Отмена» видны только у полей с несохранённым
+  // вводом. Признак «идёт ввод» — nicknameDrafts (uid), переживает
+  // фоновые перерисовки, очищается сохранением/отменой.
+  function setNicknameActionsVisible(container) {
+    container.querySelectorAll('[data-nickname-uid]').forEach(f=>{
+      const actions=f.parentElement?.querySelector('[data-nickname-actions]');
+      if (actions) actions.style.display=nicknameDrafts.has(f.dataset.nicknameUid)?'inline-flex':'none';
+    });
+  }
+  function onNicknameInput() {
+    const uid=this.dataset.nicknameUid;
+    const original=state.users.find(u=>u.id===uid)?.nickname||'';
+    if (this.value!==original) nicknameDrafts.add(uid); else nicknameDrafts.delete(uid);
+    const actions=this.parentElement?.querySelector('[data-nickname-actions]');
+    if (actions) actions.style.display=nicknameDrafts.has(uid)?'inline-flex':'none';
+  }
+  function cancelUserNicknameDraft(uid) {
+    const field=document.querySelector('[data-nickname-uid="'+uid+'"]');
+    const original=state.users.find(u=>u.id===uid)?.nickname||'';
+    if (field) field.value=original;
+    nicknameDrafts.delete(uid);
+    const actions=field?.parentElement?.querySelector('[data-nickname-actions]');
+    if (actions) actions.style.display='none';
+  }
   function renderAdminPanel() {
     if (!canAdmin()) return;
     renderRegistrationRequests();
@@ -254,9 +280,12 @@
     const active = state.users.filter(u => u.status !== 'pending');
     const container=document.getElementById('usersListContainer');
     const drafts=collectDraftFields(container);
-    container.innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isNasRuntime()?u.protected===true:isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><div style="display:flex;gap:4px;align-items:center;"><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" data-nickname-uid="${escapeHtml(u.id)}" value="${escapeHtml(u.nickname||'')}" aria-label="Ник: ${escapeHtml(u.email)}"><button type="button" class="btn btn-secondary btn-small" style="padding:4px 10px; font-size:12px; min-height:0;" data-nickname-save="${escapeHtml(u.id)}">Сохранить</button></div></div><div class="user-row-bottom"><select class="form-control" data-role-uid="${escapeHtml(u.id)}" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
+    container.innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isNasRuntime()?u.protected===true:isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><div style="display:flex;gap:4px;align-items:center;"><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" data-nickname-uid="${escapeHtml(u.id)}" value="${escapeHtml(u.nickname||'')}" aria-label="Ник: ${escapeHtml(u.email)}"><span data-nickname-actions style="display:none;gap:4px;align-items:center;"><button type="button" class="btn btn-secondary btn-small" style="padding:4px 10px; font-size:12px; min-height:0;" data-nickname-cancel="${escapeHtml(u.id)}">Отмена</button><button type="button" class="btn btn-secondary btn-small" style="padding:4px 10px; font-size:12px; min-height:0;" data-nickname-save="${escapeHtml(u.id)}">Сохранить</button></span></div></div><div class="user-row-bottom"><select class="form-control" data-role-uid="${escapeHtml(u.id)}" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
     restoreDraftFields(container,drafts);
+    container.querySelectorAll('[data-nickname-uid]').forEach(f=>f.oninput=onNicknameInput);
+    setNicknameActionsVisible(container);
     container.querySelectorAll('[data-nickname-save]').forEach(b=>b.onclick=()=>saveUserNicknameDraft(b.dataset.nicknameSave));
+    container.querySelectorAll('[data-nickname-cancel]').forEach(b=>b.onclick=()=>cancelUserNicknameDraft(b.dataset.nicknameCancel));
     document.querySelectorAll('[data-user-access]').forEach(input=>input.onchange=()=>setUserAccess(input.dataset.userAccess,input.checked));
   }
   async function setUserAccess(uid, enabled) {
@@ -267,8 +296,10 @@
     const field=document.querySelector('[data-nickname-uid="'+uid+'"]');
     if (!field) return;
     // Ошибку показывает runNasAdminAction (21-nas-runtime); поле не
-    // очищается — черновик защищён восстановлением после перерисовки.
-    return updateUserNickname(uid, field.value);
+    // очищается — черновик защищён восстановлением после перерисовки,
+    // кнопки остаются, чтобы повторить или отменить.
+    const ok=await updateUserNickname(uid, field.value);
+    if (ok) cancelUserNicknameDraft(uid);
   }
   async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; return saveLineEvent(()=>runNasAdminAction('user.nickname',{uid,nickname:nickname.trim()})); }
   async function changeUserRole(uid, newRole) { if (!canAdmin()) return; return saveLineEvent(()=>runNasAdminAction('user.role',{uid,role:newRole})); }
