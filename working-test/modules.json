@@ -41,6 +41,7 @@
         "core/28-nas-activity.js",
         "core/31-nas-connection.js",
         "core/36-truck-phone.js",
+        "core/37-update-queue-tool.js",
         "core/04-subscriptions.js",
         "core/05-authentication.js",
         "core/06-app-settings.js",
