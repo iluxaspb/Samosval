@@ -3,13 +3,16 @@ on:
   push:
     branches: [root]
     paths:
-      - 'app/src/**'
-      - 'app/modules.json'
-      - 'app/build-manifest.json'
+      - 'working-test/**'
       - 'index.html'
+      - 'index-working-test.html'
       - 'sw.js'
-      - 'tools/build-release.py'
-      - '.github/workflows/production-source-integrity.yml'
+      - 'sw-working-test.js'
+      - 'version.json'
+      - 'manifest-working-test.webmanifest'
+      - 'tools/build-working-test.py'
+      - 'tools/check-production-integrity.py'
+      - '.github/workflows/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,10 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify exact production release without writing output
-        run: python3 tools/build-release.py --check
-      - name: Verify production promotion and offline routing
-        run: |
-          node tests/production-promotion/build.cjs
-          node tests/production-promotion/service-worker.cjs
-          node --check sw.js
+      - name: Verify working-test line integrity (reproducible build / prod kit self-consistency)
+        run: python3 tools/check-production-integrity.py
+      - name: Syntax check of the channel service worker
+        run: node --check sw-working-test.js

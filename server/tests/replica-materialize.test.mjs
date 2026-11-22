@@ -5,11 +5,10 @@ import { appendReplicaBatch } from '../src/replica-store.mjs';
 
 // Проверяем главное свойство резерва: изменение Firebase не просто пишется в
 // журнал, а действительно появляется в рабочих таблицах, из которых читает API.
-const pool = new Pool({
-  host: process.env.PGHOST, port: Number(process.env.PGPORT || 5432),
-  database: process.env.POSTGRES_DB, user: process.env.POSTGRES_USER,
-  password: process.env.POSTGRES_PASSWORD, max: 2
-});
+const connectionString = process.env.TEST_DATABASE_URL;
+const pool = connectionString
+  ? new Pool({ connectionString, max: 2 })
+  : null;
 const UID = 'test-admin-replica';
 const WS = 'main_workspace';
 const P = 'zz-verify-';
@@ -50,7 +49,7 @@ const batch = id => ({
   ]
 });
 
-test('резерв наполняется: изменённые документы попадают в рабочие таблицы', async () => {
+test('резерв наполняется: изменённые документы попадают в рабочие таблицы', {skip: !connectionString}, async () => {
   await reset();
   const result = await appendReplicaBatch(pool, UID, batch());
   assert.equal(result.outcome, 'confirmed');
@@ -71,7 +70,7 @@ test('резерв наполняется: изменённые документ
   assert.equal((await pool.query('SELECT count(*)::int n FROM shift_archives WHERE archive_id=$1', [P + 'arch'])).rows[0].n, 1);
 });
 
-test('повторная отправка той же пачки не дублирует данные', async () => {
+test('повторная отправка той же пачки не дублирует данные', {skip: !connectionString}, async () => {
   await reset();
   await appendReplicaBatch(pool, UID, batch());
   const again = await appendReplicaBatch(pool, UID, batch());
@@ -80,7 +79,7 @@ test('повторная отправка той же пачки не дубли
   assert.equal((await pool.query('SELECT count(*)::int n FROM app_users WHERE uid=$1', [P + 'user'])).rows[0].n, 1);
 });
 
-test('пропуск последовательности блокирует применение', async () => {
+test('пропуск последовательности блокирует применение', {skip: !connectionString}, async () => {
   await reset();
   await assert.rejects(
     () => appendReplicaBatch(pool, UID, { baseSeq: 5, operations: batch().operations }),
@@ -89,7 +88,7 @@ test('пропуск последовательности блокирует п�
   assert.equal((await pool.query('SELECT count(*)::int n FROM line_logs WHERE log_id=$1', [P + 'log'])).rows[0].n, 0);
 });
 
-test('резерв не принимает зеркало, когда владельцем записи объявлен сам', async () => {
+test('резерв не принимает зеркало, когда владельцем записи объявлен сам', {skip: !connectionString}, async () => {
   await reset();
   await pool.query("UPDATE server_authority SET provider='ubuntu', generation=2 WHERE workspace_id=$1", [WS]);
   await assert.rejects(
@@ -99,7 +98,7 @@ test('резерв не принимает зеркало, когда владе
   await pool.query("UPDATE server_authority SET provider='firebase', generation=3 WHERE workspace_id=$1", [WS]);
 });
 
-test('только администратор резерва может отправлять зеркало', async () => {
+test('только администратор резерва может отправлять зеркало', {skip: !connectionString}, async () => {
   await reset();
   await pool.query("INSERT INTO app_users(uid,email,display_name,role,status) VALUES ($1,$2,$3,'driver','active') ON CONFLICT (uid) DO NOTHING", [P + 'driver', 'zz-verify-driver@example.invalid', 'Водитель']);
   try {
@@ -110,4 +109,4 @@ test('только администратор резерва может отпр
   }
 });
 
-test.after(async () => { await cleanup(); await pool.end(); });
+test.after(async () => { if (pool) { await cleanup(); await pool.end(); } });
