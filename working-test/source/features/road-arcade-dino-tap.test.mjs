@@ -69,13 +69,17 @@ test('кнопка: перетаскивание не вызывает прыж�
   assert.ok(fab.indexOf('dragged=true') < fab.indexOf("dinoInput.jump=true"), 'после начала перетаскивания прыжок не должен срабатывать');
 });
 
-test('версия 1.7.22: shell.html, working-test-release.js, release-history.js', () => {
-  assert.match(shellSource, /name="working-test-version" content="1.7.22"/, 'meta working-test-version в shell.html');
-  assert.match(shellSource, /Версия: 1.7.22/, 'span.version-text в shell.html');
-  assert.match(releaseSource, /version:'1.7.22'/, 'версия в working-test-release.js');
-  assert.match(historySource, /version:'1.7.22'/, 'запись 1.7.22 в release-history.js');
-  const first = historySource.indexOf("'1.7.22'");
-  assert.ok(first > 0 && first < historySource.indexOf("'1.7.11'"), 'запись 1.7.22 должна быть первой в списке');
+test('версия линии: shell.html, working-test-release.js и release-history.js согласованы', () => {
+  // Номер версии в этом тесте не зашит: линия обновляется при каждом выпуске.
+  // Проверяем согласованность трёх источников и то, что текущая версия — первая в истории.
+  const release = /version:'([^']+)'/.exec(releaseSource);
+  assert.ok(release, 'version в working-test-release.js');
+  const version = release[1];
+  assert.match(shellSource, new RegExp('name="working-test-version" content="' + version.replace(/\./g, '\\.') + '"'), 'meta working-test-version в shell.html');
+  assert.match(shellSource, new RegExp('Версия: ' + version.replace(/\./g, '\\.')), 'span.version-text в shell.html');
+  assert.match(historySource, new RegExp("version:'" + version.replace(/\./g, '\\.') + "'"), 'запись текущей версии в release-history.js');
+  const first = historySource.indexOf("'" + version + "'");
+  assert.ok(first > 0 && first < historySource.indexOf("'1.7.11'"), 'запись текущей версии должна быть первой в списке');
 });
 
 // Смоук: смоделированный DOM без canvas-механики — renderDino-подобный

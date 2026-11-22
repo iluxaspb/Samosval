@@ -13,6 +13,9 @@ const UID = 'test-admin-replica';
 const WS = 'main_workspace';
 
 async function reset() {
+  // Сервисному администратору резерва нужны запись в app_users и роль admin.
+  await pool.query(`INSERT INTO app_users(uid,email,display_name,role,status) VALUES ('${UID}','replica@example.invalid','Replica Admin','admin','active')
+    ON CONFLICT (uid) DO UPDATE SET role='admin',status='active'`);
   await pool.query('DELETE FROM replica_stream');
   await pool.query('UPDATE replica_cursor SET f2s_seq=0, s2f_seq=0');
   await pool.query("UPDATE server_authority SET provider='firebase', generation=1 WHERE workspace_id=$1", [WS]);
