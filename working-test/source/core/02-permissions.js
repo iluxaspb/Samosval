@@ -1,5 +1,5 @@
   function isForcedAdminEmail(email) { return String(email || '').toLowerCase() === FORCED_ADMIN_EMAIL; }
-  function canViewReleaseHistory() { return permissionsLoaded && currentUserStatus === 'active' && ['admin','foreman'].includes(currentUserRole); }
+  function canViewReleaseHistory() { return permissionsLoaded && currentUserStatus === 'active' && ['admin','foreman','senior_foreman'].includes(currentUserRole); }
   function canAdmin() { return currentUserStatus === 'active' && currentUserRole === 'admin'; }
 
   // === SECURITY: пока permissionsLoaded === false, разрешаем только 'line' (и админа) ===
@@ -7,7 +7,7 @@
     if(currentUserStatus!=='active')return false;
     if (currentUserRole === 'admin') return true;
     if (!permissionsLoaded) return tabName === 'line';
-    if(tabName==='timesheet'&&currentUserRole==='foreman')return true;
+    if(tabName==='timesheet'&&(currentUserRole==='foreman'||currentUserRole==='senior_foreman'))return true;
     if (!permissionsConfig[currentUserRole]) return false;
     return Array.isArray(permissionsConfig[currentUserRole].tabs) && permissionsConfig[currentUserRole].tabs.includes(tabName);
   }

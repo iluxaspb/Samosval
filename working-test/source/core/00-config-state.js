@@ -85,6 +85,7 @@ const firebaseConfig = {
 
   const ROLES = {
     admin: { label: 'Администратор', icon: '👑', color: 'admin' },
+    senior_foreman: { label: 'Старший прораб', icon: '👑', color: 'senior_foreman' },
     foreman: { label: 'Прораб', icon: '🔧', color: 'foreman' },
     master: { label: 'Мастер', icon: '🛠', color: 'master' },
     lopater: { label: 'Лопатер', icon: '🪏', color: 'lopater' },
@@ -120,6 +121,8 @@ const firebaseConfig = {
   ALL_ACTIONS.push('tabel_tab_shift','tabel_tab_table','tabel_tab_request','tabel_tab_catalog','tabel_tab_history');
   Object.assign(ACTION_LABELS,{"tabel_tab_shift": "Табель: Смена", "tabel_tab_table": "Табель: Таблица", "tabel_tab_request": "Табель: Заявки", "tabel_tab_catalog": "Табель: Справочник", "tabel_tab_history": "Табель: История"});
   const DEFAULT_PERMISSIONS = {
+    // Старший прораб: все права прораба плюс сброс таймера ходки.
+    senior_foreman: { tabs: ['line', 'report', 'archive', 'trucks', 'analytics', 'backup'], actions: ['start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'line_timer_reset', 'undo_action', 'undo_any', 'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
     foreman: { tabs: ['line', 'report', 'archive', 'trucks', 'analytics', 'backup'], actions: ['start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'undo_action', 'undo_any', 'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
     master: { tabs: ['line', 'report', 'archive', 'analytics'], actions: ['start_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'undo_action', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
     lopater: { tabs: ['line', 'report'], actions: ['action_arrive', 'action_load', 'undo_action', 'view_card_stats', 'view_header'] },

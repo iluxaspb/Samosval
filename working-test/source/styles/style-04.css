@@ -60,6 +60,7 @@
     .user-badge { font-size: 10px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; padding: 2px 6px; border-radius: 4px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .role-chip { font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 700; margin-left: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
     .role-chip.admin { background: rgba(139, 92, 246, 0.25); color: #c4b5fd; }
+    .role-chip.senior_foreman { background: rgba(234, 179, 8, 0.28); color: #fde68a; }
     .role-chip.foreman { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
     .role-chip.master { background: rgba(245, 158, 11, 0.25); color: #fcd34d; }
     .role-chip.lopater { background: rgba(16, 185, 129, 0.25); color: #6ee7b7; }

@@ -240,14 +240,14 @@
         <div class="section-title section-title-first">➕ Добавить</div>
         <div class="form-group"><input type="email" id="newUserEmail" class="form-control" placeholder="Email"></div>
         <div class="form-group"><input type="password" id="newUserPassword" class="form-control" placeholder="Пароль"></div>
-        <div class="form-group"><select id="newUserRole" class="form-control"><option value="foreman">🔧 Прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option><option value="admin">👑 Админ</option></select></div>
+        <div class="form-group"><select id="newUserRole" class="form-control"><option value="foreman">🔧 Прораб</option><option value="senior_foreman">👑 Старший прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option><option value="admin">👑 Админ</option></select></div>
         <button class="btn btn-quick full-width" id="addUserBtn" onclick="addNewUser()">➕ Создать</button>
       </div>
       <div id="usersListContainer"></div>
     </div>
     
     <div id="admin-sub-permissions" class="admin-section">
-      <div class="form-group"><select id="permRoleSelect" class="form-control" onchange="renderPermissionsMatrix()"><option value="foreman">🔧 Прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option></select></div>
+      <div class="form-group"><select id="permRoleSelect" class="form-control" onchange="renderPermissionsMatrix()"><option value="foreman">🔧 Прораб</option><option value="senior_foreman">👑 Старший прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option></select></div>
       <div id="permissionsMatrixContainer" class="permissions-matrix"></div>
       <button class="btn btn-quick btn-save-permissions" onclick="savePermissions()">💾 Сохранить</button>
     </div>

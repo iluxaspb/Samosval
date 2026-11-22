@@ -40,11 +40,14 @@ test('hasPermission даёт право админу автоматически 
   assert.match(perms, /currentUserRole === 'admin' return true|currentUserRole === 'admin'\s*\)\s*return true/, 'админ проходит все проверки прав');
 });
 
-test('дефолт для не-admin ролей: право выключено', () => {
+test('дефолт для не-admin ролей: право выключено (кроме старшего прораба)', () => {
   const defaults = config.slice(config.indexOf('DEFAULT_PERMISSIONS'), config.indexOf('// Если приложение открыто'));
   for (const role of ['foreman', 'master', 'lopater', 'viewer']) {
-    const roleBlock = defaults.match(new RegExp(role + ':\\s*\\{[\\s\\S]*?\\}'));
+    const roleBlock = defaults.match(new RegExp('(?<![a-z_])' + role + ':\\s*\\{[\\s\\S]*?\\}'));
     assert.ok(roleBlock, 'роль ' + role + ' найдена в DEFAULT_PERMISSIONS');
     assert.doesNotMatch(roleBlock[0], /line_timer_reset/, 'роль ' + role + ' не имеет права по умолчанию');
   }
+  // Старший прораб — единственная не-admin роль с правом по умолчанию.
+  const senior = defaults.match(/senior_foreman:\s*\{[\s\S]*?\}/)[0];
+  assert.match(senior, /line_timer_reset/, 'senior_foreman имеет право по умолчанию');
 });
