@@ -29,7 +29,7 @@ const server = spawn(
     await p.goto("http://127.0.0.1:8813/tests/tabel-v2/harness.html");
     await p.waitForFunction(() => ready);
     await p.evaluate(async () => {
-      const { Store } = await import("/test-app/tabel-v2/store.mjs");
+      const { Store } = await import("/working-test/tabel-v2/store.mjs");
       const original = Store.prototype.open;
       Store.prototype.open = async function () {
         window.qaStore = this;
@@ -222,7 +222,7 @@ const server = spawn(
     await p.screenshot({ path: "/tmp/tabel3442-palette-grid.png" });
     // The required first sheet supports the same default selection and arithmetic.
     await p.evaluate(async () => {
-      const D = await import("/test-app/tabel-v2/table-domain.mjs"),
+      const D = await import("/working-test/tabel-v2/table-domain.mjs"),
         key = "site-a/config",
         base = qaStore.get(key),
         c =

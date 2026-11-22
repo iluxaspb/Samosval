@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {test} from 'node:test';
-import {fromWorksheet,toWorksheet,readExcel,writeExcel} from '../../test-app/tabel-v2/file-transfer.mjs';
-import {selectionContains,userColors} from '../../test-app/tabel-v2/presence.mjs';
-const require=createRequire(import.meta.url), E=require('../../test-app/vendor/exceljs-4.4.0.min.js');
+import {fromWorksheet,toWorksheet,readExcel,writeExcel} from '../../working-test/tabel-v2/file-transfer.mjs';
+import {selectionContains,userColors} from '../../working-test/tabel-v2/presence.mjs';
+const require=createRequire(import.meta.url), E=require('../../working-test/vendor/exceljs-4.4.0.min.js');
 globalThis.ExcelJS=E;
 test('Excel round trip preserves formulas, rich styling, dates, merges and dimensions; edits override imported values',async()=>{
   const book=new E.Workbook(),ws=book.addWorksheet('Часы');

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFlight } from "../../test-app/tabel-v2/read-flight.mjs";
-import { firestoreRemote } from "../../test-app/tabel-v2/store.mjs";
+import { readFlight } from "../../working-test/tabel-v2/read-flight.mjs";
+import { firestoreRemote } from "../../working-test/tabel-v2/store.mjs";
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((a, b) => {

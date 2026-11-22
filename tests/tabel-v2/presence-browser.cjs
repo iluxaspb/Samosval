@@ -20,12 +20,12 @@ const server=spawn('python3',['-m','http.server','8822','--bind','127.0.0.1'],{s
   await p.evaluate(async({uid,linked})=>{
     firebase.initializeApp({projectId:'demo-tabel-next',apiKey:'emulator',appId:'emulator'});
     const db=firebase.firestore();db.useEmulator('127.0.0.1',8080,{mockUserToken:{sub:uid,email:uid+'@example.test'}});
-    const {mount}=await import('/test-app/tabel-v2/grid.mjs'),D=await import('/test-app/tabel-v2/table-domain.mjs');
+    const {mount}=await import('/working-test/tabel-v2/grid.mjs'),D=await import('/working-test/tabel-v2/table-domain.mjs');
     const object={id:'site',name:'Совместная таблица'},config=D.config(object);config.start=D.today();config.tableMode='full';
     if(linked){config.start=D.add(D.today(),-13);config.equipment=[{id:'water',name:'Поливомоечная',ownership:'own',kind:'water'}];config.request.equipment=['water'];}
     const days=linked?D.days(config.start,D.today()).map(date=>D.createDay(config,date)):[];
     const records={'site/sheet:one':{revision:1,data:{name:'Лист',rows:12,cols:5,cells:{A1:{raw:'Общие данные'}},widths:{},heights:{}}}};
-    document.body.innerHTML='<link rel="stylesheet" href="/test-app/tabel-v2/workspace.css"><section class="tn tn-app"><main></main></section>';
+    document.body.innerHTML='<link rel="stylesheet" href="/working-test/tabel-v2/workspace.css"><section class="tn tn-app"><main></main></section>';
     const root=document.querySelector('section'),host=root.querySelector('main');
     const s={object,root,config:()=>config,days:()=>days,require:()=>{},sheetManager:()=>uid==='admin',sheetVisible:id=>id===(linked?'linked':'one'),remote:true,
       host:{session:()=>({uid,name:uid==='admin'?'Илья':'Алексей',role:uid==='admin'?'admin':'master'}),workspace:db.collection('workspaces').doc('main_workspace')},

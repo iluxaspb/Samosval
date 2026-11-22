@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {firestoreRemote,recordIdFor} from "../../test-app/tabel-v2/store.mjs";
+import {firestoreRemote,recordIdFor} from "../../working-test/tabel-v2/store.mjs";
 const key="road-13/sheet:linked";
 function fakeFirebase(row) {
   const tables={tabelNextRecords:new Map(),tabelNextOperations:new Map()};

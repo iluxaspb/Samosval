@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import * as D from "../../test-app/tabel-v2/table-domain.mjs";
+import * as D from "../../working-test/tabel-v2/table-domain.mjs";
 
 test("Saturday and Sunday have stable UTC calendar classification", () => {
   assert.equal(D.isWeekendDate("2026-10-24"), true);

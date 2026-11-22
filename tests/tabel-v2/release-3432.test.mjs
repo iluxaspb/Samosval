@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import * as D from '../../test-app/tabel-v2/table-domain.mjs';
-import * as R from '../../test-app/tabel-v2/request-domain.mjs';
+import * as D from '../../working-test/tabel-v2/table-domain.mjs';
+import * as R from '../../working-test/tabel-v2/request-domain.mjs';
 test('truck groups have distinct plans, 40 tonne trips and inflected share text',()=>{
  const groups=[{count:4,mode:'central',trips:4},{count:2,mode:'central',trips:3},{count:4,mode:'local'}];
  assert.deepEqual(R.truckGroups(groups).map(g=>g.tonnes),[640,240,0]);

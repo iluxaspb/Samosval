@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mergeRecord} from "../../test-app/tabel-v2/merge-record.mjs";
-import {Store} from "../../test-app/tabel-v2/store.mjs";
+import {mergeRecord} from "../../working-test/tabel-v2/merge-record.mjs";
+import {Store} from "../../working-test/tabel-v2/store.mjs";
 
 const key="road-13/sheet:linked";
 const dayKey="road-13/day:2026-10-29:day";

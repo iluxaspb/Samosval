@@ -27,7 +27,7 @@ const server=spawn('python3',['-m','http.server','8804','--bind','127.0.0.1'],{s
   await p.evaluate(async uid=>{
    firebase.initializeApp({projectId:'demo-tabel-next',apiKey:'emulator',appId:'emulator'});
    const db=firebase.firestore();db.useEmulator('127.0.0.1',8080,{mockUserToken:{sub:uid,email:uid+'@example.test'}});
-   const {Store,firestoreRemote}=await import('../../test-app/tabel-v2/store.mjs');
+   const {Store,firestoreRemote}=await import('../../working-test/tabel-v2/store.mjs');
    window.remote=firestoreRemote({workspace:db.collection('workspaces').doc('main_workspace'),transaction:fn=>db.runTransaction(fn),session:()=>({uid,name:uid,role:uid==='admin'?'admin':'foreman',status:'active',tabAccess:true})},()=>{});
    window.store=await new Store('emulator-device',remote,()=>({uid,name:uid})).open();
    clearInterval(store.timer);

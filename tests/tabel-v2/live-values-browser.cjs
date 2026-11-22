@@ -100,8 +100,8 @@ function preflight() {
         await page.addScriptTag({content: fs.readFileSync(path.join(process.env.TABEL_SYNC_QA, 'node_modules/firebase/firebase-' + name + '-compat.js'), 'utf8')});
       }
       await page.evaluate(async ({uid, projectId, bridge}) => {
-        const D = await import('/test-app/tabel-v2/table-domain.mjs');
-        const {mount} = await import('/test-app/tabel-v2/grid.mjs');
+        const D = await import('/working-test/tabel-v2/table-domain.mjs');
+        const {mount} = await import('/working-test/tabel-v2/grid.mjs');
         const object = {id: 'live-site', name: 'Изолированный live-values'};
         const config = D.config(object);
         config.start = D.add(D.today(), -59); config.tableMode = 'full';
@@ -113,7 +113,7 @@ function preflight() {
           return [dayKey(data), {revision: 1, data}];
         }));
         records[object.id + '/sheet:linked'] = {revision: 1, data: {name: 'Табель', cells: {}, widths: {}, heights: {}}};
-        document.body.innerHTML = '<link rel="stylesheet" href="/test-app/tabel-v2/workspace.css"><section class="tn tn-app"><main></main></section>';
+        document.body.innerHTML = '<link rel="stylesheet" href="/working-test/tabel-v2/workspace.css"><section class="tn tn-app"><main></main></section>';
         const store = {
           get: k => structuredClone(records[k] || {revision: 0, data: null}),
           list: prefix => Object.entries(records).filter(([k]) => k.startsWith(prefix)).map(([key, v]) => ({key, ...structuredClone(v)})),

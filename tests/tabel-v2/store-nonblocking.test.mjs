@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Store } from "../../test-app/tabel-v2/store.mjs";
+import { Store } from "../../working-test/tabel-v2/store.mjs";
 
 const key = "site-a/day:2026-10-29:day";
 function pendingRemote() {

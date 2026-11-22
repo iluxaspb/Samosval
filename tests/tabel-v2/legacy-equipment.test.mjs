@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { oldBrushes } from "../../test-app/tabel-v2/legacy-equipment.mjs";
-import * as D from "../../test-app/tabel-v2/table-domain.mjs";
+import { oldBrushes } from "../../working-test/tabel-v2/legacy-equipment.mjs";
+import * as D from "../../working-test/tabel-v2/table-domain.mjs";
 test("cleanup targets only orphan hired brush without crew label; registered machinery and facts preserved", () => {
   const old = { id: "old", name: "Щётка", ownership: "hired", hours: 12 },
     real = {

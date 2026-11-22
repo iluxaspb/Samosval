@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { preferredObjectId } from "../../test-app/tabel-v2/object-default.mjs";
+import { preferredObjectId } from "../../working-test/tabel-v2/object-default.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -33,11 +33,11 @@ test("preferredObjectId: без заявки активная смена поб�
   assert.equal(id, "obj-shift");
 });
 
-test("source anchor: show() вызывает defaultObject(true) в test-app", () => {
+test("source anchor: show() вызывает defaultObject(true) в working-test", () => {
   const src = readFileSync(
-    join(here, "..", "..", "test-app", "tabel-v2", "workspace.mjs"),
+    join(here, "..", "..", "working-test", "tabel-v2", "workspace.mjs"),
     "utf8"
   );
-  assert.match(src, /const preferred = s\.defaultObject\(true\);/,
-    "show() должен вызывать s.defaultObject(true), иначе адрес заявки сбрасывается на объект активной смены");
+  assert.match(src, /s\.object = s\.defaultObject\(!!host\.requestObjectId\);/,
+    "адрес заявки (requestObjectId) должен учитываться при выборе объекта, иначе изолированный адрес сбрасывается на объект активной смены");
 });

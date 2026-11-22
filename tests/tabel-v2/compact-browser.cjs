@@ -18,7 +18,7 @@ const server=spawn('python3',['-m','http.server','8794','--bind','127.0.0.1'],{s
  await p.locator('[data-view=shift]').click();assert.equal(await p.locator('[data-action=close-day]').count(),0);
  await p.locator('[data-action=exit]').click();
  await p.evaluate(async()=>{
-  window.M=await import('../../test-app/tabel-v2/material-transfer.mjs');window.S=(await import('../../test-app/tabel-v2/store.mjs')).Store;
+  window.M=await import('../../working-test/tabel-v2/material-transfer.mjs');window.S=(await import('../../working-test/tabel-v2/store.mjs')).Store;
   window.periodShift={id:'line1',objectId:'site-a',startDate:'27.10.2026',workShift:'night'};
   const archive={totalTrips:10,totalVolume:300};await M.transferClosedLine(host,periodShift,archive);await M.transferClosedLine(host,periodShift,archive);
   window.openStore=()=>new S(session.projectId+'_'+session.workspaceId+'_'+session.uid,null,()=>({uid:session.uid})).open();

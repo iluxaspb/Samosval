@@ -11,7 +11,7 @@ const server = spawn('python3', ['-m','http.server','8837','--bind','127.0.0.1']
   p.setDefaultTimeout(10000);const errors=[];p.on('pageerror',e=>errors.push(e.message));
   await p.clock.setFixedTime(new Date('2026-10-30T12:00:00+03:00'));
   await p.goto('http://127.0.0.1:8837/tests/tabel-v2/harness.html');await p.waitForFunction(()=>ready);
-  await p.evaluate(async()=>{const {Store}=await import('/test-app/tabel-v2/store.mjs'),open=Store.prototype.open;Store.prototype.open=async function(){window.qaStore=this;return open.call(this)};seedLegacy()});
+  await p.evaluate(async()=>{const {Store}=await import('/working-test/tabel-v2/store.mjs'),open=Store.prototype.open;Store.prototype.open=async function(){window.qaStore=this;return open.call(this)};seedLegacy()});
   await p.locator('#open').click();await p.locator('[data-view=table]').click();await p.locator('.tn-grid').waitFor();
   const action=a=>p.locator('[data-action="'+a+'"]'),cell=k=>p.locator('[data-cell="'+k+'"]');
   const range=async value=>{await p.locator('[data-range]').fill(value);await p.locator('[data-range]').dispatchEvent('change')};

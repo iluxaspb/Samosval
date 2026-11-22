@@ -23,7 +23,7 @@ const server = spawn(
     await p.goto("http://127.0.0.1:8815/tests/tabel-v2/harness.html");
     await p.waitForFunction(() => ready);
     await p.evaluate(async () => {
-      const { Store } = await import("/test-app/tabel-v2/store.mjs");
+      const { Store } = await import("/working-test/tabel-v2/store.mjs");
       const open = Store.prototype.open;
       Store.prototype.open = async function () {
         window.qaStore = this;
@@ -33,7 +33,7 @@ const server = spawn(
     await p.locator("#open").click();
     await p.waitForFunction(() => window.qaStore);
     await p.evaluate(async () => {
-      const D = await import("/test-app/tabel-v2/table-domain.mjs"),
+      const D = await import("/working-test/tabel-v2/table-domain.mjs"),
         c = D.config({
           id: "site-a",
           name: "Объект А",

@@ -7,12 +7,12 @@ const server=spawn('python3',['-m','http.server','8812','--bind','127.0.0.1'],{s
  await p.clock.setFixedTime(new Date('2026-10-28T12:00:00+03:00'));
  await p.goto('http://127.0.0.1:8812/tests/tabel-v2/harness.html');await p.waitForFunction(()=>ready);
  await p.evaluate(async()=>{
-  const {Store}=await import('/test-app/tabel-v2/store.mjs');const original=Store.prototype.open;
+  const {Store}=await import('/working-test/tabel-v2/store.mjs');const original=Store.prototype.open;
   Store.prototype.open=async function(){window.qaStore=this;return original.call(this);};
  });
  await p.locator('#open').click();await p.waitForFunction(()=>window.qaStore);
  await p.evaluate(async()=>{
-  const D=await import('/test-app/tabel-v2/table-domain.mjs');const key='site-a/config';
+  const D=await import('/working-test/tabel-v2/table-domain.mjs');const key='site-a/config';
   const c=D.config({id:'site-a',name:'Объект А',startDate:'2026-10-10'});
   c.equipment=[{id:'mill',name:'W205',kind:'mill',ownership:'own'},{id:'water',name:'Поливомойка',kind:'water',ownership:'own'}];c.request.equipment=['mill','water'];
   await qaStore.save(key,c,qaStore.get(key),'Config');

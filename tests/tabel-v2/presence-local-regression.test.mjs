@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {presence} from '../../test-app/tabel-v2/presence.mjs';
+import {presence} from '../../working-test/tabel-v2/presence.mjs';
 
 // Регрессия live-values: remote:false давал const collection=false,
 // а collection?.doc(...) не защищён от false (optional chaining срабатывает

@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),{spawn}=require('node:child_process');
 const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES+'/playwright');
-const E=require('../../test-app/vendor/exceljs-4.4.0.min.js');
+const E=require('../../working-test/vendor/exceljs-4.4.0.min.js');
 const server=spawn('python3',['-m','http.server','8821','--bind','127.0.0.1'],{stdio:'ignore'});
 (async()=>{let browser;try{
  const fixture=new E.Workbook(),ws=fixture.addWorksheet('Длинное название первого листа');
@@ -16,7 +16,7 @@ const server=spawn('python3',['-m','http.server','8821','--bind','127.0.0.1'],{s
  const page=await browser.newPage({viewport:{width:393,height:852}}),errors=[];
  page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(15000);
  await page.goto('http://127.0.0.1:8821/tests/tabel-v2/harness.html');
- await page.evaluate(async()=>{const {Store}=await import('/test-app/tabel-v2/store.mjs');const open=Store.prototype.open;Store.prototype.open=async function(){window.qaStore=this;return open.call(this);};});
+ await page.evaluate(async()=>{const {Store}=await import('/working-test/tabel-v2/store.mjs');const open=Store.prototype.open;Store.prototype.open=async function(){window.qaStore=this;return open.call(this);};});
  await page.locator('#open').click();await page.locator('[data-view=table]').click();
  await page.locator('[data-action=import-excel]').click();
  await page.locator('input[type=file]').setInputFiles({name:'Оборудование.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from(bytes)});
@@ -41,7 +41,7 @@ const server=spawn('python3',['-m','http.server','8821','--bind','127.0.0.1'],{s
  await page.screenshot({path:'/tmp/tabel3451-import.png'});
  const activeKey=await page.evaluate(()=>qaStore.list('site-a/sheet:').find(r=>r.data?.name==='Длинное название первого листа').key);
  await page.reload();
- await page.evaluate(async()=>{const {Store}=await import('/test-app/tabel-v2/store.mjs');const open=Store.prototype.open;Store.prototype.open=async function(){window.qaStore=this;return open.call(this);};});
+ await page.evaluate(async()=>{const {Store}=await import('/working-test/tabel-v2/store.mjs');const open=Store.prototype.open;Store.prototype.open=async function(){window.qaStore=this;return open.call(this);};});
  await page.locator('#open').click();await page.locator('[data-view=table]').click();
  await page.locator('[data-action=sheet]').filter({hasText:ws.name}).click();
  assert.equal(await page.locator('[data-cell=B2]').innerText(),'12');

@@ -24,7 +24,7 @@ const server = spawn(
     await p.goto("http://127.0.0.1:8817/tests/tabel-v2/harness.html");
     await p.waitForFunction(() => ready);
     await p.evaluate(async () => {
-      const { Store } = await import("/test-app/tabel-v2/store.mjs"),
+      const { Store } = await import("/working-test/tabel-v2/store.mjs"),
         open = Store.prototype.open;
       Store.prototype.open = async function () {
         window.qaStore = this;
