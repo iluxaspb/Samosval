@@ -45,13 +45,6 @@
       }
     }
   }
-  function recordedTripReturn(log, logs, status, shiftId) {
-    const start = Number(log.timestamp);
-    const next = logs.filter(l => l.truckId === log.truckId && Number(l.timestamp) > start).sort((a,b) => Number(a.timestamp)-Number(b.timestamp))[0];
-    const st = status[log.truckId];
-    const end = Number(log.returnedAt) || (next ? Number(next.arrivalTimestamp) : st && (!st.shiftId || st.shiftId === shiftId) ? Number(st.arriveTimestamp) : 0);
-    return start > 0 && end > start && end <= Date.now() && (!next || end <= Number(next.timestamp)) ? end : null;
-  }
   let closeShiftInFlight=false;
   async function closeShift() {
     if (closeShiftInFlight || !requireEdit('close_shift')) return;
@@ -67,63 +60,8 @@
       if(isNasRuntime()){
         await nasCloseCurrentShift(shiftId);showToastEl('Смена закрыта',false);return;
       }
-      phase='остановка новых отметок';
-      const shift=await tfAwait(db.runTransaction(async tx=>{
-        const snap=await tx.get(refs.shift);
-        if(!snap.exists)return null;
-        const data=snap.data();
-        if(data.id!==shiftId)throw Error('Уже открыта другая смена. Обновите страницу.');
-        if(data.isActive===false&&!data.closing)throw Error('Смена уже завершена. Обновите страницу.');
-        const closing={isActive:false,closing:true,closeArchiveId:data.closeArchiveId||('closed_'+shiftId),closingStartedAt:data.closingStartedAt||Date.now(),closingBy:data.closingBy||getUserName()};
-        if(!data.closing||data.isActive!==false)tx.update(refs.shift,closing);
-        return {...data,...closing};
-      }));
-      if(!shift){showToastEl('Смена уже закрыта',false);return;}
-      phase='сохранение архива';
-      const archiveRef=refs.archive.doc(shift.closeArchiveId);
-      const [existing,logSnapshot,statusSnapshot]=await Promise.all([archiveRef.get({source:'server'}),refs.logs.get({source:'server'}),refs.truckStatus.get({source:'server'})]);
-      const logs=logSnapshot.docs.map(d=>({id:d.id,...d.data()})).filter(l=>l.shiftId===shiftId);
-      const statuses={};statusSnapshot.docs.forEach(d=>{const data=d.data();if(data.shiftId===shiftId)statuses[d.id]=data;});
-      let archived=existing.exists?existing.data():null;
-      if(!archived&&logs.length){
-        const ttn={},line=[];
-        Object.entries(statuses).forEach(([id,st])=>{if(st.onLine)line.push(id);if(st.ttnStatus!==undefined&&st.ttnStatus!==null)ttn[id]=st.ttnStatus;});
-        const candidate={sourceShiftId:shiftId,objectName:shift.objectName||'',objectId:shift.objectId||'',date:shift.startDate||'',closedAt:shift.closingStartedAt,closedBy:shift.closingBy,
-          logs:logs.map(l=>({id:l.id,truckId:l.truckId,truckName:l.truckName||'',volume:l.volume??0,timeStr:l.timeStr||'',timestamp:l.timestamp,arrivalTimestamp:Number(l.arrivalTimestamp)||null,returnedAt:recordedTripReturn(l,logs,statuses,shiftId),createdBy:l.createdBy||'',createdByEmail:l.createdByEmail||'',isGAI:!!l.isGAI,comment:l.comment||''})),
-          activeLineIds:line,ttnStatus:ttn,totalVolume:logs.filter(l=>!l.isGAI).reduce((total,l)=>total+Number(l.volume||0),0),totalTrips:logs.filter(l=>!l.isGAI).length};
-        archived=await tfAwait(db.runTransaction(async tx=>{
-          const saved=await tx.get(archiveRef);
-          if(saved.exists)return saved.data();
-          tx.set(archiveRef,candidate);
-          return candidate;
-        }));
-      }
-      if(archived&&archived.sourceShiftId!==shiftId)throw Error('Архив относится к другой смене. Очистка отменена.');
-      if(archived&&logs.some(log=>!(archived.logs||[]).some(saved=>saved.id===log.id)))throw Error('Есть рейсы, отсутствующие в сохранённом архиве. Очистка отменена.');
-      phase='перенос материала в Табель 2';
-      if(archived){
-        const module=await import(new URL('./working-test/tabel-v2/material-transfer.mjs',document.baseURI).href);
-        await module.transferClosedLine({workspace:wsRef,transaction:fn=>db.runTransaction(fn),documentId:()=>(FIREBASE_SDK_PRESENT && typeof firebase!=='undefined' ? firebase.firestore.FieldPath.documentId() : 'firebase-unavailable'),objects:state.objects,session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,name:getUserName(),active:currentUserStatus==='active',edit:hasPermission('timesheet_edit')})},shift,archived);
-      }
-      phase='очистка сохранённых рейсов';
-      await cleanupOldShiftData(shiftId);
-      phase='завершение смены';
-      await tfAwait(db.runTransaction(async tx=>{
-        const snap=await tx.get(refs.shift);
-        if(!snap.exists)return;
-        if(snap.data().id!==shiftId||!snap.data().closing)throw Error('Смена изменилась. Новая смена не затронута.');
-        tx.delete(refs.shift);
-      }));
-      // Even a shift with zero trips has a last-closed address on this device.
-      // Archived shifts remain the cross-device source when they have records.
-      try {
-        localStorage.setItem('working-test-tabel-last-closed:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID,
-          JSON.stringify({objectId: shift.objectId, closedAt: shift.closingStartedAt || Date.now()}));
-      } catch (_) {}
-      if(state.shift?.id===shiftId){state.shift=null;offlineProjectState();renderAll();}
-      showToastEl('Смена закрыта',false);
-      addAudit('🔄 Закрыта смена. Рейсов: '+(archived?.totalTrips||0)).catch(()=>{});
-      clearAllNotifications().catch(()=>{});
+      // Firebase-путь закрытия смены удалён (очистка 2026-11-23): Ubuntu —
+      // единственный сервер данных, Firebase-режим недостижим.
     } catch(e){ console.error('[closeShift:'+phase+']',e);showError('Не удалось завершить закрытие ('+phase+'): '+(e.message||e.code||e)+'. Сохранённый архив не удалён; можно повторить закрытие.'); }
     finally {closeShiftInFlight=false;if(button){button.disabled=false;button.textContent=oldLabel||'🔄 Закрыть смену';}}
   }

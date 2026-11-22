@@ -26,11 +26,41 @@ test('собранный вход (если есть) не грузит Firebase
   const built = path.join(root, 'index-working-test.html');
   if (!existsSync(built)) return; // сборки ещё нет — проверяем только исходник
   const html = readFileSync(built, 'utf8');
-  // Модули телеметрии трафика firebase-traffic-*.js не являются SDK:
-  // они не ждут объект firebase (B3), поэтому исключаем их из проверки.
-  const scriptMatches = (html.match(/<script[^>]+src="[^"]*firebase[^"]*"/gi) || [])
-    .filter(tag => !/firebase-traffic-(hook|inference|dashboard)/.test(tag));
+  const scriptMatches = html.match(/<script[^>]+src="[^"]*firebase[^"]*"/gi) || [];
   assert.deepEqual(scriptMatches, [], 'в собранном index-working-test.html не должно быть firebase-скриптов');
+});
+
+// Регрессионный тест (очистка 2026-11-23): репликация Firebase→Ubuntu и
+// телеметрия firebase-traffic-* удалены — Ubuntu единственный сервер данных.
+test('модули репликации и телеметрии Firebase удалены', () => {
+  const removed = [
+    'core/23-replica.js',
+    'core/23-replica.test.mjs',
+    'features/firebase-traffic-hook.js',
+    'features/firebase-traffic-inference.js',
+    'features/firebase-traffic-dashboard.js'
+  ];
+  for (const rel of removed) {
+    assert.ok(!existsSync(path.join(sourceDir, rel)), rel + ' должен быть удалён');
+  }
+  const modules = JSON.parse(readFileSync(path.join(sourceDir, '..', 'modules.json'), 'utf8'));
+  for (const module of modules.modules) {
+    const sources = (module.parts || module.sources || []).map(p => p.source || p);
+    for (const src of sources) {
+      assert.ok(!/firebase-traffic/.test(src), 'modules.json не должен ссылаться на firebase-traffic: ' + src);
+      assert.ok(src !== 'core/23-replica.js', 'modules.json не должен подключать 23-replica.js');
+    }
+  }
+  const shell = readFileSync(path.join(sourceDir, 'shell.html'), 'utf8');
+  assert.ok(!/TEST-MODULE:firebase-traffic/.test(shell), 'в shell.html не должно быть маркеров firebase-traffic');
+  const subscriptions = readFileSync(path.join(sourceDir, 'core/04-subscriptions.js'), 'utf8');
+  assert.ok(!subscriptions.includes('startReplica'), 'вызов startReplica() удалён');
+  assert.ok(!/FirebaseTraffic/.test(subscriptions), 'вызовы FirebaseTraffic* удалены');
+  const built = path.join(root, 'index-working-test.html');
+  if (existsSync(built)) {
+    const html = readFileSync(built, 'utf8');
+    assert.ok(!/firebase-traffic|23-replica|startReplica/.test(html), 'собранная страница не должна содержать удалённые модули');
+  }
 });
 
 test('00-config-state.js не инициализирует Firebase безусловно', () => {
