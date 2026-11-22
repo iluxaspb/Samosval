@@ -19,8 +19,17 @@
       container.__archiveToggleBound=true;
     }
     const q=(document.getElementById('archiveSearchInput').value||'').toLowerCase();
+    // Фоновые снапшоты пересобирают список через innerHTML — без сохранения
+    // прокрутки список «подпрыгивает» к началу при каждом обновлении.
+    const keepScrollY=window.scrollY||document.documentElement.scrollTop||document.body?.scrollTop||0;
+    const keepContainerTop=container.scrollTop||0;
     const filtered=state.archive.filter(s=>s.date?.toLowerCase().includes(q)||objectTitle(s.objectId,s.objectName).toLowerCase().includes(q));
-    if (!filtered.length){container.innerHTML='<div class="empty-state">Пусто</div>';renderTrash();return;}
+    if (!filtered.length){
+      container.innerHTML='<div class="empty-state">Пусто</div>';
+      container.scrollTop=keepContainerTop;
+      if (keepScrollY&&typeof window.scrollTo==='function') window.scrollTo(0,keepScrollY);
+      renderTrash();return;
+    }
     const groups=Object.create(null);
     filtered.forEach(shift=>{
       const name=objectTitle(shift.objectId,shift.objectName);
@@ -35,6 +44,8 @@
         return `<div class="archive-shift-item" onclick="openArchiveModal('${s.id}')"><div>${escapeHtml(s.date)}</div><div>${stdLogs.length} рейсов | <b>${stdLogs.reduce((sum,log)=>sum+log.volume,0)} м³</b></div></div>`;
       }).join('')}</div></div>`;
     }).join('');
+    container.scrollTop=keepContainerTop;
+    if (keepScrollY&&typeof window.scrollTo==='function') window.scrollTo(0,keepScrollY);
     renderTrash();
     if (viewingArchiveId){
       const shift=state.archive.find(item=>item.id===viewingArchiveId);
