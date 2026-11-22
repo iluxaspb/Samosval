@@ -6,7 +6,7 @@ export function parseKey(key) {
   const [objectId, part] = key.split('/');
   return {objectId, recordId:key.replace(/[/:]/g,'~'), part};
 }
-export const manager = actor => actor.status === 'active' && ['admin','foreman'].includes(actor.role);
+export const manager = actor => actor.status === 'active' && ['admin','foreman','senior_foreman'].includes(actor.role);
 export function canView(actor) {
   return actor.status === 'active' && (manager(actor) || actor.permissions.includes('tab_timesheet'));
 }
