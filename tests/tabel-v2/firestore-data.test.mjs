@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {firestoreData,firestoreRemote} from '../../test-app/tabel-v2/store.mjs';
+import {firestoreData,firestoreRemote} from '../../working-test/tabel-v2/store.mjs';
 test('undefined optional fields omitted recursively, null/zero/false and array positions preserved',()=>{
  const source={name:'Объект',optional:undefined,equipment:[{hours:12,pump:false,plate:undefined},undefined],zero:0,empty:null};
  assert.deepEqual(firestoreData(source),{name:'Объект',equipment:[{hours:12,pump:false},null],zero:0,empty:null});assert(Object.hasOwn(source,'optional'));

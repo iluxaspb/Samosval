@@ -5,16 +5,11 @@ on:
     branches: [root]
     paths:
       - 'tests/tabel-v2/**'
-      - 'test-app/tabel-v2/**'
       - '.github/workflows/full-browser-integration.yml'
   pull_request:
     branches: [root]
     paths:
-      - 'tests/full-audit/**'
       - 'tests/tabel-v2/**'
-      - 'test-app/source/**'
-      - 'test-app/tabel-v2/**'
-      - 'test-app/modules.json'
       - '.github/workflows/full-browser-integration.yml'
   workflow_dispatch:
 permissions:
@@ -35,15 +30,7 @@ jobs:
       - name: Verify Tabel regression and nonblocking Firebase material saves
         run: |
           node --test tests/tabel-v2/*.test.mjs
-          node tests/modular/firebase-traffic.test.cjs
-          node tests/modular/firebase-traffic-inference.test.cjs
-          node --check test-app/source/features/firebase-traffic-hook.js
-          node --check test-app/source/features/firebase-traffic-inference.js
-          node --check test-app/source/features/firebase-traffic-dashboard.js
-          node tests/modular/arcade-slot-recovery.cjs
           python3 tools/build-test.py
-      - name: Verify local-only fixture serves dynamic Tabel modules
-        run: node tests/full-audit/browser-support.test.cjs
       - name: Install isolated emulator and Chromium
         run: |
           npm install --prefix /tmp/samosval-browser-qa --no-audit --no-fund firebase@10.8.0 @firebase/rules-unit-testing@3.0.4 firebase-tools@14.20.0 playwright@1.56.1
@@ -70,16 +57,3 @@ jobs:
           python3 -u tests/tabel-v2/material-roster-browser.py --chromium "$BROWSER_PATH"
           python3 -u tests/tabel-v2/weekend-browser.py --chromium "$BROWSER_PATH"
           python3 -u tests/tabel-v2/formula-guide-browser.py --chromium "$BROWSER_PATH"
-      - name: End-to-end acceptance with demo Firebase only
-        env:
-          NODE_PATH: /tmp/samosval-browser-qa/node_modules
-        run: |
-          export FIRESTORE_EMULATOR_JAR=$(find "$HOME/.cache/firebase/emulators" -name 'cloud-firestore-emulator*.jar' -print -quit)
-          test -n "$FIRESTORE_EMULATOR_JAR"
-          node tests/full-audit/browser-run.cjs
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: full-browser-evidence
-          path: tests/full-audit/results/browser/
-          retention-days: 7

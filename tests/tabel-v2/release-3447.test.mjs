@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rows } from '../../test-app/tabel-v2/table-domain.mjs';
+import { rows } from '../../working-test/tabel-v2/table-domain.mjs';
 test('owned rows put water first, brush next, then every mill; keep other sections and crew', () => {
   const equipment = [
     {id:'other', name:'Каток', kind:'other', ownership:'own'},

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { preferredObjectId, lastClosedKey } from "../../test-app/tabel-v2/object-default.mjs";
+import { preferredObjectId, lastClosedKey } from "../../working-test/tabel-v2/object-default.mjs";
 
 const objects = [{ id: "a" }, { id: "b" }, { id: "c" }];
 const archive = [{objectId:"a",closedAt:100}, {objectId:"b",closedAt:200}];

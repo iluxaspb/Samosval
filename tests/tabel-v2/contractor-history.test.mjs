@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import * as D from "../../test-app/tabel-v2/table-domain.mjs";
+import * as D from "../../working-test/tabel-v2/table-domain.mjs";
 
 test("hired truck rows separate contractors and reuse returning company without editing earlier days", () => {
   const truck = { id: "t", name: "Самосвал", ownership: "hired" },

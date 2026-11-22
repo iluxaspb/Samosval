@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as D from '../../test-app/tabel-v2/table-domain.mjs';
-import {crewCount} from '../../test-app/tabel-v2/request-domain.mjs';
+import * as D from '../../working-test/tabel-v2/table-domain.mjs';
+import {crewCount} from '../../working-test/tabel-v2/request-domain.mjs';
 test('mill type enables double crew hours independently of its display name',()=>{
  const mill={id:'m',name:'W205',kind:'mill'};
  assert.equal(crewCount(mill),2);

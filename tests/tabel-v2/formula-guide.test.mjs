@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {syntaxParts,formulaReferences,FORMULA_REF_COLORS} from "../../test-app/tabel-v2/formula-syntax.mjs";
-import {FORMULAS,searchFormulas} from "../../test-app/tabel-v2/formula-catalog.mjs";
-import * as D from "../../test-app/tabel-v2/table-domain.mjs";
+import {syntaxParts,formulaReferences,FORMULA_REF_COLORS} from "../../working-test/tabel-v2/formula-syntax.mjs";
+import {FORMULAS,searchFormulas} from "../../working-test/tabel-v2/formula-catalog.mjs";
+import * as D from "../../working-test/tabel-v2/table-domain.mjs";
 
 test("formula bar tokens preserve exact text, highlight named functions and cell refs",()=>{
   const raw='=ROUND(A1;2)+SUM(B2:B4)+IF(A2>0;"A5";0)';

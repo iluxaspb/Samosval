@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {sheetVisible,sheetManager} from '../../test-app/tabel-v2/sheet-access.mjs';
-import {historyRows} from '../../test-app/tabel-v2/history-view.mjs';
+import {sheetVisible,sheetManager} from '../../working-test/tabel-v2/sheet-access.mjs';
+import {historyRows} from '../../working-test/tabel-v2/history-view.mjs';
 const actor=role=>({uid:'ivan',role,status:'active',tabAccess:true});
 test('sheet visibility defaults deny master/lopater; admin and foreman see every sheet',()=>{
  for(const role of ['master','lopater','viewer'])assert.equal(sheetVisible(actor(role),{},'linked'),false);

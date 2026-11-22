@@ -13,12 +13,12 @@ const server = spawn('python3',['-m','http.server','8831','--bind','127.0.0.1'],
    // Exercise the actual production modules through the same isolated host fixture.
    if(production) await page.route('**/tests/tabel-v2/harness.html',async route=>{
     const fs=require('node:fs');
-    await route.fulfill({contentType:'text/html',body:fs.readFileSync('tests/tabel-v2/harness.html','utf8').replaceAll('../../test-app/tabel-v2/','../../app/tabel-v2/').replaceAll('samosval-offline','samosval-test')});
+    await route.fulfill({contentType:'text/html',body:fs.readFileSync('tests/tabel-v2/harness.html','utf8').replaceAll('../../working-test/tabel-v2/','../../app/tabel-v2/').replaceAll('samosval-offline','samosval-test')});
    });
    await page.goto('http://127.0.0.1:8831/tests/tabel-v2/harness.html');
    await page.waitForFunction(()=>window.ready);
    await page.evaluate(async production=>{
-    const prefix=production?'/app/':'/test-app/';
+    const prefix=production?'/app/':'/working-test/';
     const {Store}=await import(prefix+'tabel-v2/store.mjs');
     const D=await import(prefix+'tabel-v2/table-domain.mjs');
     const open=Store.prototype.open;

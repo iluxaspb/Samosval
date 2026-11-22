@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import * as D from "../../test-app/tabel-v2/table-domain.mjs";
-import {toExcelFormula} from "../../test-app/tabel-v2/formula-engine.mjs";
+import * as D from "../../working-test/tabel-v2/table-domain.mjs";
+import {toExcelFormula} from "../../working-test/tabel-v2/formula-engine.mjs";
 
 const base={
   A1:{raw:"10"},A2:{raw:"20"},A3:{raw:"-3"},

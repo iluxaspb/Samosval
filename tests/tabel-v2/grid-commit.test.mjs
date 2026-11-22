@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 
 // Exercise the actual queueCommit closure with an in-memory store: a blur and
 // the apply button can request the same commit before the first save finishes.
-const source = readFileSync(new URL('../../test-app/tabel-v2/grid.mjs', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../../working-test/tabel-v2/grid.mjs', import.meta.url), 'utf8');
 const commitSource = source.slice(source.indexOf('  function queueCommit() {'), source.indexOf('  edit.oninput ='));
 function fixture(dirtyInitially) {
   return new Function('dirtyInitially', `

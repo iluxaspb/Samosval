@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {sourcePeriod,materialRecord,applyVolume} from '../../test-app/tabel-v2/material-transfer.mjs';
-import * as D from '../../test-app/tabel-v2/table-domain.mjs';
+import {sourcePeriod,materialRecord,applyVolume} from '../../working-test/tabel-v2/material-transfer.mjs';
+import * as D from '../../working-test/tabel-v2/table-domain.mjs';
 test('period uses source calendar date, day/night start metadata; invalid source is rejected',()=>{
  assert.deepEqual(sourcePeriod({startDate:'27.10.2026',startedAt:Date.parse('2026-10-27T21:00:00+03:00')}),{date:'2026-10-27',shift:'night'});
  assert.equal(sourcePeriod({startDate:'2026-10-27',workShift:'day'}).shift,'day');

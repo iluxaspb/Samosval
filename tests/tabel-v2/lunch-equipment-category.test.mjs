@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as D from '../../test-app/tabel-v2/table-domain.mjs';
-import * as R from '../../test-app/tabel-v2/request-domain.mjs';
+import * as D from '../../working-test/tabel-v2/table-domain.mjs';
+import * as R from '../../working-test/tabel-v2/request-domain.mjs';
 
 const config=(equipment,selected)=>({
   ...D.config({id:'obj',name:'Учебный объект'}),

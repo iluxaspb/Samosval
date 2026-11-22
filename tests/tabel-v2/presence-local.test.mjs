@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {presence} from '../../test-app/tabel-v2/presence.mjs';
+import {presence} from '../../working-test/tabel-v2/presence.mjs';
 
 test('local-only grid initializes and disposes presence without accessing Firebase', () => {
   const names=['document','MutationObserver','addEventListener','removeEventListener','setInterval','clearInterval'];

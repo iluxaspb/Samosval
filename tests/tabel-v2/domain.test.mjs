@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calendarDate, shiftKey, createShift, equipmentRows, setHours, setWorkActual, workProgress, rankChoices, aggregateMaterials, planMaterialImport, countEquipment } from '../../test-app/tabel-v2/domain.mjs';
-import { can, canEdit } from '../../test-app/tabel-v2/permissions.mjs';
+import { calendarDate, shiftKey, createShift, equipmentRows, setHours, setWorkActual, workProgress, rankChoices, aggregateMaterials, planMaterialImport, countEquipment } from '../../working-test/tabel-v2/domain.mjs';
+import { can, canEdit } from '../../working-test/tabel-v2/permissions.mjs';
 
 const settings = { equipment: [{ id: 'mill', name: 'Фреза', kind: 'mill', ownership: 'owned' }], works: [{ id: 'road', name: 'Фрезерование ПЧ 5 см', unit: 'м²', plan: 10000 }], materialId: 'crumb', destinations: ['plant', 'cone'] };
 const makeShift = (patch = {}) => createShift({ objectId: 'site', date: '2026-10-28', kind: 'night', startDate: '2026-10-20', settings, ...patch });

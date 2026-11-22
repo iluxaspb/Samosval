@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {Store} from '../../test-app/tabel-v2/store.mjs';
+import {Store} from '../../working-test/tabel-v2/store.mjs';
 const require=createRequire(import.meta.url);
 let indexed;
 try{indexed=require('fake-indexeddb');}catch{indexed=createRequire(process.env.TABEL_QUEUE_QA+'/package.json')('fake-indexeddb');}

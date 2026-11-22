@@ -7,7 +7,7 @@ const server=spawn('python3',['-m','http.server','8820','--bind','127.0.0.1'],{s
  const errors=[];p.on('pageerror',e=>errors.push(e.message));p.setDefaultTimeout(8000);
  await p.clock.setFixedTime(new Date('2026-10-28T12:00:00+03:00'));
  await p.goto('http://127.0.0.1:8820/tests/tabel-v2/harness.html');await p.waitForFunction(()=>ready);
- await p.evaluate(async()=>{const {Store}=await import('/test-app/tabel-v2/store.mjs'),open=Store.prototype.open;Store.prototype.open=async function(){window.qaStore=this;return open.call(this)};});
+ await p.evaluate(async()=>{const {Store}=await import('/working-test/tabel-v2/store.mjs'),open=Store.prototype.open;Store.prototype.open=async function(){window.qaStore=this;return open.call(this)};});
  await p.locator('#open').click();await p.locator('[data-view=table]').click();
  const action=a=>p.locator(`[data-action="${a}"]`),cell=k=>p.locator(`[data-cell="${k}"]`),editor=p.locator('[data-editor]');
  await action('new-sheet').click();await p.locator('dialog[open] [type=submit]').click();await p.locator('dialog[open]').waitFor({state:'hidden'});

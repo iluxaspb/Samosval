@@ -7,7 +7,7 @@ const server=spawn('python3',['-m','http.server','8795','--bind','127.0.0.1'],{s
  await p.clock.setFixedTime(new Date('2026-10-29T10:00:00+03:00'));
  await p.goto('http://127.0.0.1:8795/tests/tabel-v2/harness.html');await p.waitForFunction(()=>ready);
  await p.evaluate(async()=>{
-  const {Store}=await import('/test-app/tabel-v2/store.mjs');const D=await import('/test-app/tabel-v2/table-domain.mjs');
+  const {Store}=await import('/working-test/tabel-v2/store.mjs');const D=await import('/working-test/tabel-v2/table-domain.mjs');
   const store=await new Store(session.projectId+'_'+session.workspaceId+'_'+session.uid,null,()=>session).open();
   const config=D.config(objects[0]);config.equipment=[{id:'mill',name:'Фреза',ownership:'own'},{id:'water',name:'Поливомойка',ownership:'own'},{id:'hired',name:'Каток',ownership:'hired'},{id:'extra',name:'Экскаватор',ownership:'hired'}];config.request.equipment=config.equipment.map(e=>e.id);
   const day=D.createDay(config,'2026-10-29');
@@ -15,13 +15,13 @@ const server=spawn('python3',['-m','http.server','8795','--bind','127.0.0.1'],{s
   await store.close();session.objectId='site-a';snapshot.shift={id:'s',objectId:'site-a',startDate:'29.10.2026'};
   snapshot.trucks=[...Array.from({length:7},(_,i)=>({id:'t'+i,number:'А'+i+'ВС78'})),{id:'gai',isGAI:true}];
   snapshot.statuses=Object.fromEntries(snapshot.trucks.map(t=>[t.id,{shiftId:'s',onLine:true}]));snapshot.audit=[];
-  window.updateHeader=async()=>{const {updateHeader}=await import('/test-app/tabel-v2/summary.mjs');await updateHeader(host,document.querySelector('#header-counts'));};
+  window.updateHeader=async()=>{const {updateHeader}=await import('/working-test/tabel-v2/summary.mjs');await updateHeader(host,document.querySelector('#header-counts'));};
   await updateHeader();await openTabel();
  });
  const counts=p.locator('[data-equipment-counts]');await counts.waitFor();
  assert.match(await counts.innerText(),/Техника: 11/);assert.match(await p.locator('#header-counts').innerText(),/Техника: 11/);
  await p.evaluate(async()=>{
-  const {Store}=await import('/test-app/tabel-v2/store.mjs');const store=await new Store(session.projectId+'_'+session.workspaceId+'_'+session.uid,null,()=>session).open();
+  const {Store}=await import('/working-test/tabel-v2/store.mjs');const store=await new Store(session.projectId+'_'+session.workspaceId+'_'+session.uid,null,()=>session).open();
   const key='site-a/day:2026-10-29:day',base=store.get(key);base.data.equipment.pop();
   await store.save(key,base.data,store.get(key),'remove equipment');await store.close();await updateHeader();
  });

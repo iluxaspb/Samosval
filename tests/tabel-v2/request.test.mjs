@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import * as R from '../../test-app/tabel-v2/request-domain.mjs';
+import * as R from '../../working-test/tabel-v2/request-domain.mjs';
 const config={name:'Объект',equipment:[{id:'f1',name:'Фреза 1'},{id:'f2',name:'Фреза 2'},{id:'water',name:'Поливомойка'},{id:'unused',name:'Каток'}],people:[{id:'itr',name:'Иван',group:'itr',phone:'+79991234567'},{id:'worker',name:'Рабочий',group:'worker'}],request:{equipment:['f1','f2','water'],people:['itr','worker'],responsibleId:'itr',shift:'night'}};
 test('two mills count four people, unselected equipment and workers excluded; extras add once',()=>{
  const x=R.lunch(config,{address:'Невский, 1'},{mechanic:true,spare:true});

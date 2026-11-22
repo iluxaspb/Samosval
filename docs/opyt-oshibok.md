@@ -6,14 +6,14 @@
 
 Актуализация: 22.11.2026 (после выпуска рабочей 1.7.22, коммит `d01de1a`).
 
-## 1. Топология: три кодовые базы, легко перепутать
+## 1. Топология: актуальные линии после ревизии 22.11.2026
 
 **Симптом:** агент правит не те исходники, «перенос из теста в рабочую» делают не оттуда.
-**Причина:** в репозитории три фронтенд-линии:
-- `app/src` + `tools/build-release.py` — **отозванная** модульная production-линия 4.1.11 (ломала регистрацию, см. `docs/versioning.md`). Не публиковать автоматически.
-- `test-app/` + `tools/build-test.py` — тестовая линия 4.2.x (красный значок). Историческая, перенос в рабочую идёт НЕ из неё.
-- `working-test/` + `tools/build-working-test.py` — **фактическая рабочая версия 1.7.x** (синий значок, корень Pages). Разработка идёт здесь: feature-ветки `1.7.2N-test.M` → публикация на Pages-сайте `samosval-working-test` → после утверждения владельцем — перенос в ветку `root` как production `1.7.2N`.
-**Что делать:** выпуск рабочей версии = пересборка комплекта `working-test` с production-обвязкой (manifest-production, синие иконки, `index.html`) одним коммитом в `root`. Пример-эталон: `7ca5007` (1.7.19) и `d01de1a` (1.7.22).
+**Причина:** в репозитории исторически было три фронтенд-линии; после ревизии 22.11.2026 (ветка `cleanup/reviziya-2026-11-22`) актуальны:
+- `working-test/` + `tools/build-working-test.py` — **единственная линия разработки**: тестовая PWA здесь же (отдельный Pages-сайт `https://iluxaspb.github.io/samosval-working-test/`), прод-комплект собирается из неё (синие иконки, manifest-production, `index.html` в корне ветки `root`).
+- `app/src` + `tools/build-release.py` — **отозванная** модульная production-линия 4.1.11 (ломала регистрацию, см. `docs/versioning.md`). Хранится как архив, не публиковать. `working-test/tabel-v2/` использует её же структуру табеля.
+- `test-app/` — **удалён 22.11.2026** (мёртвый тест-канал 4.2.x вместе с nas-preview, releases, firestore-rules, recovery-3.4.html, однофайловыми аудитами и 7 workflow). История — в git. Точки входа `index-test.html`/`wtest/`/`sw-test.js`/`update-test.html`/`manifest-test.webmanifest` оставлены как редиректы/кэш для старых установившихся клиентов — НЕ удалять и не переиздавать.
+**Что делать:** выпуск рабочей версии = пересборка комплекта `working-test` с production-обвязкой одним коммитом в `root`. Пример-эталон: `7ca5007` (1.7.19) и `d01de1a` (1.7.22). Табель-тесты импортируют модули из `working-test/tabel-v2/`.
 
 ## 2. `working-test/src/pwa.js` различается между каналами
 
@@ -22,7 +22,6 @@
 **Что делать:** после сборки прод-комплекта сверять `git diff root -- working-test/src/pwa.js` — он должен совпадать с прод-версией байт-в-байт. Правка меняет sha256 → пересчитать RECORDS в `sw-working-test.js` и оба `build-manifest.json`. Стреляло при выпуске 1.7.22 (исправлено до публикации).
 
 ## 3. Серверные тесты ветки `release/working-test` частично красные
-
 **Симптом:** `node --test server/tests/` на коде ветки даёт красные тесты.
 **Причина:** код replica/auth-миграции ушёл вперёд тестов:
 - `migration-import.test.mjs` ждёт старый guard `<> 'samosval_test'`, а код уже пишет `NOT IN ('samosval_test','samosval_working_test_reserve')`;
@@ -52,6 +51,26 @@
 **Симптом:** `index-test.html` и `wtest/` в ветке root выглядят как «тестовое приложение», но ведут себя странно.
 **Причина:** это редирект-заглушки; реальная тестовая PWA живёт на отдельном Pages-сайте `https://iluxaspb.github.io/samosval-working-test/` (переезд из-за вложенного scope, коммиты `63fa8e0`..`693f493`).
 **Что делать:** тестовое приложение проверять на его сайте, правки тестовой линии — в feature-ветках `working-test/`, не через заглушки в root.
+
+## 8. Ревизия 22.11.2026: что удалено и что оставлено сознательно
+
+**Симптом:** в репозитории накопились хвосты четырёх поколений приложений; агенты путали каналы, документы отставали от фактов.
+**Причина:** параллельная эволюция каналов (модульный тест 4.2.x → wtest → working-test) оставляла дубли сборок, vendor-библиотек и тестов.
+**Сделано (ветка `cleanup/reviziya-2026-11-22`):**
+- удалены целиком: `test-app/` (169 МБ, 178 сборок мёртвого канала), `nas-preview/`, `releases/` (снапшоты 3.0–4.1.6), `recovery-3.4.html`, `firestore-*.rules` (6), `auth-check.html`, `AUDIT_REPORT_BACKEND_SWITCHING.md`, `tools/__pycache__`, `AGENTS.md.backup-*`;
+- удалены инструменты мёртвого канала: `tools/build-test.py`, `verify-test-modules.py`, `prepare-standalone-test.py`, `serve-test.py`, `recolor_test_icons.py`, `read-test-html.cjs`, `read-production-html.cjs`, `apply-paper-viewer.py`, `tools/rank-celebration/`;
+- удалены 7 workflow мёртвого канала (publish-test-modular, modular-audit, test-update-recovery, verify-settings-3422, standalone-coins-audit, coin-rules-audit, summary-hotfix); в оставшихся (`full-browser-integration`, `synology-server-tests`) вычищены шаги test-app;
+- удалены тест-наборы мёртвого канала (tests/: modular, full-audit, pwa, backend-mode, tabel, coins, journal, max-plate, multiplayer, offline-fixes, release-v3/v4, production-promotion, review, selector-reset, shift-close, paper-viewer, png-export, timesheet, ai-copilot); остался только `tests/tabel-v2/`;
+- табель-тесты перепривязаны с `test-app/tabel-v2` на `working-test/tabel-v2` (110/110 зелёные). Аудиты `equipment-total` (syncLineCountAudit) и `line-close` существовали только для test-app — удалены; якорь «Заявка» (`request-address-keep`) переписан под механизм `requestObjectId` канала working-test — правило владельца 13.11.2026 остаётся под защитой;
+- workflow `test-update-recovery` ссылался на несуществующий каталог `tests/photo-removal/` — битый путь умер вместе с workflow.
+**Оставлено сознательно:** `index-test.html`/`wtest/`/`sw-test.js`/`update-test.html`/`manifest-test.webmanifest` (редирект-заглушки и SW старых тест-клиентов — удалять нельзя, сломает миграцию); `app/` + `tools/build-release.py` (отозванная, но хранимая модульная линия); корневой `sw.js`/`manifest.json` (никем не регистрируется, но числится в RECORDS старого прод-SW); все 38 сборок `working-test/build/*` (п. «Опыт выпусков»); `working-test/tabel-v2/` — актуальная библиотека табеля (новее test-app-копии: вкладка «Заявка»).
+**Что делать:** новые фронтенд-задачи ведутся только в `working-test/`; ссылаться в тестах на `working-test/tabel-v2/`, vendor — `working-test/vendor/`.
+
+## 9. Урок 22.11.2026 (чистка веток): фильтр «оставить» писал по префиксу начала строки — ветки `feature/wincor-*` подпадали под удаление
+
+**Симптом:** при массовой чистке remote-веток фильтр `grep -vE '^(root|release/working-test|…|wincor)'` не спас ветки `feature/wincor-*`: слово wincor стоит не в начале имени.
+**Причина:** паттерн якорился на `^`, а ветки Винкора называются `feature/wincor-*`.
+**Что делать:** в массовых операциях `git push --delete` фильтр «оставить» писать только как белый список с `grep -vE '(^|/)wincor'` либо явным перечислением полных имён; перед пушем обязательно выводить итоговый список и сверять. Сами ветки Винкора восстановлены в тот же час из merge-коммитов root (PR #77–#84); потерь нет. На GitHub оставлены только: root, release/working-test, backup/production-before-rewards-20261026 и 8 веток feature/wincor-*.
 
 ## Опыт выпусков (короткие уроки)
 
