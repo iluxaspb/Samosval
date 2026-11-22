@@ -19,7 +19,7 @@ test('initial import encodes document text and includes atomic empty-target guar
   const result=prepareImport(fixture(),{cycleMinutes:60});
   assert.equal(result.counts.logs,1);assert.equal(result.cycleMinutes,60);
   assert.ok(!result.sql.includes('DROP TABLE'));
-  assert.match(result.sql,/current_database\(\) <> 'samosval_test'/);
+  assert.match(result.sql,/current_database\(\) NOT IN \('samosval_test','samosval_working_test_reserve'\)/);
   assert.match(result.sql,/Target is not empty; refusing to overwrite/);
   assert.match(result.sql,/BEGIN;/);assert.match(result.sql,/COMMIT;/);
   assert.match(result.sql,/migration_documents/);

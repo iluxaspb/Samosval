@@ -4,12 +4,11 @@ import { Pool } from 'pg';
 import { appendReplicaBatch, readReplicaJournal } from '../src/replica-store.mjs';
 
 // Интеграционные проверки журнала репликации на реальном PostgreSQL.
-// Требуют переменных POSTGRES_* (контейнер API передаёт их сам).
-const pool = new Pool({
-  host: process.env.PGHOST, port: Number(process.env.PGPORT || 5432),
-  database: process.env.POSTGRES_DB, user: process.env.POSTGRES_USER,
-  password: process.env.POSTGRES_PASSWORD, max: 2
-});
+// Требуют TEST_DATABASE_URL (контейнер CI передаёт её сам); без неё — скип.
+const connectionString = process.env.TEST_DATABASE_URL;
+const pool = connectionString
+  ? new Pool({ connectionString, max: 2 })
+  : null;
 const UID = 'test-admin-replica';
 const WS = 'main_workspace';
 
@@ -20,7 +19,7 @@ async function reset() {
 }
 const op = (id, n) => ({ id, kind: 'trip.load', payload: { n, at: 1700000000000 + n } });
 
-test('пачка применяется и получает строгую последовательность', async () => {
+test('пачка применяется и получает строгую последовательность', {skip: !connectionString}, async () => {
   await reset();
   const result = await appendReplicaBatch(pool, UID, { baseSeq: 0, operations: [op('replica-op-0001', 1), op('replica-op-0002', 2)] });
   assert.equal(result.outcome, 'confirmed');
@@ -30,7 +29,7 @@ test('пачка применяется и получает строгую по�
   assert.deepEqual(rows.rows.map(r => Number(r.seq)), [1, 2]);
 });
 
-test('повторная отправка не создаёт дубликатов и не двигает последовательность', async () => {
+test('повторная отправка не создаёт дубликатов и не двигает последовательность', {skip: !connectionString}, async () => {
   await reset();
   const batch = { baseSeq: 0, operations: [op('replica-op-0001', 1), op('replica-op-0002', 2)] };
   await appendReplicaBatch(pool, UID, batch);
@@ -41,7 +40,7 @@ test('повторная отправка не создаёт дубликато
   assert.equal(count.rows[0].n, 2);
 });
 
-test('пропуск последовательности блокирует применение', async () => {
+test('пропуск последовательности блокирует применение', {skip: !connectionString}, async () => {
   await reset();
   await appendReplicaBatch(pool, UID, { baseSeq: 0, operations: [op('replica-op-0001', 1)] });
   await assert.rejects(
@@ -50,7 +49,7 @@ test('пропуск последовательности блокирует п�
   );
 });
 
-test('тот же operation_id с другим содержимым отклоняется', async () => {
+test('тот же operation_id с другим содержимым отклоняется', {skip: !connectionString}, async () => {
   await reset();
   await appendReplicaBatch(pool, UID, { baseSeq: 0, operations: [op('replica-op-0001', 1)] });
   await assert.rejects(
@@ -59,7 +58,7 @@ test('тот же operation_id с другим содержимым отклон
   );
 });
 
-test('резерв не принимает зеркало, когда сам объявлен владельцем', async () => {
+test('резерв не принимает зеркало, когда сам объявлен владельцем', {skip: !connectionString}, async () => {
   await reset();
   await pool.query("UPDATE server_authority SET provider='ubuntu', generation=2 WHERE workspace_id=$1", [WS]);
   await assert.rejects(
@@ -69,7 +68,7 @@ test('резерв не принимает зеркало, когда сам о�
   await pool.query("UPDATE server_authority SET provider='firebase', generation=3 WHERE workspace_id=$1", [WS]);
 });
 
-test('журнал обратной репликации отдаёт непрерывную последовательность', async () => {
+test('журнал обратной репликации отдаёт непрерывную последовательность', {skip: !connectionString}, async () => {
   await reset();
   const journal = await readReplicaJournal(pool, UID, { since: 0, limit: 50 });
   assert.equal(journal.contiguous, true);
@@ -77,7 +76,7 @@ test('журнал обратной репликации отдаёт непре
   assert.equal(journal.head, 0);
 });
 
-test('взаимное исключение: при владельце Firebase прикладная запись в Ubuntu отклоняется', async () => {
+test('взаимное исключение: при владельце Firebase прикладная запись в Ubuntu отклоняется', {skip: !connectionString}, async () => {
   await reset();
   const { assertWriteAuthority } = await import('../src/authority.mjs');
   await assert.rejects(
@@ -89,7 +88,7 @@ test('взаимное исключение: при владельце Firebase 
   assert.equal(mirrored.applied, 1);
 });
 
-test('взаимное исключение: при владельце Ubuntu зеркало не принимается', async () => {
+test('взаимное исключение: при владельце Ubuntu зеркало не принимается', {skip: !connectionString}, async () => {
   await reset();
   await pool.query("UPDATE server_authority SET provider='ubuntu', generation=2 WHERE workspace_id=$1", [WS]);
   const { assertWriteAuthority } = await import('../src/authority.mjs');
@@ -101,4 +100,4 @@ test('взаимное исключение: при владельце Ubuntu з
   await pool.query("UPDATE server_authority SET provider='firebase', generation=3 WHERE workspace_id=$1", [WS]);
 });
 
-test.after(async () => { await pool.end(); });
+test.after(async () => { if (pool) await pool.end(); });
