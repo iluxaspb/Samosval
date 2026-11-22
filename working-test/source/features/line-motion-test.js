@@ -24,7 +24,6 @@ function upgrade(){
   if (typeof window.renderLine !== 'function' || !window.__animSpeedsV7) {
     throw new Error('Мягкая пружина: не найден совместимый модуль карточек Линии');
   }
-  const original = window.renderLine;
   const KEY = 'samosval-working-test-wt:line-soft-motion:v1';
   const CLASS = 'line-soft-motion-v1';
   const SELECTOR = '.truck-card[data-truck-id]';
@@ -140,12 +139,16 @@ function upgrade(){
     scrollFrame=requestAnimationFrame(tick);
   }
   const fresh = hint => hint && Date.now()-hint.time >= 0 && Date.now()-hint.time < 5500;
-  function render() {
-    if (!enabled) return original.apply(this, arguments);
+  // Рендер через явный реестр хуков: захват позиций до базового рендера,
+  // пружинная анимация после. ctx.reset — маркер этого хука; при ошибке
+  // базового рендера after-хук возвращает прежние узлы списка.
+  function renderBefore(ctx) {
+    ctx.softMotion = false;
+    if (!enabled) return;
     // Let an animation already started BEFORE installation finish normally.
-    if (window.__lineAnimating) return original.apply(this, arguments);
+    if (window.__lineAnimating) return;
     const c = list();
-    if (!c) return original.apply(this, arguments);
+    if (!c) return;
     setClasses();
     const visible = c.getClientRects().length > 0 && !document.hidden;
     const old = new Map(), continuing = new Map();
@@ -166,43 +169,47 @@ function upgrade(){
     // bypasses ONLY its legacy animation section, including queued delays.
     const previousNodes = Array.from(c.childNodes);
     c.replaceChildren();
-    let result;
-    try { result = original.apply(this, arguments); }
-    catch (error) { c.replaceChildren(...previousNodes); throw error; }
-    if (window.__cardJustLoaded === loaded) window.__cardJustLoaded = null;
-    if (window.__cardJustArrived === arrived) window.__cardJustArrived = null;
+    ctx.softMotion = { c, visible, old, continuing, loaded, arrived, loadId, arriveId, previousNodes };
+  }
+  function renderAfter(ctx) {
+    const s = ctx.softMotion;
+    if (!s) return;
+    if (ctx.error) { s.c.replaceChildren(...s.previousNodes); return; }
+    if (window.__cardJustLoaded === s.loaded) window.__cardJustLoaded = null;
+    if (window.__cardJustArrived === s.arrived) window.__cardJustArrived = null;
     window.__linePendingRender = false;
+    const c = s.c;
     const cards = Array.from(c.querySelectorAll(SELECTOR));
-    if (!visible || !c.getClientRects().length || reduce.matches) return result;
+    if (!s.visible || !c.getClientRects().length || reduce.matches) return;
     const moves = cards.map(card => {
-      const p = old.get(card.dataset.truckId), r = card.getBoundingClientRect();
+      const p = s.old.get(card.dataset.truckId), r = card.getBoundingClientRect();
       return {card, dx:p ? p.x-r.left-scrollX : 0, dy:p ? p.y-r.top-scrollY : 0};
     }).filter(m => Math.abs(m.dx)+Math.abs(m.dy) > .5);
     const farthest = Math.max(0, ...moves.map(m => Math.hypot(m.dx,m.dy)));
     const duration = Math.min(680, Math.max(460, 400+Math.sqrt(farthest)*9))*prefs.pace;
-    const arrivalCard = cards.find(card => card.dataset.truckId === arriveId);
+    const arrivalCard = cards.find(card => card.dataset.truckId === s.arriveId);
     if (arrivalCard && moves.some(m => m.card === arrivalCard)) followArrival(arrivalCard, duration);
     for (const {card,dx,dy} of moves) {
       const id = card.dataset.truckId;
-      if (id === arriveId || (id !== loadId && dy > 0)) card.dataset.softFront = '';
-      if (id === loadId) card.dataset.softBack = '';
-      const continuation=continuing.get(id), final=card.getBoundingClientRect();
+      if (id === s.arriveId || (id !== s.loadId && dy > 0)) card.dataset.softFront = '';
+      if (id === s.loadId) card.dataset.softBack = '';
+      const continuation=s.continuing.get(id), final=card.getBoundingClientRect();
       if(continuation && Math.abs(continuation.x-final.left-scrollX)<.5 && Math.abs(continuation.y-final.top-scrollY)<.5)
         animate(card,continuation.frames,continuation.duration,continuation.time);
       else animate(card, springFrames(dx,dy), duration);
     }
-    if (old.size) for (const card of cards) {
+    if (s.old.size) for (const card of cards) {
       if (moves.some(m => m.card === card)) continue;
       const id = card.dataset.truckId;
-      if (id === loadId || id === arriveId) animate(card, [
+      if (id === s.loadId || id === s.arriveId) animate(card, [
         {transform:'scale(1)',offset:0},
         {transform:'scale(.986)',offset:.25},
         {transform:'scale(1.002)',offset:.7},
         {transform:'scale(1)',offset:1}
       ], 300);
     }
-    return result;
   }
+  const unregisterRender = registerLineHook({ before: renderBefore, after: renderAfter });
   function setEnabled(on) {
     stop(); enabled = !!on;
     try { localStorage.setItem(KEY, enabled ? 'on' : 'off'); } catch (_) {}
@@ -227,7 +234,6 @@ function upgrade(){
   document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('resize', onResize);
   reduce.addEventListener?.('change', onResize);
-  window.renderLine = render;
   setClasses(); mountSetting();
   const restoreSettings = installSettings();
   window.__lineSoftMotionV1 = {
@@ -237,7 +243,7 @@ function upgrade(){
       stop(); enabled = false; setClasses(); css.remove();
       restoreSettings();
       document.getElementById('soft-motion-setting')?.remove();
-      if (window.renderLine === render) window.renderLine = original;
+      unregisterRender();
       for (const name of ['pointerdown','touchstart','wheel','keydown']) window.removeEventListener(name, gesture);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('resize', onResize);

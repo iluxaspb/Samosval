@@ -220,15 +220,11 @@
     listObs.observe(list, { childList: true, subtree: true });
   }
 
-  const origRenderLine = window.renderLine;
-  if (origRenderLine) {
-    window.renderLine = function() {
-      origRenderLine.apply(this, arguments);
-      setTimeout(markCooldownButtons, 20);
-      setTimeout(markCooldownButtons, 100);
-      setTimeout(markCooldownButtons, 300);
-    };
-  }
+  registerLineHook({ after() {
+    setTimeout(markCooldownButtons, 20);
+    setTimeout(markCooldownButtons, 100);
+    setTimeout(markCooldownButtons, 300);
+  } });
 
   setInterval(() => { attachObs(); markCooldownButtons(); }, 500);
   setTimeout(attachObs, 100);

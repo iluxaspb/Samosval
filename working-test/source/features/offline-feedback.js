@@ -9,7 +9,6 @@
   // The original animation handles *reordering*, not a single unchanged-position
   // truck. Preserve the original animation; add a motion fallback only when
   // the old renderer did not start its multi-card animation.
-  const originalAnimatedRenderLine=window.renderLine;
   let delayedLoadAnimation=null;
   function playSoloLoad(id){
     const el=document.getElementById('trucksLineList');
@@ -21,25 +20,26 @@
     card.classList.add('solo-load-animation');
     setTimeout(()=>card.classList.remove('solo-load-animation'),1200);
   }
-  window.renderLine=function(){
+  registerLineHook('before',ctx=>{
     const loaded=window.__cardJustLoaded;
-    const fresh=loaded&&(Date.now()-loaded.time)<5500;
-    const priorAnimationRunning=!!window.__lineAnimating;
-    if(fresh&&priorAnimationRunning)delayedLoadAnimation={...loaded};
-    const result=originalAnimatedRenderLine.apply(this,arguments);
-    if(fresh){
-      if(priorAnimationRunning){
-        // The previous arrival animation must finish before the load can fly.
-      }else if(!window.__lineAnimating){
-        // No reorder happened: animate the loading card itself.
-        delayedLoadAnimation=null;
-        playSoloLoad(loaded.id);
-        if(window.__cardJustLoaded===loaded)window.__cardJustLoaded=null;
-      }
-      // Otherwise the existing animation already started, so do not replay it.
+    ctx.loaded=loaded;
+    ctx.fresh=!!(loaded&&(Date.now()-loaded.time)<5500);
+    ctx.priorAnimationRunning=!!window.__lineAnimating;
+    if(ctx.fresh&&ctx.priorAnimationRunning)delayedLoadAnimation={...loaded};
+  });
+  registerLineHook('after',ctx=>{
+    const loaded=ctx.loaded;
+    if(!ctx.fresh)return;
+    if(ctx.priorAnimationRunning){
+      // The previous arrival animation must finish before the load can fly.
+    }else if(!window.__lineAnimating){
+      // No reorder happened: animate the loading card itself.
+      delayedLoadAnimation=null;
+      playSoloLoad(loaded.id);
+      if(window.__cardJustLoaded===loaded)window.__cardJustLoaded=null;
     }
-    return result;
-  };
+    // Otherwise the existing animation already started, so do not replay it.
+  });
   setInterval(()=>{
     if(delayedLoadAnimation&&!window.__lineAnimating){
       const loaded=delayedLoadAnimation;

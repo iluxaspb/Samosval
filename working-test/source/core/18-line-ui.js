@@ -1,3 +1,43 @@
+  // Явный реестр хуков Линии вместо подмен window.renderLine из фич.
+  // Все модули канала выполняются в общем глобальном скоупе, поэтому фичи
+  // вызывают registerLineHook напрямую. Хук оборачивает ТЕКУЩИЙ
+  // window.renderLine (включая анимационную версию из anim-speeds), так что
+  // порядок эффектов задаётся порядком регистрации и совпадает с прежними
+  // вложенными обёртками: line-motion-test → offline-feedback → anim-speeds.
+  // before и after одной регистрации делят общий объект ctx: before может
+  // положить туда состояние, after — прочитать (в т.ч. ctx.error).
+  const registeredLineHooks = [];
+  function registerLineHook(phaseOrSpec, maybeFn) {
+    const spec = (typeof phaseOrSpec === 'object' && phaseOrSpec !== null)
+      ? phaseOrSpec
+      : { [phaseOrSpec]: maybeFn };
+    if (typeof spec.before !== 'function' && typeof spec.after !== 'function') return () => {};
+    const original = window.renderLine;
+    const entry = { spec, original, wrapped: null };
+    entry.wrapped = function () {
+      const ctx = {};
+      if (typeof spec.before === 'function') {
+        try { spec.before(ctx); } catch (e) { console.error('[line-hook:before]', e); }
+      }
+      let result, failed = false;
+      try { result = original.apply(this, arguments); }
+      catch (e) { ctx.error = e; failed = true; }
+      ctx.result = result;
+      if (typeof spec.after === 'function') {
+        try { spec.after(ctx); } catch (e) { console.error('[line-hook:after]', e); }
+      }
+      if (failed) throw ctx.error;
+      return result;
+    };
+    registeredLineHooks.push(entry);
+    window.renderLine = entry.wrapped;
+    return () => {
+      const i = registeredLineHooks.indexOf(entry);
+      if (i < 0) return;
+      registeredLineHooks.splice(i, 1);
+      if (window.renderLine === entry.wrapped) window.renderLine = entry.original;
+    };
+  }
   function renderLine() {
     let sc = document.getElementById('startShiftContainer'), ac = document.getElementById('activeShiftContainer'), cb = document.getElementById('changeObjBtn');
     if (!state.shift) { sc.style.display = (hasPermission('start_shift') || hasTabAccess('timesheet')) ? 'block' : 'none'; ac.style.display = 'none'; cb.style.display = 'none'; return; }

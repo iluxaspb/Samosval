@@ -33,6 +33,9 @@ function runResetHold(storage) {
   const sandbox = {
     localStorage: storage,
     window: { addEventListener() {} },
+    // reset-hold.js регистрирует after-хук рендера Линии; в песочнице
+    // достаточно заглушки реестра (сам рендер не выполняется).
+    registerLineHook: () => () => {},
     document: {
       getElementById: () => null,
       querySelector: () => null,
