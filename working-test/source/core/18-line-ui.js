@@ -219,15 +219,53 @@
 
   // === АДМИН ПАНЕЛЬ ===
   const userAccessWrites=new Set();
+  // Черновик ника: ввод живёт в поле до явного «Сохранить» (кнопка рядом с
+  // полем). Фоновые перестроения списка (nasActiveRefresh ~15 с, снапшоты
+  // users/requests) не должны уничтожать напечатанный текст: пока поле в
+  // фокусе, перерисовка откладывается (паттерн refreshIncoming из
+  // tabel-v2/workspace.mjs), а при перестроении значения и фокус полей
+  // переживают innerHTML (сохранение/восстановление по data-nickname-uid).
+  let adminDraftHoldTimer=null;
+  function adminDraftFieldActive() {
+    const active=document.activeElement, container=document.getElementById('usersListContainer');
+    return !!(active && typeof active.matches==='function' && active.matches('input:not([readonly]),textarea')
+      && container && typeof container.contains==='function' && container.contains(active));
+  }
+  function adminDraftHoldActive() { return adminDraftFieldActive(); }
+  function scheduleRenderAdminPanel() {
+    clearTimeout(adminDraftHoldTimer);
+    adminDraftHoldTimer=setTimeout(()=>{adminDraftHoldTimer=null;renderAdminPanel();},1000);
+  }
+  function collectDraftFields(container) {
+    const drafts={};
+    container.querySelectorAll('[data-nickname-uid]').forEach(f=>drafts[f.dataset.nicknameUid]={value:f.value,focused:f===document.activeElement});
+    return drafts;
+  }
+  function restoreDraftFields(container,drafts) {
+    container.querySelectorAll('[data-nickname-uid]').forEach(f=>{const d=drafts[f.dataset.nicknameUid];if(!d)return;f.value=d.value;if(d.focused)f.focus();});
+  }
   function renderAdminPanel() {
     if (!canAdmin()) return;
     renderRegistrationRequests();
+    if (adminDraftHoldActive()) { scheduleRenderAdminPanel(); return; }
     const active = state.users.filter(u => u.status !== 'pending');
-    document.getElementById('usersListContainer').innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isNasRuntime()?u.protected===true:isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" value="${escapeHtml(u.nickname||'')}" onchange="updateUserNickname('${u.id}', this.value)"></div><div class="user-row-bottom"><select class="form-control" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
+    const container=document.getElementById('usersListContainer');
+    const drafts=collectDraftFields(container);
+    container.innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isNasRuntime()?u.protected===true:isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><div style="display:flex;gap:4px;align-items:center;"><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" data-nickname-uid="${escapeHtml(u.id)}" value="${escapeHtml(u.nickname||'')}" aria-label="Ник: ${escapeHtml(u.email)}"><button type="button" class="btn btn-secondary btn-small" style="padding:4px 10px; font-size:12px; min-height:0;" data-nickname-save="${escapeHtml(u.id)}">Сохранить</button></div></div><div class="user-row-bottom"><select class="form-control" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
+    restoreDraftFields(container,drafts);
+    container.querySelectorAll('[data-nickname-save]').forEach(b=>b.onclick=()=>saveUserNicknameDraft(b.dataset.nicknameSave));
     document.querySelectorAll('[data-user-access]').forEach(input=>input.onchange=()=>setUserAccess(input.dataset.userAccess,input.checked));
   }
   async function setUserAccess(uid, enabled) {
     return saveLineEvent(()=>runNasAdminAction('user.access',{uid,enabled}));
+  }
+  async function saveUserNicknameDraft(uid) {
+    if (!canAdmin()) return;
+    const field=document.querySelector('[data-nickname-uid="'+uid+'"]');
+    if (!field) return;
+    // Ошибку показывает runNasAdminAction (21-nas-runtime); поле не
+    // очищается — черновик защищён восстановлением после перерисовки.
+    return updateUserNickname(uid, field.value);
   }
   async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; return saveLineEvent(()=>runNasAdminAction('user.nickname',{uid,nickname:nickname.trim()})); }
   async function changeUserRole(uid, newRole) { if (!canAdmin()) return; return saveLineEvent(()=>runNasAdminAction('user.role',{uid,role:newRole})); }
