@@ -637,6 +637,9 @@
     }catch(error){
       // A conflict is authoritative; a transport/auth failure retains the same ID.
       if([400,409].includes(error.status)&&epoch===nasRuntimeEpoch){const latest=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify(latest.filter(x=>x.operation.id!==queued.operation.id)));await refreshNasAdministration().catch(()=>{});}
+      // Ошибки, кроме 400/409, остаются в очереди: панель «Неподтверждённые
+      // изменения» покажет причину застревания (markNasCommandFailed).
+      else if(typeof markIdentityCommandFailed==='function'&&epoch===nasRuntimeEpoch){try{markIdentityCommandFailed(key,queued.operation.id,error);}catch(_){}}
       throw error;
     }
   }
@@ -708,7 +711,16 @@
         const result=await client[method](pending.operation,{operationScope:pending.scope});
         if(!live())throw Error('Учётная запись изменилась');
         remove();return result;
-      }catch(error){if([400,409].includes(error.status))remove();throw error;}
+      }catch(error){
+        // 400/409 — сервер сам отказал: команды гарантированно нет на сервере.
+        // Остальные ошибки сохраняются в самой команде (markNasCommandFailed):
+        // панель «Неподтверждённые изменения» покажет причину застревания,
+        // окончательный отказ (4xx кроме 408/429) помечается failed и
+        // удаляется только явным решением пользователя в панели, не молча.
+        if([400,409].includes(error.status))remove();
+        else if(typeof markNasCommandFailed==='function'&&live()){try{markNasCommandFailed(key,pending.operation.id,error);}catch(_){}}
+        throw error;
+      }
       finally{if(live()){nasPollHolds--;if(!nasPollHolds)nasResumePolling?.();}}
     };
     const work=navigator.locks?navigator.locks.request(key,run):Promise.resolve().then(run);nasCommandFlights.set(flightKey,{work,intent});

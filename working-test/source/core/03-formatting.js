@@ -139,6 +139,10 @@
       all.forEach(x=>{if(x.status==='rejected')x.reviewed=true;});
       offlineJournalWrite(all);
     }
+    // Инструмент разбора неподтверждённых изменений (панель с кнопками
+    // «Повторить/Отбросить») открывается и отсюда, а не только из баннера
+    // обновления.
+    if(typeof window!=='undefined'&&typeof window.__wtShowUnsyncedPanel==='function'){try{window.__wtShowUnsyncedPanel();}catch(_){}}
   }
   function stopSync() {
     stopNasRuntime();
