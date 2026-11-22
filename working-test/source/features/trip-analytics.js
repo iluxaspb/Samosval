@@ -99,6 +99,21 @@ function calculateTripAnalytics(sessions, trucks, now) {
     out+=`<text x="44" y="180" fill="#94a3b8" font-size="10">${esc(date(pts[0].start)+' '+clock(pts[0].start))}</text><text x="468" y="180" text-anchor="end" fill="#94a3b8" font-size="10">${esc(date(pts.at(-1).end)+' '+clock(pts.at(-1).end))}</text></svg>`;
     if(size>1)out+='<div class="an-muted">Каждая точка — среднее по группе до '+size+' последовательных ходок.</div>';return out;
   }
+  // Точечное обновление (П3): «Ритм объекта» перестраивался innerHTML на каждом
+  // событии — сбивалась прокрутка и сворачивались раскрытые блоки. Теперь
+  // неизменный HTML не применяется вовсе, а при изменении сохраняются позиция
+  // прокрутки и раскрытые <details> (ключ — текст summary) и восстанавливаются.
+  function anDetailsKeys(root){if(!root||!root.querySelectorAll)return [];return Array.from(root.querySelectorAll('details[open]')).map(d=>{const s=d.querySelector('summary');return s?String(s.textContent||'').trim():'';}).filter(Boolean);}
+  function anRestoreDetails(root,keys){if(!root||!root.querySelectorAll||!keys||!keys.length)return;Array.from(root.querySelectorAll('details')).forEach(d=>{const s=d.querySelector('summary');if(s&&keys.indexOf(String(s.textContent||'').trim())>=0)d.open=true;});}
+  let lastDashboardHtml=null;
+  function anApplyDashboardHtml(html){
+    if(html===lastDashboardHtml)return false;
+    const keepScrollY=typeof window.scrollY==='number'?window.scrollY:0,openKeys=anDetailsKeys(dashboard);
+    dashboard.innerHTML=html;lastDashboardHtml=html;
+    anRestoreDetails(dashboard,openKeys);
+    if(typeof window.scrollTo==='function')window.scrollTo(0,keepScrollY);
+    return true;
+  }
   function render(){if(!enabled||!hasTabAccess('analytics'))return;
     const all=sessions(),objects=new Map(all.map(s=>[objectKey(s),s.objectName||'Без объекта']));if(object!=='all'&&!objects.has(object))object='all';
     const selected=all.filter(s=>object==='all'||objectKey(s)===object),model=calculateTripAnalytics(selected,state.trucks,Date.now());
@@ -109,7 +124,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
     let rows=m.rows.slice();rows.sort((a,b)=>sort==='loads'?b.loads-a.loads:sort==='name'?a.name.localeCompare(b.name):(b.stats.avg??-1)-(a.stats.avg??-1));
     const kpi=(label,value,note)=>`<div class="an-kpi"><span class="an-muted">${label}</span><strong>${value}</strong><span class="an-muted">${note}</span></div>`;
     const bins=[{label:'До 15 мин',min:0,max:15},{label:'15–30 мин',min:15,max:30},{label:'30–60 мин',min:30,max:60},{label:'60–90 мин',min:60,max:90},{label:'90 мин и больше',min:90,max:Infinity}].map(b=>({...b,value:m.trips.filter(t=>t.ms/60000>=b.min&&t.ms/60000<b.max).length}));
-    dashboard.innerHTML=`<div class="an-heading">Ритм объекта</div><p class="an-sub">Ходка: погрузка → возвращение на линию</p>
+    const html=`<div class="an-heading">Ритм объекта</div><p class="an-sub">Ходка: погрузка → возвращение на линию</p>
       <div class="an-filters"><label>Период<select data-filter="period">${options([['current','Текущая смена'],['7','Последние 7 дней'],['30','Последние 30 дней'],['all','Вся история']],period)}</select></label><label>Объект<select data-filter="object">${options([['all','Все объекты'],...objects],object)}</select></label><label>Самосвал<select data-filter="truck">${options([['all','Все машины'],...model.rows.map(r=>[r.id,r.name])],truckId)}</select></label><label>Порядок машин<select data-filter="sort">${options([['avg','Сначала долгие ходки'],['loads','По числу погрузок'],['name','По номеру']],sort)}</select></label></div>
       <div class="an-hero"><div class="an-muted">СРЕДНЕЕ ВРЕМЯ ХОДКИ</div><strong>${dur(st.avg)}</strong><div class="an-muted">${st.n} завершённых ходок · ${selected.length} смен · ${m.rows.length} машин</div><span class="an-pill">Медиана ${dur(st.median)}</span></div>
       <div class="an-kpis">${kpi('Быстрее всего',dur(st.min),'завершённая ходка')}${kpi('Дольше всего',dur(st.max),'завершённая ходка')}${kpi('Погрузки',num(m.loads),num(m.volume)+' м³')}${kpi('Ожидание на линии',dur(m.wait.avg),'среднее · '+m.wait.n+' замеров')}</div>
@@ -121,6 +136,7 @@ function calculateTripAnalytics(sessions, trucks, now) {
       <div id="an-truck-details"></div>
       <div class="an-panel"><details><summary>Как считаются показатели</summary><div class="an-muted">Среднее и медиана считаются по завершённым ходкам, каждая имеет одинаковый вес. Ожидание — время от «Приехал» до следующей погрузки. Погрузки и объём считаются отдельно: последняя погрузка может ещё не иметь возвращения.<br><br>В пути: ${m.pending}. Без отметки возвращения: ${m.missing}. Некорректных пар времени: ${m.invalid}. Они не входят в графики и среднее. Данные ограничены загруженными сменами и архивом. Для истории период выбирается по дате закрытия смены; текущая смена включается целиком.</div></details></div>
       <div class="an-panel"><details><summary>Журнал действий (аудит)</summary>${renderAuditEntries()}</details></div>`;
+    if(!anApplyDashboardHtml(html))return;
     dashboard.querySelectorAll('[data-filter]').forEach(el=>el.onchange=()=>{if(el.dataset.filter==='period')period=el.value;if(el.dataset.filter==='object')object=el.value;if(el.dataset.filter==='truck')truckId=el.value;if(el.dataset.filter==='sort')sort=el.value;openTruck=null;render();});
     function details(id){const r=m.rows.find(r=>r.id===id),target=dashboard.querySelector('#an-truck-details');if(!r){target.innerHTML='';return;}target.innerHTML=`<div class="an-panel"><h3>${esc(r.name)}</h3><div class="an-muted">Погрузка → прибытие · ${r.trips.length} ходок</div>${r.trips.slice().reverse().map(t=>`<div class="an-trip"><span>${esc(date(t.start))} ${esc(clock(t.start))} → ${esc(date(t.end))} ${esc(clock(t.end))}<br><span class="an-muted">${esc(t.objectName)}</span></span><b>${dur(t.ms)}</b></div>`).join('')||'<div class="an-empty">Нет завершённых ходок</div>'}</div>`;}
     details(openTruck);dashboard.querySelectorAll('[data-truck]').forEach(b=>b.onclick=()=>{openTruck=b.dataset.truck;details(openTruck);dashboard.querySelector('#an-truck-details').scrollIntoView({behavior:'smooth',block:'start'});});

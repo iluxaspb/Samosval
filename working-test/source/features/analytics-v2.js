@@ -349,7 +349,27 @@
   }
 
   // ===== Main render =====
-  let lastRender = 0;
+  // Точечное обновление (П3): перерисовка аналитики не должна сбивать
+  // прокрутку и раскрытые блоки. Если данные не изменились (сигнатура =
+  // итоговый HTML), не перерисовываем вообще; иначе сохраняем позицию
+  // прокрутки и список раскрытых <details> (ключ — текст summary) и
+  // восстанавливаем их после перерисовки. Паттерн сравнения сигнатуры —
+  // как в features/game-coins-v2.js.
+  function collectOpenDetails(root) {
+    if (!root || !root.querySelectorAll) return [];
+    return Array.from(root.querySelectorAll('details[open]')).map(d => {
+      const s = d.querySelector('summary');
+      return s ? String(s.textContent || '').trim() : '';
+    }).filter(Boolean);
+  }
+  function restoreOpenDetails(root, keys) {
+    if (!root || !root.querySelectorAll || !keys || !keys.length) return;
+    Array.from(root.querySelectorAll('details')).forEach(d => {
+      const s = d.querySelector('summary');
+      if (s && keys.indexOf(String(s.textContent || '').trim()) >= 0) d.open = true;
+    });
+  }
+  let lastRender = 0, lastAnalyticsHtml = null;
   window.renderAnalytics = function(force) {
     const now = Date.now();
     if (!force && now - lastRender < 500) return;
@@ -360,7 +380,7 @@
     const tab = document.getElementById('tab-analytics');
     if (!tab) return;
 
-    tab.innerHTML = `
+    const html = `
       <div class="section-title">📊 Аналитика</div>
       ${renderCurrentShiftStats()}
       ${renderCycles()}
@@ -377,6 +397,17 @@
       </div>
       <div id="auditLogContainer">${renderAuditLog()}</div>
     `;
+
+    // Контент не изменился — вообще не трогаем DOM: прокрутка и раскрытые
+    // блоки живут без перерисовки.
+    if (!force && html === lastAnalyticsHtml) return;
+
+    const keepScrollY = (typeof window.scrollY === 'number') ? window.scrollY : 0;
+    const openDetails = collectOpenDetails(tab);
+    tab.innerHTML = html;
+    lastAnalyticsHtml = html;
+    restoreOpenDetails(tab, openDetails);
+    if (typeof window.scrollTo === 'function') window.scrollTo(0, keepScrollY);
 
     tab.querySelectorAll('#auditFilterRow .an-filter-btn').forEach(btn => {
       btn.onclick = () => { auditPeriod = btn.dataset.period; window.renderAnalytics(true); };
