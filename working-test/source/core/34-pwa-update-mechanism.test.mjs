@@ -18,6 +18,7 @@ const read = rel => readFileSync(path.join(root, rel), 'utf8');
 const sw = read('working-test/source/service-worker.js');
 const sourcePwa = read('working-test/source/src/pwa.js');
 const buildPwa = read('working-test/src/pwa.js');
+const currentVersion = (read('working-test/source/features/working-test-release.js').match(/version:'([^']+)'/) || [])[1] || '';
 const shell = read('working-test/source/shell.html');
 const buildTool = read('tools/build-working-test.py');
 
@@ -90,7 +91,7 @@ test('(в) версия видна на экране входа — до вхо�
   const login = shell.slice(shell.indexOf('id="authOverlay"'), shell.indexOf('id="pendingScreen"'));
   assert.ok(login.length > 100, 'не найден экран входа в shell.html');
   assert.match(login, /class="version-text auth-version"/, 'на экране входа нужен видимый элемент версии (class version-text)');
-  assert.match(login, /Версия: 1\.7\.22/, 'на экране входа должен стоять номер текущей версии');
+  assert.match(login, new RegExp('Версия: ' + currentVersion.replace(/\./g, '\\.')), 'на экране входа должен стоять номер текущей версии');
 });
 
 test('(в) версия в настройках видна всегда, а не только администратору (обе копии)', () => {
