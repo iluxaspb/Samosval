@@ -26,7 +26,11 @@ test('server arcade settlement and theme prices match the shipped UI',()=>{
   assert.equal(dayKey(Date.parse('2026-10-29T21:01:00Z')),'2026-10-30');
 });
 test('game requests cannot select a payout, inject a price or mint a grant without a valid bounded intent',()=>{
-  assert.deepEqual(normalizeGame({id:'play',type:'game.play',action:{kind:'slot',roll:0,payout:100000}}),{id:'play',type:'game.play',action:{kind:'slot'}});
+  // Roll фиксируется на клиенте до остановки барабанов и проходит насквозь:
+  // сервер засчитывает заранее показанную комбинацию, но выбрать выигрыш
+  // клиент не может — значение проверено по границам.
+  assert.deepEqual(normalizeGame({id:'play',type:'game.play',action:{kind:'slot',roll:9999,payout:100000}}),{id:'play',type:'game.play',action:{kind:'slot',roll:9999}});
+  for(const roll of [undefined,-1,10000,1.5,'0'])assert.throws(()=>normalizeGame({id:'play',type:'game.play',action:{kind:'slot',roll}}),{code:'invalid-game-roll'});
   const itemId=Object.keys(themePrices)[0];assert.deepEqual(normalizeGame({id:'play',type:'game.play',action:{kind:'purchase',itemId,price:0}}).action,{kind:'purchase',itemId});
   for(const action of [{kind:'mario',level:21,coin:0,day:'2026-10-30'},{kind:'mario',level:1,coin:5,day:'2026-10-30'},{kind:'purchase',itemId:'unknown'},{kind:'finish',level:1.5}])assert.throws(()=>normalizeGame({id:'play',type:'game.play',action}));
   for(const amount of [0,-1,1.5,10001])assert.throws(()=>normalizeGame({id:'grant',type:'game.grant',targetUid:'one',amount,reason:'Fixture'}));

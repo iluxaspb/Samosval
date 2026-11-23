@@ -45,7 +45,11 @@ test('PostgreSQL game wallet: server policy, replay, concurrency, grants, purcha
     });
     await t.test('disable policy blocks new plays; profile revocation also blocks receipt replay',async()=>{
       await pool.query('UPDATE workspace_settings SET payload=$2 WHERE workspace_id=$1',[ws,{testReviewFlags:{game_mode:false}}]);
-      await assert.rejects(play({kind:'slot'},admin),{code:'game-disabled'});
+      // Roll обязателен: бросок фиксируется на клиенте до остановки барабанов.
+      // normalizeGame бросает синхронно, поэтому обёртка async — иначе rejects
+      // ловит throw как ошибку самого теста, а не как rejection.
+      await assert.rejects(async()=>play({kind:'slot'},admin),{code:'invalid-game-roll'});
+      await assert.rejects(play({kind:'slot',roll:7},admin),{code:'game-disabled'});
       await pool.query("UPDATE app_users SET status='disabled' WHERE uid=$1",[user]);await assert.rejects(play({kind:'mario',level:1,coin:0,day:dayKey()},user,'coin'),{code:'forbidden'});
     });
   }finally{
