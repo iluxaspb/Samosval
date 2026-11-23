@@ -2,10 +2,14 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeShiftStart,shiftStartPayload} from '../src/shift-start.mjs';
 test('start accepts a stable operation and ignores client actor, name and timestamps',()=>{
-  const op=normalizeShiftStart({id:'a',objectId:'site',createdAt:1,startedBy:'spoof',objectName:'spoof',startedAt:1});
-  assert.deepEqual(op,{id:'a',objectId:'site',createdAt:1,type:'start'});
+  const op=normalizeShiftStart({id:'a',objectId:'site',createdAt:1,workShift:'night',startedBy:'spoof',objectName:'spoof',startedAt:1});
+  assert.deepEqual(op,{id:'a',objectId:'site',createdAt:1,type:'start',workShift:'night'});
   const now=Date.parse('2026-10-30T21:15:00Z');
-  assert.deepEqual(shiftStartPayload(op,{name:' Server site '},{uid:'u',display_name:'Server actor'},now),{id:'shift_a',objectId:'site',objectName:'Server site',startDate:'31.10.2026',startedAt:now,startedBy:'Server actor',startedByUid:'u',isActive:true});
+  assert.deepEqual(shiftStartPayload(op,{name:' Server site '},{uid:'u',display_name:'Server actor'},now),{payloadSchemaVersion:2,id:'shift_a',shiftId:'shift_a',objectId:'site',objectName:'Server site',startDate:'31.10.2026',date:'2026-10-31',workShift:'night',type:'night',state:'active',isActive:true,startedAt:now,startedByUid:'u',startedBy:'Server actor'});
+});
+test('workShift is mandatory and invalid values are rejected before database access',()=>{
+  const base={id:'operation',objectId:'site',createdAt:1};
+  for(const workShift of [undefined,'','morning'])assert.throws(()=>normalizeShiftStart({...base,...(workShift===undefined?{}:{workShift})}),{code:'invalid-start-operation'});
 });
 test('invalid IDs and timestamps are rejected before database access',()=>{
   const base={id:'operation',objectId:'site',createdAt:1};

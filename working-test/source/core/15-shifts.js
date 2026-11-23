@@ -1,3 +1,9 @@
+  function buildShiftPayloadV2({shiftId,object,currentUid,currentDisplayName,workShift,startedAt}) {
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(startedAt);
+    const part=type=>parts.find(item=>item.type===type)?.value;
+    const date=`${part('year')}-${part('month')}-${part('day')}`;
+    return {payloadSchemaVersion:2,id:shiftId,shiftId,objectId:object.id,objectName:object.name,startDate:`${part('day')}.${part('month')}.${part('year')}`,date,workShift,type:workShift,state:'active',isActive:true,startedAt,startedByUid:currentUid,startedBy:currentDisplayName};
+  }
   async function startShiftWithObject(objName, objId, workShift) {
     if (startShiftInFlight || !requireEdit('start_shift')) return;
     if(!workShift){appNotice('Выберите тип смены: дневная или ночная');return;}
@@ -9,7 +15,8 @@
       if(isNasRuntime()){await nasBusinessCommand('start','current',{objectId:objId,workShift});await nasRefreshLine();closeStartShiftModal();showToastEl('Смена начата',false);openTabelShiftForLine(objName,objId);return;}
       await cleanupOldShiftData(); await clearAllNotifications();
       let sid = 'shift_' + Date.now();
-      await tfAwait(refs.shift.set({ id: sid, objectName: objName, objectId: objId||'', startDate: nowDateStr(), startedAt: Date.now(), startedBy: getUserName(), isActive: true }));
+      const startedAt=Date.now();
+      await tfAwait(refs.shift.set(buildShiftPayloadV2({shiftId:sid,object:{id:objId||'',name:objName},currentUid,currentDisplayName:getUserName(),workShift,startedAt})));
       if (appConfig.maxEnabled && appConfig.notifyStart) enqueueMax(`🚀 Смена начата\n🏢 ${objName}\n📅 ${nowDateStr()}\n👤 ${getUserName()}`);
       addAudit(`🚀 Начата смена на объекте: ${objName}`).catch(()=>{});
       closeStartShiftModal(); showToastEl('Смена начата', false);

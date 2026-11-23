@@ -6,7 +6,7 @@ import {startShiftOperation} from '../src/shift-start.mjs';
 test('PostgreSQL shift start serializes operators and preserves previous data',{skip:!process.env.TEST_DATABASE_URL},async t=>{
   const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL,max:5});
   const ws='start_'+randomUUID().replaceAll('-',''),uid=ws+'_admin',other=ws+'_other',role=ws+'_role',site='site';
-  const op=(id='first')=>({id,objectId:site,createdAt:Date.now()});
+  const op=(id='first')=>({id,objectId:site,createdAt:Date.now(),workShift:'day'});
   const start=(data,actor=uid)=>startShiftOperation(pool,actor,data,ws);
   const clear=async()=>{await pool.query('DELETE FROM line_audit WHERE workspace_id=$1',[ws]);await pool.query('DELETE FROM shift_operation_receipts WHERE workspace_id=$1',[ws]);await pool.query('DELETE FROM shifts WHERE workspace_id=$1',[ws]);};
   try {
