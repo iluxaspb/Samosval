@@ -8,7 +8,7 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_test_runtime') THEN CREATE ROLE samosval_test_runtime; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_test_prepared_owner') THEN CREATE ROLE samosval_test_prepared_owner; END IF;
 END $$;
-ALTER ROLE samosval_test_orchestrator LOGIN CREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'orchestrator_password';
+ALTER ROLE samosval_test_orchestrator LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'orchestrator_password';
 ALTER ROLE samosval_test_app LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'test_app_password';
 ALTER ROLE samosval_test_runtime LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'runtime_password';
 ALTER ROLE samosval_test_prepared_owner NOLOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
@@ -39,9 +39,11 @@ CREATE TABLE IF NOT EXISTS samosval_isolated_admin.target_receipts (
   marker_version integer NOT NULL,
   expected_comment text NOT NULL,
   capability_hash bytea NOT NULL,
+  receipt_generation bigint NOT NULL DEFAULT 1,
   state text NOT NULL
 );
 ALTER TABLE samosval_isolated_admin.target_receipts ADD COLUMN IF NOT EXISTS capability_hash bytea;
+ALTER TABLE samosval_isolated_admin.target_receipts ADD COLUMN IF NOT EXISTS receipt_generation bigint NOT NULL DEFAULT 1;
 DELETE FROM samosval_isolated_admin.target_receipts WHERE capability_hash IS NULL;
 ALTER TABLE samosval_isolated_admin.target_receipts ALTER COLUMN capability_hash SET NOT NULL;
 ALTER TABLE samosval_isolated_admin.target_receipts OWNER TO CURRENT_USER;
@@ -66,7 +68,8 @@ BEGIN
   THEN RAISE EXCEPTION 'isolated target reservation rejected'; END IF;
   expected_comment := 'samosval-isolated-db:v1;kind=target;runid=' || runid || ';hash=' || target_hash || ';owner=samosval_test_prepared_owner';
   INSERT INTO samosval_isolated_admin.target_receipts
-    VALUES (target_name, runid, target_hash, 'samosval_test_prepared_owner', 'target', 1, expected_comment, public.digest(capability, 'sha256'), 'reserved');
+    (target_name, runid, target_hash, expected_owner, kind, marker_version, expected_comment, capability_hash, receipt_generation, state)
+    VALUES (target_name, runid, target_hash, 'samosval_test_prepared_owner', 'target', 1, expected_comment, public.digest(capability, 'sha256'), 1, 'reserved');
 END $$;
 
 CREATE OR REPLACE FUNCTION samosval_isolated_admin.mark_reserved_target(target_name text, capability text)
@@ -105,15 +108,30 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION samosval_isolated_admin.authorize_drop_target(target_name text, capability text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
-DECLARE receipt samosval_isolated_admin.target_receipts%ROWTYPE; identity_ok boolean;
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
+DECLARE receipt samosval_isolated_admin.target_receipts%ROWTYPE; fingerprint jsonb;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(target_name, 0));
   SELECT * INTO STRICT receipt FROM samosval_isolated_admin.target_receipts r WHERE r.target_name=authorize_drop_target.target_name::name FOR UPDATE;
-  IF receipt.capability_hash <> public.digest(capability, 'sha256') OR receipt.state <> 'marked' THEN RAISE EXCEPTION 'isolated authority rejected'; END IF;
-  SELECT r.rolname=receipt.expected_owner::text AND s.description=receipt.expected_comment INTO identity_ok
-    FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba LEFT JOIN pg_shdescription s ON s.objoid=d.oid AND s.classoid='pg_database'::regclass WHERE d.datname=target_name;
-  IF identity_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'isolated target identity mismatch'; END IF;
+  IF receipt.capability_hash <> public.digest(capability, 'sha256') OR receipt.state <> 'marked' OR receipt.kind <> 'target' THEN RAISE EXCEPTION 'isolated authority rejected'; END IF;
+  SELECT jsonb_build_object(
+      'databaseOid', d.oid::text,
+      'ownerOid', owner.oid::text,
+      'ownerName', owner.rolname,
+      'commentText', description.description,
+      'commentHash', encode(public.digest(description.description, 'sha256'), 'hex'),
+      'receiptGeneration', receipt.receipt_generation::text,
+      'receiptState', receipt.state,
+      'capabilityBinding', encode(receipt.capability_hash, 'hex')
+    ) INTO fingerprint
+    FROM pg_database d
+    JOIN pg_roles owner ON owner.oid=d.datdba
+    JOIN pg_shdescription description ON description.objoid=d.oid AND description.classoid='pg_database'::regclass
+    WHERE d.datname=target_name
+      AND owner.rolname=receipt.expected_owner::text
+      AND description.description=receipt.expected_comment;
+  IF fingerprint IS NULL THEN RAISE EXCEPTION 'isolated target identity mismatch'; END IF;
+  RETURN fingerprint;
 END $$;
 
 ALTER FUNCTION samosval_isolated_admin.reserve_target(text,text,text) OWNER TO CURRENT_USER;

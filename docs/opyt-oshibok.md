@@ -93,6 +93,8 @@
 **Причина:** receipt был привязан только к имени target, а владельцем target назначалась недоверенная login-role приложения.
 **Что делать:** authority запуска подтверждать высокоэнтропийной capability, хранить в registry только SHA-256; target отдавать отдельной `NOLOGIN` owner-role без membership у app/runtime/orchestrator. Все identity mutation выполнять только закрытыми `SECURITY DEFINER` функциями с capability, row lock и общим advisory lock; app/runtime должны получать только CONNECT и не владеть БД. Raw `CREATEDB` нельзя безопасно ограничить префиксом, поэтому создание/удаление БД выполняет только закрытый parent-owned broker с bootstrap connection: enum-операции, строгая проверка exact name/receipt/capability и отсутствие произвольного SQL.
 
+**Уточнение 24.11.2026:** транзакционный advisory lock внутри `authorize_drop_target()` не ограждает следующий autocommit `DROP DATABASE`: после завершения функции lock и row lock уже сняты. Destructive lifecycle должен использовать один выделенный bootstrap-сеанс, брать session-level lock exact target до authorization и держать его через свежую сверку OID/owner/COMMENT/receipt generation+state+capability binding до следующего statement `DROP`; все доверенные create/mutation/drop пути берут тот же lock. Unlock выполняется в `finally`, а при ошибке unlock соединение закрывается. Orchestrator после появления такого broker обязан быть `NOCREATEDB`, иначе он обходит receipt/prefix checks произвольным `CREATE DATABASE`.
+
 ## Опыт выпусков (короткие уроки)
 
 - «Опубликовано» = GitHub Pages реально отдаёт новую версию (curl с cache-buster по `version.json`), а не «push прошёл». Развёртывание Pages занимает 1–3 минуты.
