@@ -32,7 +32,7 @@ services:
     environment:
       PGHOST: postgres
       PGPORT: "5432"
-      POSTGRES_DB: postgres
+      POSTGRES_DB: ${SAMOSVAL_API_TARGET_DATABASE:?set an exact generated API target database}
       POSTGRES_USER: samosval_test_app
       POSTGRES_PASSWORD: ${SAMOSVAL_TEST_APP_PASSWORD:?set a runtime-generated test app password}
       PORT: "8080"

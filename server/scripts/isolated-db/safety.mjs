@@ -16,7 +16,8 @@ export function validateAdminUrl(input) {
   try { url = new URL(input); } catch { reject('admin URL'); }
   if (!['postgres:', 'postgresql:'].includes(url.protocol)) reject('admin URL');
   if (!['127.0.0.1', 'localhost', '[::1]', 'postgres'].includes(url.hostname)) reject('admin URL');
-  if (url.pathname !== '/postgres' || url.search || url.hash || !url.username || !url.password) reject('admin URL');
+  const approvedPort = url.hostname === 'postgres' ? '5432' : '55432';
+  if (url.port !== approvedPort || url.pathname !== '/postgres' || url.search || url.hash || !url.username || !url.password) reject('admin URL');
   return url;
 }
 

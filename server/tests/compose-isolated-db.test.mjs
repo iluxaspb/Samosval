@@ -19,6 +19,7 @@ const composeEnvironment = {
   SAMOSVAL_ORCHESTRATOR_PASSWORD: 'compose-config-orchestrator',
   SAMOSVAL_TEST_APP_PASSWORD: 'compose-config-app',
   SAMOSVAL_TEST_RUNTIME_PASSWORD: 'compose-config-runtime',
+  SAMOSVAL_API_TARGET_DATABASE: 'samosval_parallel_shifts_test_0123456789ab_0123456789ab',
 };
 
 function renderCompose() {
@@ -115,11 +116,13 @@ test('compose exposes only the ephemeral bootstrap database on loopback', t => {
   assert.doesNotMatch(config, /samosval_parallel_shifts_test\s*$/m);
 });
 
-test('compose preserves the documented API flow behind an explicit profile', t => {
+test('compose API profile requires an injected generated target instead of maintenance database', t => {
   const config = renderCompose();
   if (!config) return t.skip('docker compose is unavailable');
   assert.match(config, /api:/);
   assert.match(config, /profiles:[\s\S]*api/);
+  assert.match(config, /POSTGRES_DB: samosval_parallel_shifts_test_0123456789ab_0123456789ab/);
+  assert.doesNotMatch(config.match(/api:[\s\S]*?(?=\n  postgres:)/)?.[0] ?? '', /POSTGRES_DB: postgres/);
   assert.match(config, /127\.0\.0\.1/);
   assert.match(config, /18080/);
 });
