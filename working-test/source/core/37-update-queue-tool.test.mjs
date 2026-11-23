@@ -180,14 +180,16 @@ test('(ж) рантайм: ошибки отправки (кроме 400/409) з
     'nasAdminAction тоже фиксирует причину');
 });
 
-test('(з) баннер обновления ведёт в панель: обе копии pwa.js', () => {
+test('(з) автоматическое обновление: панель разбора остаётся доступной как диагностика (обе копии pwa.js)', () => {
   for (const pwa of [readSource('src/pwa.js'), readSource('../src/pwa.js')]) {
-    assert.match(pwa, /Что не сохранено\?/, 'нужна кнопка разбора в баннере');
-    assert.match(pwa, /__wtShowUnsyncedPanel/, 'кнопка открывает панель');
-    assert.match(pwa, /Нажмите «Что не сохранено\?»/);
-    assert.match(pwa, /updatePaused\)[^;]*__wtShowUnsyncedPanel|updatePaused&&[^;]*__wtShowUnsyncedPanel/,
-      'блокировка установки открывает панель, а не только текст');
+    // Баннер и кнопка «Установить» удалены из основного пути (1.8.4): панель
+    // разбора больше не привязана к ним и живёт в showSyncDiagnostics.
+    assert.doesNotMatch(pwa, /app-update-banner/, 'баннер обновления удалён');
+    assert.doesNotMatch(pwa, /app-update-apply/, 'кнопка «Установить» удалена');
+    // Панель по-прежнему доступна из диагностики синхронизации.
   }
+  const formatting = readSource('core/03-formatting.js');
+  assert.match(formatting, /__wtShowUnsyncedPanel/, 'showSyncDiagnostics открывает панель (дублируется проверкой (и))');
 });
 
 test('(и) диагностика синхронизации открывает ту же панель', () => {

@@ -95,7 +95,11 @@ self.addEventListener('install', event => event.waitUntil((async () => {
       const failed = results.find(r => r.status === 'rejected');
       if (failed) throw failed.reason;
       await cache.put(COMPLETE,new Response(VERSION));
-      // No skipWaiting: finish the current session before switching code versions.
+      // Автоматическое обновление (решение владельца 23.11.2026): новый
+      // воркер активируется СРАЗУ после полной загрузки и SHA-проверки всех
+      // файлов. Никакого ожидания разрешения — страница перезагрузится по
+      // controllerchange, не прерывая активный ввод.
+      await self.skipWaiting();
     })();
     // The whole installation must finish within the deadline: a stalled network
     // fails with a clear error instead of hanging forever. The timer is cleared
@@ -113,8 +117,8 @@ self.addEventListener('install', event => event.waitUntil((async () => {
 self.addEventListener('activate', event => event.waitUntil((async () => {
   const cache = await caches.open(CACHE);
   if (!await cache.match(COMPLETE)) throw Error('Incomplete test release');
-  // Explicit APPLY can activate with open windows. Cache housekeeping must not
-  // delay activation; the reloaded page requests it after taking the new controller.
+  // activate сразу забирает окна: страница по controllerchange показывает
+  // оверлей и перезагружается. (Основной путь — skipWaiting в install.)
   await self.clients.claim();
 })()));
 
@@ -167,8 +171,9 @@ self.addEventListener('message', event => {
       port.postMessage({type:'WORKING_TEST_PWA_STATUS',version:VERSION,complete,completed:complete?RECORDS.length:completedFiles,total:RECORDS.length});
       return;
     }
-    // Only activate a complete, hash-verified release requested explicitly by
-    // the user. Never call skipWaiting during automatic installation.
+    // APPLY остаётся для страницы восстановления update-working-test.html.
+    // Основной путь автоматический: skipWaiting вызывается в install сразу
+    // после SHA-проверки всех файлов.
     const accepted = complete && event.data?.version === VERSION;
     port.postMessage({type:'WORKING_TEST_PWA_APPLY',version:VERSION,accepted});
     // Do not keep the APPLY message event pending on activation itself.

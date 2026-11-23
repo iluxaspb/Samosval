@@ -1,11 +1,14 @@
-// Регрессия 1.7.19: автообновление обязано срабатывать, когда страница уже
-// новая (network-first отдал свежий index.html), а АКТИВНЫЙ service worker
-// (офлайн-кэш) остался старым. Живое выполнение pwa.js в vm с моками
-// registration/воркеров — без DOM-браузера и сети. Сценарии:
-// (A) published==buildVersion, воркер старее — установка запускается;
-// (B) published==buildVersion==activeVersion — автоустановка не запускается;
-// (C) updatePaused (несохранённые данные) — авто не применяется, баннер.
-// Обязан падать на коде 1.7.18 (сверка только с buildVersion) и проходить на 1.7.19.
+// Регрессия 1.8.4: обновление полностью автоматическое (решение владельца
+// 23.11.2026). SW сам делает skipWaiting после SHA-проверки файлов, страница
+// по controllerchange показывает оверлей и перезагружается — без кнопок и
+// блокировок. Живое выполнение pwa.js в vm с моками. Сценарии:
+// (A) published новее buildVersion → registration.update() вызван;
+// (B) published==buildVersion==activeVersion → update() НЕ вызван;
+// (C) controllerchange → показан оверлей и вызван location.reload;
+// (D) фокус в input → reload отложен (нет оверлея), после потери фокуса — reload;
+// (E) 3 неудачные попытки → строка со ссылкой на queue-doctor.html;
+// (F) несохранённые данные больше НЕ блокируют обновление.
+// Плюс статические проверки обеих копий pwa.js.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -17,7 +20,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../../..');
 const source = readFileSync(path.join(root, 'working-test/source/src/pwa.js'), 'utf8');
 
-const NEW_BUILD = 'aaaaaaaaaaaaaaaa', OLD_BUILD = 'bbbbbbbbbbbbbbbb';
+const NEW_BUILD = 'aaaaaaaaaaaaaaaa', OLD_BUILD = 'bbbbbbbbbbbbbbbb', FUTURE_BUILD = 'cccccccccccccccc';
 
 // Время в песочнице сдвинуто вперёд, чтобы прошли стартовые guards
 // (30 с от открытия страницы) без real-time ожидания.
@@ -33,22 +36,14 @@ function linkedPorts() {
   return [a, b];
 }
 
-// Мок-воркер: на TEST_PWA_STATUS отвечает своей версией с complete:true,
-// на TEST_PWA_APPLY подтверждает применение.
+// Мок-воркер: на TEST_PWA_STATUS отвечает своей версией с complete:true.
 function fakeWorker(version) {
   return {
     state: 'activated',
     addEventListener: () => {},
     postMessage: (msg, ports) => {
-      if (!ports?.[0]) return;
-      const reply = msg?.type === 'TEST_PWA_STATUS'
-        ? { type: 'TEST_PWA_STATUS', version, complete: true }
-        : msg?.type === 'TEST_PWA_APPLY'
-          ? { type: 'TEST_PWA_APPLY', version: msg.version, accepted: true }
-          : null;
-      // Код страницы слушает своим port1, воркеру передан port2: ответ в port2
-      // асинхронно прилетает в onmessage.port1 (порты связаны через linkedPorts).
-      if (reply) queueMicrotask(() => ports[0].postMessage(reply));
+      if (!ports?.[0] || msg?.type !== 'TEST_PWA_STATUS') return;
+      queueMicrotask(() => ports[0].postMessage({ type: 'TEST_PWA_STATUS', version, complete: true }));
     }
   };
 }
@@ -66,27 +61,52 @@ function makeElement() {
   });
 }
 
-// Запускает pwa.js в песочнице; следит за registration.update() — он вызывается
-// только когда ранний выход «уже актуальна» пройден и установка действительно пошла.
-async function runPwa({ published, active, paused = false }) {
+// Запускает pwa.js в песочнице.
+async function runPwa({ published, active, focused = null, confirmOpen = false, initialController = true } = {}) {
   timeShift.ms = 0;
-  let updateCalls = 0, replaced = false;
+  let updateCalls = 0, reloadCalls = 0;
+  const overlays = [];
+  const listeners = {}; // document + window + navigator.serviceWorker
+  const timers = []; // все setInterval/setTimeout песочницы для dispose()
+  let disposed = false;
   const activeWorker = active ? fakeWorker(active) : null;
-  const reg = { active: activeWorker, waiting: null, installing: null, addEventListener: () => {}, update: async () => {} };
+  const reg = { active: activeWorker, waiting: null, installing: null, addEventListener: () => {} };
   reg.update = async () => { updateCalls++; };
   const sandbox = {
     console: { warn: () => {}, log: () => {} },
     location: {
       protocol: 'https:', pathname: '/index-working-test.html', href: 'https://t/index-working-test.html',
-      replace: () => { replaced = true; }
+      reload: () => { reloadCalls++; }
     },
-    navigator: { onLine: true, serviceWorker: { register: async () => reg, addEventListener: () => {} }, standalone: false },
+    navigator: {
+      onLine: true, standalone: false,
+      serviceWorker: {
+        controller: initialController ? { fake: 'old' } : null,
+        register: async () => reg,
+        addEventListener: (type, fn) => { (listeners['sw:' + type] ||= []).push(fn); }
+      }
+    },
     document: {
       hidden: false,
-      // Страница уже «свежая»: её скрипт указывает на опубликованную сборку NEW_BUILD.
+      activeElement: focused,
+      // Страница может быть уже «свежей» по network-first: её скрипт
+      // указывает на опубликованную сборку NEW_BUILD (currentScript).
       currentScript: { src: 'https://t/working-test/build/' + NEW_BUILD + '/pwa.js' },
-      querySelector: () => null, querySelectorAll: () => [],
-      createElement: () => makeElement(), addEventListener: () => {}, body: makeElement(), head: makeElement()
+      // Confirm-диалог приложения помечается классом pcm-overlay pcm-open.
+      querySelector: selector => confirmOpen && selector === '.pcm-overlay.pcm-open' ? {} : null,
+      querySelectorAll: () => [],
+      createElement: tag => {
+        const el = makeElement();
+        return new Proxy(el, {
+          set(t, p, v) {
+            t[p] = v;
+            if (p === 'textContent' && v === 'Обновление установлено — перезагружаюсь…') overlays.push(v);
+            return true;
+          }
+        });
+      },
+      createTextNode: text => ({ textContent: text, nodeType: 3 }),
+      addEventListener: () => {}, body: makeElement(), head: makeElement()
     },
     window: null,
     sessionStorage: { getItem: () => null, setItem: () => {} },
@@ -99,18 +119,21 @@ async function runPwa({ published, active, paused = false }) {
     matchMedia: () => ({ matches: false }),
     MessageChannel: class { constructor() { const [p1, p2] = linkedPorts(); this.port1 = p1; this.port2 = p2; } },
     CustomEvent: class { constructor(t, o) { this.type = t; this.detail = o?.detail; } },
-    addEventListener: () => {}, dispatchEvent: () => {},
-    setInterval: () => 0,
-    // setTimeout с числовой задержкой — честный таймер: ответ воркера приходит
-    // микрозадачей раньше 4-секундного таймаута workerStatus, а дедлайны
-    // (45/90/120 с) не истекают, потому что тест завершается раньше.
-    setTimeout: (fn, delay) => setTimeout(fn, typeof delay === 'number' ? Math.min(delay, 5000) : 0),
+    addEventListener: (type, fn) => { (listeners['win:' + type] ||= []).push(fn); },
+    dispatchEvent: () => {},
+    // Честные интервалы (reloadWhenSafe работает на setInterval); после
+    // dispose() новые таймеры не создаются — иначе бесконечная цепочка
+    // повторов autoUpdate держала бы процесс теста навсегда.
+    setInterval: (fn, ms) => { if (disposed) return 0; const id = setInterval(fn, ms || 0); timers.push(id); return id; },
+    // setTimeout: честные таймеры, но большие задержки (15 с повтор, 3 мин
+    // defer) укорачиваем до 50 мс, чтобы сценарии завершались быстро.
+    setTimeout: (fn, delay) => { if (disposed) return 0; const id = setTimeout(fn, delay > 1000 ? 50 : (delay || 0)); timers.push(id); return id; },
     clearTimeout: id => clearTimeout(id), clearInterval: id => clearInterval(id),
     AbortSignal: { timeout: () => undefined },
     Date: FakeDate, JSON, Math, Object, Array, String, Number, Boolean, Promise, Error, WeakSet, Set, RegExp, Proxy, Symbol,
     queueMicrotask,
-    // несохранённые данные: очередь рейсов > 0 → assertUpdateSafe бросает updatePaused
-    offlinePendingCount: () => (paused ? 3 : 0),
+    // Несохранённые данные: раньше блокировали установку, теперь НЕ должны.
+    offlinePendingCount: () => 3,
     pendingOps: 0,
     currentUid: null, permissionsLoaded: true, currentUserStatus: 'active',
     isSecureContext: true
@@ -119,51 +142,112 @@ async function runPwa({ published, active, paused = false }) {
   sandbox.globalThis = sandbox;
   const context = vm.createContext(sandbox);
   vm.runInContext(source, context, { filename: 'pwa.js' });
-  // pageStartedAt зафиксирован «сейчас»; сдвигаем время за 30-секундный guard
-  // и даём стартовой цепочке checkForUpdates→discover→autoApply отработать.
+  const flush = async (n = 50) => { for (let i = 0; i < n; i++) await new Promise(resolve => setImmediate(resolve)); };
   timeShift.ms = 60000;
-  for (let i = 0; i < 500; i++) await new Promise(resolve => setImmediate(resolve));
+  await flush();
   return {
+    sandbox,
     snapshot: () => sandbox.TestPWA.snapshot(),
     updateCalls: () => updateCalls,
-    replaced: () => replaced
+    reloadCalls: () => reloadCalls,
+    overlays: () => overlays.length,
+    // Симулируем смену контроллера: новый SW забрал окно.
+    fireControllerChange: async () => {
+      for (const fn of listeners['sw:controllerchange'] || []) fn();
+      await flush();
+    },
+    flush,
+    dispose: () => { disposed = true; for (const id of timers) { clearTimeout(id); clearInterval(id); } }
   };
 }
 
-test('сценарий A: страница новая, активный воркер старый — установка запускается', async () => {
-  // buildVersion страницы == published (страница уже свежая по network-first),
-  // но активный воркер держит старый офлайн-кэш. На коде 1.7.18 автоустановка
-  // отсекалась ранним возвратом «Уже открыта актуальная сборка».
-  const run = await runPwa({ published: NEW_BUILD, active: OLD_BUILD });
-  assert.ok(run.updateCalls() > 0,
-    'registration.update() не вызван: детектор вернулся по «уже актуальна», хотя активный воркер старый');
-  assert.equal(run.snapshot().activeVersion, OLD_BUILD);
+test('сценарий A: version.json новее → registration.update() вызван (без кнопок)', async t => {
+  const run = await runPwa({ published: FUTURE_BUILD, active: OLD_BUILD });
+  t.after(() => run.dispose());
+  // buildVersion страницы = NEW_BUILD (скрипт в песочнице), published новее.
+  assert.ok(run.updateCalls() > 0, 'registration.update() обязан вызываться автоматически при более новой версии');
 });
 
-test('сценарий B: страница и активный воркер равны published — автоустановки нет', async () => {
+test('сценарий B: страница и активный воркер равны published — update() не вызван', async t => {
   const run = await runPwa({ published: NEW_BUILD, active: NEW_BUILD });
-  assert.equal(run.updateCalls(), 0, 'автоустановка не должна запускаться, когда всё уже актуально');
-  assert.equal(run.snapshot().activeVersion, NEW_BUILD);
+  t.after(() => run.dispose());
+  assert.equal(run.updateCalls(), 0, 'update() не должен вызываться, когда всё уже актуально');
 });
 
-test('сценарий C: updatePaused (несохранённые данные) — авто не применяется', async () => {
-  const run = await runPwa({ published: NEW_BUILD, active: OLD_BUILD, paused: true });
-  assert.equal(run.updateCalls(), 0, 'при updatePaused установка не должна запускаться');
-  assert.ok(!run.replaced(), 'перезапуск страницы не должен выполняться при updatePaused');
-  assert.equal(run.snapshot().activeVersion, OLD_BUILD, 'воркер не должен меняться при updatePaused');
+test('сценарий C: controllerchange → оверлей «Обновление установлено» и location.reload', async t => {
+  const run = await runPwa({ published: FUTURE_BUILD, active: OLD_BUILD });
+  t.after(() => run.dispose());
+  await run.fireControllerChange();
+  // reloadWhenSafe работает на интервале 500 мс — нужно реальное время.
+  await new Promise(resolve => setTimeout(resolve, 900));
+  assert.ok(run.overlays() > 0, 'должен быть показан оверлей обновления');
+  // reload выполняется через ~1.6 с после оверлея; таймеры укорочены в моке.
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.ok(run.reloadCalls() > 0, 'location.reload должен быть вызван после controllerchange');
 });
 
-test('статически: условие автообновления сверяется с версией активного воркера (обе копии)', () => {
+test('сценарий D: фокус в input → reload отложен; потеря фокуса → reload', async t => {
+  const input = { tagName: 'INPUT' };
+  const run = await runPwa({ published: FUTURE_BUILD, active: OLD_BUILD, focused: input });
+  t.after(() => run.dispose());
+  await run.fireControllerChange();
+  await new Promise(resolve => setTimeout(resolve, 900));
+  assert.equal(run.reloadCalls(), 0, 'перезагрузка не должна выполняться при фокусе в поле ввода');
+  // Пользователь закрыл поле: потеря фокуса → цикл замечает и перезагружает.
+  run.sandbox.document.activeElement = null;
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  assert.ok(run.reloadCalls() > 0, 'после потери фокуса перезагрузка обязана выполниться');
+});
+
+test('сценарий E: 3 неудачные попытки → показана ссылка на queue-doctor', async t => {
+  const run = await runPwa({ published: FUTURE_BUILD, active: OLD_BUILD });
+  t.after(() => run.dispose());
+  // Первая попытка уже сделана при старте; дожидаемся, пока цепочка повторов
+  // (интервал 15 с укорочен до 50 мс в моке) дойдёт до лимита.
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  const line = run.sandbox.__wtStatusLine;
+  assert.ok(line, 'строка статуса под шапкой должна существовать');
+  const markup = String(line.innerHTML || '') + String(line.textContent || '');
+  assert.match(markup, /Обновление не применилось/,
+    'после трёх неудачных попыток должна появиться строка про queue-doctor');
+  assert.ok(markup.includes('queue-doctor.html'),
+    'строка обязана содержать ссылку на queue-doctor.html');
+});
+
+test('сценарий F: несохранённые данные НЕ блокируют автообновление', async t => {
+  // offlinePendingCount() в моке возвращает 3 — раньше assertUpdateSafe
+  // блокировал установку. Теперь update() обязан быть вызван всё равно.
+  const run = await runPwa({ published: FUTURE_BUILD, active: OLD_BUILD });
+  t.after(() => run.dispose());
+  assert.ok(run.updateCalls() > 0, 'несохранённые данные не должны блокировать update()');
+});
+
+test('статически: баннер «Доступно обновление» и кнопка «Установить» удалены (обе копии)', () => {
   const buildPwa = readFileSync(path.join(root, 'working-test/src/pwa.js'), 'utf8');
   for (const [name, pwa] of [['source', source], ['published', buildPwa]]) {
-    assert.match(pwa, /if\(!latestPublished\|\|!updateNeeded\(latestPublished\.version\)\)return;/,
-      name + ': автоустановка обязана идти через updateNeeded (сверка и со страницей, и с активным воркером)');
-    assert.match(pwa, /function updateNeeded\(published\)/, name + ': нужна функция updateNeeded');
-    const body = pwa.slice(pwa.indexOf('function updateNeeded'), pwa.indexOf('function workerStatus'));
-    assert.match(body, /active !== published/, name + ': updateNeeded обязан видеть отставание активного воркера');
+    assert.doesNotMatch(pwa, /app-update-banner/, name + ': баннер обновления должен быть удалён');
+    assert.doesNotMatch(pwa, /app-update-apply/, name + ': кнопка «Установить» удалена из основного пути');
+    assert.doesNotMatch(pwa, /Доступно обновление/, name + ': текст баннера удалён');
+    assert.doesNotMatch(pwa, /function\s+assertUpdateSafe|function\s+updateBlockReason/, name + ': блокировки удалены из пути обновления');
+    assert.doesNotMatch(pwa, /installPublishedUpdate/, name + ': путь ручной установки удалён');
+    assert.match(pwa, /обновление установлено/, name + ': тихая строка статуса «обновление установлено»');
   }
+});
+
+test('статически: откладывание reload при активном вводе с пределом 3 минуты (обе копии)', () => {
+  const buildPwa = readFileSync(path.join(root, 'working-test/src/pwa.js'), 'utf8');
+  for (const [name, pwa] of [['source', source], ['published', buildPwa]]) {
+    assert.match(pwa, /180000/, name + ': максимум откладывания — 3 минуты');
+    assert.match(pwa, /Обновление установлено — перезагружаюсь…/, name + ': текст оверлея');
+    assert.match(pwa, /location\.reload\(\)/, name + ': перезагрузка страницы');
+    assert.match(pwa, /1800000/, name + ': периодическая проверка раз в 30 минут');
+  }
+});
+
+test('статически: копии pwa.js различаются только префиксом сообщений', () => {
+  const buildPwa = readFileSync(path.join(root, 'working-test/src/pwa.js'), 'utf8');
   const normalized = buildPwa.replaceAll('WORKING_TEST_PWA_', 'TEST_PWA_');
   assert.equal(normalized, source, 'копии pwa.js различаются больше чем префиксом сообщений');
 });
 
-console.log('OK: автообновление при устаревшем воркере работает (1.7.19)');
+console.log('OK: полностью автоматическое обновление 1.8.4 работает');

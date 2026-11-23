@@ -112,3 +112,16 @@
 - Клиент: restored-логи кладутся в `offlineRemoteLogs` (а НЕ в state.logs напрямую) — иначе offlineProjectState затирает их своим срезом. Сводные таблицы отчёта фильтруются по shiftId активной и restored-логи не видят.
 - Полный прогон server/tests/*.test.mjs локально держит ~17 красных (replica/identity) — это старый долг ветки (см. п.3–4), сравнение с базовым коммитом подтвердило отсутствие новых регрессий.
 См. ветка feature/wtest-archive-parallel-20261123, тесты: server/tests/archive-parallel-restore.test.mjs, working-test/source/core/archive-parallel-restore.test.mjs.
+
+## 14. Урок 23.11.2026: полностью автоматическое обновление working-test (1.8.4) — что проверить перед выпуском
+
+**Решение владельца 23.11.2026:** обновление тестовой линии ставится полностью автоматически, без кнопки «Установить» и без блокировки неподтверждёнными данными (прежняя схема давала замкнутый круг: новый код с инструментом разбора не мог доехать до застрявшего клиента).
+**Схема:** SW делает skipWaiting СРАЗУ в install (после SHA-проверки всех файлов и записи COMPLETE) → activate → clients.claim() → страница по controllerchange показывает оверлей «Обновление установлено — перезагружаюсь…» → location.reload(). Страница сверяет активный SW с version.json (мимо кэша), при более новой версии вызывает registration.update(). Проверка: раз в 30 минут + visibilitychange/focus/pageshow + online + при старте.
+**Ловушки, найденные при реализации:**
+- Перезагрузка откладывается при активном вводе (фокус в input/textarea/select/contenteditable или открыт .pcm-overlay.pcm-open — окно подтверждения приложения), максимум 3 минуты (MAX_INPUT_DEFER=180000). Маркер confirm-диалога — классы pretty-confirm (.pcm-overlay.pcm-open), а не dialog[open].
+- Первое переключение контроллера при открытии страницы НЕ должно перезагружать: pageHadController фиксируется на старте (иначе каждое открытие уже-обновлённого приложения перезагружало бы его).
+- APPLY-сообщение осталось только у страницы восстановления update-working-test.html: тест 25-pwa-protocol исключил WORKING_TEST_PWA_APPLY из обязательных для pwa.js.
+- Страховка от петли: 3 попытки с интервалом 15 с; если версия не применилась — строка «Обновление не применилось, откройте queue-doctor.html» и остановка (не циклить reload бесконечно).
+- verify-working-test.py ПАДАЛ и ДО правок (6 ошибок: эталон REQUIRED_VERSION='1.7.22' не обновлялся с 1.8.x, ожидание ветки release/working-test вместо feature-ветки, «отсутствуют» модули firebase-traffic-* из test-app/modules.json). Новых ошибок от задачи — только правка queue-doctor.html вне заявленного списка. REQUIRED_VERSION нужно актуализировать отдельно.
+- В vm-тестах pwa.js (35-й) обязательно: document.currentScript (иначе buildVersion пуст и update() дёргается всегда), честные setInterval (reloadWhenSafe работает на интервале), флаг disposed, останавливающий СОЗДАНИЕ новых таймеров (иначе бесконечная цепочка повторов autoUpdate держит процесс теста), и реальное время (микрозадачный flush не ждёт 500-мс интервалы).
+См. feature/wtest-auto-update-20261123; тесты: working-test/source/core/35-auto-update-stale-worker.test.mjs (9 проверок), 29-pwa-update-recovery, 34-pwa-update-mechanism, 37-update-queue-tool.

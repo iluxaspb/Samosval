@@ -18,7 +18,7 @@ const sourcePwa = read('working-test/source/src/pwa.js');
 const buildPwa = read('working-test/src/pwa.js');
 const recovery = read('update-working-test.html');
 
-// Тело waitForVerifiedBuild берём отдельно: в файле есть и другие функции,
+// (контекст вырезания waitForVerifiedBuild удалён вместе с функцией в 1.8.4)
 // где сверка version === expected (например, waitForActivation) — они остаются.
 const waitBody = text => {
   const match = text.match(/function\s+waitForVerifiedBuild\s*\([^)]*\)\s*\{([\s\S]*?)\n {2}\}/);
@@ -40,16 +40,27 @@ test('service worker: общий дедлайн установки заканч�
 });
 
 test('waitForVerifiedBuild принимает полный воркер по фактической версии (обе копии)', () => {
+  // С 1.8.4 ожидание сборки на странице не нужно: SW сам делает skipWaiting
+  // сразу после SHA-проверки файлов, страница только реагирует на
+  // controllerchange. Проверяем, что мёртвый код пути ручного APPLY удалён.
   for (const pwa of [sourcePwa, buildPwa]) {
-    const body = waitBody(pwa);
-    assert.match(body, /complete\s*===\s*true/, 'воркер признаётся готовым по complete');
-    assert.match(body, /return\s*\{worker:\s*ready,\s*version:\s*result\.version\}/,
-      'нужно возвращать {worker, version} с фактической версией воркера');
-    assert.match(body, /return\s*\{worker:\s*null,\s*version:\s*result\.version\}/,
-      'активный полный воркер возвращается как worker:null с фактической версией');
-    assert.doesNotMatch(body, /result\?\.version\s*===\s*expected/,
-      'нельзя ждать версию из устаревшего манифеста (expected)');
+    assert.doesNotMatch(pwa, /function\s+waitForVerifiedBuild/, 'ручное ожидание сборки удалено из пути обновления');
+    assert.doesNotMatch(pwa, /TEST_PWA_APPLY|WORKING_TEST_PWA_APPLY/, 'страница не должна применять сборку вручную (APPLY остаётся только у страницы восстановления)');
   }
+});
+
+test('SW: skipWaiting вызывается сразу после полной загрузки и SHA-проверки (install)', () => {
+  const install = sw.slice(sw.indexOf("addEventListener('install'"), sw.indexOf("addEventListener('activate'"));
+  assert.ok(install.length > 100, 'не найден install-обработчик');
+  const completeAt = install.indexOf('cache.put(COMPLETE');
+  const skipAt = install.indexOf('skipWaiting');
+  assert.ok(completeAt > -1, 'маркер полной сборки COMPLETE обязателен');
+  assert.ok(skipAt > completeAt, 'skipWaiting обязан вызываться ПОСЛЕ записи COMPLETE (все файлы скачаны и проверены)');
+});
+
+test('SW: activate сразу забирает окна clients.claim', () => {
+  const activate = sw.slice(sw.indexOf("addEventListener('activate'"), sw.indexOf("addEventListener('fetch'"));
+  assert.match(activate, /clients\.claim\(\)/, 'activate обязан вызывать clients.claim()');
 });
 
 test('обе копии pwa.js совпадают после замены префикса WORKING_TEST_PWA_ на TEST_PWA_', () => {

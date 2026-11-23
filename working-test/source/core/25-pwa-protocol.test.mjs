@@ -2,6 +2,8 @@
 // Раньше сборка переименовывала типы только в service worker (получалось
 // WORKING_WORKING_TEST_PWA_*), страница их не узнавала: обновление приложения
 // не применялось, состояние офлайн-копии не подтверждалось. Тест ловит это.
+// С 1.8.4 страница не применяет сборку вручную: WORKING_TEST_PWA_APPLY
+// остаётся в SW только для страницы восстановления update-working-test.html.
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -19,7 +21,7 @@ const clientNames = names(pwa);
 
 const failures = [];
 for (const name of clientNames) if (!swNames.has(name)) failures.push('service worker не знает сообщение ' + name);
-for (const name of swNames) if (!clientNames.has(name) && name !== 'WORKING_TEST_PWA_PROGRESS' && name !== 'WORKING_TEST_PWA_PRUNE') {
+for (const name of swNames) if (!clientNames.has(name) && name !== 'WORKING_TEST_PWA_PROGRESS' && name !== 'WORKING_TEST_PWA_PRUNE' && name !== 'WORKING_TEST_PWA_APPLY') {
   failures.push('страница не отправляет сообщение ' + name);
 }
 if (/WORKING_WORKING/.test(sw)) failures.push('в service worker двойной префикс сообщений (WORKING_WORKING_*)');
