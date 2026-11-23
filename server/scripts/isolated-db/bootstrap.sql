@@ -18,6 +18,7 @@ DO $$ DECLARE membership record; BEGIN
     SELECT granted.rolname AS granted_role, member.rolname AS member_role
     FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid JOIN pg_roles member ON member.oid=m.member
     WHERE member.rolname IN ('samosval_test_orchestrator','samosval_test_app','samosval_test_runtime','samosval_test_prepared_owner')
+       OR granted.rolname IN ('samosval_test_orchestrator','samosval_test_app','samosval_test_runtime','samosval_test_prepared_owner')
   LOOP EXECUTE format('REVOKE %I FROM %I', membership.granted_role, membership.member_role); END LOOP;
 END $$;
 
@@ -50,6 +51,7 @@ DROP FUNCTION IF EXISTS samosval_isolated_admin.reserve_target(text,text,text);
 DROP FUNCTION IF EXISTS samosval_isolated_admin.mark_reserved_target(text);
 DROP FUNCTION IF EXISTS samosval_isolated_admin.terminate_exact_target(text);
 DROP FUNCTION IF EXISTS samosval_isolated_admin.terminate_exact_target(text,text,text,text);
+DROP FUNCTION IF EXISTS samosval_isolated_admin.authorize_drop_target(text,text);
 
 CREATE OR REPLACE FUNCTION samosval_isolated_admin.reserve_target(target_name text, runid text, capability text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
@@ -102,10 +104,23 @@ BEGIN
   RETURN terminated;
 END $$;
 
+CREATE OR REPLACE FUNCTION samosval_isolated_admin.authorize_drop_target(target_name text, capability text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
+DECLARE receipt samosval_isolated_admin.target_receipts%ROWTYPE; identity_ok boolean;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended(target_name, 0));
+  SELECT * INTO STRICT receipt FROM samosval_isolated_admin.target_receipts r WHERE r.target_name=authorize_drop_target.target_name::name FOR UPDATE;
+  IF receipt.capability_hash <> public.digest(capability, 'sha256') OR receipt.state <> 'marked' THEN RAISE EXCEPTION 'isolated authority rejected'; END IF;
+  SELECT r.rolname=receipt.expected_owner::text AND s.description=receipt.expected_comment INTO identity_ok
+    FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba LEFT JOIN pg_shdescription s ON s.objoid=d.oid AND s.classoid='pg_database'::regclass WHERE d.datname=target_name;
+  IF identity_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'isolated target identity mismatch'; END IF;
+END $$;
+
 ALTER FUNCTION samosval_isolated_admin.reserve_target(text,text,text) OWNER TO CURRENT_USER;
 ALTER FUNCTION samosval_isolated_admin.mark_reserved_target(text,text) OWNER TO CURRENT_USER;
 ALTER FUNCTION samosval_isolated_admin.terminate_exact_target(text,text) OWNER TO CURRENT_USER;
+ALTER FUNCTION samosval_isolated_admin.authorize_drop_target(text,text) OWNER TO CURRENT_USER;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA samosval_isolated_admin FROM PUBLIC, samosval_test_app, samosval_test_runtime, samosval_test_prepared_owner;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA samosval_isolated_admin FROM samosval_test_orchestrator;
 GRANT USAGE ON SCHEMA samosval_isolated_admin TO samosval_test_orchestrator;
-GRANT EXECUTE ON FUNCTION samosval_isolated_admin.reserve_target(text,text,text), samosval_isolated_admin.mark_reserved_target(text,text), samosval_isolated_admin.terminate_exact_target(text,text) TO samosval_test_orchestrator;
+GRANT EXECUTE ON FUNCTION samosval_isolated_admin.reserve_target(text,text,text), samosval_isolated_admin.mark_reserved_target(text,text), samosval_isolated_admin.terminate_exact_target(text,text), samosval_isolated_admin.authorize_drop_target(text,text) TO samosval_test_orchestrator;

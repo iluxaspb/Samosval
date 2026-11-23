@@ -91,7 +91,7 @@
 
 **Симптом:** cleanup проверял server-side receipt, но любой параллельный процесс под общей ролью orchestrator мог завершить зарегистрированную БД другого запуска; app-владелец мог напрямую менять COMMENT в обход advisory lock.
 **Причина:** receipt был привязан только к имени target, а владельцем target назначалась недоверенная login-role приложения.
-**Что делать:** authority запуска подтверждать высокоэнтропийной capability, хранить в registry только SHA-256; target отдавать отдельной `NOLOGIN` owner-role без membership у app/runtime/orchestrator. Все identity mutation выполнять только закрытыми `SECURITY DEFINER` функциями с capability, row lock и общим advisory lock; app/runtime должны получать только CONNECT и не владеть БД.
+**Что делать:** authority запуска подтверждать высокоэнтропийной capability, хранить в registry только SHA-256; target отдавать отдельной `NOLOGIN` owner-role без membership у app/runtime/orchestrator. Все identity mutation выполнять только закрытыми `SECURITY DEFINER` функциями с capability, row lock и общим advisory lock; app/runtime должны получать только CONNECT и не владеть БД. Raw `CREATEDB` нельзя безопасно ограничить префиксом, поэтому создание/удаление БД выполняет только закрытый parent-owned broker с bootstrap connection: enum-операции, строгая проверка exact name/receipt/capability и отсутствие произвольного SQL.
 
 ## Опыт выпусков (короткие уроки)
 

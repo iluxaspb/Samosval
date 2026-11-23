@@ -19,7 +19,6 @@ const composeEnvironment = {
   SAMOSVAL_ORCHESTRATOR_PASSWORD: 'compose-config-orchestrator',
   SAMOSVAL_TEST_APP_PASSWORD: 'compose-config-app',
   SAMOSVAL_TEST_RUNTIME_PASSWORD: 'compose-config-runtime',
-  SAMOSVAL_API_TARGET_DATABASE: 'samosval_parallel_shifts_test_0123456789ab_0123456789ab',
 };
 
 function renderCompose() {
@@ -107,6 +106,8 @@ test('compose exposes only the ephemeral bootstrap database on loopback', t => {
   const config = renderCompose();
   if (!config) return t.skip('docker compose is unavailable');
   assert.match(config, /POSTGRES_DB: postgres/);
+  assert.match(config, /log_parameter_max_length=0/);
+  assert.match(config, /log_parameter_max_length_on_error=0/);
   assert.match(config, /bootstrap\.sh/);
   assert.match(config, /bootstrap\.sql/);
   assert.match(config, /127\.0\.0\.1/);

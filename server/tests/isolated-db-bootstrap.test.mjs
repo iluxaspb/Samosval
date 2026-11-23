@@ -9,7 +9,7 @@ import {
   validateGeneratedIdentifier,
   quoteIdentifier,
 } from '../scripts/isolated-db/safety.mjs';
-import { adminPreflight, runAdminStatement } from '../scripts/isolated-db/admin.mjs';
+import { adminPreflight, createProvisioningBroker, generateRunCapability, runAdminStatement } from '../scripts/isolated-db/admin.mjs';
 
 const { Client } = pg;
 const runid = '0123456789ab';
@@ -61,9 +61,19 @@ test('identifier quoting is explicit and never accepts arbitrary SQL identifiers
   assert.throws(() => quoteIdentifier('target"; DROP DATABASE postgres; --'), /identifier is not approved/i);
 });
 
+test('run capabilities are independent cryptographic-format values and never use process transport', () => {
+  const first = generateRunCapability();
+  const second = generateRunCapability();
+  assert.match(first, /^[a-f0-9]{64}$/);
+  assert.match(second, /^[a-f0-9]{64}$/);
+  assert.notEqual(first, second);
+  assert.equal(process.argv.includes(first), false);
+  assert.equal(Object.values(process.env).includes(first), false);
+});
+
 test('admin statements require capability while marker excludes capability material', async () => {
   const calls = [];
-  const capability = 'c'.repeat(64);
+  const capability = generateRunCapability();
   const marker = 'samosval-isolated-db:v1;kind=target;runid=0123456789ab;hash=0123456789ab;owner=samosval_test_prepared_owner';
   const client = { query: async (text, values) => { calls.push([text, values]); return { rows: [{ comment: marker }] }; } };
   await runAdminStatement(client, { operation: 'commentDatabase', database: target, runid, capability, kind: 'target' });
@@ -73,6 +83,27 @@ test('admin statements require capability while marker excludes capability mater
   await assert.rejects(runAdminStatement(client, { operation: 'commentDatabase', database: target, runid, kind: 'target' }), /admin operation is not approved/i);
   await assert.rejects(runAdminStatement(client, { operation: 'commentDatabase', database: target, runid, capability, kind: 'target', comment: 'caller supplied' }), /admin operation is not approved/i);
   await assert.rejects(runAdminStatement(client, { operation: 'sql', sql: 'DROP DATABASE postgres' }), /admin operation is not approved/i);
+  const leakingClient = { query: async () => { throw new Error(`driver leaked ${capability}`); } };
+  await assert.rejects(runAdminStatement(leakingClient, { operation: 'commentDatabase', database: target, runid, capability, kind: 'target' }), error => {
+    assert.equal(error.message, 'admin operation failed closed');
+    assert.doesNotMatch(JSON.stringify(error), new RegExp(capability));
+    return true;
+  });
+});
+
+test('closed provisioning broker exposes enum operations and redacts credentials', async () => {
+  const capability = generateRunCapability();
+  const calls = [];
+  const adminClient = { query: async (config, values) => { calls.push([config, values]); if (String(config.text ?? config).includes('mark_reserved_target')) return { rows: [{ comment: `samosval-isolated-db:v1;kind=target;runid=${runid};hash=0123456789ab;owner=samosval_test_prepared_owner` }] }; return { rows: [] }; } };
+  const bootstrapClient = { query: async config => { calls.push([config]); return { rows: [] }; } };
+  const broker = createProvisioningBroker({ adminClient, bootstrapClient });
+  await broker.run({ operation: 'createReservedTarget', database: target, runid, capability });
+  await broker.run({ operation: 'dropReservedTarget', database: target, runid, capability });
+  assert.equal(calls.some(([config]) => String(config.text ?? config).startsWith('CREATE DATABASE')), true);
+  assert.equal(calls.some(([config]) => String(config.text ?? config).startsWith('ALTER DATABASE')), true);
+  assert.equal(calls.some(([config]) => String(config.text ?? config).startsWith('DROP DATABASE')), true);
+  assert.doesNotMatch(JSON.stringify(calls.map(([config]) => String(config.text ?? config))), new RegExp(capability));
+  await assert.rejects(broker.run({ operation: 'sql', sql: 'CREATE DATABASE postgres' }), /provisioning operation is not approved/i);
 });
 
 test('admin preflight rejects a catalog endpoint fingerprint mismatch', async () => {
@@ -98,7 +129,7 @@ function connectionDenied(url) {
   assert.match(result.stderr, /permission denied for database "postgres"/i);
 }
 
-const capabilities = { a: 'a'.repeat(64), b: 'b'.repeat(64), c: 'c'.repeat(64) };
+const capabilities = { a: generateRunCapability(), b: generateRunCapability(), c: generateRunCapability() };
 
 function rerunBootstrap() {
   const result = spawnSync('docker-compose', ['-f', 'compose.test.yaml', 'exec', '-T', 'postgres', '/docker-entrypoint-initdb.d/10-isolated-db-bootstrap.sh'], {
@@ -107,12 +138,8 @@ function rerunBootstrap() {
   assert.equal(result.status, 0, result.stderr);
 }
 
-async function prepareTarget(admin, name, run, capability) {
-  await admin.query('SELECT samosval_isolated_admin.reserve_target($1,$2,$3)', [name, run, capability]);
-  await admin.query(`CREATE DATABASE "${name}"`);
-  await role(bootstrapAdminUrl, `ALTER DATABASE "${name}" OWNER TO samosval_test_prepared_owner`);
-  await role(bootstrapAdminUrl, `GRANT CONNECT ON DATABASE "${name}" TO samosval_test_app, samosval_test_runtime`);
-  await admin.query('SELECT samosval_isolated_admin.mark_reserved_target($1,$2)', [name, capability]);
+async function prepareTarget(broker, name, run, capability) {
+  await broker.run({ operation: 'createReservedTarget', database: name, runid: run, capability });
 }
 
 function targetUrl(name, roleName, password) {
@@ -136,10 +163,13 @@ test('compose bootstrap has closed roles, registry and function ACL surface', { 
     { rolname:'samosval_test_runtime',rolcanlogin:true,rolinherit:false,rolcreatedb:false,rolcreaterole:false,rolsuper:false,rolreplication:false,rolbypassrls:false },
   ]);
   assert.equal((await role(bootstrapAdminUrl, `SELECT count(*)::int AS count FROM pg_auth_members WHERE member IN (SELECT oid FROM pg_roles WHERE rolname LIKE 'samosval_test_%')`)).rows[0].count, 0);
+  const logging = await role(realAdminUrl, `SHOW log_parameter_max_length; SHOW log_parameter_max_length_on_error`);
+  assert.deepEqual(logging.map(result => Object.values(result.rows[0])[0]), ['0', '0']);
   const acl = await role(bootstrapAdminUrl, `SELECT has_schema_privilege('samosval_test_orchestrator','samosval_isolated_admin','USAGE') AS orch_schema, has_table_privilege('samosval_test_orchestrator','samosval_isolated_admin.target_receipts','SELECT') AS orch_registry, has_table_privilege('samosval_test_app','samosval_isolated_admin.target_receipts','SELECT') AS app_registry, has_table_privilege('public','samosval_isolated_admin.target_receipts','SELECT') AS public_registry`);
   assert.deepEqual(acl.rows[0], { orch_schema:true, orch_registry:false, app_registry:false, public_registry:false });
   const functions = await role(bootstrapAdminUrl, `SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args, p.proowner::regrole::text AS owner, has_function_privilege('samosval_test_orchestrator',p.oid,'EXECUTE') AS orch, has_function_privilege('samosval_test_app',p.oid,'EXECUTE') AS app, has_function_privilege('public',p.oid,'EXECUTE') AS public FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='samosval_isolated_admin' ORDER BY 1,2`);
   assert.deepEqual(functions.rows.map(r => [r.proname,r.args,r.owner,r.orch,r.app,r.public]), [
+    ['authorize_drop_target','target_name text, capability text','samosval_test_bootstrap_admin',true,false,false],
     ['mark_reserved_target','target_name text, capability text','samosval_test_bootstrap_admin',true,false,false],
     ['reserve_target','target_name text, runid text, capability text','samosval_test_bootstrap_admin',true,false,false],
     ['terminate_exact_target','target_name text, capability text','samosval_test_bootstrap_admin',true,false,false],
@@ -147,22 +177,27 @@ test('compose bootstrap has closed roles, registry and function ACL surface', { 
 });
 
 test('bootstrap rerun restores mutated roles, membership, ownership, ACL and function allowlist', { skip: !bootstrapAdminUrl }, async () => {
-  await role(bootstrapAdminUrl, `ALTER ROLE samosval_test_app INHERIT CREATEDB; GRANT samosval_test_prepared_owner TO samosval_test_app; GRANT SELECT ON samosval_isolated_admin.target_receipts TO samosval_test_orchestrator; GRANT USAGE ON SCHEMA samosval_isolated_admin TO PUBLIC; ALTER FUNCTION samosval_isolated_admin.terminate_exact_target(text,text) OWNER TO samosval_test_app; CREATE FUNCTION samosval_isolated_admin.terminate_exact_target(text) RETURNS integer LANGUAGE sql AS 'SELECT 0'; GRANT EXECUTE ON FUNCTION samosval_isolated_admin.terminate_exact_target(text) TO PUBLIC`);
+  await role(bootstrapAdminUrl, `CREATE ROLE samosval_i2_external_a; CREATE ROLE samosval_i2_external_b; CREATE ROLE samosval_i2_external_c; GRANT samosval_test_prepared_owner TO samosval_i2_external_a; GRANT samosval_i2_external_b TO samosval_i2_external_c; ALTER ROLE samosval_test_app INHERIT CREATEDB; GRANT samosval_test_prepared_owner TO samosval_test_app; GRANT SELECT ON samosval_isolated_admin.target_receipts TO samosval_test_orchestrator; GRANT USAGE ON SCHEMA samosval_isolated_admin TO PUBLIC; ALTER FUNCTION samosval_isolated_admin.terminate_exact_target(text,text) OWNER TO samosval_test_app; CREATE FUNCTION samosval_isolated_admin.terminate_exact_target(text) RETURNS integer LANGUAGE sql AS 'SELECT 0'; GRANT EXECUTE ON FUNCTION samosval_isolated_admin.terminate_exact_target(text) TO PUBLIC`);
   rerunBootstrap(); rerunBootstrap();
   const restored = await role(bootstrapAdminUrl, `SELECT rolinherit, rolcreatedb FROM pg_roles WHERE rolname='samosval_test_app'; SELECT 1`);
   assert.deepEqual(restored[0].rows[0], { rolinherit:false, rolcreatedb:false });
-  assert.equal((await role(bootstrapAdminUrl, `SELECT count(*)::int AS count FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname='samosval_test_app')`)).rows[0].count, 0);
+  assert.equal((await role(bootstrapAdminUrl, `SELECT count(*)::int AS count FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE granted.rolname LIKE 'samosval_test_%' OR member.rolname LIKE 'samosval_test_%'`)).rows[0].count, 0);
+  assert.equal((await role(bootstrapAdminUrl, `SELECT pg_has_role('samosval_i2_external_c','samosval_i2_external_b','MEMBER') AS preserved`)).rows[0].preserved, true);
   assert.equal((await role(bootstrapAdminUrl, `SELECT to_regprocedure('samosval_isolated_admin.terminate_exact_target(text)') IS NULL AS removed`)).rows[0].removed, true);
   const restoredAcl = await role(bootstrapAdminUrl, `SELECT p.proowner::regrole::text AS owner, has_function_privilege('samosval_test_app',p.oid,'EXECUTE') AS app, has_table_privilege('samosval_test_orchestrator','samosval_isolated_admin.target_receipts','SELECT') AS registry, has_schema_privilege('public','samosval_isolated_admin','USAGE') AS public_schema FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='samosval_isolated_admin' AND p.proname='terminate_exact_target'`);
   assert.deepEqual(restoredAcl.rows, [{ owner:'samosval_test_bootstrap_admin', app:false, registry:false, public_schema:false }]);
+  await role(bootstrapAdminUrl, 'DROP ROLE samosval_i2_external_a, samosval_i2_external_c; DROP OWNED BY samosval_i2_external_b; DROP ROLE samosval_i2_external_b');
 });
 
 test('per-run capability isolates two registered targets and direct identity mutation is denied', { skip: !realAdminUrl || !bootstrapAdminUrl }, async () => {
   const runA='111111111111', runB='222222222222';
   const targetA=`${GENERATED_DATABASE_PREFIX}${runA}_aaaaaaaaaaaa`, targetB=`${GENERATED_DATABASE_PREFIX}${runB}_bbbbbbbbbbbb`;
-  const admin = new Client({ connectionString: realAdminUrl }); await admin.connect();
+  const admin = new Client({ connectionString: realAdminUrl });
+  const bootstrap = new Client({ connectionString: bootstrapAdminUrl });
+  await admin.connect(); await bootstrap.connect();
+  const broker = createProvisioningBroker({ adminClient: admin, bootstrapClient: bootstrap });
   try {
-    await prepareTarget(admin,targetA,runA,capabilities.a); await prepareTarget(admin,targetB,runB,capabilities.b);
+    await prepareTarget(broker,targetA,runA,capabilities.a); await prepareTarget(broker,targetB,runB,capabilities.b);
     const appA = new Client({ connectionString: targetUrl(targetA,'samosval_test_app',process.env.SAMOSVAL_TEST_APP_PASSWORD) });
     const appB = new Client({ connectionString: targetUrl(targetB,'samosval_test_app',process.env.SAMOSVAL_TEST_APP_PASSWORD) });
     const runtimeB = new Client({ connectionString: targetUrl(targetB,'samosval_test_runtime',process.env.SAMOSVAL_TEST_RUNTIME_PASSWORD) });
@@ -185,7 +220,10 @@ test('per-run capability isolates two registered targets and direct identity mut
       assert.equal((await runtimeB.query('SELECT 1 AS alive')).rows[0].alive,1);
     } finally { await appA.end().catch(() => {}); await appB.end(); await runtimeB.end(); }
   } finally {
-    await role(bootstrapAdminUrl, `DROP DATABASE IF EXISTS "${targetA}" WITH (FORCE)`); await role(bootstrapAdminUrl, `DROP DATABASE IF EXISTS "${targetB}" WITH (FORCE)`); await admin.end();
+    for (const [database, runid, capability] of [[targetA,runA,capabilities.a],[targetB,runB,capabilities.b]]) {
+      await broker.run({ operation:'dropReservedTarget', database, runid, capability }).catch(() => {});
+    }
+    await admin.end(); await bootstrap.end();
   }
 });
 
