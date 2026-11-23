@@ -38,6 +38,26 @@ test('rejects_reserved_and_live_database_names', async () => {
   });
 });
 
+test('rejects_connection_query_overrides', async () => {
+  await withIsolatedEnvironment({ SAMOSVAL_ISOLATED_TEST: '1' }, () => {
+    for (const query of [
+      'host=live.example',
+      'hostaddr=203.0.113.7',
+      'dbname=samosval_test',
+      'service=live',
+      'passfile=/tmp/live.pass',
+      'sslmode=require',
+      'application_name=isolated-test',
+      'unknown=value',
+    ]) {
+      assert.throws(
+        () => requireIsolatedDatabase(`${isolatedUrl}?${query}`),
+        /isolated database target is not approved/i
+      );
+    }
+  });
+});
+
 test('accepts_compose_test_database', async () => {
   await withIsolatedEnvironment({ SAMOSVAL_ISOLATED_TEST: '1' }, () => {
     const approved = requireIsolatedDatabase(isolatedUrl);

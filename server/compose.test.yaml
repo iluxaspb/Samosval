@@ -1,13 +1,15 @@
-# Ephemeral isolated database for automated tests only.
+# Local isolated TEST environment. No service binds beyond host loopback.
 services:
   postgres:
     image: postgres:16-alpine
-    profiles: ["test"]
+    profiles: ["test", "api"]
     restart: "no"
     environment:
       POSTGRES_DB: samosval_parallel_shifts_test
       POSTGRES_USER: ${POSTGRES_USER:-samosval_test_runner}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for the isolated test database}
+    ports:
+      - "127.0.0.1:${POSTGRES_TEST_PORT:-55432}:5432"
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
@@ -15,3 +17,29 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+
+  api:
+    profiles: ["api"]
+    image: samosval-test-api:read-v1-20261030
+    build: .
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      POSTGRES_DB: samosval_parallel_shifts_test
+      POSTGRES_USER: ${POSTGRES_USER:-samosval_test_runner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for the isolated test database}
+      PORT: "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:18080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:http').get('http://127.0.0.1:8080/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 4s
+      retries: 3

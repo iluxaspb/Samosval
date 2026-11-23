@@ -136,3 +136,9 @@
 - verify-working-test.py ПАДАЛ и ДО правок (6 ошибок: эталон REQUIRED_VERSION='1.7.22' не обновлялся с 1.8.x, ожидание ветки release/working-test вместо feature-ветки, «отсутствуют» модули firebase-traffic-* из test-app/modules.json). Новых ошибок от задачи — только правка queue-doctor.html вне заявленного списка. REQUIRED_VERSION нужно актуализировать отдельно.
 - В vm-тестах pwa.js (35-й) обязательно: document.currentScript (иначе buildVersion пуст и update() дёргается всегда), честные setInterval (reloadWhenSafe работает на интервале), флаг disposed, останавливающий СОЗДАНИЕ новых таймеров (иначе бесконечная цепочка повторов autoUpdate держит процесс теста), и реальное время (микрозадачный flush не ждёт 500-мс интервалы).
 См. feature/wtest-auto-update-20261123; тесты: working-test/source/core/35-auto-update-stale-worker.test.mjs (9 проверок), 29-pwa-update-recovery, 34-pwa-update-mechanism, 37-update-queue-tool.
+
+## 16. Урок 23.11.2026: isolated DB harness не может применять старые миграции без контролируемой замены guard
+
+**Симптом:** отдельная БД `samosval_parallel_shifts_test` безопасно проходит URL guard, но миграции 002–013 требуют имя `samosval_test`, а 018 требует `samosval_working_test_reserve`; прямое применение останавливается на SQL guard либо провоцирует опасное использование общей/резервной БД.
+**Причина:** исторические migration guards кодируют имена прежних рабочих TEST-баз, а не свойство изоляции. Ослаблять сами миграции нельзя: их также применяют вне нового harness.
+**Что делать:** только test helper после проверки `SAMOSVAL_ISOLATED_TEST=1`, allowlist host и точного имени отдельной БД заменяет известные выражения `current_database()` в загружаемом SQL; checksum сохраняет исходный файл. Реальный integration test обязан выполнить `reset → applyMigrationsThrough(24) → seed` в локальном compose PostgreSQL и проверить registry/fixture. Не добавлять новые варианты SQL guard без расширения этого теста.

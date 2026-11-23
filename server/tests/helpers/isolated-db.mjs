@@ -25,6 +25,7 @@ export function requireIsolatedDatabase(url) {
     !['postgres:', 'postgresql:'].includes(parsed.protocol)
     || !APPROVED_HOSTS.has(parsed.hostname)
     || database !== APPROVED_DATABASE
+    || parsed.search !== ''
   ) {
     throw new Error('isolated database target is not approved');
   }
@@ -121,6 +122,23 @@ export async function seedParallelShiftFixture(options = {}) {
        VALUES($1,$2,$3) ON CONFLICT(workspace_id,truck_id) DO NOTHING`,
       [ids.workspaceId, ids.truckId, { id: ids.truckId, name: ids.truckId }]
     );
+    for (const [shiftId, objectId, workShift] of [
+      [ids.shiftAId, ids.objectAId, 'day'],
+      [ids.shiftBId, ids.objectBId, 'night'],
+    ]) {
+      await pool.query(
+        `INSERT INTO shifts(workspace_id,shift_id,is_active,payload)
+         VALUES($1,$2,true,$3) ON CONFLICT(workspace_id,shift_id) DO NOTHING`,
+        [ids.workspaceId, shiftId, {
+          shiftId,
+          objectId,
+          objectName: objectId,
+          date: '2026-11-23',
+          workShift,
+          startedAt: '2026-11-23T08:00:00.000Z',
+        }]
+      );
+    }
     return ids;
   } finally {
     await pool.end();
