@@ -49,7 +49,7 @@ PostgreSQL 16 берётся только из локального `server/comp
 
 1. **Чистая unit-фаза:** runner обнаруживает файлы без DB dependency и запускает их без `TEST_DATABASE_URL`, `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` и без isolated marker. Попытка unit-теста зависеть от внешнего DB env должна проявиться как ошибка/skip policy, а не случайное подключение.
 2. **Admin preflight:** через отдельный admin URL проверяются protocol, host, port, marker, server identity, допустимый container/local endpoint, текущая admin database и роль. Query/search-параметры и fragment запрещены.
-3. **Template preparation:** один раз на run создаются/проверяются immutable templates `empty`, `S24`, `S25`.
+3. **Template preparation:** один раз на run создаются/проверяются immutable templates `empty`, `S24`, `S25`, `S26`; S26 обязателен для replica staging/dependent tests после появления миграции 026.
 4. **Per-file execution:** для каждой manifest entry клонируется новая target database, применяются custom schema/fixtures, затем запускается ровно один `node --test ... <file>` child с URL только этой БД.
 5. **Aggregation:** результаты собираются в стабильном manifest-порядке; ошибка файла не отменяет ещё не начавшиеся файлы.
 6. **Cleanup:** после каждого child и в общем `finally` завершаются только sessions target DB, БД удаляется; в конце выполняется leak check по run marker/prefix.
@@ -63,7 +63,7 @@ PostgreSQL 16 берётся только из локального `server/comp
 ```js
 {
   file: 'tests/parallel-shifts-migration-core.test.mjs',
-  baseline: 'S24',                 // empty | S24 | S25
+  baseline: 'S24',                 // empty | S24 | S25 | S26
   migrationsThrough: 25,           // null либо целое >= baseline version
   customSchema: [],                // allowlisted registry IDs
   importTables: [],                // явные import fixture IDs
@@ -75,7 +75,7 @@ PostgreSQL 16 берётся только из локального `server/comp
 ```
 
 - `file` — canonical realpath внутри `server/tests`, без symlink/traversal/options.
-- `baseline` обязателен. `empty` содержит только пустую canonical database; `S24`/`S25` — миграции до указанной версии и registry/checksum.
+- `baseline` обязателен. `empty` содержит только пустую canonical database; `S24`/`S25`/`S26` — миграции до указанной версии и registry/checksum.
 - `migrationsThrough` задаёт миграции, применяемые **после клона**; для тестов самой миграции допустимо `S24 + through 25`. Нельзя заявить версию ниже baseline.
 - `customSchema`, `importTables`, `fixtures` — массивы имен из закрытых registries. Import, authority, auth и replica данные всегда названы явно, а не выводятся из filename.
 - `timeoutMs` имеет общий допустимый диапазон и не отключает cleanup.
@@ -92,7 +92,8 @@ Runner создаёт run-scoped templates из canonical empty database:
 
 - `empty` — чистая `public` с требуемым owner/privileges;
 - `S24` — миграции 001–024 с контролируемой test-only заменой известных legacy guards;
-- `S25` — S24 + миграция 025.
+- `S25` — S24 + миграция 025;
+- `S26` — S25 + миграция 026; используется тестами staging/dependent attribution и не включает fixture rows. Это целевой template после атомарного S26 cutover commit; до него chain заканчивается S25 согласно transition rule раздела 3.11.
 
 Фактические имена templates также имеют строгий generated prefix и run marker. После подготовки template переводится в `datallowconn=false`; к нему нет test URL, custom fixtures в него не применяются. Проверяется migration registry и checksum. Клон создаётся `CREATE DATABASE <target> TEMPLATE <template>` только после отсутствия sessions template. Custom schema/import/fixtures применяются к клону в manifest-порядке и никогда не меняют template. Templates удаляются при завершении run после targets.
 
@@ -108,7 +109,7 @@ Target name имеет форму:
 
 - prefix фиксирован байт-в-байт;
 - `runid` — криптографически случайный lowercase hex для запуска, минимум 12 символов;
-- `hash` — первые 12 lowercase hex SHA-256 от canonical relative file path; template использует отдельную форму имени с тем же run prefix и явным ASCII kind suffix (`tpl_empty|tpl_s24|tpl_s25`), поэтому target cleanup никогда не принимает template;
+- `hash` — первые 12 lowercase hex SHA-256 от canonical relative file path; template использует отдельную форму имени с тем же run prefix и явным ASCII kind suffix (`tpl_empty|tpl_s24|tpl_s25|tpl_s26`), поэтому target cleanup никогда не принимает template;
 - итог не длиннее PostgreSQL `NAMEDATALEN-1` (63 bytes). Сначала резервируются prefix, separators, полный runid и hash; человекочитаемая часть не добавляется. Молчаливое PostgreSQL truncation запрещено;
 - перед `CREATE DATABASE` проверяется точное отсутствие имени. Collision не переиспользуется: генерируется новый runid (ограниченное число попыток), иначе runner падает до тестов;
 - имя `samosval_parallel_shifts_test` без runid/hash — историческое и **никогда** не является target нового suite.
@@ -199,8 +200,9 @@ Cleanup target допустим только при одновременном �
 1. `empty` создаётся `CREATE DATABASE ... TEMPLATE template0 OWNER <testRole>` с ожидаемыми encoding/locale; test role получает ownership database/public schema и необходимые `CONNECT/CREATE`, `PUBLIC` и лишние роли получают `CONNECT` revoke.
 2. `S24` клонируется из доступного `empty`, мигрируется 001–024 test role, сверяются registry/checksums/postconditions; затем S24 остаётся доступен ровно до создания S25.
 3. `S25` клонируется из доступного `S24`, применяется только 025, сверяются registry/checksum/postconditions.
-4. `empty` закрывается после клона S24, S24 — после клона S25, S25 — после собственной проверки. Для каждого закрываемого final template: запрет новых соединений (`ALLOW_CONNECTIONS false`/`datallowconn=false`), `REVOKE CONNECT FROM PUBLIC` и test role, exact zero sessions. Только после zero sessions template считается immutable/clone-ready. Для `CREATE DATABASE ... TEMPLATE` соединения к source не требуются, поэтому после freeze доступ не включается обратно; при ошибке clone template остаётся закрытым.
-5. Target clone получает owner test role и минимальные privileges; затем COMMENT marker и custom fixtures. Template COMMENT имеет отдельный kind marker и никогда не удовлетворяет target cleanup predicate.
+4. `S26` клонируется из доступного `S25`, применяется только 026 (`replica_pending_documents`, `replica_document_heads`, stream protocol/hash/immutability и dependent attribution), сверяются registry/checksum/postconditions. Существование S26 отражает dependency replica staging/dependent-attribution тестов от миграции 026 (amendment parallel shifts design от 23.11.2026). **Transition rule:** в каждом commit scanner сохраняет `discovered == manifest`: commit до появления 026 не содержит S26 template/fixtures/future entries; commit, добавляющий 026 или первый root test, зависимый от неё, атомарно добавляет S26 template contract, fixture registry и все реально существующие root entries. Несуществующие будущие test paths нельзя заранее держать в machine-readable manifest.
+5. `empty` закрывается после клона S24, S24 — после клона S25, S25 — после клона S26, S26 — после собственной проверки. Для каждого закрываемого final template: запрет новых соединений (`ALLOW_CONNECTIONS false`/`datallowconn=false`), `REVOKE CONNECT FROM PUBLIC` и test role, exact zero sessions. Только после zero sessions template считается immutable/clone-ready. Для `CREATE DATABASE ... TEMPLATE` соединения к source не требуются, поэтому после freeze доступ не включается обратно; при ошибке clone template остаётся закрытым.
+6. Target clone получает owner test role и минимальные privileges; затем COMMENT marker и custom fixtures. Template COMMENT имеет отдельный kind marker и никогда не удовлетворяет target cleanup predicate.
 
 ### 3.12. Fixture registry и baseline contract
 
@@ -215,6 +217,8 @@ Versioned fixture registry содержит только следующие на
 | `authority-main-firebase` | Альтернативная Firebase authority fixture существует ровно один раз и не сосуществует как active с Ubuntu, если test явно не заявляет обе для conflict-case |
 | `replica-admin` | Создан только versioned replica admin test user/grants, без live UID/email/secret |
 | `replica-empty-stream-cursors` | Replica stream/cursor schema присутствует, cursor/stream/event tables пусты и начальные sequence/postconditions проверены |
+| `replica-pending-empty` | Только на baseline S26: pending+document-head schema, protocol/hash columns, immutable trigger/grants и exact PK/FK/index/check contract существуют; stream/cursor/heads/staging пусты; payload в staging отсутствует |
+| `replica-pending-out-of-order` | Только для staging integration tests на fresh S26 target: immutable v2 stream содержит versioned status/log/delete generations, heads/pending routing ссылаются на stream FK, canonical `shifts` содержит только полные snapshots и ни одной placeholder/null строки; required shift/truck parents явно задаются fixture |
 
 Baseline `S24` означает только canonical migrations 001–024 с их schema/default data; он **не включает** import rows, identity users, auth credentials, authority selection, replica admin или cursor rows сверх того, что неизбежно создаёт сама миграция. Любое требуемое отличие объявляется fixture ID. Fixtures идемпотентны только внутри fresh target, применяются в registry-defined порядке и после выполнения возвращают machine-checkable postcondition report.
 
@@ -249,13 +253,13 @@ Generic `.replaceAll()` запрещён. Versioned guard registry для каж
 
 Список сравнивается с manifest: missing entry, duplicate entry, manifest file без DB dependency (кроме явного audited `dbConsumer: 'indirect-http'`) или неоднозначный consumer — preflight failure. Отдельный contract-test хранит expected discovery и доказывает, что добавленный DB-файл без manifest ломает CI.
 
-Import/identity/auth/authority/replica не получают «магический общий seed». Manifest использует только IDs раздела 3.12 (`import-schema`, `identity-empty`, `auth-schema-018`, один/оба explicit authority fixture, `replica-admin`, `replica-empty-stream-cursors`). Registry описывает порядок и postcondition каждой fixture. Fixture не может подключаться к другой БД или менять template.
+Import/identity/auth/authority/replica не получают «магический общий seed». Manifest использует только IDs раздела 3.12 (`import-schema`, `identity-empty`, `auth-schema-018`, один/оба explicit authority fixture, `replica-admin`, `replica-empty-stream-cursors`, а после S26 cutover — `replica-pending-empty`/`replica-pending-out-of-order`). Registry описывает порядок и postcondition каждой fixture. Fixture не может подключаться к другой БД или менять template.
 
 Отдельный static audit проходит **весь `server/`** (исходники, scripts, SQL, tests, compose/workflow references) и находит hard-coded `samosval_test`, `samosval_working_test_reserve`, `samosval_parallel_shifts_test` и database-name constructions. Versioned allowlist разрешает только точные `file + line/pattern + reason + expected count` для migration guard registry, reserved-name negative tests и compose bootstrap. Новое/исчезнувшее совпадение либо changed count блокирует cutover; runtime-код/tests setup должны использовать injected generated target, а не allowlist как обход.
 
 ### 5.1. Начальный inventory для cutover
 
-Ниже обязательная исходная классификация текущих root files. Builder переносит её в machine-readable manifest; scanner обязан подтвердить её либо потребовать осознанный versioned diff. `reason` в реальном manifest должен называть точный import/env/process consumer; таблица фиксирует минимальный смысл.
+Ниже обязательная исходная классификация текущих root files. Builder переносит её в machine-readable manifest; scanner обязан подтвердить её либо потребовать осознанный versioned diff. `reason` в реальном manifest должен называть точный import/env/process consumer; таблица фиксирует минимальный смысл. Строки, помеченные **future**, являются design reservation, а не manifest entry: они становятся root entry ровно в commit создания файла. На каждом промежуточном commit должно оставаться точное `set(discovered root tests) == set(manifest entries)`.
 
 | File (`server/tests/`) | Kind | Discovery | Reason/baseline contract |
 |---|---|---|---|
@@ -290,7 +294,9 @@ Import/identity/auth/authority/replica не получают «магическ�
 | `nas-runtime.test.mjs` | unit | pure-import | client runtime |
 | `notification-store.test.mjs` | db | direct | `pg`/notification store; S24 |
 | `opencode-smoke.test.mjs` | unit | pure-import | smoke без DB |
-| `parallel-shifts-migration-core.test.mjs` | db | direct | destructive migration; S24 + migrationsThrough 25 |
+| `parallel-shifts-migration-core.test.mjs` | db | direct | destructive migration; S24 + migrationsThrough 25; проверяет строгие canonical shifts без placeholder |
+| **future** `parallel-shifts-migration-dependencies.test.mjs` | db | direct | S25 + migrationsThrough 26; pre-PK historical f2s/s2f cursor/gap/marker preflight, exact three-state heads CHECK, deferred head↔pending invariant, hash-version/immutability/dependent-attribution contract; entry added only with file |
+| **future** `replica-pending-materialize.test.mjs` | db | direct | S26 + `replica-admin`, `replica-empty-stream-cursors`, `replica-pending-empty`; parent permutations, generations, promotion, concurrency/crash/exact-backup contract; entry added only with file |
 | `presence-ui.test.mjs` | unit | pure-import | UI/presence pure contract |
 | `refresh-source.test.mjs` | db | direct | `pg`/source refresh; S24 + `import-schema` |
 | `replica-materialize.test.mjs` | db | direct | `pg`; S24 + replica fixtures |
@@ -365,7 +371,7 @@ Machine-readable report (JSON, при необходимости JUnit) соде
 2. unit child не получает ни одной DB переменной;
 3. два DB-files одновременно получают разные имена/БД и не видят sentinel друг друга;
 4. deterministic hash/name укладывается в 63 bytes, collision не переиспользуется;
-5. S24 и S25 имеют точный migration registry/checksums; `empty` действительно пуст; custom fixture не попадает в следующий clone/template;
+5. S24, S25 и S26 имеют точный migration registry/checksums; `empty` действительно пуст; custom fixture не попадает в следующий clone/template;
 6. destructive reset/drop в одном файле не влияет на другой;
 7. падение первого файла не отменяет последующие, итоговый exit остаётся nonzero;
 8. timeout и self-`SIGTERM` завершают descendants, удаляют target и сохраняют корректную signal semantics;
@@ -379,8 +385,12 @@ Machine-readable report (JSON, при необходимости JUnit) соде
 16. static audit всего `server/` имеет ровно allowlisted hard-coded database-name matches;
 17. orchestration/test roles имеют точные атрибуты и test child не может create/drop database либо прочитать admin URL;
 18. COMMENT marker/owner/state tampering приводит к exit 3, reported leak и отсутствию terminate/drop;
-19. template chain `template0 → empty → S24 → S25` имеет exact ownership/privileges/freeze/zero sessions; provisioning никогда не параллелен;
-20. unfiltered CI artifact удовлетворяет числовым инвариантам: `discovered == manifest`, `attempted == manifest` (по всем entries соответствующих фаз), `passed == attempted`, `unexpectedSkips == 0`, `cleanupFailures == 0`, `leaks == 0`; `failed == timedOut == interrupted == 0`. Versioned allowed skips перечислены отдельно и не скрывают DB skip.
+19. template chain `template0 → empty → S24 → S25 → S26` имеет exact ownership/privileges/freeze/zero sessions; provisioning никогда не параллелен; S26 checksum/postcondition фиксируют migration 026 и пустую staging;
+20. S26 replica fixture не создаёт placeholder/null shift: deferred status/log живут только в immutable stream+heads+staging, delete — в settled head tombstone; promotion ждёт shift+truck и даёт полный canonical snapshot;
+21. migration 026 до смены stream PK проверяет current native f2s exact range и marker-covered directional subsequences; gap/duplicate/ambiguity/row beyond cursor abort без renumber/rewrite; deferred constraint triggers доказывают one pending row only for pending-set head;
+22. runtime role не может UPDATE/DELETE stream и не может подделать restore mode; controlled exact-restore API вставляет исходную history, а selective replica-owned restore отклоняется до mutation;
+23. каждый transition commit сохраняет `discovered == manifest`: future reservation не является entry до создания root test, а новый root test и entry появляются атомарно;
+24. unfiltered CI artifact удовлетворяет числовым инвариантам: `discovered == manifest`, `attempted == manifest` (по всем entries соответствующих фаз), `passed == attempted`, `unexpectedSkips == 0`, `cleanupFailures == 0`, `leaks == 0`; `failed == timedOut == interrupted == 0`. Versioned allowed skips перечислены отдельно и не скрывают DB skip.
 
 Acceptance Task 2: targeted migration test остаётся зелёным на `S24 → 025`, но Task 3 не начинается, пока **official unfiltered full DB suite** из нового runner не зелёный целиком и CI artifact не подтверждает указанные counts/coverage/cleanup.
 
@@ -428,7 +438,7 @@ Acceptance Task 2: targeted migration test остаётся зелёным на 
 
 - Versioned complete inventory всех root test-files с `kind`, `discovery`, reason и обязательным разделением смешанных seed files.
 - Declarative DB contract и полный fixture registry; completeness/duplicates/static hard-coded-name audit являются preflight gate.
-- Run-scoped templates `empty/S24/S25`: `template0 → empty → S24 → S25`, provisioning semaphore=1, immutable freeze и zero sessions.
+- Run-scoped templates `empty/S24/S25/S26`: `template0 → empty → S24 → S25 → S26`, provisioning semaphore=1, immutable freeze и zero sessions. S26 — точная dependency migration 026 для staging/dependent attribution, без неявных данных.
 - Две роли: orchestration `CREATEDB` только для local generated lifecycle; test role без admin/CREATEDB/superuser, владеет target objects.
 - Один Node process group на файл; execution `min(4, availableParallelism, connectionBudget)`. `serial` и `exclusive` оба выполняются эксклюзивно; это осознанный architect call.
 - Unit env строится explicit allowlist без всех DB/PG/admin/marker variables; DB URL создаётся runner отдельно для каждого DB child.

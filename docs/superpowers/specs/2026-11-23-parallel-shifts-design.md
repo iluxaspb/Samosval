@@ -1,7 +1,7 @@
 # Параллельные смены: дизайн этапа 4
 
 Дата: 23.11.2026
-Статус: решения владельца и замечания reviewer зафиксированы; документ готов для подробного плана реализации.
+Статус: решения владельца и замечания reviewer зафиксированы; amendment по replica staging (вариант B) одобрен владельцем 23.11.2026; документ готов для актуализации подробного плана реализации.
 Область: тестовая линия `working-test`, сервер `server/`, PostgreSQL. Реализацию и тесты до окна можно вести только на изолированной БД. Миграция общей инфраструктуры/БД и деплой сервера требуют отдельно согласованного окна обслуживания и явного «да» владельца.
 
 ## 1. Замысел, цели и границы
@@ -175,6 +175,162 @@ PK `(workspace_id,source_shift_id,cycle_id)`. Частичный unique `(worksp
 ### 4.7. JSON и миграционная проверка
 
 Normalized столбцы — канон; JSON — snapshot совместимости. На записи сервер формирует payload из канонических значений. Миграция сверяет `payload.shiftId/objectId/date/type/state` со столбцами. Null, неизвестный shift или неоднозначное восстановление блокируют миграцию с безопасным отчётом.
+
+### 4.8. Amendment: replica staging без фиктивных смен
+
+**Решения владельца от 23.11.2026:** выбран вариант B — отдельная `replica_pending_documents`; `replica_placeholder` запрещён и удаляется. Replica-owned `shifts/statuses/logs` восстанавливаются только полным exact-комплектом вместе с stream/cursor/staging/heads; selective restore любого члена комплекта отклоняется до mutation. Offline rebuild не выбран.
+
+Root cause: transport state (документ принят, но canonical parent ещё не пришёл) не может жить в `shifts`. Канонический инвариант жёсткий: каждая строка `shifts` — реальная нормализованная бизнес-смена с `state`, `object_id`, `object_name_snapshot`, `work_date`, `shift_type`, `opened_at`, `opened_by_uid`, согласованным payload и обычными FK/checks; placeholder/null-исключений нет.
+
+#### Протокол операций, identity и hash
+
+Одна replica operation описывает ровно один документ. Materializable kinds: только `doc.set` и `doc.delete`. Для `doc.set` exact payload envelope — `{collection,path,data}`, где `data` — object; если `data.id` присутствует, оно обязано точно совпасть с последним segment `path` (`document_id`). Для `doc.delete` единственное canonical представление — `{collection,path}`: ключ `data` отсутствует, identity берётся из path. Входной `data:null` принимается только как transport alias и **до hash/duplicate comparison** нормализуется удалением ключа; любое иное `data` у delete отвергается. Поэтому delete с отсутствующим `data` и с `data:null` имеет один v2 canonical hash, а stream хранит только canonical envelope без `data`. Разрешённые materializable collections: `shift`, `trucks`, `truckStatus`, `logs`; остальные существующие поддержанные события, включая `trip.load`, принимаются как **journal-only**: stream/cursor меняются, canonical/staging/heads — нет. Неизвестный kind/collection запрещён до записи всей пачки. Переход протокола имеет versioned allow-list; старый sender без требуемой версии после cutover получает `protocol-upgrade-required`, а не угадываемую классификацию.
+
+Миграция 026 добавляет в `replica_stream`:
+
+| Столбец | Тип/ограничение |
+|---|---|
+| `protocol_version` | `smallint NOT NULL DEFAULT 1 CHECK (protocol_version IN (1,2))` |
+| `hash_version` | `smallint NOT NULL DEFAULT 1 CHECK (hash_version IN (1,2))` |
+
+Она также заменяет stream PK на `(workspace_id,direction,seq)`, сохраняя `UNIQUE(workspace_id,direction,operation_id)`: после 026 новые f2s/s2f writers используют независимые cursor sequence и не конфликтуют одинаковыми номерами. Все новые provenance FK явно содержат `direction`; materialization использует только `direction='f2s'`.
+
+До этого DDL migration 026 выполняет fail-closed historical preflight под блокировкой stream/cursor. Фактический v1 writer в `replica-store.mjs` назначает f2s `seq := f2s_seq + 1`; s2f writer в текущем коде отсутствует, а `s2f_seq` пока используется только как read head. Старый PK `(workspace_id,seq)` делал seq глобально уникальным, но сам по себе не доказывает contiguous 1..N отдельно для направления при возможном interleaving/историческом importer. Поэтому 026 **не требует и не создаёт** per-direction renumbering. Для каждого workspace preflight проверяет: одна cursor row; уникальность старого `(workspace_id,seq)`/operation identity; `seq>0`; `max(f2s.seq)=f2s_seq` (оба 0 при пустом f2s); у текущего native f2s-префикса, созданного штатным writer без recorded compaction/import marker, exact set seq равен `1..f2s_seq`; если имеется versioned legacy import/compaction marker, разрешена только строго возрастающая уникальная subsequence в заявленных сохранённых ranges, последний seq равен cursor и каждая отсутствующая позиция покрыта marker range. Для s2f: строго возрастающая уникальная subsequence, нет строки `seq>s2f_seq`, а `max(s2f.seq)=s2f_seq` при непустом stream; cursor `>0` без строки на head либо любая внутренняя дыра без marker — ambiguity и abort. Межнаправленные одинаковые seq до смены PK невозможны; их появление — corruption и abort, не основание переписать историю. Rows beyond соответствующего cursor, duplicate/ambiguous IDs, missing cursor/head, непокрытые gaps или marker mismatch прерывают всю 026 до PK/hash/schema changes. Historical `seq`, cursor, payload и hashes не перенумеровываются и не переписываются.
+
+Существующие строки помечаются `protocol_version=1, hash_version=1`; их `sha256` остаётся legacy hash только payload и никогда не переписывается. Новая операция обязана иметь `protocolVersion:2`, `hash_version=2`; hash равен lowercase hex SHA-256 UTF-8 байтов RFC 8785/JCS canonical JSON exact envelope `{"protocolVersion":2,"kind":<kind>,"payload":<payload>}`: object keys сортируются по JCS/UTF-16 code units, без whitespace, strings/escapes и finite numbers сериализуются по ECMAScript JSON serialization; `undefined`, NaN/Infinity, duplicate parsed keys и значения вне JSON отвергаются. Поэтому тот же operation id и payload с другим kind конфликтует.
+
+Duplicate lookup сравнивает сохранённые `hash_version`, `protocol_version`, `sha256`: v2↔v2 тот же hash — replay/no-op; иной hash/kind/protocol — `replica-operation-conflict`. Legacy v1 duplicate подтверждается только по его сохранённому v1 payload-hash и legacy kind; v1/v2 с одним operation id всегда conflict, без пересчёта и silent rewrite. До `BEGIN`/любых writes вся входная пачка валидируется, canonical hashes считаются, и внутрипакетные duplicate IDs сворачиваются только если version/protocol/kind/hash идентичны; они считаются одним fresh candidate. Разные hashes одного id отклоняют всю пачку до writes.
+
+#### Parent policy
+
+Staging применяется только для корректного `doc.set` status/log, у которого отсутствует хотя бы один **разрешённо запаздывающий canonical parent**:
+
+| Document | Required parents | Поведение при отсутствии |
+|---|---|---|
+| `shift` set | `workspace`; `workspace_objects(workspace_id,object_id)`; `app_users(opened_by_uid)` и непустые normalized fields | отсутствие object/user или malformed snapshot — ошибка и rollback; shift никогда не staging |
+| `trucks` set | `workspace` | materialize сразу; malformed truck — rollback |
+| `truckStatus` set | canonical shift `(workspace_id,shift_id)` и truck `(workspace_id,truck_id)`; `truck_id=document_id` | stage, если shift и/или truck ещё нет |
+| `logs` set | canonical shift `(workspace_id,shift_id)` и truck `(workspace_id,truck_id)`; `log_id=document_id` | stage, если shift и/или truck ещё нет |
+| любой delete | document key; parents не требуются | применить tombstone/delete сразу |
+
+Promotion запускается после materialization как shift, так и truck и выбирает pending по обоим routing indexes; документ применяется только когда **все** parents существуют. Отсутствующие object/user родителя shift не считаются out-of-order transport и не создают staging.
+
+#### `replica_document_heads`
+
+Persistent head ledger доказывает возраст canonical row и сохраняет tombstone после удаления:
+
+| Столбец | Тип/ограничение |
+|---|---|
+| `workspace_id` | `text NOT NULL` |
+| `collection` | `text NOT NULL CHECK (collection IN ('shift','trucks','truckStatus','logs'))` |
+| `document_id` | `text NOT NULL CHECK (btrim(document_id)<>'')` |
+| `head_seq` | `bigint NOT NULL` |
+| `stream_direction` | `text NOT NULL DEFAULT 'f2s' CHECK (stream_direction='f2s')` |
+| `head_kind` | `text NOT NULL CHECK (head_kind IN ('doc.set','doc.delete'))` |
+| `shift_id` | `text NULL` routing snapshot; для shift set равно document_id |
+| `truck_id` | `text NULL`; для truck/truckStatus всегда document_id, для log set обязателен |
+| `applied_seq` | `bigint NULL` |
+| `canonical_present` | `boolean NOT NULL` |
+| `updated_at` | `timestamptz NOT NULL DEFAULT now()` |
+
+PK `(workspace_id,collection,document_id)`. FK `(workspace_id,stream_direction,head_seq) → replica_stream(workspace_id,direction,seq) ON DELETE RESTRICT`; nullable FK `(workspace_id,stream_direction,applied_seq) → replica_stream`; collection-shape checks. Exact row-state CHECK допускает только три состояния:
+
+```sql
+CHECK (
+  (head_kind='doc.delete' AND canonical_present=false AND applied_seq IS NOT NULL AND applied_seq=head_seq)
+  OR
+  (head_kind='doc.set' AND canonical_present=true AND applied_seq IS NOT NULL AND applied_seq=head_seq)
+  OR
+  (head_kind='doc.set' AND canonical_present=false AND applied_seq IS NULL)
+)
+```
+
+Unique `(workspace_id,stream_direction,head_seq)`. Indexes `(workspace_id,shift_id,head_seq)` and `(workspace_id,truck_id,head_seq)`. Every materializable set/delete advances head only by CAS `existing.head_seq < incoming_seq`; equal is replay, lower is stale no-op. Canonical replica mutations are legal only while locked head still equals incoming seq. Thus canonical status/log cannot be deleted or overwritten by an older operation.
+
+#### `replica_pending_documents`
+
+Payload is never copied: it is read by exact FK from immutable `replica_stream.payload`, then collection/path/data and hash are revalidated before promotion.
+
+| Столбец | Тип/ограничение |
+|---|---|
+| `workspace_id` | `text NOT NULL` |
+| `collection` | `text NOT NULL CHECK (collection IN ('truckStatus','logs'))` |
+| `document_id` | `text NOT NULL CHECK (btrim(document_id)<>'')` |
+| `stream_seq` | `bigint NOT NULL` |
+| `stream_direction` | `text NOT NULL DEFAULT 'f2s' CHECK (stream_direction='f2s')` |
+| `shift_id` | `text NOT NULL CHECK (btrim(shift_id)<>'')` |
+| `truck_id` | `text NOT NULL CHECK (btrim(truck_id)<>'')` |
+| `log_id` | `text NULL` |
+| `missing_shift` | `boolean NOT NULL` |
+| `missing_truck` | `boolean NOT NULL` |
+| `staged_at` | `timestamptz NOT NULL DEFAULT now()` |
+
+PK `(workspace_id,collection,document_id)`. Unique `(workspace_id,stream_direction,stream_seq)`. FK `(workspace_id,stream_direction,stream_seq) → replica_stream(workspace_id,direction,seq) ON DELETE RESTRICT`; composite FK `(workspace_id,collection,document_id,stream_direction,stream_seq) → replica_document_heads(workspace_id,collection,document_id,stream_direction,head_seq) ON DELETE CAS` backed by unique head key+seq. Checks: at least one missing flag true; `truckStatus → truck_id=document_id AND log_id IS NULL`; `logs → log_id=document_id`; referenced stream is v2 `doc.set`, `direction='f2s'`, and exact routing/identity matches. Indexes `(workspace_id,shift_id,collection,document_id)` and `(workspace_id,truck_id,collection,document_id)` support promotion. Pending содержит только current unmaterialized set head; delete не нуждается в parents, удаляет pending и остаётся persistent tombstone в heads.
+
+Cross-table transactional invariant: каждая head row в состоянии pending set (`head_kind='doc.set'`, `canonical_present=false`, `applied_seq IS NULL`) имеет **ровно одну** matching pending row с теми же `(workspace_id,stream_direction,collection,document_id,head_seq=stream_seq)`; materialized set и settled delete имеют zero pending rows. Обычный CHECK этого доказать не может. Все runtime transitions выполняются одной transactional `SECURITY DEFINER` function, а `DEFERRABLE INITIALLY DEFERRED` constraint triggers на обеих таблицах в конце transaction проверяют обе стороны и отклоняют orphan/extra pending. Прямой runtime DML на heads/pending revoked. Exact restore также обязан пройти эти deferred triggers перед commit. Contract tests отдельно пытаются commit: pending head без row, row без pending head, две logical rows/несовпавший seq, pending row у materialized/delete, а также `applied_seq IS NULL` у settled delete и materialized set; каждый случай обязан откатиться.
+
+#### Head/tombstone state machine
+
+- `set→set`: newer seq replaces head; if parents exist, canonical upsert and `applied_seq=head_seq`; otherwise canonical row for that key is removed (если был), pending is replaced. Old shift arrival cannot resurrect it.
+- `set→delete`: newer delete advances head, deletes canonical and pending, sets `applied_seq=head_seq`, `canonical_present=false`. `truckStatus` delete always has non-null `truck_id=document_id`; only `shift_id` may be unknown/null.
+- `delete→set`: newer seq is a valid new generation, including reused log ID. It materializes or stages by current parents. Older set/delete can never pass head CAS. Log ID reuse therefore follows stream generation, not a permanent identity ban.
+- Status A→pending B removes canonical A before commit, stages B and points head to B. Arrival A sees no matching head; arrival B may promote. Pending→delete leaves no pending/canonical and a settled tombstone, so later parent arrival does nothing.
+
+Heads/tombstones and their referenced stream rows are retained at least as long as any backup/replay/idempotency horizon. Compaction is a separate maintenance operation, never inline: under the same locks it may delete only a settled tombstone and old stream prefix when no backup, receipt, pending/head FK or cursor/journal consumer references it; it records a signed/checksummed low-water mark per direction. No compaction is included in stage 4 rollout.
+
+#### Transaction, locks and crash semantics
+
+Exact lock order for append, promotion, delete, checkpoint, exact restore verifier and any future repair is one order only:
+
+1. `pg_advisory_xact_lock(hashtextextended('replica:'||workspace_id||':f2s',0))` (backup/full restore takes both `:f2s` then `:s2f` lexically);
+2. `replica_cursor WHERE workspace_id=? FOR UPDATE`;
+3. existing `replica_document_heads` and `replica_pending_documents` rows `FOR UPDATE` in `(collection,document_id)` PK order; absent document keys are serialized by the workspace lock;
+4. parent `shifts` then `line_trucks`, each `FOR KEY SHARE` for read or `FOR UPDATE` for mutation, IDs sorted;
+5. `line_truck_statuses FOR UPDATE` by truck id;
+6. `line_logs FOR UPDATE` by log id;
+7. referenced stream head/receipt rows as applicable; stream INSERT itself takes no prior row lock.
+
+No path locks stream/status/log before pending/head. Promotion invoked by shift/truck materialization remains inside the same outer transaction and reuses already-held locks; it does not reacquire in another order.
+
+`appendReplicaBatch`: (a) prevalidate entire batch and in-batch duplicates before writes; (b) BEGIN, auth/authority, locks 1–3, verify persisted duplicates/hash and base seq; (c) assign seq and INSERT immutable stream row; (d) advance head by seq CAS; (e) lock/check parents and materialize or replace pending; (f) promote newly satisfiable pending in PK order; (g) update cursor last; (h) COMMIT. Same-id/hash persisted replay consumes no seq and performs no materialization. Journal-only operation inserts stream and advances cursor without head.
+
+Fault at any boundary—after stream insert, head advance, canonical delete/upsert, pending replace, promotion or before cursor—rolls back stream, head, canonical, pending and cursor together. A batch remains atomic; malformed document rolls back all fresh operations. Real concurrent tests use separate connections, observed lock waits and bounded `lock_timeout`/`statement_timeout`, not only Promise ordering.
+
+#### Immutable stream and role boundary
+
+026 makes stream append-only at DB level. Migration objects are owned by a non-login migration owner. The ordinary API/runtime role is distinct, receives no direct `UPDATE`/`DELETE` on `replica_stream` and no table-owner/superuser bypass; a `BEFORE UPDATE OR DELETE` trigger raises `replica-stream-immutable` even if grants drift. Runtime gets INSERT/SELECT and head/staging DML only through reviewed functions or least-privilege grants. If current deployment still runs as table owner, rollout is blocked until the migration-owner/runtime-role split is created and connection credentials switched; trigger alone is not claimed as a security boundary.
+
+Exact restore uses a separate NOLOGIN restore owner plus a narrowly granted `SECURITY DEFINER restore_replica_exact(...)` entrypoint (fixed `search_path`, owner-qualified objects, input temp tables owned by caller, no dynamic identifiers). It is callable only by maintenance role while maintenance marker+transaction-local exact-restore flag are set. It permits INSERT of original stream rows into empty workspace range, never UPDATE history; DELETE is allowed only for clearing the target workspace after full request validation and before insert in the same transaction. Trigger checks this role/mode. Tests prove runtime/direct SQL cannot update/delete, forged GUC/role cannot bypass, and controlled exact restore can insert then validate exact bytes/hashes.
+
+#### Full exact backup/restore policy
+
+Replica exact bundle is indivisible: global `app_users` dependencies for referenced actors, workspace objects, trucks, shifts, statuses, logs, `replica_stream`, `replica_document_heads`, `replica_pending_documents`, `replica_cursor`, plus migration/hash/authority markers. A restore request that selects/deselects any replica-owned `shift`, status, log, parent dependency or transport member without the whole bundle is rejected during normalization/preflight **before checkpoint creation, DELETE, INSERT or restore_epoch mutation**. Non-replica sections may remain independently selective only when they do not own/reference these rows. Offline rebuild/replay from stream is not an alternative.
+
+Checkpoint takes f2s/s2f advisory locks and cursor row, then head/pending keys, parents and children in the common lock order, producing one repeatable exact image. Restore runs with constraints deferred where declared and uses this order: validate manifest/checksums/hash versions/role/empty target plan → insert global users/authority and workspace parents → insert stream history (original seq/recorded_at/hash/version) → canonical shifts/trucks → statuses/logs → heads → pending → cursor last. FK design is DEFERRABLE for restore-only cycles where needed, but all constraints are IMMEDIATE and checked before commit.
+
+Validation requires the same direction-aware continuity contract as 026 preflight: native un-compacted f2s exact `1..f2s_seq`, otherwise strictly ordered marker-covered subsequences; s2f ordered subsequence to its cursor with every gap justified by versioned marker; no row beyond corresponding cursor and no renumbering. Operation IDs/hashes/version markers remain valid without rewriting legacy v1; every head/pending/applied seq references matching f2s stream; deferred cross-table invariant proves exactly one pending row only for pending-set head. Для документов, у которых существует replica head, canonical replica row exists iff that head says `canonical_present`, and settled delete has none; native/non-replica canonical rows **без replica head** этим presence invariant не охватываются и сохраняются согласно full-bundle manifest. Все app_user/object/truck/shift FK resolve. Any mismatch rolls back exact restore. There is no automatic replay/rebuild and no UPDATE of history.
+
+#### Migration boundary, observability and acceptance
+
+025 is unreleased and its checksum intentionally changes: it contains no `replica_placeholder` column/branch/constraint, restores canonical `NOT NULL`/checks, and remains core shifts migration. 026 adds staging, heads, stream hash/protocol columns, immutable-role/trigger boundary and dependent attribution. Common DB has neither new migration applied; actual migration/server role change/deploy still requires owner-approved window. Once 025 is applied, **any build mentioning `replica_placeholder` is prohibited regardless of whether placeholder rows exist**; rollback is only a compatible transitional/new server or maintenance forward-fix. Stream/heads/pending are never dropped. API/client-visible behavior is unchanged.
+
+Audit/metrics expose pending counts/oldest age by collection and missing-parent class, head supersession/delete/promotion/conflict/rollback, cursor lag, lock wait/timeout and promotion duration. Logs contain correlation, seq, hash version, hashed operation/document/shift IDs and stable error code; never payload/PII.
+
+Required tests:
+
+- status A becomes pending for B, arrival A does nothing, arrival B promotes; repeat with missing truck, and with shift/truck arriving in both orders;
+- pending set→newer set, pending→delete with no resurrection, status to another shift, log set→delete→set generation reuse;
+- delete before/after promotion; truckStatus delete has document truck key even with unknown shift; data.id/path mismatch and multi-document payload rollback;
+- same v2 id/hash in one batch and across replay is no-op; same id different kind/hash/version conflicts; legacy v1 rows remain byte/hash stable;
+- concurrent append/promotion/newer set/delete uses real lock waits/timeouts and leaves one head; crash injection after every transaction boundary leaves no partial state;
+- immutable stream UPDATE/DELETE denied to runtime and trigger bypass attempts; exact restore role/mode succeeds only through controlled API;
+- backup containing pending and settled delete restores exact stream/head/pending/canonical/cursors, then parent arrival promotes once; selective request touching any bundle member is rejected before mutation;
+- 026 preflight на реальных v1 fixtures: native f2s exact range проходит; marker-covered interleaved/directional subsequence проходит; gap без marker, duplicate/ambiguity, missing head row и row beyond f2s/s2f cursor откатывают всю migration без PK/hash rewrite;
+- deferred head↔pending triggers отвергают orphan/mismatch/extra pending и pending у materialized/delete; exact restore проходит те же triggers;
+- f2s/s2f cursor continuity, app_users/object/truck dependencies, malformed snapshots и все FK/hash/head postconditions fail closed; native canonical row без replica head не ошибочно считается отсутствующей;
+- old `{}`/placeholder fixtures/tests are replaced, not relaxed: every fixture row in `shifts` is a full canonical snapshot satisfying strict 025.
+
+Rollback preserves data: before applying 025, old build remains possible; after 025, placeholder-aware builds are forbidden. Before first 026 write, a compatible transitional server may ignore additive tables; after any v2 stream/head write, only compatible new server or forward-fix under maintenance is allowed. Database restore remains separately destructive and requires explicit owner approval.
 
 ## 5. Versioned API v2
 
@@ -490,6 +646,8 @@ Admin создаёт пересекающиеся day/night смены; назн
 - Восстановленные архивные смены в нижнюю полосу не входят. Полоса не перекрывает карточки и глобальную навигацию и учитывает safe-area мобильного viewport 393×852.
 - Этап 4 включается через окно обслуживания без одновременной работы старых/новых клиентов.
 - Время окна и деплой согласуются отдельно. Working-test frontend при зелёных тестах публикуется без «да»; server deploy/миграция общей инфраструктуры — только после явного «да» и согласования окна.
+- **23.11.2026:** для out-of-order replica выбран вариант B — отдельная `replica_pending_documents`; `replica_placeholder` запрещён и удаляется. Видимое поведение приложения не меняется.
+- **23.11.2026:** replica-owned `shifts/statuses/logs` разрешено восстанавливать только полным exact-комплектом с stream/cursor/staging/heads и всеми required parents; любой selective restore, затрагивающий часть комплекта, сервер отклоняет до mutations. Offline rebuild не выбран.
 
 ### Решения архитектора
 
@@ -501,6 +659,9 @@ Admin создаёт пересекающиеся day/night смены; назн
 - Cross-shift force transfer и detached completion online-only; обе операции используют CAS двух смен и append-only audit.
 - Пока detached open, truck нельзя снова переносить/снимать и обе связанные смены нельзя закрывать; это делает destination membership и отчётную принадлежность однозначными.
 - Normalized date/type/state/revisions — канон, JSON — snapshot совместимости.
+- Transport state отделён от canonical: payload остаётся только в immutable `replica_stream`, staging хранит routing/provenance; `replica_document_heads` задаёт stream-seq generation/CAS и сохраняет delete tombstones.
+- Staging допустим для status/log только при отсутствии shift и/или truck; shift с отсутствующим object/user malformed и откатывается.
+- Backup/restore использует неделимый exact bundle canonical replica-owned rows + parents + stream/heads/pending/cursor; selective request отклоняется до mutation, restore не делает replay/rebuild.
 - Snapshot имеет workspaceId/shiftId/shiftRevision; late response — shiftId+requestGeneration.
 - Membership мягко удаляется; реактивация обновляет строку.
 - `activeShiftId` хранится по uid/workspace; нижняя полоса смен атомарно переключает весь клиентский context, presence key — `workspace:shiftId`.
