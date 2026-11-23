@@ -25,6 +25,10 @@
   let nasArchiveRead=null;
   let nasGameRead=null,nasGameSnapshot=null,nasGameReady=false,nasGameReceiptFloor=0;
   let nasAuxSnapshot=null,nasAuxRead=null;
+  // Хэши значимых данных линии и сеанса: неизменный снапшот не должен
+  // гонать полную перерисовку (карточки «Линии» дёргались на каждом цикле).
+  function nasStableHash(value){try{return JSON.stringify(value);}catch(_){return null;}}
+  let nasLineHash=null,nasSessionHash=null;
   // После сворачивания приложения сокет и таймеры могут «умереть». Пока
   // «сторож» промиса не пуст, повторный вызов возвращает тот же мёртвый
   // промис, и ошибка источника никогда не снимается. При возврате в
@@ -60,6 +64,7 @@
     nasArchiveRead=null;
     nasGameRead=null;nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;
     nasAuxSnapshot=null;nasAuxRead=null;
+    nasLineHash=null;nasSessionHash=null;
   }
   // Резерв может быть ещё не наполнен: администратору нужен выход обратно на
   // Firebase прямо с экрана ожидания, иначе режим не вернуть из интерфейса.
@@ -89,6 +94,10 @@
   function loadNasSessionClient() { return import(new URL('./working-test/synology/session-client.mjs',document.baseURI).href); }
   function applyNasSession(session) {
     const profile=session.profile, active=session.identityReady&&profile?.status==='active'&&!profile.deleted;
+    // Значимая часть сеанса — права и профиль. Пока она не изменилась, полная
+    // перерисовка не нужна: снапшоты линии приходят своим путём.
+    const sessionChanged=nasStableHash([session.permissions,profile?.role,profile?.status,profile?.deleted,profile?.nickname])!==nasSessionHash;
+    if(sessionChanged)nasSessionHash=nasStableHash([session.permissions,profile?.role,profile?.status,profile?.deleted,profile?.nickname]);
     if(session.authority&&Number.isSafeInteger(session.authority.generation)&&session.authority.generation>0){
       const next={provider:session.authority.provider==='firebase'?'firebase':'ubuntu',generation:session.authority.generation};
       if(next.provider!==nasAuthority.provider||next.generation!==nasAuthority.generation){
@@ -122,6 +131,7 @@
       installNasReturnToFirebase();
     }
     markSync('profile',false,false,profile?1:0);markSync('permissions',false,false,active?1:0);
+    if(!sessionChanged)return;
     updateUserBadge();updateNavUI();applyRoleUI();renderAll();
   }
   // NAS versions deployed before the server ticker fix return opaque truck IDs.
@@ -145,6 +155,13 @@
       if(!status||Number(status.cycleRevision||0)<floor.cycle||Number(status.ttnRevision||0)<floor.ttn)return false;
     }
     nasReceiptFloors.clear();
+    // Неизменный снапшот не перерисовывает интерфейс: полная перерисовка
+    // гоняет все вкладки, а таймеры ходки пересортировывают карточки каждый
+    // цикл. Хэш покрывает всё значимое: смены, машины, статусы и рейсы.
+    const significant=[snapshot.shift,snapshot.trucks,snapshot.statuses,snapshot.logs,snapshot.restoredShifts||[],snapshot.cycleMinutes];
+    const nextHash=nasStableHash(significant);
+    const lineChanged=nextHash!==null&&nextHash!==nasLineHash;
+    if(lineChanged)nasLineHash=nextHash;
     state.shift=snapshot.shift;state.trucks=snapshot.trucks;
     // Восстановленные для правок архивные смены живут параллельно активной
     // линии: пользователь редактирует их через отчёт, не закрывая текущую.
@@ -162,7 +179,10 @@
     offlineProjectState();initialized=true;
     refreshNasLineNotificationDisplay();
     for(const [source,count] of [['trucks',snapshot.trucks.length],['status',snapshot.statuses.length],['logs',snapshot.logs.length],['shift',snapshot.shift?1:0]])markSync(source,false,false,count);
-    markSync('nas',false,false,snapshot.logs.length);saveCache();renderAll();return true;
+    markSync('nas',false,false,snapshot.logs.length);
+    // Кеш и перерисовку обновляем только при реальных изменениях линии.
+    if(!lineChanged)return true;
+    saveCache();renderAll();return true;
   }
   // Разовое пробуждение после смены сети (VPN, Wi-Fi <-> мобильная) или
   // возврата во вкладку. Один короткий запрос probe(); при успехе сбрасываем
@@ -294,12 +314,19 @@
         await nasNetworkWake(epoch,client,{force:true});
       }
       if(!live())return false;
-      // Связь подтверждена: снимаем накопленные паузы повторов.
-      nasSyncApi()?.reset?.(nasSyncRetry);
-      const reads=[refreshNasObjects,refreshNasSettings,refreshNasAuxiliary,refreshNasGames];
-      if(hasTabAccess('archive')||hasTabAccess('analytics'))reads.push(refreshNasArchive);
-      if(canAdmin())reads.push(refreshNasAdministration);
-      await Promise.allSettled(reads.map(read=>{try{return Promise.resolve(read());}catch(error){return Promise.reject(error);}}));
+      // Бэкофф надзирателя (26-nas-resume) уважается и здесь: источник, чья
+      // последняя ошибка моложе текущей паузы повтора, не перечитывается
+      // этим циклом — его повторит надзиратель по расписанию. Раньше 15-с
+      // цикл и надзиратель конкурировали, и ретраи шли в 2–3 раза чаще
+      // номинала.
+      const resume=nasSyncApi(),syncErrors=(typeof syncState!=='undefined'&&syncState.errors)||{};
+      const reads=[['nas-objects',refreshNasObjects],['nas-settings',refreshNasSettings],['nas-auxiliary',refreshNasAuxiliary],['nas-games',refreshNasGames]];
+      if(hasTabAccess('archive')||hasTabAccess('analytics'))reads.push(['nas-archive',refreshNasArchive]);
+      if(canAdmin())reads.push(['nas-admin',refreshNasAdministration]);
+      await Promise.allSettled(reads.map(([source,read])=>{
+        if(resume&&syncErrors[source]&&!resume.due(nasSyncRetry,source,Date.now()))return Promise.resolve();
+        try{return Promise.resolve(read());}catch(error){return Promise.reject(error);}
+      }));
       if(live())void replayNasOfflineJournal().catch(()=>{});
       return true;
     }catch(_){return false;}
@@ -522,6 +549,9 @@
     if([401,403].includes(error.status)){nasGameReady=false;nasGameSnapshot=null;nasGameReceiptFloor=0;}
     // A failed background read cannot revoke a previously confirmed wallet.
     // Every play still needs an authenticated server transaction and receipt.
+    // Кошелёк уже подтверждён → этот сбой чисто фоновый: жёлтый баннер
+    // «Ошибка загрузки» не поднимается (getSyncStatus показывает такое как
+    // degraded), ошибка остаётся на точке синхронизации и в диагностике.
     window.__gameAccessChanged?.();window.RoadArcade?.sync();reportSyncError('nas-games',error);
   }
   function acceptNasGameReceipt(result){

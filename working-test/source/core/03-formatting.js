@@ -87,7 +87,15 @@
     let showOffline=offlineServerUnreachable||!navigator.onLine;
     if(showOffline&&offlineStatusSince&&Date.now()-offlineStatusSince<OFFLINE_UI_GRACE_MS)showOffline=false;
     if(showOffline)return{ state: 'offline', text: 'Работа локально' + (queued ? ` · действий к отправке: ${queued}` : '') };
-    if (Object.keys(syncState.errors || {}).length) return {state:'error',text:'Ошибка загрузки: ' + Object.keys(syncState.errors).join(', ')};
+    if (Object.keys(syncState.errors || {}).length) {
+      // Жёлтый баннер на весь экран оправдан только когда данных ещё нет:
+      // первичная загрузка не удалась. Фоновый сбой источника, который уже
+      // хотя бы раз успешно читался, не мельтешит баннером: ошибка видна
+      // цветом точки синхронизации, её подсказкой и в диагностике по нажатию.
+      const failed = Object.keys(syncState.errors);
+      if (failed.every(source => syncState.ever_connected[source])) return { state: 'degraded', text: 'Перечитываем: ' + failed.join(', ') };
+      return {state:'error',text:'Ошибка загрузки: ' + failed.join(', ')};
+    }
     if (!currentUserRole) return {state:'init',text:'Проверка учётной записи…'};
     if (!initialized || !permissionsLoaded) return { state: 'init', text: 'Загрузка данных и прав…' };
     const required = ['profile','permissions','trucks','status','shift'];
@@ -105,7 +113,9 @@
     renderTestBackendControls(st);
     let notice = document.getElementById('sessionSyncNotice');
     if (!notice) { notice = document.createElement('div'); notice.id = 'sessionSyncNotice'; notice.style.cssText = 'padding:8px 12px;font-size:12px;background:#332611;color:#fcd34d;line-height:1.4'; document.getElementById('mainHeader')?.append(notice); }
-    notice.hidden = !currentUid || st.state === 'ok' || st.state === 'syncing';
+    // degraded — фоновая ошибка источника при уже загруженных данных: баннер
+    // на весь экран не показываем, сбой виден только цветом точки и подсказкой.
+    notice.hidden = !currentUid || st.state === 'ok' || st.state === 'syncing' || st.state === 'degraded';
     notice.textContent = st.text + (st.state === 'error' ? ' · Нажмите точку синхронизации для подробностей.' : '');
     dot.className = 'sync-dot ' + st.state;
     dot.textContent = backend.letter;

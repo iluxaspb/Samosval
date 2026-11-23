@@ -47,6 +47,9 @@
     .sync-dot.syncing { background: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.3); animation: dotPulse 0.9s infinite; }
     .sync-dot.offline { background: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.35), 0 0 6px rgba(239,68,68,0.6); }
     .sync-dot.error   { background: #ef4444; }
+    /* degraded — фоновый сбой источника при уже загруженных данных: точка
+       жёлтая, но без пульсации, чтобы не мельтешить на рабочем экране. */
+    .sync-dot.degraded { background: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.3); }
     @keyframes dotPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
     .sync-badge {
       position: absolute; top: -5px; right: -8px; min-width: 13px; height: 13px;

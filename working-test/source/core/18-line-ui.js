@@ -78,6 +78,12 @@
     document.addEventListener('pointercancel', linePointerEnd, true);
   }
 
+  // Ключ последнего отрисованного порядка карточек: FLIP-анимация сдвига
+  // нужна только когда порядок реально изменился.
+  let renderLineOrderKey = null;
+  // Ключ значимых данных последней отрисовки линии (страховка от лишних
+  // пересборок карточек при неизменном снапшоте).
+  let renderLineDataKey = null;
   function renderLine() {
     let sc = document.getElementById('startShiftContainer'), ac = document.getElementById('activeShiftContainer'), cb = document.getElementById('changeObjBtn');
     if (!state.shift) { sc.style.display = (hasPermission('start_shift') || hasTabAccess('timesheet')) ? 'block' : 'none'; ac.style.display = 'none'; cb.style.display = 'none'; return; }
@@ -90,6 +96,20 @@
     trucks.sort((a,b)=>{ let sA=state.truckStatus[a.id], sB=state.truckStatus[b.id]; let tA=sA.ttnStatus===true?1:0, tB=sB.ttnStatus===true?1:0; if(tA!==tB) return tA-tB; let aA=sA.arriveStatus?1:0, aB=sB.arriveStatus?1:0; if(aA!==aB) return aB-aA; let lA=lastTs[a.id]||0, lB=lastTs[b.id]||0; if(lA===0&&lB===0) return 0; if(lA===0) return -1; if(lB===0) return 1; return lA-lB; });
     let now = Date.now(), cyc = (settings.cycleMinutes||15)*60000;
     let canEditArrive = hasPermission('action_arrive'), canEditLoad = hasPermission('action_load'), canEditTtn = hasPermission('action_ttn'); let showStats = hasPermission('view_card_stats');
+    // Страховка: если значимые для разметки данные не изменились, карточки не
+    // пересобираются вообще. Таймеры внутри карточек обновляет tickTimers.
+    let stats = {}; logs.forEach(l => { stats[l.truckId] = stats[l.truckId] || { n: 0, v: 0, ts: 0 }; stats[l.truckId].n++; stats[l.truckId].v += l.volume; if ((l.timestamp||0) > stats[l.truckId].ts) stats[l.truckId].ts = l.timestamp||0; });
+    let renderKey = JSON.stringify([trucks.map(t => { let st = state.truckStatus[t.id]||{}; let lastL = st.lastLoadTimestamp||0; let s = stats[t.id]||{n:0,v:0,ts:0};
+      return [t.id, t.brand, t.number, t.defaultVol, !!t.isGAI, !!st.arriveStatus, st.arriveTimestamp||0, st.arriveBy||'', lastL, lastL > 0 && (now-lastL) < cyc, st.ttnStatus===true, s.n, s.v, s.ts, offlinePendingForTruck(t.id)]; }),
+      canEditArrive, canEditLoad, canEditTtn, showStats, typeof truckPhoneEntry==='function' ? trucks.map(t=>truckPhoneEntry(t.id)) : null]);
+    if (renderKey === renderLineDataKey) return;
+    renderLineDataKey = renderKey;
+    // Порядок карточек не изменился — пересортировка FLIP не нужна: таймеры
+    // ходки пересортировывают список каждый рендер, и анимация сдвига
+    // запускалась даже когда карточки остались на своих местах.
+    const orderKey = trucks.map(t => t.id).join('|');
+    const flipNeeded = renderLineOrderKey === null || renderLineOrderKey !== orderKey;
+    renderLineOrderKey = orderKey;
     c.innerHTML = trucks.map(t => {
       let st = state.truckStatus[t.id]||{}; let offlineFlag=offlinePendingForTruck(t.id); let tLogs = logs.filter(l=>l.truckId===t.id), sum = tLogs.reduce((s,l)=>s+l.volume,0);
       let isA = !!st.arriveStatus, lastL = st.lastLoadTimestamp||0, inC = lastL > 0 && (now-lastL)<cyc; let ttn = st.ttnStatus, faded = ttn===true; let lTs = tLogs.length ? tLogs[0].timestamp||0 : 0; let isGAI = !!t.isGAI;
@@ -102,7 +122,7 @@
       let loadBtnTxt = isGAI ? '⚡ Погрузка' : '⚡ Погрузка (+' + t.defaultVol + 'м³)';
       return `<div class="truck-card ${isA?'arrived':''} ${faded?'faded':''}" data-truck-id="${t.id}"><div class="truck-header"><div class="truck-name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>${escapeHtml(t.brand)}</b>${renderRussianPlate(t.number)}<span style="font-size:13px;color:var(--muted);">${isGAI?'': '('+t.defaultVol+' м³)'}</span>${isA?`<span style="color:#f59e0b;font-size:12px;">(${escapeHtml(st.arriveBy||'')})</span>`:''}${offlineFlag?`<span style="font-size:10px;font-weight:700;color:#f59e0b;">☁️ ОФЛАЙН</span>`:''}</div>${truckPhoneIcon(t)}${statsHtml}</div><div class="last-load-info">⏱ Последняя: <b class="time-ago-card" data-timestamp="${lTs}">${lTs>0?formatTimeAgo(lTs):'—'}</b></div><div class="action-row">${arrBtn}<button class="btn btn-quick" ${!canEditLoad||!isA?'disabled':''} ${canEditLoad&&isA?`onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${loadBtnTxt}</button><button class="btn btn-ttn ${ttn?'active-ttn':''}" ${!canEditTtn?'disabled':''} ${canEditTtn?`onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${ttnTxt}</button></div></div>`;
     }).join('');
-    if (Object.keys(oldP).length) {
+    if (flipNeeded && Object.keys(oldP).length) {
       c.querySelectorAll('.truck-card').forEach(card => { let old = oldP[card.dataset.truckId]; if(old === undefined) return; let delta = old - card.getBoundingClientRect().top;
         if(Math.abs(delta) > 2) { card.style.transform=`translateY(${delta}px)`; card.style.transition='none'; void card.offsetWidth; setTimeout(()=>{ requestAnimationFrame(()=>{ card.style.transition='transform 2.4s cubic-bezier(0.4,0,0.2,1)'; card.style.transform=''; setTimeout(()=>card.style.transition='', 2450); }); }, 1000); }
       });
