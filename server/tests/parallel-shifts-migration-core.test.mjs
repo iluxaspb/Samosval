@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import pg from 'pg';
 
 import { applyMigrations } from '../scripts/apply-migrations.mjs';
+import { shiftStartPayload } from '../src/shift-start.mjs';
+import { restoredLine } from '../src/archive-store.mjs';
 import {
   applyMigrationsThrough,
   requireIsolatedDatabase,
@@ -70,12 +74,182 @@ test.after(async () => {
   await applyMigrationsThrough(24);
 });
 
+test('migration runner rolls schema back when registry insert fails and validates checksums fail closed', {
+  skip: !approved,
+}, async () => {
+  await resetIsolatedDatabase();
+  const pool = poolForTest();
+  const directory = await mkdtemp(join(tmpdir(), 'samosval-migration-atomicity-'));
+  try {
+    await writeFile(join(directory, '001_atomic.sql'), 'BEGIN;\nCREATE TABLE atomic_probe(id integer);\nCOMMIT;\n');
+    await pool.query(`CREATE TABLE schema_migrations(
+      filename text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now(),
+      checksum text,
+      CONSTRAINT reject_atomic_registry CHECK(filename <> '001_atomic.sql')
+    )`);
+    await assert.rejects(() => applyMigrations(pool, { dir: directory }));
+    assert.equal((await pool.query(`SELECT to_regclass('public.atomic_probe') IS NULL AS absent`)).rows[0].absent, true);
+    assert.equal((await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`)).rows[0].n, 0);
+
+    await pool.query('ALTER TABLE schema_migrations DROP CONSTRAINT reject_atomic_registry');
+    const source = await readFile(join(directory, '001_atomic.sql'));
+    const checksum = createHash('sha256').update(source).digest('hex');
+    await pool.query('INSERT INTO schema_migrations(filename,checksum) VALUES($1,NULL)', ['001_atomic.sql']);
+    await assert.rejects(() => applyMigrations(pool, { dir: directory }), /checksum/i);
+    await pool.query('UPDATE schema_migrations SET checksum=$2 WHERE filename=$1', ['001_atomic.sql', '0'.repeat(64)]);
+    await assert.rejects(() => applyMigrations(pool, { dir: directory }), /checksum/i);
+    await pool.query('UPDATE schema_migrations SET checksum=$2 WHERE filename=$1', ['001_atomic.sql', checksum]);
+    assert.deepEqual(await applyMigrations(pool, { dir: directory }), [
+      { filename: '001_atomic.sql', status: 'skipped' },
+    ]);
+  } finally {
+    await pool.end();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('025 bridge accepts real v1 start, object, prepare, finish and restored SQL without canonical drift', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('legacy_writer');
+  await applyMigrationsThrough(25);
+  const pool = poolForTest();
+  try {
+    const startedAt = Date.parse('2026-11-25T06:00:00.000Z');
+    const shift = shiftStartPayload(
+      { id: 'legacy_start', objectId: ids.objectAId, createdAt: startedAt, workShift: 'day' },
+      { name: 'Legacy object' },
+      { uid: ids.foremanUid, display_name: 'Foreman' },
+      startedAt,
+    );
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',
+      [ids.workspaceId, shift.id, shift],
+    );
+    let row = (await pool.query(
+      `SELECT state,is_active,object_id,object_name_snapshot,work_date::text,shift_type,
+              closing_started_at,closing_by_uid,closed_at,closed_by_uid
+         FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, shift.id],
+    )).rows[0];
+    assert.deepEqual(row, {
+      state: 'active', is_active: true, object_id: ids.objectAId,
+      object_name_snapshot: 'Legacy object', work_date: '2026-11-25', shift_type: 'day',
+      closing_started_at: null, closing_by_uid: null, closed_at: null, closed_by_uid: null,
+    });
+
+    const changed = { ...shift, objectId: ids.objectBId, objectName: 'Changed object' };
+    await pool.query(
+      'UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+      [ids.workspaceId, shift.id, changed],
+    );
+    row = (await pool.query(
+      `SELECT object_id,object_name_snapshot FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, shift.id],
+    )).rows[0];
+    assert.deepEqual(row, { object_id: ids.objectBId, object_name_snapshot: 'Changed object' });
+
+    const closingStartedAt = startedAt + 3600000;
+    const closing = { ...changed, isActive: false, closing: true, closingStartedAt, closingBy: 'Foreman' };
+    await pool.query(
+      'UPDATE shifts SET is_active=false,payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+      [ids.workspaceId, shift.id, closing],
+    );
+    row = (await pool.query(
+      `SELECT state,is_active,closing_started_at,closing_by_uid FROM shifts
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, shift.id],
+    )).rows[0];
+    assert.equal(row.state, 'closing');
+    assert.equal(row.is_active, false);
+    assert.equal(row.closing_started_at.toISOString(), new Date(closingStartedAt).toISOString());
+    assert.equal(row.closing_by_uid, null, 'display name is not an actor uid and must not be guessed');
+
+    const closedAt = closingStartedAt + 3600000;
+    const closed = { ...closing, closing: false, closedAt, closedBy: 'Foreman' };
+    await pool.query(
+      'UPDATE shifts SET is_active=false,payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+      [ids.workspaceId, shift.id, closed],
+    );
+    row = (await pool.query(
+      `SELECT state,is_active,closed_at,closed_by_uid FROM shifts
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, shift.id],
+    )).rows[0];
+    assert.equal(row.state, 'closed');
+    assert.equal(row.is_active, false);
+    assert.equal(row.closed_at.toISOString(), new Date(closedAt).toISOString());
+    assert.equal(row.closed_by_uid, null);
+
+    const restored = restoredLine({
+      objectId: ids.objectAId, objectName: 'Restored object', date: '24.11.2026',
+      logs: [], activeLineIds: [], ttnStatus: {},
+    }, { id: 'legacy_restore' }, { uid: ids.adminUid, display_name: 'Admin' }, startedAt).shift;
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',
+      [ids.workspaceId, restored.id, restored],
+    );
+    row = (await pool.query(
+      `SELECT state,is_active,object_id,work_date::text,shift_type FROM shifts
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, restored.id],
+    )).rows[0];
+    assert.deepEqual(row, {
+      state: 'active', is_active: true, object_id: ids.objectAId,
+      work_date: '2026-11-24', shift_type: 'day',
+    });
+  } finally {
+    await pool.end();
+  }
+});
+
 test('025 backfills canonical shift fields and installs the exact core schema', {
   skip: !approved,
 }, async () => {
   const ids = await prepareLegacyFixture('core_good');
   const pool = poolForTest(4);
   try {
+    await pool.query(
+      `UPDATE shifts SET payload=payload || '{"closing":true,"isActive":false}'::jsonb,is_active=false
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, ids.shiftBId],
+    );
+    const closedShiftId = 'shift_closed_core_good';
+    const restoredShiftId = 'shift_restored_core_good';
+    await pool.query(
+      `INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES
+       ($1,$2,false,$3),($1,$4,true,$5)`,
+      [ids.workspaceId, closedShiftId, {
+        id: closedShiftId, objectId: ids.objectBId, objectName: 'Closed snapshot',
+        startDate: '22.11.2026', startedAt: 1795334400000, startedByUid: ids.adminUid,
+        isActive: false, workShift: 'day', closedAt: 1795341600000, closedByUid: ids.adminUid,
+      }, restoredShiftId, {
+        id: restoredShiftId, objectId: ids.objectBId, objectName: 'Restored snapshot',
+        startDate: '21.11.2026', startedAt: 1795240800000, startedByUid: ids.foremanUid,
+        isActive: true, restored: true, restoredFrom: 'archive_core_good',
+      }],
+    );
+    await pool.query(
+      `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
+       VALUES($1,$2,$3,$4)`,
+      [ids.workspaceId, ids.truckId, ids.shiftAId, {
+        id: ids.truckId, shiftId: ids.shiftAId,
+        arriveTimestamp: null, lastLoadTimestamp: null, arriveStatus: null,
+      }],
+    );
+    const lockedTruckId = 'locked_truck_core_good';
+    await pool.query(
+      `INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES($1,$2,$3)`,
+      [ids.workspaceId, lockedTruckId, { id: lockedTruckId }],
+    );
+    await pool.query(
+      `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
+       VALUES($1,$2,$3,$4)`,
+      [ids.workspaceId, lockedTruckId, ids.shiftBId, {
+        id: lockedTruckId, shiftId: ids.shiftBId, arriveTimestamp: 1795465000000,
+      }],
+    );
     // Same object/date is intentional: day and night must not conflict.
     await pool.query(
       `UPDATE shifts
@@ -111,11 +285,12 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
 
     const shifts = await pool.query(
       `SELECT shift_id,state,object_id,object_name_snapshot,work_date::text AS work_date,
-              shift_type,opened_at,opened_by_uid,revision,is_active
+              shift_type,opened_at,opened_by_uid,object_locked_at,closing_started_at,
+              closing_by_uid,closed_at,closed_by_uid,revision,is_active
          FROM shifts WHERE workspace_id=$1 ORDER BY shift_id`,
       [ids.workspaceId],
     );
-    assert.deepEqual(shifts.rows.map(row => ({
+    assert.deepEqual(shifts.rows.filter(row => [ids.shiftAId, ids.shiftBId].includes(row.shift_id)).map(row => ({
       shiftId: row.shift_id,
       state: row.state,
       objectId: row.object_id,
@@ -126,9 +301,20 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
       active: row.is_active,
     })), [
       { shiftId: ids.shiftAId, state: 'active', objectId: ids.objectAId, workDate: '2026-11-23', shiftType: 'day', actor: ids.adminUid, revision: '1', active: true },
-      { shiftId: ids.shiftBId, state: 'active', objectId: ids.objectAId, workDate: '2026-11-23', shiftType: 'night', actor: ids.foremanUid, revision: '1', active: true },
+      { shiftId: ids.shiftBId, state: 'closing', objectId: ids.objectAId, workDate: '2026-11-23', shiftType: 'night', actor: ids.foremanUid, revision: '1', active: false },
     ]);
     assert.ok(shifts.rows.every(row => row.opened_at instanceof Date));
+    assert.equal(shifts.rows[0].object_locked_at, null, 'null status markers do not lock object');
+    assert.ok(shifts.rows[1].object_locked_at instanceof Date, 'non-null confirmed status marker locks object');
+    assert.equal(shifts.rows[1].closing_started_at, null, 'missing closing time stays unknown');
+    assert.equal(shifts.rows.find(row => row.shift_id === ids.shiftBId).closing_by_uid, null, 'missing closing actor stays unknown');
+    const closedBackfill = shifts.rows.find(row => row.shift_id === closedShiftId);
+    assert.equal(closedBackfill.state, 'closed');
+    assert.equal(closedBackfill.closed_at.toISOString(), new Date(1795341600000).toISOString());
+    assert.equal(closedBackfill.closed_by_uid, ids.adminUid);
+    const restoredBackfill = shifts.rows.find(row => row.shift_id === restoredShiftId);
+    assert.equal(restoredBackfill.state, 'active');
+    assert.equal(restoredBackfill.shift_type, 'day', 'missing legacy type uses unambiguous Moscow hour fallback');
 
     const memberColumns = await columnMap(pool, 'shift_members');
     for (const [name, type, nullable] of [
@@ -166,32 +352,47 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
       pool.query(`UPDATE shifts SET revision=0 WHERE workspace_id=$1 AND shift_id=$2`, [ids.workspaceId, ids.shiftAId]),
       error => error.code === '23514',
     );
+    await assert.rejects(
+      pool.query(
+        `UPDATE shifts SET is_active=false WHERE workspace_id=$1 AND shift_id=$2`,
+        [ids.workspaceId, ids.shiftAId],
+      ),
+      error => error.code === '23514',
+    );
     await pool.query(
-      `UPDATE shifts SET is_active=false WHERE workspace_id=$1 AND shift_id=$2`,
+      `UPDATE shifts SET state='closing',is_active=false,
+              payload=jsonb_set(jsonb_set(payload,'{closing}','true'::jsonb),'{isActive}','false'::jsonb)
+        WHERE workspace_id=$1 AND shift_id=$2`,
       [ids.workspaceId, ids.shiftAId],
     );
     assert.deepEqual((await pool.query(
       `SELECT state,is_active FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
       [ids.workspaceId, ids.shiftAId],
-    )).rows[0], { state: 'closed', is_active: false });
+    )).rows[0], { state: 'closing', is_active: false });
     await pool.query(
-      `UPDATE shifts SET state='active' WHERE workspace_id=$1 AND shift_id=$2`,
-      [ids.workspaceId, ids.shiftAId],
-    );
-    await pool.query(
-      `UPDATE shifts SET state='closing' WHERE workspace_id=$1 AND shift_id=$2`,
-      [ids.workspaceId, ids.shiftAId],
-    );
-    assert.deepEqual((await pool.query(
-      `SELECT state,is_active FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
-      [ids.workspaceId, ids.shiftAId],
-    )).rows[0], { state: 'closing', is_active: true });
-    await pool.query(
-      `UPDATE shifts SET state='active' WHERE workspace_id=$1 AND shift_id=$2`,
+      `UPDATE shifts SET state='active',is_active=true,
+              payload=jsonb_set(jsonb_set(payload,'{closing}','false'::jsonb),'{isActive}','true'::jsonb)
+        WHERE workspace_id=$1 AND shift_id=$2`,
       [ids.workspaceId, ids.shiftAId],
     );
     await assert.rejects(
       pool.query(`UPDATE shifts SET state='unknown' WHERE workspace_id=$1 AND shift_id=$2`, [ids.workspaceId, ids.shiftAId]),
+      error => error.code === '23514',
+    );
+    await assert.rejects(
+      pool.query(
+        `UPDATE shifts SET payload=jsonb_set(payload,'{objectId}',to_jsonb($3::text))
+          WHERE workspace_id=$1 AND shift_id=$2`,
+        [ids.workspaceId, ids.shiftBId, ids.objectBId],
+      ),
+      error => error.code === '23514',
+    );
+    await assert.rejects(
+      pool.query(
+        `UPDATE shifts SET payload=jsonb_set(payload,'{date}','"2099-01-01"'::jsonb)
+          WHERE workspace_id=$1 AND shift_id=$2`,
+        [ids.workspaceId, ids.shiftAId],
+      ),
       error => error.code === '23514',
     );
 
@@ -227,6 +428,10 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
     )).rows[0];
     assert.deepEqual(membership, { rows: 1, revision: '3', active: true });
     await assert.rejects(
+      pool.query(`DELETE FROM shifts WHERE workspace_id=$1 AND shift_id=$2`, [ids.workspaceId, ids.shiftAId]),
+      error => error.code === '23503',
+    );
+    await assert.rejects(
       pool.query(
         `INSERT INTO shift_members(workspace_id,shift_id,uid,assigned_at,assigned_by_uid,revision)
          VALUES($1,$2,$3,now(),$4,0)`,
@@ -258,16 +463,21 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
       );
     }
 
+    const duplicateTruckId = 'duplicate_truck_core_good';
+    await pool.query(
+      `INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES($1,$2,$3)`,
+      [ids.workspaceId, duplicateTruckId, { id: duplicateTruckId }],
+    );
     await pool.query(
       `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
        VALUES($1,$2,$3,$4)`,
-      [ids.workspaceId, ids.truckId, ids.shiftAId, { id: ids.truckId, shiftId: ids.shiftAId }],
+      [ids.workspaceId, duplicateTruckId, ids.shiftAId, { id: duplicateTruckId, shiftId: ids.shiftAId }],
     );
     await assert.rejects(
       pool.query(
         `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
          VALUES($1,$2,$3,$4)`,
-        [ids.workspaceId, ids.truckId, ids.shiftBId, { id: ids.truckId, shiftId: ids.shiftBId }],
+        [ids.workspaceId, duplicateTruckId, ids.shiftBId, { id: duplicateTruckId, shiftId: ids.shiftBId }],
       ),
       error => error.code === '23505',
     );
@@ -275,7 +485,7 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
       pool.query(
         `UPDATE line_truck_statuses SET status_revision=0
           WHERE workspace_id=$1 AND truck_id=$2`,
-        [ids.workspaceId, ids.truckId],
+        [ids.workspaceId, duplicateTruckId],
       ),
       error => error.code === '23514',
     );
@@ -303,6 +513,19 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
       await clients[1].query('ROLLBACK');
     } finally {
       clients.forEach(client => client.release());
+    }
+
+    const inactivePayload = {
+      id: 'inactive_duplicate_core_good', objectId: ids.objectBId, objectName: ids.objectBId,
+      startDate: '24.11.2026', startedAt: 1795507200000, startedByUid: ids.adminUid,
+      isActive: false, workShift: 'day', closing: false,
+    };
+    for (const shiftId of ['inactive_duplicate_a', 'inactive_duplicate_b']) {
+      await pool.query(
+        `INSERT INTO shifts(workspace_id,shift_id,is_active,payload)
+         VALUES($1,$2,false,$3 || jsonb_build_object('id',$2::text))`,
+        [ids.workspaceId, shiftId, inactivePayload],
+      );
     }
 
     const migrationSource = await readFile(migrationUrl);
@@ -345,9 +568,9 @@ expectUnsafeLegacyFixtureRejected('025 rejects an unknown object reference inste
   );
 });
 
-expectUnsafeLegacyFixtureRejected('025 rejects an ambiguous legacy shift type instead of defaulting', async (pool, ids) => {
+expectUnsafeLegacyFixtureRejected('025 rejects conflicting legacy shift type aliases', async (pool, ids) => {
   await pool.query(
-    `UPDATE shifts SET payload=payload-'workShift'
+    `UPDATE shifts SET payload=jsonb_set(payload,'{type}','"night"'::jsonb)
       WHERE workspace_id=$1 AND shift_id=$2`,
     [ids.workspaceId, ids.shiftAId],
   );

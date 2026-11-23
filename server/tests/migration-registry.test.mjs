@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { buildPool, applyMigrations } from '../scripts/apply-migrations.mjs';
+import { retargetLegacyGuard } from './helpers/isolated-db.mjs';
 
 // Интеграционный тест утилиты apply-migrations на реальном PostgreSQL.
 // Без TEST_DATABASE_URL пропускается (как остальные PG-тесты).
@@ -17,7 +18,8 @@ test('apply-migrations: применяет все файлы sql/ и регис�
 
     // Гоняем утилиту в изолированной схеме: таблицы создаются в search_path схемы.
     // 018 применим только в базе резерва samosval_working_test_reserve (guard имени БД).
-    const first = await applyMigrations(pool, { exclude: ['018_auth_credentials.sql'] });
+    const options = { exclude: ['018_auth_credentials.sql'], transformSource: retargetLegacyGuard };
+    const first = await applyMigrations(pool, options);
     assert.ok(first.length >= 21, `ожидали минимум 21 миграцию, применено ${first.length}`);
     assert.ok(first.every(r => r.status === 'applied'));
 
@@ -28,7 +30,7 @@ test('apply-migrations: применяет все файлы sql/ и регис�
     assert.ok(rows.some(r => r.filename === '021_migration_registry.sql'), 'реестр содержит 021_migration_registry.sql');
 
     // Повторный запуск — чистый no-op.
-    const second = await applyMigrations(pool, { exclude: ['018_auth_credentials.sql'] });
+    const second = await applyMigrations(pool, options);
     assert.ok(second.length >= 1);
     assert.ok(second.every(r => r.status === 'skipped'), 'повтор должен полностью скипаться');
   } finally {

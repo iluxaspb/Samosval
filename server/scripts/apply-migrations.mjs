@@ -29,15 +29,35 @@ function migrationNumber(filename) {
   return match ? Number(match[1]) : null;
 }
 
-export async function applyMigrations(pool, { dir = sqlDir, exclude = [], through = Infinity } = {}) {
+function migrationBody(source, filename) {
+  const lines = source.split(/(?<=\n)/);
+  const significant = lines
+    .map((line, index) => ({ index, text: line.trim() }))
+    .filter(line => line.text && !line.text.startsWith('--'));
+  const begins = significant.filter(line => /^BEGIN\s*;$/i.test(line.text));
+  const commits = significant.filter(line => /^COMMIT\s*;$/i.test(line.text));
+  if (!begins.length && !commits.length) return source;
+  const valid = begins.length === 1 && commits.length === 1
+    && begins[0] === significant[0] && commits[0] === significant.at(-1);
+  if (!valid) throw new Error(`migration ${filename} has an unsafe transaction wrapper`);
+  return lines.filter((_, index) => index !== begins[0].index && index !== commits[0].index).join('');
+}
+
+export async function applyMigrations(pool, {
+  dir = sqlDir,
+  exclude = [],
+  through = Infinity,
+  transformSource = source => source,
+} = {}) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       filename   TEXT PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now(),
       checksum   TEXT
     )`);
-  const applied = new Set(
-    (await pool.query('SELECT filename FROM schema_migrations')).rows.map(r => r.filename)
+  const applied = new Map(
+    (await pool.query('SELECT filename,checksum FROM schema_migrations')).rows
+      .map(row => [row.filename, row.checksum])
   );
   // Часть миграций защищена guard-ами имени базы (018 только для базы резерва),
   // поэтому каталог целиком применим не в любую БД; исключения задаются явно.
@@ -48,13 +68,20 @@ export async function applyMigrations(pool, { dir = sqlDir, exclude = [], throug
     .sort();
   const results = [];
   for (const filename of files) {
-    if (applied.has(filename)) { results.push({ filename, status: 'skipped' }); continue; }
     const sql = readFileSync(join(dir, filename), 'utf8');
     const checksum = createHash('sha256').update(sql).digest('hex');
+    if (applied.has(filename)) {
+      if (applied.get(filename) !== checksum) {
+        throw new Error(`migration checksum mismatch: ${filename}`);
+      }
+      results.push({ filename, status: 'skipped' });
+      continue;
+    }
+    const body = migrationBody(transformSource(sql, filename), filename);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query(sql);
+      await client.query(body);
       await client.query(
         'INSERT INTO schema_migrations(filename, checksum) VALUES ($1, $2)',
         [filename, checksum]

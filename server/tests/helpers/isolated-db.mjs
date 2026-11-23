@@ -1,12 +1,8 @@
-import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { applyMigrations } from '../../scripts/apply-migrations.mjs';
 
 const APPROVED_DATABASE = 'samosval_parallel_shifts_test';
 const APPROVED_HOSTS = new Set(['postgres', 'localhost', '127.0.0.1', '[::1]']);
-const sqlDirectory = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'sql');
 
 export function requireIsolatedDatabase(url) {
   if (process.env.SAMOSVAL_ISOLATED_TEST !== '1') {
@@ -53,12 +49,7 @@ export async function resetIsolatedDatabase() {
   }
 }
 
-function migrationNumber(filename) {
-  const match = /^(\d+)_.*\.sql$/.exec(filename);
-  return match ? Number(match[1]) : null;
-}
-
-function retargetLegacyGuard(sql) {
+export function retargetLegacyGuard(sql) {
   return sql
     .replaceAll("current_database() <> 'samosval_test'", `current_database() <> '${APPROVED_DATABASE}'`)
     .replaceAll("current_database()<>'samosval_test'", `current_database()<>'${APPROVED_DATABASE}'`)
@@ -69,26 +60,10 @@ export async function applyMigrationsThrough(number) {
   if (!Number.isInteger(number) || number < 1) throw new TypeError('migration number must be a positive integer');
   const pool = isolatedPool();
   try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        filename text PRIMARY KEY,
-        applied_at timestamptz NOT NULL DEFAULT now(),
-        checksum text
-      )`);
-    const filenames = (await readdir(sqlDirectory))
-      .filter(filename => migrationNumber(filename) !== null && migrationNumber(filename) <= number)
-      .sort();
-    for (const filename of filenames) {
-      const present = await pool.query('SELECT 1 FROM schema_migrations WHERE filename=$1', [filename]);
-      if (present.rowCount) continue;
-      const source = await readFile(join(sqlDirectory, filename), 'utf8');
-      await pool.query(retargetLegacyGuard(source));
-      const checksum = createHash('sha256').update(source).digest('hex');
-      await pool.query(
-        'INSERT INTO schema_migrations(filename,checksum) VALUES($1,$2) ON CONFLICT(filename) DO NOTHING',
-        [filename, checksum]
-      );
-    }
+    return await applyMigrations(pool, {
+      through: number,
+      transformSource: retargetLegacyGuard,
+    });
   } finally {
     await pool.end();
   }

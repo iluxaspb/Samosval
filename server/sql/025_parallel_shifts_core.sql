@@ -40,7 +40,10 @@ BEGIN
          )
       OR jsonb_typeof(s.payload->'startedAt') IS DISTINCT FROM 'number'
       OR (s.payload->>'startedAt') !~ '^[0-9]+$'
-      OR (s.payload->>'workShift') NOT IN ('day','night')
+      OR (s.payload ? 'workShift' AND s.payload->>'workShift' NOT IN ('day','night'))
+      OR (s.payload ? 'type' AND s.payload->>'type' NOT IN ('day','night'))
+      OR (s.payload ? 'workShift' AND s.payload ? 'type'
+          AND s.payload->>'workShift' IS DISTINCT FROM s.payload->>'type')
       OR (s.payload->>'startDate') !~ '^([0-2][0-9]|3[01])\.(0[1-9]|1[0-2])\.[0-9]{4}$'
       OR to_char(to_timestamp((s.payload->>'startedAt')::double precision / 1000.0)
                  AT TIME ZONE 'Europe/Moscow','DD.MM.YYYY') <> s.payload->>'startDate'
@@ -65,7 +68,10 @@ UPDATE shifts s
        object_id = s.payload->>'objectId',
        object_name_snapshot = s.payload->>'objectName',
        work_date = to_date(s.payload->>'startDate','DD.MM.YYYY'),
-       shift_type = s.payload->>'workShift',
+       shift_type = COALESCE(NULLIF(s.payload->>'workShift',''),
+         CASE WHEN extract(hour FROM to_timestamp((s.payload->>'startedAt')::double precision / 1000.0)
+                    AT TIME ZONE 'Europe/Moscow') BETWEEN 8 AND 19
+              THEN 'day' ELSE 'night' END),
        opened_at = to_timestamp((s.payload->>'startedAt')::double precision / 1000.0),
        opened_by_uid = s.payload->>'startedByUid',
        object_locked_at = CASE
@@ -73,28 +79,25 @@ UPDATE shifts s
                        WHERE l.workspace_id=s.workspace_id AND l.shift_id=s.shift_id)
            OR EXISTS (SELECT 1 FROM line_truck_statuses t
                        WHERE t.workspace_id=s.workspace_id AND t.shift_id=s.shift_id
-                         AND (t.payload ? 'arriveTimestamp'
-                              OR t.payload ? 'lastLoadTimestamp'
+                         AND (jsonb_typeof(t.payload->'arriveTimestamp')='number'
+                              OR jsonb_typeof(t.payload->'lastLoadTimestamp')='number'
                               OR NULLIF(t.payload->>'arriveStatus','') IS NOT NULL))
          THEN to_timestamp((s.payload->>'startedAt')::double precision / 1000.0)
          ELSE NULL
        END,
-       closing_started_at = CASE WHEN s.payload->>'closing'='true'
-         THEN COALESCE(
-           CASE WHEN jsonb_typeof(s.payload->'closingStartedAt')='number'
-             THEN to_timestamp((s.payload->>'closingStartedAt')::double precision / 1000.0) END,
-           to_timestamp((s.payload->>'startedAt')::double precision / 1000.0))
-         END,
+       closing_started_at = CASE
+         WHEN s.payload->>'closing'='true' AND jsonb_typeof(s.payload->'closingStartedAt')='number'
+         THEN to_timestamp((s.payload->>'closingStartedAt')::double precision / 1000.0)
+       END,
        closing_by_uid = CASE WHEN s.payload->>'closing'='true'
-         THEN COALESCE(NULLIF(s.payload->>'closingByUid',''),s.payload->>'startedByUid') END,
-       closed_at = CASE WHEN NOT s.is_active AND s.payload->>'closing' IS DISTINCT FROM 'true'
-         THEN COALESCE(
-           CASE WHEN jsonb_typeof(s.payload->'closedAt')='number'
-             THEN to_timestamp((s.payload->>'closedAt')::double precision / 1000.0) END,
-           to_timestamp((s.payload->>'startedAt')::double precision / 1000.0))
-         END,
+         THEN NULLIF(s.payload->>'closingByUid','') END,
+       closed_at = CASE
+         WHEN NOT s.is_active AND s.payload->>'closing' IS DISTINCT FROM 'true'
+              AND jsonb_typeof(s.payload->'closedAt')='number'
+         THEN to_timestamp((s.payload->>'closedAt')::double precision / 1000.0)
+       END,
        closed_by_uid = CASE WHEN NOT s.is_active AND s.payload->>'closing' IS DISTINCT FROM 'true'
-         THEN COALESCE(NULLIF(s.payload->>'closedByUid',''),s.payload->>'startedByUid') END,
+         THEN NULLIF(s.payload->>'closedByUid','') END,
        revision = 1;
 
 ALTER TABLE shifts
@@ -109,7 +112,7 @@ ALTER TABLE shifts
   ADD CONSTRAINT shifts_state_check CHECK (state IN ('active','closing','closed')),
   ADD CONSTRAINT shifts_shift_type_check CHECK (shift_type IN ('day','night')),
   ADD CONSTRAINT shifts_revision_check CHECK (revision > 0),
-  ADD CONSTRAINT shifts_legacy_active_check CHECK (is_active = (state IN ('active','closing'))),
+  ADD CONSTRAINT shifts_legacy_active_check CHECK (is_active = (state = 'active')),
   ADD CONSTRAINT shifts_object_fk FOREIGN KEY (workspace_id,object_id)
     REFERENCES workspace_objects(workspace_id,object_id),
   ADD CONSTRAINT shifts_opened_by_fk FOREIGN KEY (opened_by_uid) REFERENCES app_users(uid),
@@ -124,28 +127,101 @@ CREATE INDEX shifts_object_date_idx ON shifts(workspace_id,object_id,work_date);
 
 CREATE OR REPLACE FUNCTION shifts_legacy_bridge() RETURNS trigger
 LANGUAGE plpgsql AS $bridge$
+DECLARE
+  legacy_write boolean;
+  payload_state text;
+  payload_date date;
+  payload_type text;
 BEGIN
-  IF TG_OP='INSERT' THEN
-    NEW.state := COALESCE(NEW.state,
-      CASE WHEN NEW.payload->>'closing'='true' THEN 'closing'
-           WHEN NEW.is_active THEN 'active' ELSE 'closed' END);
-    NEW.object_id := COALESCE(NEW.object_id,NEW.payload->>'objectId');
-    NEW.object_name_snapshot := COALESCE(NEW.object_name_snapshot,NEW.payload->>'objectName');
-    NEW.work_date := COALESCE(NEW.work_date,to_date(NEW.payload->>'startDate','DD.MM.YYYY'));
-    NEW.shift_type := COALESCE(NEW.shift_type,NEW.payload->>'workShift');
-    NEW.opened_at := COALESCE(NEW.opened_at,
-      to_timestamp((NEW.payload->>'startedAt')::double precision / 1000.0));
-    NEW.opened_by_uid := COALESCE(NEW.opened_by_uid,NEW.payload->>'startedByUid');
-    NEW.revision := COALESCE(NEW.revision,1);
-    NEW.is_active := NEW.state IN ('active','closing');
-  ELSE
-    IF NEW.state IS NOT DISTINCT FROM OLD.state
-       AND (NEW.is_active IS DISTINCT FROM OLD.is_active OR NEW.payload IS DISTINCT FROM OLD.payload) THEN
-      NEW.state := CASE WHEN NEW.payload->>'closing'='true' THEN 'closing'
-                        WHEN NEW.is_active THEN 'active' ELSE 'closed' END;
-    ELSE
-      NEW.is_active := NEW.state IN ('active','closing');
+  IF TG_OP='UPDATE' AND NEW.is_active IS DISTINCT FROM OLD.is_active
+     AND NEW.payload IS NOT DISTINCT FROM OLD.payload
+     AND NEW.state IS NOT DISTINCT FROM OLD.state THEN
+    RAISE EXCEPTION 'ambiguous legacy active update' USING ERRCODE='check_violation';
+  END IF;
+
+  legacy_write := TG_OP='INSERT' AND NEW.state IS NULL
+    OR TG_OP='UPDATE' AND NEW.payload IS DISTINCT FROM OLD.payload
+       AND NEW.state IS NOT DISTINCT FROM OLD.state
+       AND NEW.object_id IS NOT DISTINCT FROM OLD.object_id
+       AND NEW.object_name_snapshot IS NOT DISTINCT FROM OLD.object_name_snapshot
+       AND NEW.work_date IS NOT DISTINCT FROM OLD.work_date
+       AND NEW.shift_type IS NOT DISTINCT FROM OLD.shift_type
+       AND NEW.opened_at IS NOT DISTINCT FROM OLD.opened_at
+       AND NEW.opened_by_uid IS NOT DISTINCT FROM OLD.opened_by_uid;
+
+  IF legacy_write THEN
+    IF NEW.payload->>'id' IS DISTINCT FROM NEW.shift_id
+       OR (NEW.payload ? 'shiftId' AND NEW.payload->>'shiftId' IS DISTINCT FROM NEW.shift_id)
+       OR NULLIF(btrim(NEW.payload->>'objectId'),'') IS NULL
+       OR NULLIF(btrim(NEW.payload->>'objectName'),'') IS NULL
+       OR NULLIF(btrim(NEW.payload->>'startedByUid'),'') IS NULL
+       OR jsonb_typeof(NEW.payload->'startedAt') IS DISTINCT FROM 'number'
+       OR (NEW.payload->>'startedAt') !~ '^[0-9]+$'
+       OR jsonb_typeof(NEW.payload->'isActive') IS DISTINCT FROM 'boolean'
+    THEN
+      RAISE EXCEPTION 'unsafe legacy shift payload' USING ERRCODE='check_violation';
     END IF;
+    payload_date := CASE
+      WHEN NEW.payload->>'startDate' ~ '^([0-2][0-9]|3[01])\.(0[1-9]|1[0-2])\.[0-9]{4}$'
+        THEN to_date(NEW.payload->>'startDate','DD.MM.YYYY')
+      WHEN NEW.payload->>'date' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])$'
+        THEN (NEW.payload->>'date')::date
+    END;
+    IF payload_date IS NULL THEN
+      RAISE EXCEPTION 'unsafe legacy shift date' USING ERRCODE='check_violation';
+    END IF;
+    payload_type := COALESCE(NULLIF(NEW.payload->>'workShift',''),NULLIF(NEW.payload->>'type',''));
+    IF payload_type IS NULL THEN
+      payload_type := CASE WHEN extract(hour FROM to_timestamp((NEW.payload->>'startedAt')::double precision / 1000.0) AT TIME ZONE 'Europe/Moscow') BETWEEN 8 AND 19 THEN 'day' ELSE 'night' END;
+    END IF;
+    IF payload_type NOT IN ('day','night')
+       OR (NEW.payload ? 'workShift' AND NEW.payload ? 'type'
+           AND NEW.payload->>'workShift' IS DISTINCT FROM NEW.payload->>'type')
+    THEN
+      RAISE EXCEPTION 'unsafe legacy shift type' USING ERRCODE='check_violation';
+    END IF;
+    payload_state := CASE WHEN NEW.payload->>'closing'='true' THEN 'closing'
+                          WHEN (NEW.payload->>'isActive')::boolean THEN 'active' ELSE 'closed' END;
+    IF NEW.payload ? 'state' AND NEW.payload->>'state' IS DISTINCT FROM payload_state THEN
+      RAISE EXCEPTION 'unsafe legacy shift state' USING ERRCODE='check_violation';
+    END IF;
+    IF TG_OP='UPDATE' AND OLD.object_locked_at IS NOT NULL
+       AND NEW.payload->>'objectId' IS DISTINCT FROM OLD.object_id THEN
+      RAISE EXCEPTION 'shift object is locked' USING ERRCODE='check_violation';
+    END IF;
+    NEW.state := payload_state;
+    NEW.object_id := NEW.payload->>'objectId';
+    NEW.object_name_snapshot := NEW.payload->>'objectName';
+    NEW.work_date := payload_date;
+    NEW.shift_type := payload_type;
+    NEW.opened_at := to_timestamp((NEW.payload->>'startedAt')::double precision / 1000.0);
+    NEW.opened_by_uid := NEW.payload->>'startedByUid';
+    NEW.closing_started_at := CASE WHEN payload_state='closing' AND jsonb_typeof(NEW.payload->'closingStartedAt')='number'
+      THEN to_timestamp((NEW.payload->>'closingStartedAt')::double precision / 1000.0) END;
+    NEW.closing_by_uid := CASE WHEN payload_state='closing' THEN NULLIF(NEW.payload->>'closingByUid','') END;
+    NEW.closed_at := CASE WHEN payload_state='closed' AND jsonb_typeof(NEW.payload->'closedAt')='number'
+      THEN to_timestamp((NEW.payload->>'closedAt')::double precision / 1000.0) END;
+    NEW.closed_by_uid := CASE WHEN payload_state='closed' THEN NULLIF(NEW.payload->>'closedByUid','') END;
+    NEW.revision := COALESCE(NEW.revision,1);
+  END IF;
+
+  IF NEW.state='active' THEN NEW.is_active := true;
+  ELSIF NEW.state='closed' THEN NEW.is_active := false;
+  END IF;
+
+  IF (NEW.payload ? 'id' AND NEW.payload->>'id' IS DISTINCT FROM NEW.shift_id)
+     OR (NEW.payload ? 'shiftId' AND NEW.payload->>'shiftId' IS DISTINCT FROM NEW.shift_id)
+     OR (NEW.payload ? 'objectId' AND NEW.payload->>'objectId' IS DISTINCT FROM NEW.object_id)
+     OR (NEW.payload ? 'objectName' AND NEW.payload->>'objectName' IS DISTINCT FROM NEW.object_name_snapshot)
+     OR (NEW.payload ? 'date' AND NEW.payload->>'date' IS DISTINCT FROM to_char(NEW.work_date,'YYYY-MM-DD'))
+     OR (NEW.payload ? 'startDate' AND NEW.payload->>'startDate' IS DISTINCT FROM to_char(NEW.work_date,'DD.MM.YYYY'))
+     OR (NEW.payload ? 'type' AND NEW.payload->>'type' IS DISTINCT FROM NEW.shift_type)
+     OR (NEW.payload ? 'workShift' AND NEW.payload->>'workShift' IS DISTINCT FROM NEW.shift_type)
+     OR (NEW.payload ? 'state' AND NEW.payload->>'state' IS DISTINCT FROM NEW.state)
+     OR (NEW.payload ? 'closing' AND (NEW.payload->>'closing')::boolean IS DISTINCT FROM (NEW.state='closing'))
+     OR (NEW.payload ? 'isActive' AND (NEW.payload->>'isActive')::boolean IS DISTINCT FROM NEW.is_active)
+  THEN
+    RAISE EXCEPTION 'shift canonical payload mismatch' USING ERRCODE='check_violation';
   END IF;
   RETURN NEW;
 END
