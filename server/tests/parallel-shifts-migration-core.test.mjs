@@ -9,6 +9,7 @@ import pg from 'pg';
 import { applyMigrations } from '../scripts/apply-migrations.mjs';
 import { shiftStartPayload } from '../src/shift-start.mjs';
 import { restoredLine } from '../src/archive-store.mjs';
+import { applyLineOperation } from '../src/line-rules.mjs';
 import {
   applyMigrationsThrough,
   requireIsolatedDatabase,
@@ -27,6 +28,14 @@ if (connectionString && process.env.SAMOSVAL_ISOLATED_TEST === '1') {
 
 const migrationUrl = new URL('../sql/025_parallel_shifts_core.sql', import.meta.url);
 const poolForTest = (max = 1) => new pg.Pool({ connectionString, max });
+
+test('025 validates confirmed timestamps before its first schema ALTER', async () => {
+  const source = await readFile(migrationUrl, 'utf8');
+  assert.ok(
+    source.indexOf('DO $validate_confirmed_activity_timestamps$') < source.indexOf('ALTER TABLE shifts'),
+    'timestamp preflight must precede schema mutation',
+  );
+});
 
 async function prepareLegacyFixture(suffix) {
   await resetIsolatedDatabase();
@@ -400,13 +409,13 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
 
     const shiftColumns = await columnMap(pool, 'shifts');
     const expectedShiftColumns = {
-      state: ['text', 'NO'],
-      object_id: ['text', 'NO'],
-      object_name_snapshot: ['text', 'NO'],
-      work_date: ['date', 'NO'],
-      shift_type: ['text', 'NO'],
-      opened_at: ['timestamp with time zone', 'NO'],
-      opened_by_uid: ['text', 'NO'],
+      state: ['text', 'YES'],
+      object_id: ['text', 'YES'],
+      object_name_snapshot: ['text', 'YES'],
+      work_date: ['date', 'YES'],
+      shift_type: ['text', 'YES'],
+      opened_at: ['timestamp with time zone', 'YES'],
+      opened_by_uid: ['text', 'YES'],
       object_locked_at: ['timestamp with time zone', 'YES'],
       object_locked_by_operation_id: ['text', 'YES'],
       closing_started_at: ['timestamp with time zone', 'YES'],
@@ -414,6 +423,7 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
       closed_at: ['timestamp with time zone', 'YES'],
       closed_by_uid: ['text', 'YES'],
       revision: ['bigint', 'NO'],
+      replica_placeholder: ['boolean', 'NO'],
     };
     for (const [name, [type, nullable]] of Object.entries(expectedShiftColumns)) {
       assert.equal(shiftColumns.get(name)?.data_type, type, `shifts.${name} type`);
@@ -698,6 +708,97 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
   }
 });
 
+test('025 preserves a real load then reset by resolving lastLoadLogId to its same-shift log', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('load_reset');
+  const pool = poolForTest();
+  try {
+    const arrived = {
+      id: ids.truckId, shiftId: ids.shiftAId, onLine: true, cycleRevision: 1, ttnRevision: 1,
+      arriveStatus: '09:00', arriveTimestamp: 1795464000000, lastLoadTimestamp: null,
+    };
+    const actor = { name: 'Admin', email: 'admin@example.test', isAdmin: true, canResetTimer: true };
+    const load = applyLineOperation({
+      op: { id: 'load_reset_load', type: 'load', shiftId: ids.shiftAId, truckId: ids.truckId,
+        createdAt: 1795465000000, expectedRevision: 1, expectedTtnRevision: 1,
+        arrivalTimestamp: 1795464000000, lastLoadTimestamp: 0, wantArrived: false, collect: false, cycleMinutes: 15 },
+      before: arrived, truck: { brand: 'Test', number: '1', defaultVol: 24 }, actor, now: 1795465000000,
+    });
+    const reset = applyLineOperation({
+      op: { id: 'load_reset_reset', type: 'reset', shiftId: ids.shiftAId, truckId: ids.truckId,
+        createdAt: 1795466000000, expectedRevision: 2, expectedTtnRevision: 1,
+        arrivalTimestamp: 0, lastLoadTimestamp: load.status.lastLoadTimestamp,
+        wantArrived: false, collect: false, cycleMinutes: 15 },
+      before: load.status, truck: {}, actor, now: 1795466000000,
+    });
+    assert.equal(reset.status.lastLoadTimestamp, null);
+    assert.equal(reset.status.lastLoadLogId, load.log.id);
+    assert.equal(reset.status.lastResetOperationId, 'load_reset_reset');
+    await pool.query(
+      `INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES($1,$2,$3,$4,$5)`,
+      [ids.workspaceId, load.log.id, ids.shiftAId, ids.truckId, load.log],
+    );
+    await pool.query(
+      `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES($1,$2,$3,$4)`,
+      [ids.workspaceId, ids.truckId, ids.shiftAId, reset.status],
+    );
+    await applyMigrationsThrough(25);
+    const lockedAt = (await pool.query(
+      `SELECT object_locked_at FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, ids.shiftAId],
+    )).rows[0].object_locked_at;
+    assert.equal(lockedAt.toISOString(), new Date(load.log.timestamp).toISOString());
+  } finally {
+    await pool.end();
+  }
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects a reset load marker without a matching same-shift log', async (pool, ids) => {
+  await pool.query(
+    `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES($1,$2,$3,$4)`,
+    [ids.workspaceId, ids.truckId, ids.shiftAId, {
+      id: ids.truckId, shiftId: ids.shiftAId, lastLoadTimestamp: null,
+      lastLoadLogId: 'missing_load', lastResetOperationId: 'reset_missing_load',
+    }],
+  );
+});
+
+for (const [label, timestamp, rejected] of [
+  ['lower bound', 946684800000, false],
+  ['upper bound minus one', 4102444799999, false],
+  ['below lower bound', 946684799999, true],
+  ['upper bound', 4102444800000, true],
+  ['decimal', 1795465000000.5, true],
+  ['huge integer', 999999999999999999999, true],
+]) {
+  const name = `025 ${rejected ? 'rejects' : 'accepts'} confirmed log timestamp at ${label}`;
+  if (rejected) {
+    expectUnsafeLegacyFixtureRejected(name, async (pool, ids) => {
+      await pool.query(
+        `INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES($1,$2,$3,$4,$5)`,
+        [ids.workspaceId, `bound_${label.replaceAll(' ', '_')}`, ids.shiftAId, ids.truckId, { timestamp }],
+      );
+    });
+  } else {
+    test(name, { skip: !approved }, async () => {
+      const ids = await prepareLegacyFixture(`bound_${label.replaceAll(' ', '_')}`);
+      const pool = poolForTest();
+      try {
+        await pool.query(
+          `INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES($1,$2,$3,$4,$5)`,
+          [ids.workspaceId, `bound_${label.replaceAll(' ', '_')}`, ids.shiftAId, ids.truckId, { timestamp }],
+        );
+        await applyMigrationsThrough(25);
+        assert.equal((await pool.query(
+          `SELECT object_locked_at FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+          [ids.workspaceId, ids.shiftAId],
+        )).rows[0].object_locked_at.toISOString(), new Date(timestamp).toISOString());
+      } finally { await pool.end(); }
+    });
+  }
+}
+
 expectUnsafeLegacyFixtureRejected('025 rejects a null canonical legacy object instead of guessing', async (pool, ids) => {
   await pool.query(
     `UPDATE shifts SET payload=payload-'objectId'
@@ -737,6 +838,41 @@ expectUnsafeLegacyFixtureRejected('025 rejects confirmed line activity with a mi
      VALUES($1,'missing_timestamp',$2,$3,$4)`,
     [ids.workspaceId, ids.shiftAId, ids.truckId, {
       id: 'missing_timestamp', shiftId: ids.shiftAId, truckId: ids.truckId, volume: 24,
+    }],
+  );
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects confirmed arrival activity with a missing timestamp', async (pool, ids) => {
+  await pool.query(
+    `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
+     VALUES($1,$2,$3,$4)`,
+    [ids.workspaceId, ids.truckId, ids.shiftAId, {
+      id: ids.truckId, shiftId: ids.shiftAId, arriveStatus: '09:00',
+    }],
+  );
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects confirmed load activity with a missing timestamp', async (pool, ids) => {
+  await pool.query(
+    `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
+     VALUES($1,$2,$3,$4)`,
+    [ids.workspaceId, ids.truckId, ids.shiftAId, {
+      id: ids.truckId, shiftId: ids.shiftAId, lastLoadLogId: 'missing_timestamp_load',
+    }],
+  );
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects a wrong-type reset load timestamp instead of masking it with the referenced log', async (pool, ids) => {
+  const logId = 'wrong_type_reset_load';
+  await pool.query(
+    `INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES($1,$2,$3,$4,$5)`,
+    [ids.workspaceId, logId, ids.shiftAId, ids.truckId, { timestamp: 1795465000000 }],
+  );
+  await pool.query(
+    `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES($1,$2,$3,$4)`,
+    [ids.workspaceId, ids.truckId, ids.shiftAId, {
+      id: ids.truckId, shiftId: ids.shiftAId, lastLoadTimestamp: 'bad',
+      lastLoadLogId: logId, lastResetOperationId: 'reset_wrong_type_load',
     }],
   );
 });

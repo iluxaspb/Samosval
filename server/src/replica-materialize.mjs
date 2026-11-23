@@ -19,7 +19,9 @@ const asObject = value => (map(value) ? value : {});
 async function ensureShift(client, ws, shiftId) {
   if (!shiftId) return;
   await client.query(
-    'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,false,$3::jsonb) ON CONFLICT (workspace_id,shift_id) DO NOTHING',
+    `INSERT INTO shifts(workspace_id,shift_id,is_active,payload,replica_placeholder)
+     VALUES ($1,$2,false,$3::jsonb,true)
+     ON CONFLICT (workspace_id,shift_id) DO NOTHING`,
     [ws, shiftId, '{}']
   );
 }
@@ -60,9 +62,10 @@ export async function applyReplicaDocument(client, ws, operation) {
         return true;
       }
       await client.query(
-        `INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,$3,$4::jsonb)
+        `INSERT INTO shifts(workspace_id,shift_id,is_active,payload,replica_placeholder)
+         VALUES ($1,$2,$3,$4::jsonb,false)
          ON CONFLICT (workspace_id,shift_id)
-         DO UPDATE SET is_active=EXCLUDED.is_active, payload=EXCLUDED.payload`,
+         DO UPDATE SET is_active=EXCLUDED.is_active, payload=EXCLUDED.payload, replica_placeholder=false`,
         [ws, id, data.isActive === true, JSON.stringify(data)]
       );
       return true;

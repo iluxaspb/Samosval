@@ -2,6 +2,50 @@
 -- legacy is_active remains as a consistency bridge during the v1/v2 cutover.
 BEGIN;
 
+DO $validate_confirmed_activity_timestamps$
+DECLARE
+  bad record;
+BEGIN
+  SELECT workspace_id,shift_id,source INTO bad
+    FROM (
+      SELECT l.workspace_id,l.shift_id,'line_log'::text AS source,l.payload->'timestamp' AS event_time
+        FROM line_logs l
+      UNION ALL
+      SELECT t.workspace_id,t.shift_id,'arrival'::text,t.payload->'arriveTimestamp'
+        FROM line_truck_statuses t
+       WHERE NULLIF(btrim(t.payload->>'arriveStatus'),'') IS NOT NULL
+      UNION ALL
+      SELECT t.workspace_id,t.shift_id,'load'::text,
+             CASE
+               WHEN jsonb_typeof(t.payload->'lastLoadTimestamp')='number' THEN t.payload->'lastLoadTimestamp'
+               WHEN jsonb_typeof(t.payload->'lastLoadTimestamp')='null'
+                    AND NULLIF(btrim(t.payload->>'lastResetOperationId'),'') IS NOT NULL THEN (
+                 SELECT l.payload->'timestamp'
+                   FROM line_logs l
+                  WHERE l.workspace_id=t.workspace_id
+                    AND l.shift_id=t.shift_id
+                    AND l.truck_id=t.truck_id
+                    AND l.log_id=t.payload->>'lastLoadLogId'
+               )
+             END
+        FROM line_truck_statuses t
+       WHERE NULLIF(btrim(t.payload->>'lastLoadLogId'),'') IS NOT NULL
+    ) confirmed
+   WHERE CASE
+     WHEN jsonb_typeof(event_time)='number' AND event_time #>> '{}' ~ '^[0-9]+$'
+       THEN (event_time #>> '{}')::numeric < 946684800000
+         OR (event_time #>> '{}')::numeric >= 4102444800000
+     ELSE true
+   END
+   LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'unsafe confirmed activity timestamp for workspace %, shift %, source %',
+      bad.workspace_id,bad.shift_id,bad.source
+      USING ERRCODE='check_violation';
+  END IF;
+END
+$validate_confirmed_activity_timestamps$;
+
 ALTER TABLE shifts
   ADD COLUMN state text,
   ADD COLUMN object_id text,
@@ -16,7 +60,8 @@ ALTER TABLE shifts
   ADD COLUMN closing_by_uid text,
   ADD COLUMN closed_at timestamptz,
   ADD COLUMN closed_by_uid text,
-  ADD COLUMN revision bigint DEFAULT 1;
+  ADD COLUMN revision bigint DEFAULT 1,
+  ADD COLUMN replica_placeholder boolean NOT NULL DEFAULT false;
 
 DO $validate_legacy_shifts$
 DECLARE
@@ -62,38 +107,6 @@ BEGIN
 END
 $validate_legacy_shifts$;
 
-DO $validate_confirmed_activity_timestamps$
-DECLARE
-  bad record;
-BEGIN
-  SELECT workspace_id,shift_id,source INTO bad
-    FROM (
-      SELECT l.workspace_id,l.shift_id,'line_log'::text AS source,l.payload->'timestamp' AS event_time
-        FROM line_logs l
-      UNION ALL
-      SELECT t.workspace_id,t.shift_id,'arrival'::text,t.payload->'arriveTimestamp'
-        FROM line_truck_statuses t
-       WHERE NULLIF(btrim(t.payload->>'arriveStatus'),'') IS NOT NULL
-      UNION ALL
-      SELECT t.workspace_id,t.shift_id,'load'::text,t.payload->'lastLoadTimestamp'
-        FROM line_truck_statuses t
-       WHERE NULLIF(btrim(t.payload->>'lastLoadLogId'),'') IS NOT NULL
-    ) confirmed
-   WHERE CASE
-     WHEN jsonb_typeof(event_time)='number' AND event_time #>> '{}' ~ '^[0-9]+$'
-       THEN (event_time #>> '{}')::numeric < 946684800000
-         OR (event_time #>> '{}')::numeric >= 4102444800000
-     ELSE true
-   END
-   LIMIT 1;
-  IF FOUND THEN
-    RAISE EXCEPTION 'unsafe confirmed activity timestamp for workspace %, shift %, source %',
-      bad.workspace_id,bad.shift_id,bad.source
-      USING ERRCODE='check_violation';
-  END IF;
-END
-$validate_confirmed_activity_timestamps$;
-
 UPDATE shifts s
    SET state = CASE WHEN s.payload->>'closing'='true' THEN 'closing'
                     WHEN s.is_active THEN 'active' ELSE 'closed' END,
@@ -118,10 +131,24 @@ UPDATE shifts s
               WHERE t.workspace_id=s.workspace_id AND t.shift_id=s.shift_id
                 AND NULLIF(btrim(t.payload->>'arriveStatus'),'') IS NOT NULL
              UNION ALL
-             SELECT (t.payload->>'lastLoadTimestamp')::numeric
+             SELECT CASE
+                      WHEN jsonb_typeof(t.payload->'lastLoadTimestamp')='number'
+                        THEN (t.payload->>'lastLoadTimestamp')::numeric
+                      WHEN jsonb_typeof(t.payload->'lastLoadTimestamp')='null'
+                           AND NULLIF(btrim(t.payload->>'lastResetOperationId'),'') IS NOT NULL THEN (
+                        SELECT (l.payload->>'timestamp')::numeric
+                          FROM line_logs l
+                         WHERE l.workspace_id=t.workspace_id
+                           AND l.shift_id=t.shift_id
+                           AND l.truck_id=t.truck_id
+                           AND l.log_id=t.payload->>'lastLoadLogId'
+                      )
+                    END
                FROM line_truck_statuses t
               WHERE t.workspace_id=s.workspace_id AND t.shift_id=s.shift_id
                 AND NULLIF(btrim(t.payload->>'lastLoadLogId'),'') IS NOT NULL
+                AND (t.payload->'lastLoadTimestamp' IS NOT NULL
+                     OR NULLIF(btrim(t.payload->>'lastResetOperationId'),'') IS NOT NULL)
            ) confirmed_events
           WHERE event_ms > 0
        ),
@@ -141,14 +168,34 @@ UPDATE shifts s
        revision = 1;
 
 ALTER TABLE shifts
-  ALTER COLUMN state SET NOT NULL,
-  ALTER COLUMN object_id SET NOT NULL,
-  ALTER COLUMN object_name_snapshot SET NOT NULL,
-  ALTER COLUMN work_date SET NOT NULL,
-  ALTER COLUMN shift_type SET NOT NULL,
-  ALTER COLUMN opened_at SET NOT NULL,
-  ALTER COLUMN opened_by_uid SET NOT NULL,
   ALTER COLUMN revision SET NOT NULL,
+  ADD CONSTRAINT shifts_placeholder_shape_check CHECK (
+    (replica_placeholder
+     AND NOT is_active
+     AND payload='{}'::jsonb
+     AND state IS NULL
+     AND object_id IS NULL
+     AND object_name_snapshot IS NULL
+     AND work_date IS NULL
+     AND shift_type IS NULL
+     AND opened_at IS NULL
+     AND opened_by_uid IS NULL
+     AND object_locked_at IS NULL
+     AND object_locked_by_operation_id IS NULL
+     AND closing_started_at IS NULL
+     AND closing_by_uid IS NULL
+     AND closed_at IS NULL
+     AND closed_by_uid IS NULL)
+    OR
+    (NOT replica_placeholder
+     AND state IS NOT NULL
+     AND object_id IS NOT NULL
+     AND object_name_snapshot IS NOT NULL
+     AND work_date IS NOT NULL
+     AND shift_type IS NOT NULL
+     AND opened_at IS NOT NULL
+     AND opened_by_uid IS NOT NULL)
+  ),
   ADD CONSTRAINT shifts_state_check CHECK (state IN ('active','closing','closed')),
   ADD CONSTRAINT shifts_shift_type_check CHECK (shift_type IN ('day','night')),
   ADD CONSTRAINT shifts_revision_check CHECK (revision > 0),
@@ -173,6 +220,23 @@ DECLARE
   payload_date date;
   payload_type text;
 BEGIN
+  IF NEW.replica_placeholder THEN
+    IF TG_OP <> 'INSERT'
+       OR NEW.is_active
+       OR NEW.payload <> '{}'::jsonb
+       OR NEW.state IS NOT NULL
+       OR NEW.object_id IS NOT NULL
+       OR NEW.object_name_snapshot IS NOT NULL
+       OR NEW.work_date IS NOT NULL
+       OR NEW.shift_type IS NOT NULL
+       OR NEW.opened_at IS NOT NULL
+       OR NEW.opened_by_uid IS NOT NULL
+    THEN
+      RAISE EXCEPTION 'unsafe replica shift placeholder' USING ERRCODE='check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+
   IF TG_OP='UPDATE' AND NEW.is_active IS DISTINCT FROM OLD.is_active
      AND NEW.payload IS NOT DISTINCT FROM OLD.payload
      AND NEW.state IS NOT DISTINCT FROM OLD.state THEN
