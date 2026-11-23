@@ -74,17 +74,26 @@ UPDATE shifts s
               THEN 'day' ELSE 'night' END),
        opened_at = to_timestamp((s.payload->>'startedAt')::double precision / 1000.0),
        opened_by_uid = s.payload->>'startedByUid',
-       object_locked_at = CASE
-         WHEN EXISTS (SELECT 1 FROM line_logs l
-                       WHERE l.workspace_id=s.workspace_id AND l.shift_id=s.shift_id)
-           OR EXISTS (SELECT 1 FROM line_truck_statuses t
-                       WHERE t.workspace_id=s.workspace_id AND t.shift_id=s.shift_id
-                         AND (jsonb_typeof(t.payload->'arriveTimestamp')='number'
-                              OR jsonb_typeof(t.payload->'lastLoadTimestamp')='number'
-                              OR NULLIF(t.payload->>'arriveStatus','') IS NOT NULL))
-         THEN to_timestamp((s.payload->>'startedAt')::double precision / 1000.0)
-         ELSE NULL
-       END,
+       object_locked_at = (
+         SELECT to_timestamp(min(event_ms)::double precision / 1000.0)
+           FROM (
+             SELECT (l.payload->>'timestamp')::numeric AS event_ms
+               FROM line_logs l
+              WHERE l.workspace_id=s.workspace_id AND l.shift_id=s.shift_id
+                AND jsonb_typeof(l.payload->'timestamp')='number'
+             UNION ALL
+             SELECT (t.payload->>'arriveTimestamp')::numeric
+               FROM line_truck_statuses t
+              WHERE t.workspace_id=s.workspace_id AND t.shift_id=s.shift_id
+                AND jsonb_typeof(t.payload->'arriveTimestamp')='number'
+             UNION ALL
+             SELECT (t.payload->>'lastLoadTimestamp')::numeric
+               FROM line_truck_statuses t
+              WHERE t.workspace_id=s.workspace_id AND t.shift_id=s.shift_id
+                AND jsonb_typeof(t.payload->'lastLoadTimestamp')='number'
+           ) confirmed_events
+          WHERE event_ms > 0
+       ),
        closing_started_at = CASE
          WHEN s.payload->>'closing'='true' AND jsonb_typeof(s.payload->'closingStartedAt')='number'
          THEN to_timestamp((s.payload->>'closingStartedAt')::double precision / 1000.0)
@@ -185,10 +194,6 @@ BEGIN
     IF NEW.payload ? 'state' AND NEW.payload->>'state' IS DISTINCT FROM payload_state THEN
       RAISE EXCEPTION 'unsafe legacy shift state' USING ERRCODE='check_violation';
     END IF;
-    IF TG_OP='UPDATE' AND OLD.object_locked_at IS NOT NULL
-       AND NEW.payload->>'objectId' IS DISTINCT FROM OLD.object_id THEN
-      RAISE EXCEPTION 'shift object is locked' USING ERRCODE='check_violation';
-    END IF;
     NEW.state := payload_state;
     NEW.object_id := NEW.payload->>'objectId';
     NEW.object_name_snapshot := NEW.payload->>'objectName';
@@ -209,17 +214,26 @@ BEGIN
   ELSIF NEW.state='closed' THEN NEW.is_active := false;
   END IF;
 
-  IF (NEW.payload ? 'id' AND NEW.payload->>'id' IS DISTINCT FROM NEW.shift_id)
+  IF TG_OP='UPDATE' AND OLD.object_locked_at IS NOT NULL
+     AND NEW.object_id IS DISTINCT FROM OLD.object_id THEN
+    RAISE EXCEPTION 'shift object is locked' USING ERRCODE='check_violation';
+  END IF;
+
+  IF NEW.payload->>'id' IS DISTINCT FROM NEW.shift_id
+     OR NULLIF(btrim(NEW.payload->>'objectId'),'') IS NULL
+     OR NEW.payload->>'objectId' IS DISTINCT FROM NEW.object_id
+     OR NULLIF(btrim(NEW.payload->>'objectName'),'') IS NULL
+     OR NEW.payload->>'objectName' IS DISTINCT FROM NEW.object_name_snapshot
+     OR jsonb_typeof(NEW.payload->'isActive') IS DISTINCT FROM 'boolean'
+     OR (NEW.payload->>'isActive')::boolean IS DISTINCT FROM NEW.is_active
+     OR (NOT (NEW.payload ? 'startDate') AND NOT (NEW.payload ? 'date'))
      OR (NEW.payload ? 'shiftId' AND NEW.payload->>'shiftId' IS DISTINCT FROM NEW.shift_id)
-     OR (NEW.payload ? 'objectId' AND NEW.payload->>'objectId' IS DISTINCT FROM NEW.object_id)
-     OR (NEW.payload ? 'objectName' AND NEW.payload->>'objectName' IS DISTINCT FROM NEW.object_name_snapshot)
      OR (NEW.payload ? 'date' AND NEW.payload->>'date' IS DISTINCT FROM to_char(NEW.work_date,'YYYY-MM-DD'))
      OR (NEW.payload ? 'startDate' AND NEW.payload->>'startDate' IS DISTINCT FROM to_char(NEW.work_date,'DD.MM.YYYY'))
      OR (NEW.payload ? 'type' AND NEW.payload->>'type' IS DISTINCT FROM NEW.shift_type)
      OR (NEW.payload ? 'workShift' AND NEW.payload->>'workShift' IS DISTINCT FROM NEW.shift_type)
      OR (NEW.payload ? 'state' AND NEW.payload->>'state' IS DISTINCT FROM NEW.state)
      OR (NEW.payload ? 'closing' AND (NEW.payload->>'closing')::boolean IS DISTINCT FROM (NEW.state='closing'))
-     OR (NEW.payload ? 'isActive' AND (NEW.payload->>'isActive')::boolean IS DISTINCT FROM NEW.is_active)
   THEN
     RAISE EXCEPTION 'shift canonical payload mismatch' USING ERRCODE='check_violation';
   END IF;

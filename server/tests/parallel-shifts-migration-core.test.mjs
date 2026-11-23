@@ -204,6 +204,69 @@ test('025 bridge accepts real v1 start, object, prepare, finish and restored SQL
   }
 });
 
+test('025 rejects a normalized object change after the first confirmed line event', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('normalized_lock');
+  const pool = poolForTest();
+  try {
+    await pool.query(
+      `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
+       VALUES($1,$2,$3,$4)`,
+      [ids.workspaceId, ids.truckId, ids.shiftAId, {
+        id: ids.truckId, shiftId: ids.shiftAId, arriveTimestamp: 1795465000000,
+      }],
+    );
+    await applyMigrationsThrough(25);
+    await assert.rejects(
+      pool.query(
+        `UPDATE shifts
+            SET object_id=$3,object_name_snapshot='Bypassed object',
+                payload=jsonb_set(jsonb_set(payload,'{objectId}',to_jsonb($3::text)),
+                                  '{objectName}',to_jsonb('Bypassed object'::text))
+          WHERE workspace_id=$1 AND shift_id=$2`,
+        [ids.workspaceId, ids.shiftAId, ids.objectBId],
+      ),
+      error => error.code === '23514',
+    );
+    await pool.query(
+      `UPDATE shifts SET object_id=object_id,object_name_snapshot=object_name_snapshot,payload=payload
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, ids.shiftAId],
+    );
+  } finally {
+    await pool.end();
+  }
+});
+
+test('025 requires the complete real v1 canonical snapshot aliases on normalized writes', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('complete_payload');
+  await applyMigrationsThrough(25);
+  const pool = poolForTest();
+  try {
+    const shiftId = 'normalized_incomplete_payload';
+    const payload = {
+      id: shiftId, objectId: ids.objectBId, startDate: '26.11.2026',
+      startedAt: 1795680000000, startedByUid: ids.adminUid, isActive: true, workShift: 'day',
+    };
+    await assert.rejects(
+      pool.query(
+        `INSERT INTO shifts(
+           workspace_id,shift_id,is_active,payload,state,object_id,object_name_snapshot,
+           work_date,shift_type,opened_at,opened_by_uid,revision
+         ) VALUES($1,$2,true,$3,'active',$4,'Snapshot required','2026-11-26','day',
+                  to_timestamp(1795680000000 / 1000.0),$5,1)`,
+        [ids.workspaceId, shiftId, payload, ids.objectBId, ids.adminUid],
+      ),
+      error => error.code === '23514',
+    );
+  } finally {
+    await pool.end();
+  }
+});
+
 test('025 backfills canonical shift fields and installs the exact core schema', {
   skip: !approved,
 }, async () => {
@@ -306,6 +369,11 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
     assert.ok(shifts.rows.every(row => row.opened_at instanceof Date));
     assert.equal(shifts.rows[0].object_locked_at, null, 'null status markers do not lock object');
     assert.ok(shifts.rows[1].object_locked_at instanceof Date, 'non-null confirmed status marker locks object');
+    assert.equal(
+      shifts.rows[1].object_locked_at.toISOString(),
+      new Date(1795465000000).toISOString(),
+      'lock time comes from the earliest confirmed line event, never shift start',
+    );
     assert.equal(shifts.rows[1].closing_started_at, null, 'missing closing time stays unknown');
     assert.equal(shifts.rows.find(row => row.shift_id === ids.shiftBId).closing_by_uid, null, 'missing closing actor stays unknown');
     const closedBackfill = shifts.rows.find(row => row.shift_id === closedShiftId);
