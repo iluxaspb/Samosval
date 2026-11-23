@@ -23,7 +23,7 @@
 .slot-shell.jackpot{animation:slotJackpotPulse .5s ease-in-out infinite;border-color:#ffd166}
 .slot-jackpot{position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;border-radius:26px;overflow:hidden;background:radial-gradient(circle at 50% 40%,#3b1220f2,#0d0409fa);padding:16px}
 .slot-jackpot.show{display:flex}
-.slot-jackpot-inner{position:relative;z-index:2;text-align:center;width:100%;max-width:430px}
+.slot-jackpot-inner{position:relative;z-index:2;text-align:center;width:100%;max-width:430px;max-height:calc(100% - 24px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 #slot-jackpot-matrix{display:block;width:100%;max-width:420px;height:auto;margin:0 auto;border:2px solid #8a4a1f;border-radius:12px;background:#120a0d;box-shadow:0 0 26px #ffb34744}
 .slot-jackpot-sum{font-size:34px;font-weight:900;color:#ffe08a;margin:10px 0 2px;text-shadow:0 0 18px #ffb34788}
 .slot-jackpot-note{font-size:12px;color:#f6dfc0;margin:0 0 12px}
@@ -117,7 +117,10 @@
 #arcade-dialog.mario-immersive .mic-exit{display:block}
 
 .mario-first-run{position:absolute;inset:0;z-index:30;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;color:#fff;padding:24px;text-align:center;pointer-events:auto}
-.mario-first-run .mfr-card{max-width:520px;background:rgba(15,23,42,.9);border:1px solid rgba(255,255,255,.2);border-radius:18px;padding:22px 24px;box-shadow:0 20px 60px #000c}
+/* Карточка не может быть выше оверлея: иначе кнопка уезжает за нижний край
+   (диалог .mario-immersive обрезает всё с overflow:hidden) и тап не проходит.
+   На низком экране карточка скроллится, кнопка всегда внутри. */
+.mario-first-run .mfr-card{max-width:520px;max-height:calc(100% - 24px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:rgba(15,23,42,.9);border:1px solid rgba(255,255,255,.2);border-radius:18px;padding:22px 24px;box-shadow:0 20px 60px #000c}
 .mario-first-run h3{margin:0 0 12px;font:900 22px/1.2 Arial Black,sans-serif;color:#ffd230}
 .mario-first-run .mfr-row{display:flex;gap:14px;align-items:center;margin:12px 0;font:700 15px/1.4 ui-monospace,monospace;text-align:left}
 .mario-first-run .mfr-icon{flex:0 0 64px;height:64px;display:flex;align-items:center;justify-content:center;font-size:34px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15)}
@@ -148,6 +151,21 @@
   #arcade-dialog:not(.mario-immersive) .mic-jump-zone::after{content:'ПРЫЖОК';position:absolute;inset:auto 0 calc(16px + env(safe-area-inset-bottom)) 0;text-align:center;font:800 13px/1 ui-monospace,monospace;letter-spacing:.12em;color:rgba(255,255,255,.75);text-shadow:0 2px 6px #000;pointer-events:none}
   #arcade-dialog:not(.mario-immersive) .mic-jump-hint{display:none}
 }
+/* Памятка «Как играть» на низком ГОРИЗОНТАЛЬНОМ экране (~393–420px): карточка
+   компактнее — мельче шрифты и отступы, чтобы кнопка «Понятно, играть» попадала
+   в видимую часть без долгой прокрутки. */
+@media (orientation:landscape) and (max-height:520px){
+  .mario-first-run{padding:12px}
+  .mario-first-run .mfr-card{max-width:440px;padding:12px 16px}
+  .mario-first-run h3{margin:0 0 6px;font-size:17px}
+  .mario-first-run .mfr-row{gap:10px;margin:8px 0;font-size:12.5px;line-height:1.35}
+  .mario-first-run .mfr-icon{flex-basis:44px;height:44px;font-size:22px;border-radius:10px}
+  .mario-first-run button{margin-top:10px;padding:11px 22px;font-size:15px}
+}
+/* Запас по слоям: памятка всегда выше панели, выхода и управления (джойстик и
+   зона прыжка живут в #mario-fs-controls с z-index:7, панель — 8, выход — 20). */
+.mario-game-wrapper .mario-first-run{z-index:40}
+
 /* Тонкая компенсация: в landscape на узких экранах прыжковая зона не наезжает на джойстик. */
 @media (orientation:landscape) and (max-height:520px){
   #arcade-dialog:not(.mario-immersive) .mic-joystick{bottom:calc(10px + env(safe-area-inset-bottom))}

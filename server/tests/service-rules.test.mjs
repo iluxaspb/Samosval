@@ -21,7 +21,15 @@ test('server reward calculator matches the existing UI including undo, redo, pen
 });
 test('server arcade settlement and theme prices match the shipped UI',()=>{
   const ctx={};vm.createContext(ctx);vm.runInContext(read('test-app/source/features/road-arcade-core.js'),ctx);const ui=ctx.RoadArcadeCore;
-  for(const roll of [0,1,99,100,1099,1100,4599,4600,9999])assert.equal(JSON.stringify(settle(initialHead(),initialPlayer('one','one@example.test','One'),{kind:'slot',roll},100,'2026-10-30')),JSON.stringify(ui.settle(ui.initialHead(),ui.initialPlayer('one','one@example.test','One'),{kind:'slot',roll},100,'2026-10-30')));
+  // Границы всех диапазонов новой таблицы выплат «Джекпот» (23.11.2026).
+  for(const roll of [0,1,6,7,36,37,106,107,266,267,566,567,1166,1167,2766,2767,5266,5267,7333,9999])assert.equal(JSON.stringify(settle(initialHead(),initialPlayer('one','one@example.test','One'),{kind:'slot',roll},100,'2026-10-30')),JSON.stringify(ui.settle(ui.initialHead(),ui.initialPlayer('one','one@example.test','One'),{kind:'slot',roll},100,'2026-10-30')));
+  // Железное правило: администратору джекпот не выпадает никогда — сервер и UI
+  // уводят бросок админа из джекпот-диапазона одинаково.
+  for(const roll of [0,1,4321,9999])assert.equal(JSON.stringify(settle(initialHead(),initialPlayer('one','one@example.test','One'),{kind:'slot',roll},100,'2026-10-30',{isAdmin:true})),JSON.stringify(ui.settle(ui.initialHead(),ui.initialPlayer('one','one@example.test','One'),{kind:'slot',roll},100,'2026-10-30',{isAdmin:true})));
+  const adminSpin=settle(initialHead(),initialPlayer('one','one@example.test','One'),{kind:'slot',roll:0},100,'2026-10-30',{isAdmin:true});
+  assert.notEqual(adminSpin.result.type,'jackpot');
+  assert.equal(adminSpin.payout,0);
+  assert.equal(settle(initialHead(),initialPlayer('one','one@example.test','One'),{kind:'slot',roll:0},100,'2026-10-30').result.type,'jackpot');
   const prices=Object.fromEntries([...read('test-app/source/features/road-shop-v1.js').matchAll(/\['([a-z-]+)','[^']*',([0-9]+),/g)].map(m=>[m[1],Number(m[2])]));assert.deepEqual(themePrices,prices);
   assert.equal(dayKey(Date.parse('2026-10-29T21:01:00Z')),'2026-10-30');
 });

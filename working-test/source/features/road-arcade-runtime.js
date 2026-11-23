@@ -17,6 +17,11 @@ const emit=()=>{for(const cb of callbacks)try{cb();}catch(e){console.warn('[arca
 const receiptId=(uid,id)=>'arcade_receipt_'+encodeURIComponent(uid)+'_'+id;
 const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now()+'_'+crypto.getRandomValues(new Uint32Array(2)).join('_');
 function roll(){const values=new Uint32Array(1),bound=4294960000;do{crypto.getRandomValues(values);}while(values[0]>=bound);return values[0]%10000;}
+// Железное правило (решение владельца от 23.11.2026): администратору джекпот
+// не выпадает никогда. Бросок админа детерминированно выводится из
+// джекпот-диапазона ещё ДО остановки барабанов, поэтому анимация, клиентский
+// расчёт и сервер всегда показывают одну и ту же комбинацию — подмены нет.
+function slotRoll(){const base=roll();return currentUserRole==='admin'&&base===0?9999:base;}
 function validRound(d){return Number.isSafeInteger(d.gameRound)&&d.gameRound>0&&d.id===C.roundId(d.gameRound)&&Number.isSafeInteger(d.bank)&&d.bank>=0&&d.actors&&d.player&&d.userUid;}
 function acceptPlayer(d){if(!validRound(d))return;if(!players[d.userUid]||Number(players[d.userUid]._round||0)<d.gameRound)players[d.userUid]={...d.player,_round:d.gameRound};}
 async function loadPlayers(current,token){
@@ -88,7 +93,7 @@ async function transact(action){
   const paid=window.RoadShop.spent(purchaseSnaps.filter(d=>d.exists).map(d=>({id:d.id,...d.data()})),user);
   const funds=economy.earned+window.RoadShop.bonus(profile.data().role,profile.data().status)+player.net-paid;
   let item=null;if(kind==='purchase'){item=window.RoadShop.themes.find(t=>t.id===operation.itemId);if(!item)throw Error('Тема не найдена.');if(purchaseSnaps[window.RoadShop.themes.indexOf(item)].exists)return {noop:true,reason:'owned',delta:0};operation.price=item.price;}
-  const outcome=C.settle(current,player,operation,funds,C.dayKey());if(outcome.noop)return outcome;
+  const outcome=C.settle(current,player,operation,funds,C.dayKey(),profile.data().role==='admin'?{isAdmin:true}:undefined);if(outcome.noop)return outcome;
   const timestamp=Date.now(),nextRound=n+1;
   const state={gameRound:nextRound,bank:outcome.head.bank,totalStakes:outcome.head.totalStakes,totalPayouts:outcome.head.totalPayouts,actors:{...current.actors,[user]:nextRound},player:outcome.player};
   const final={delta:outcome.delta,cost:outcome.cost||0,payout:outcome.payout||0,result:outcome.result||{},kind:operation.kind,level:operation.level||null,coin:operation.coin??null,round:nextRound};
@@ -126,7 +131,7 @@ function dinoStats(){
  }
  return out;
 }
-window.RoadArcade={visible,available,delta:id=>players[id]?.net||0,balance,me,head:()=>head,players:()=>players,recent:()=>recent,dinoStats,status:()=>({ready,error,hydrated:ready&&(!head.actors[currentUid]||players[currentUid]?._round>=head.actors[currentUid])}),subscribe:fn=>{callbacks.add(fn);return ()=>callbacks.delete(fn);},transact,readSpin,storeSpin,newSpin:()=>({id:uid(),kind:'slot',roll:roll(),createdAt:Date.now()}),buyTheme:item=>transact({kind:'purchase',itemId:item.id}),sync};
+window.RoadArcade={visible,available,delta:id=>players[id]?.net||0,balance,me,head:()=>head,players:()=>players,recent:()=>recent,dinoStats,status:()=>({ready,error,hydrated:ready&&(!head.actors[currentUid]||players[currentUid]?._round>=head.actors[currentUid])}),subscribe:fn=>{callbacks.add(fn);return ()=>callbacks.delete(fn);},transact,readSpin,storeSpin,newSpin:()=>({id:uid(),kind:'slot',roll:slotRoll(),createdAt:Date.now()}),buyTheme:item=>transact({kind:'purchase',itemId:item.id}),sync};
 window.addEventListener('review-flags-changed',()=>{sync();emit();});setInterval(sync,1000);sync();
 })();
 

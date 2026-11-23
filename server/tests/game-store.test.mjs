@@ -40,8 +40,23 @@ test('PostgreSQL game wallet: server policy, replay, concurrency, grants, purcha
     });
     await t.test('slot receipt preserves server outcome while successive rounds retain a nonnegative bank',async()=>{
       const a=await play({kind:'slot',roll:0},admin,'spin'),b=await play({kind:'slot',roll:0},admin,'spin');assert.deepEqual(a.result,b.result);assert.equal(b.replayed,true);
+      // Железное правило (решение владельца от 23.11.2026): администратору
+      // джекпот не выпадает никогда — даже на единственном джекпот-броске.
+      assert.notEqual(a.result.result.type,'jackpot','администратору выпал джекпот');
+      assert.equal(a.result.result.payout,0);
+      assert.equal(a.result.result.type,'loss');
+      assert.equal(a.result.result.symbols.filter(s=>s==='👑').length,0,'барабаны админа остановились на коронах');
       const snapshot=await readGames(pool,admin,ws);assert.ok(snapshot.head.bank>=0);assert.equal(snapshot.players[admin].spins,1);
       assert.equal(snapshot.records.filter(r=>r.eventType==='game_arcade'&&r.requestId==='spin').length,1);
+    });
+    await t.test('jackpot still pays a regular player the whole bank plus the stake',async()=>{
+      const before=await readGames(pool,user,ws),win=await play({kind:'slot',roll:0},user,'jackpot');
+      assert.equal(win.result.result.type,'jackpot');
+      assert.equal(win.result.payout,before.head.bank+10);
+      assert.equal(win.result.result.symbols.join('|'),'👑|👑|👑');
+      const after=await readGames(pool,user,ws);
+      assert.equal(after.players[user].jackpots,1);
+      assert.ok(after.head.bank>=0);
     });
     await t.test('disable policy blocks new plays; profile revocation also blocks receipt replay',async()=>{
       await pool.query('UPDATE workspace_settings SET payload=$2 WHERE workspace_id=$1',[ws,{testReviewFlags:{game_mode:false}}]);
