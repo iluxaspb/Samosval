@@ -28,23 +28,70 @@ function renderCompose() {
   return null;
 }
 
-test('available compose resolver reports exact service sets for both profiles', t => {
+function legacyEffectiveServices(config, profile) {
+  const services = new Map();
+  let current = null;
+  let section = null;
+  for (const line of config.split(/\r?\n/)) {
+    const service = /^  ([a-zA-Z0-9_-]+):$/.exec(line);
+    if (service) {
+      current = service[1];
+      services.set(current, { profiles: [], dependencies: [] });
+      section = null;
+      continue;
+    }
+    if (!current) continue;
+    const heading = /^    (profiles|depends_on):$/.exec(line);
+    if (heading) {
+      section = heading[1];
+      continue;
+    }
+    if (section === 'profiles') {
+      const value = /^    - (.+)$/.exec(line);
+      if (value) {
+        services.get(current).profiles.push(value[1]);
+        continue;
+      }
+    }
+    if (section === 'depends_on') {
+      const value = /^      ([a-zA-Z0-9_-]+):$/.exec(line);
+      if (value) {
+        services.get(current).dependencies.push(value[1]);
+        continue;
+      }
+    }
+    if (!line.startsWith('      ')) section = null;
+  }
+  const active = new Set([...services].filter(([, value]) => (
+    profile ? value.profiles.includes(profile) : value.profiles.length === 0
+  )).map(([name]) => name));
+  for (const name of active) {
+    for (const dependency of services.get(name).dependencies) active.add(dependency);
+  }
+  return [...active].sort();
+}
+
+test('available compose resolver enforces exact default, test and api service sets', t => {
   const compose = resolveCompose();
   if (!compose) return t.skip('docker compose and docker-compose are unavailable');
-  const services = profile => spawnSync(compose.command, [
-    ...compose.prefix, '-f', 'compose.test.yaml', '--profile', profile, 'config', '--services',
+  const invoke = profile => spawnSync(compose.command, [
+    ...compose.prefix, '-f', 'compose.test.yaml', ...(profile ? ['--profile', profile] : []),
+    'config', ...(compose.filtersProfilesInConfig ? ['--services'] : []),
   ], {
     cwd: new URL('..', import.meta.url),
     encoding: 'utf8',
     env: { ...process.env, POSTGRES_PASSWORD: 'compose-config-only' },
   });
-  const testProfile = services('test');
-  const apiProfile = services('api');
-  assert.equal(testProfile.status, 0, testProfile.stderr);
-  assert.equal(apiProfile.status, 0, apiProfile.stderr);
-  const expectedTest = compose.filtersProfilesInConfig ? ['postgres'] : ['api', 'postgres'];
-  assert.deepEqual(testProfile.stdout.trim().split(/\s+/).sort(), expectedTest);
-  assert.deepEqual(apiProfile.stdout.trim().split(/\s+/).sort(), ['api', 'postgres']);
+  const effective = profile => {
+    const result = invoke(profile);
+    assert.equal(result.status, 0, result.stderr);
+    return compose.filtersProfilesInConfig
+      ? result.stdout.trim().split(/\s+/).filter(Boolean).sort()
+      : legacyEffectiveServices(result.stdout, profile);
+  };
+  assert.deepEqual(effective(null), []);
+  assert.deepEqual(effective('test'), ['postgres']);
+  assert.deepEqual(effective('api'), ['api', 'postgres']);
 });
 
 test('compose exposes only the ephemeral isolated database on loopback', t => {

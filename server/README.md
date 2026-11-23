@@ -18,7 +18,7 @@ This branch introduces an initial PostgreSQL-backed API for line operations. **T
 2. Use a **separate TEST project** and database volume. Do not attach existing personal NAS directories to untrusted containers.
 3. Copy `.env.example` to private `.env.test`; set a strong password and confirm the test Firebase Auth project. Never push passwords, private keys, or administrator credentials to GitHub.
 4. For a new TEST volume, `docker compose -f compose.test.yaml up -d --build` runs `sql/001_init.sql` once at PostgreSQL first initialization. For an existing volume, migrations must be applied separately and explicitly.
-5. Verify locally on the NAS: `http://127.0.0.1:18080/health/live` and `http://127.0.0.1:18080/health/ready`. Test API is bound to **NAS loopback only** and PostgreSQL has **no published host port**.
+5. Verify locally on the NAS: `http://127.0.0.1:18080/health/live` and `http://127.0.0.1:18080/health/ready`. Test API is bound to **NAS loopback only**; isolated PostgreSQL is published only on host loopback at `127.0.0.1:${POSTGRES_TEST_PORT:-55432}`.
 6. Do **not** forward API, database, SSH, or DSM ports to the public internet for this prototype. HTTPS/reverse-proxy deployment, backups, rate limits, and full migration remain unfinished.
 
 ### API request shape (for future client adapter)

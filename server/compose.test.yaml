@@ -1,6 +1,7 @@
 # Local isolated TEST environment. No service binds beyond host loopback.
 services:
   postgres:
+    profiles: ["test", "api"]
     image: postgres:16-alpine
     restart: "no"
     environment:
