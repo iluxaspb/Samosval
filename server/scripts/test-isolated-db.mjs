@@ -14,8 +14,8 @@ const requested = process.argv.slice(2);
 
 if (requested.length === 1 && requested[0] === '--list') {
   try {
-    const discovery = await discoverTests(serverDirectory);
-    loadManifest(manifest, { discovered: discovery.roots.map(item => item.file) });
+    const discovery = await discoverTests(serverDirectory, { harnessFixtures: manifest.harnessFixtures });
+    await loadManifest(manifest, { serverDirectory, discovered: discovery.roots });
     for (const entry of manifest.entries) console.log(`${entry.kind}\t${entry.discovery}\t${entry.file}`);
     console.log(`discovered=${discovery.roots.length} manifest=${manifest.entries.length} fixtures=${manifest.harnessFixtures.length}`);
     process.exit(0);

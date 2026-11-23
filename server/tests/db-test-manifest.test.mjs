@@ -1,55 +1,72 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { loadManifest } from '../scripts/isolated-db/manifest.mjs';
 
-const unit = file => ({
-  file,
-  kind: 'unit',
-  discovery: 'pure-import',
-  reason: 'Pure contract without PostgreSQL access'
+const unit = (file = 'tests/a.test.mjs') => ({ file, kind: 'unit', discovery: 'pure-import', reason: 'Pure synthetic contract without database access', consumers: [] });
+const db = (file = 'tests/a.test.mjs') => ({
+  file, kind: 'db', discovery: 'direct', reason: 'Imports pg directly for a synthetic PostgreSQL contract', consumers: [`${file}:pg`],
+  baseline: 'S24', migrationsThrough: null, customSchema: [], importTables: [], fixtures: [], timeoutMs: 30_000, serial: false, exclusive: false, allowedSkips: []
 });
-
-const db = file => ({
-  file,
-  kind: 'db',
-  discovery: 'direct',
-  reason: 'Reads TEST_DATABASE_URL and imports pg directly',
-  baseline: 'S24',
-  migrationsThrough: null,
-  customSchema: [],
-  importTables: [],
-  fixtures: [],
-  timeoutMs: 30_000,
-  serial: false,
-  exclusive: false,
-  allowedSkips: []
-});
-
 const valid = entries => ({ manifestVersion: 1, entries, harnessFixtures: [] });
 
-test('manifest rejects missing, duplicate and stale root entries', () => {
-  const discovered = ['tests/a.test.mjs', 'tests/b.test.mjs'];
-  assert.throws(() => loadManifest(valid([unit(discovered[0])]), { discovered }), /missing.*b\.test\.mjs/i);
-  assert.throws(() => loadManifest(valid([unit(discovered[0]), unit(discovered[0])]), { discovered: [discovered[0]] }), /duplicate.*a\.test\.mjs/i);
-  assert.throws(() => loadManifest(valid([unit(discovered[0]), unit('tests/stale.test.mjs')]), { discovered: [discovered[0]] }), /stale.*stale\.test\.mjs/i);
+async function tree(files = ['tests/a.test.mjs']) {
+  const root = await mkdtemp(join(tmpdir(), 'samosval-manifest-'));
+  for (const file of files) {
+    const path = join(root, file);
+    await mkdir(join(path, '..'), { recursive: true });
+    await writeFile(path, '');
+  }
+  return root;
+}
+
+test('manifest rejects missing, duplicate and stale roots', async () => {
+  const root = await tree(['tests/a.test.mjs', 'tests/b.test.mjs']);
+  await assert.rejects(loadManifest(valid([unit()]), { serverDirectory: root, discovered: [{ file: 'tests/a.test.mjs', kind: 'unit', discovery: 'pure-import', consumers: [] }, { file: 'tests/b.test.mjs', kind: 'unit', discovery: 'pure-import', consumers: [] }] }), /missing.*b\.test/i);
+  await assert.rejects(loadManifest(valid([unit(), unit()]), { serverDirectory: root }), /duplicate.*a\.test/i);
+  await assert.rejects(loadManifest(valid([unit(), unit('tests/stale.test.mjs')]), { serverDirectory: root }), /missing file.*stale/i);
 });
 
-test('manifest rejects unknown fields and incomplete DB metadata', () => {
-  assert.throws(() => loadManifest(valid([{ ...unit('tests/a.test.mjs'), surprise: true }]), { discovered: ['tests/a.test.mjs'] }), /unknown field.*surprise/i);
-  const incomplete = db('tests/a.test.mjs');
-  delete incomplete.timeoutMs;
-  assert.throws(() => loadManifest(valid([incomplete]), { discovered: ['tests/a.test.mjs'] }), /timeoutMs/);
+test('manifest accepts exactly version 1 and rejects future schema', async () => {
+  const root = await tree();
+  await assert.rejects(loadManifest({ ...valid([unit()]), manifestVersion: 2 }, { serverDirectory: root }), /unsupported manifestVersion/i);
 });
 
-test('manifest keeps root entries separate from harness fixtures', () => {
-  assert.throws(() => loadManifest({ ...valid([unit('tests/a.test.mjs')]), harnessFixtures: ['tests/a.test.mjs'] }, { discovered: ['tests/a.test.mjs'] }), /fixture.*root|root.*fixture|fixture path/i);
-  assert.throws(() => loadManifest({ ...valid([]), harnessFixtures: ['tests/fixtures/worker.test.mjs'] }, { discovered: ['tests/fixtures/worker.test.mjs'] }), /root.*fixtures|fixture.*root/i);
+test('manifest rejects traversal, absolute, missing and symlink paths', async () => {
+  const root = await tree();
+  const outside = join(await mkdtemp(join(tmpdir(), 'samosval-outside-')), 'outside.test.mjs');
+  await writeFile(outside, '');
+  await assert.rejects(loadManifest(valid([unit('../outside.test.mjs')]), { serverDirectory: root }), /canonical relative test path/i);
+  await assert.rejects(loadManifest(valid([unit(outside)]), { serverDirectory: root }), /canonical relative test path/i);
+  await assert.rejects(loadManifest(valid([unit('tests/missing.test.mjs')]), { serverDirectory: root }), /missing file/i);
+  await symlink(outside, join(root, 'tests', 'link.test.mjs'));
+  await assert.rejects(loadManifest(valid([unit('tests/link.test.mjs')]), { serverDirectory: root }), /symlink|canonical/i);
 });
 
-test('manifest accepts explicit direct and indirect DB consumers', () => {
-  const indirect = { ...db('tests/http.test.mjs'), discovery: 'indirect-http', exclusive: true };
-  const result = loadManifest(valid([db('tests/direct.test.mjs'), indirect]), {
-    discovered: ['tests/direct.test.mjs', 'tests/http.test.mjs']
-  });
-  assert.equal(result.entries.length, 2);
+test('manifest rejects unknown closed-registry references', async () => {
+  const root = await tree();
+  for (const [field, value] of [['fixtures', ['future-fixture']], ['customSchema', ['future-schema']], ['importTables', ['future-import']]]) {
+    await assert.rejects(loadManifest(valid([{ ...db(), [field]: value }]), { serverDirectory: root }), new RegExp(`unknown ${field}`));
+  }
+  await assert.rejects(loadManifest(valid([{ ...db(), allowedSkips: [{ name: 'skip', reason: '' }] }]), { serverDirectory: root }), /invalid allowedSkips/i);
+});
+
+test('manifest validates migration chain against baseline', async () => {
+  const root = await tree();
+  await assert.rejects(loadManifest(valid([{ ...db(), migrationsThrough: 23 }]), { serverDirectory: root }), /migration chain/i);
+});
+
+test('manifest keeps registered fixture paths separate and canonical', async () => {
+  const root = await tree(['tests/a.test.mjs', 'tests/fixtures/worker.test.mjs']);
+  await loadManifest({ ...valid([unit()]), harnessFixtures: ['tests/fixtures/worker.test.mjs'] }, { serverDirectory: root });
+  await assert.rejects(loadManifest({ ...valid([unit()]), harnessFixtures: ['tests/a.test.mjs'] }, { serverDirectory: root }), /fixture.*root|fixture path/i);
+});
+
+test('manifest rejects unknown fields and incomplete DB metadata', async () => {
+  const root = await tree();
+  await assert.rejects(loadManifest(valid([{ ...unit(), surprise: true }]), { serverDirectory: root }), /unknown field.*surprise/i);
+  const incomplete = db(); delete incomplete.timeoutMs;
+  await assert.rejects(loadManifest(valid([incomplete]), { serverDirectory: root }), /timeoutMs/);
 });
