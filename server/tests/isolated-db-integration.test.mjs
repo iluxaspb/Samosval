@@ -41,7 +41,30 @@ test('isolated harness resets, applies migrations through 24 and seeds existing 
     );
     assert.deepEqual(shifts.rows.map(row => row.shift_id), [ids.shiftAId, ids.shiftBId]);
     assert.deepEqual(shifts.rows.map(row => row.is_active), [true, true]);
-    assert.deepEqual(shifts.rows.map(row => row.payload.objectId), [ids.objectAId, ids.objectBId]);
+    assert.deepEqual(shifts.rows.map(row => row.payload), [
+      {
+        id: ids.shiftAId,
+        objectId: ids.objectAId,
+        objectName: ids.objectAId,
+        startDate: '23.11.2026',
+        startedAt: 1795420800000,
+        startedBy: ids.adminUid,
+        startedByUid: ids.adminUid,
+        isActive: true,
+        workShift: 'day',
+      },
+      {
+        id: ids.shiftBId,
+        objectId: ids.objectBId,
+        objectName: ids.objectBId,
+        startDate: '23.11.2026',
+        startedAt: 1795464000000,
+        startedBy: ids.foremanUid,
+        startedByUid: ids.foremanUid,
+        isActive: true,
+        workShift: 'night',
+      },
+    ]);
   } finally {
     await pool.end();
   }

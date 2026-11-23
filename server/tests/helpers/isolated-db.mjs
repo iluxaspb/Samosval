@@ -20,12 +20,18 @@ export function requireIsolatedDatabase(url) {
     throw new Error('isolated database target is not approved');
   }
 
-  const database = decodeURIComponent(parsed.pathname.slice(1));
+  let database;
+  try {
+    database = decodeURIComponent(parsed.pathname.slice(1));
+  } catch {
+    throw new Error('isolated database target is not approved');
+  }
   if (
     !['postgres:', 'postgresql:'].includes(parsed.protocol)
     || !APPROVED_HOSTS.has(parsed.hostname)
     || database !== APPROVED_DATABASE
     || parsed.search !== ''
+    || parsed.hash !== ''
   ) {
     throw new Error('isolated database target is not approved');
   }
@@ -122,20 +128,23 @@ export async function seedParallelShiftFixture(options = {}) {
        VALUES($1,$2,$3) ON CONFLICT(workspace_id,truck_id) DO NOTHING`,
       [ids.workspaceId, ids.truckId, { id: ids.truckId, name: ids.truckId }]
     );
-    for (const [shiftId, objectId, workShift] of [
-      [ids.shiftAId, ids.objectAId, 'day'],
-      [ids.shiftBId, ids.objectBId, 'night'],
+    for (const [shiftId, objectId, workShift, startedAt, actorUid] of [
+      [ids.shiftAId, ids.objectAId, 'day', 1795420800000, ids.adminUid],
+      [ids.shiftBId, ids.objectBId, 'night', 1795464000000, ids.foremanUid],
     ]) {
       await pool.query(
         `INSERT INTO shifts(workspace_id,shift_id,is_active,payload)
          VALUES($1,$2,true,$3) ON CONFLICT(workspace_id,shift_id) DO NOTHING`,
         [ids.workspaceId, shiftId, {
-          shiftId,
+          id: shiftId,
           objectId,
           objectName: objectId,
-          date: '2026-11-23',
+          startDate: '23.11.2026',
+          startedAt,
+          startedBy: actorUid,
+          startedByUid: actorUid,
+          isActive: true,
           workShift,
-          startedAt: '2026-11-23T08:00:00.000Z',
         }]
       );
     }

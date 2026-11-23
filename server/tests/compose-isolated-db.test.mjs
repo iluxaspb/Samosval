@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 
+function composePluginAvailable() {
+  return spawnSync('docker', ['compose', 'version'], { encoding: 'utf8' }).status === 0;
+}
+
 function renderCompose() {
   for (const command of [
     ['docker', ['compose', '-f', 'compose.test.yaml', 'config']],
@@ -16,6 +20,23 @@ function renderCompose() {
   }
   return null;
 }
+
+test('docker compose profiles select exact isolated service sets', t => {
+  if (!composePluginAvailable()) return t.skip('docker compose plugin is unavailable');
+  const services = profile => spawnSync('docker', [
+    'compose', '-f', 'compose.test.yaml', '--profile', profile, 'config', '--services',
+  ], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: { ...process.env, POSTGRES_PASSWORD: 'compose-config-only' },
+  });
+  const testProfile = services('test');
+  const apiProfile = services('api');
+  assert.equal(testProfile.status, 0, testProfile.stderr);
+  assert.equal(apiProfile.status, 0, apiProfile.stderr);
+  assert.deepEqual(testProfile.stdout.trim().split(/\s+/).sort(), ['postgres']);
+  assert.deepEqual(apiProfile.stdout.trim().split(/\s+/).sort(), ['api', 'postgres']);
+});
 
 test('compose exposes only the ephemeral isolated database on loopback', t => {
   const config = renderCompose();

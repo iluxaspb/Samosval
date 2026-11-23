@@ -58,6 +58,23 @@ test('rejects_connection_query_overrides', async () => {
   });
 });
 
+test('handles URL delimiter and encoding edge cases with default deny', async () => {
+  await withIsolatedEnvironment({ SAMOSVAL_ISOLATED_TEST: '1' }, () => {
+    const cases = [
+      [`${isolatedUrl}?host=postgres&host=live.example`, false],
+      ['postgresql://fixture-user:fixture-password@postgres:5432/samosval%5Fparallel%5Fshifts%5Ftest', true],
+      ['postgresql://fixture-user:fixture-password@postgres:5432/samosval%2Fparallel_shifts_test', false],
+      ['postgresql://fixture-user:fixture-password@postgres:5432/samosval%ZZparallel_shifts_test', false],
+      [`${isolatedUrl}#fragment`, false],
+      [`${isolatedUrl}?`, true],
+    ];
+    for (const [url, accepted] of cases) {
+      if (accepted) assert.equal(decodeURIComponent(requireIsolatedDatabase(url).pathname.slice(1)), 'samosval_parallel_shifts_test');
+      else assert.throws(() => requireIsolatedDatabase(url), /isolated database target is not approved/i);
+    }
+  });
+});
+
 test('accepts_compose_test_database', async () => {
   await withIsolatedEnvironment({ SAMOSVAL_ISOLATED_TEST: '1' }, () => {
     const approved = requireIsolatedDatabase(isolatedUrl);
