@@ -14,6 +14,10 @@ const IMPORT_TABLES = new Set(['import-schema']);
 
 function fail(message) { throw new Error(`invalid DB test manifest: ${message}`); }
 function same(a, b) { return a.length === b.length && a.every((value, index) => value === b[index]); }
+export function canonicalReason({ file, kind, discovery, consumers }) {
+  const signature = consumers.length ? consumers.join(', ') : 'no typed database consumer';
+  return `${kind}/${discovery} ${file}: ${signature}`;
+}
 function inside(parent, child) {
   const rel = relative(parent, child);
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
@@ -53,9 +57,9 @@ async function validateEntry(entry, serverDirectory) {
   for (const field of allowed) if (!(field in entry)) fail(`missing ${field} in ${entry.file ?? '<unknown>'}`);
   await canonicalPath(serverDirectory, entry.file);
   if (!KINDS.has(entry.kind) || !DISCOVERY.has(entry.discovery)) fail(`unknown classification for ${entry.file}`);
-  if (typeof entry.reason !== 'string' || entry.reason.trim().length < 12) fail(`specific reason required for ${entry.file}`);
   if (!Array.isArray(entry.consumers) || !entry.consumers.every(value => typeof value === 'string') || new Set(entry.consumers).size !== entry.consumers.length) fail(`invalid consumers in ${entry.file}`);
-  if (entry.kind === 'unit' && (entry.discovery !== 'pure-import' || entry.consumers.length)) fail(`unit consumer mismatch for ${entry.file}`);
+  if (entry.reason !== canonicalReason(entry)) fail(`reason drift in ${entry.file}`);
+  if (entry.kind === 'unit' && (entry.discovery !== 'pure-import' || entry.consumers.some(value => !value.startsWith('audit:')))) fail(`unit consumer mismatch for ${entry.file}`);
   if (entry.kind === 'harness-contract' && entry.discovery !== 'harness-contract') fail(`harness discovery mismatch for ${entry.file}`);
   if (entry.kind !== 'db') return;
   if (!BASELINE_VERSIONS.has(entry.baseline)) fail(`unsupported baseline for ${entry.file}`);

@@ -203,7 +203,9 @@ const consumersByFile = {
     "tests/truck-phone-store.test.mjs:pg"
   ],
   "truck-phone": [],
-  "updater": []
+  "updater": [
+    "audit:updater-release-only"
+  ]
 };
 
 const unitReasons = {
@@ -250,7 +252,7 @@ const unitEntries = unitFiles.map(name => ({
   file: `tests/${name}.test.mjs`,
   kind: 'unit',
   discovery: 'pure-import',
-  reason: unitReasons[name] ?? `Exercises ${name} domain behavior without PostgreSQL imports, DB environment reads or an API child`,
+  reason: `unit/pure-import tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ') || 'no typed database consumer'}` ,
   consumers: consumersByFile[name] ?? []
 }));
 
@@ -258,7 +260,7 @@ const dbEntries = dbFiles.map(name => ({
   file: `tests/${name}.test.mjs`,
   kind: 'db',
   discovery: name === 'truck-phone-http' ? 'indirect-http' : 'direct',
-  reason: dbReasons[name] ?? `Uses the exact statically audited PostgreSQL consumer signature for the ${name} contract`,
+  reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   baseline: 'S24',
   migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' ? 25 : null,
@@ -275,7 +277,7 @@ const harnessEntries = harnessFiles.map(name => ({
   file: `tests/${name}.test.mjs`,
   kind: 'harness-contract',
   discovery: 'harness-contract',
-  reason: `Validates the ${name} launcher safety contract with only its explicitly controlled harness environment`,
+  reason: `harness-contract/harness-contract tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ') || 'no typed database consumer'}` ,
   consumers: consumersByFile[name] ?? []
 }));
 

@@ -3,13 +3,17 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { loadManifest } from '../scripts/isolated-db/manifest.mjs';
+import { canonicalReason, loadManifest } from '../scripts/isolated-db/manifest.mjs';
 
-const unit = (file = 'tests/a.test.mjs') => ({ file, kind: 'unit', discovery: 'pure-import', reason: 'Pure synthetic contract without database access', consumers: [] });
-const db = (file = 'tests/a.test.mjs') => ({
-  file, kind: 'db', discovery: 'direct', reason: 'Imports pg directly for a synthetic PostgreSQL contract', consumers: [`${file}:pg`],
-  baseline: 'S24', migrationsThrough: null, customSchema: [], importTables: [], fixtures: [], timeoutMs: 30_000, serial: false, exclusive: false, allowedSkips: []
-});
+const withReason = entry => ({ ...entry, reason: canonicalReason(entry) });
+const unit = (file = 'tests/a.test.mjs') => withReason({ file, kind: 'unit', discovery: 'pure-import', consumers: [] });
+const db = (file = 'tests/a.test.mjs') => {
+  const entry = {
+    file, kind: 'db', discovery: 'direct', consumers: [`${file}:pg`],
+    baseline: 'S24', migrationsThrough: null, customSchema: [], importTables: [], fixtures: [], timeoutMs: 30_000, serial: false, exclusive: false, allowedSkips: []
+  };
+  return withReason(entry);
+};
 const valid = entries => ({ manifestVersion: 1, entries, harnessFixtures: [] });
 
 async function tree(files = ['tests/a.test.mjs']) {
@@ -62,6 +66,11 @@ test('manifest keeps registered fixture paths separate and canonical', async () 
   const root = await tree(['tests/a.test.mjs', 'tests/fixtures/worker.test.mjs']);
   await loadManifest({ ...valid([unit()]), harnessFixtures: ['tests/fixtures/worker.test.mjs'] }, { serverDirectory: root });
   await assert.rejects(loadManifest({ ...valid([unit()]), harnessFixtures: ['tests/a.test.mjs'] }, { serverDirectory: root }), /fixture.*root|fixture path/i);
+});
+
+test('manifest reason is canonical for exact classification and consumers', async () => {
+  const root = await tree();
+  await assert.rejects(loadManifest(valid([{ ...unit(), reason: 'Stale authored prose that is long enough' }]), { serverDirectory: root }), /reason drift/i);
 });
 
 test('manifest rejects unknown fields and incomplete DB metadata', async () => {

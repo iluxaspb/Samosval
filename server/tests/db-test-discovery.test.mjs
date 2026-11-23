@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import manifest from './db-test-manifest.mjs';
 import { discoverTests } from '../scripts/isolated-db/discovery.mjs';
-import { loadManifest } from '../scripts/isolated-db/manifest.mjs';
+import { canonicalReason, loadManifest } from '../scripts/isolated-db/manifest.mjs';
 import { auditHardcodedDatabaseNames } from '../scripts/isolated-db/hardcoded-db-audit.mjs';
 
 const serverDirectory = new URL('..', import.meta.url);
@@ -52,17 +52,19 @@ test('typed import graph propagates multiline execFile HTTP child from an import
 test('audited classification cannot erase a newly injected DB signal', async () => {
   const root = await fixture({ 'tests/a.test.mjs': "import test from 'node:test';\nconst url = process.env." + "TEST_DATABASE_URL;\n" });
   const [scanned] = (await discoverTests(root)).roots;
-  const entry = { file: 'tests/a.test.mjs', kind: 'unit', discovery: 'pure-import', reason: 'Pure synthetic test with no database access', consumers: [] };
+  const entry = { file: 'tests/a.test.mjs', kind: 'unit', discovery: 'pure-import', consumers: [] };
+  entry.reason = canonicalReason(entry);
   await assert.rejects(loadManifest({ manifestVersion: 1, entries: [entry], harnessFixtures: [] }, { serverDirectory: root, discovered: [scanned] }), /classification drift.*db\/direct|consumer drift.*db-env/i);
 });
 
 test('consumer signature drift blocks manifest preflight independently of kind equality', async () => {
-  const root = await fixture({ 'tests/a.test.mjs': "import pg from 'pg';\n" });
+  const root = await fixture({ 'tests/a.test.mjs': "import " + "pg from 'pg';\n" });
   const [scanned] = (await discoverTests(root)).roots;
   const entry = {
-    file: 'tests/a.test.mjs', kind: 'db', discovery: 'direct', reason: 'Imports pg directly for a synthetic PostgreSQL contract', consumers: ['tests/a.test.mjs:db-env'],
+    file: 'tests/a.test.mjs', kind: 'db', discovery: 'direct', consumers: ['tests/a.test.mjs:db-env'],
     baseline: 'S24', migrationsThrough: null, customSchema: [], importTables: [], fixtures: [], timeoutMs: 30_000, serial: false, exclusive: false, allowedSkips: []
   };
+  entry.reason = canonicalReason(entry);
   await assert.rejects(loadManifest({ manifestVersion: 1, entries: [entry], harnessFixtures: [] }, { serverDirectory: root, discovered: [scanned] }), /consumer drift.*pg/i);
 });
 
@@ -70,6 +72,43 @@ test('unregistered nested future root is never silently excluded', async () => {
   const root = await fixture({ 'tests/future/s26.test.mjs': "import test from 'node:test';\n" });
   const discovery = await discoverTests(root);
   assert.deepEqual(discovery.roots.map(item => item.file), ['tests/future/s26.test.mjs']);
+});
+
+test('filesystem discovery sees an untracked nested root inside a git repository', async () => {
+  const root = await fixture({ 'tests/tracked.test.mjs': "import test from 'node:test';\n" });
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const run = promisify(execFile);
+  await run('git', ['init'], { cwd: root });
+  await run('git', ['add', 'tests/tracked.test.mjs'], { cwd: root });
+  await mkdir(join(root, 'tests', 'generated'), { recursive: true });
+  await writeFile(join(root, 'tests', 'generated', 'untracked.test.mjs'), "import test from 'node:test';\n");
+  const discovery = await discoverTests(root);
+  assert.deepEqual(discovery.roots.map(item => item.file), ['tests/generated/untracked.test.mjs', 'tests/tracked.test.mjs']);
+});
+
+test('audited dependency is scanned and fails when its typed signature drifts', async () => {
+  const root = await fixture({
+    'tests/updater.test.mjs': "import test from 'node:test'; im" + "port '../updater/agent.mjs';\n",
+    'updater/agent.mjs': "import " + "pg from 'pg';\nconst db = process.env." + "POSTGRES_DB;\n"
+  });
+  const audit = { 'tests/updater.test.mjs': { dependency: '../updater/agent.mjs', expectedConsumers: ['updater/agent.mjs:db-env', 'updater/agent.mjs:pg'], id: 'updater-release-only' } };
+  const [entry] = (await discoverTests(root, { auditedDependencies: audit })).roots;
+  assert.deepEqual(entry.consumers, ['audit:updater-release-only']);
+  await writeFile(join(root, 'updater', 'agent.mjs'), "import " + "pg from 'pg';\nimport { execFile } from 'node:child_process';\nconst db = process.env." + "POSTGRES_DB;\n" + "exec" + "File(process.execPath, ['src/index.mjs']);\n");
+  await assert.rejects(discoverTests(root, { auditedDependencies: audit }), /audited dependency drift.*updater-release-only.*http-child/i);
+});
+
+test('literal dynamic pg and local helper imports propagate typed consumers', async () => {
+  const dynamicKeyword = ['im', 'port'].join('');
+  const root = await fixture({
+    'tests/dynamic.test.mjs': `await ${dynamicKeyword}('pg');\nawait ${dynamicKeyword}('../src/helper.mjs');\n`,
+    'src/helper.mjs': "const db = process.env." + "TEST_DATABASE_URL;\n"
+  });
+  const [entry] = (await discoverTests(root)).roots;
+  assert.deepEqual(entry.consumers, ['src/helper.mjs:db-env', 'tests/dynamic.test.mjs:pg']);
+  await writeFile(join(root, 'tests', 'dynamic.test.mjs'), `const helperName = '../src/helper.mjs'; await ${dynamicKeyword}(helperName);\n`);
+  await assert.rejects(discoverTests(root), /nonliteral dynamic import/i);
 });
 
 test('hardcoded database audit rejects count drift', async () => {
