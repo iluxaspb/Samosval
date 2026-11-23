@@ -1,4 +1,5 @@
   function buildShiftPayloadV2({shiftId,object,currentUid,currentDisplayName,workShift,startedAt}) {
+    if(workShift!=='day'&&workShift!=='night')throw new Error('invalid-shift-v2-provenance');
     const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(startedAt);
     const part=type=>parts.find(item=>item.type===type)?.value;
     const date=`${part('year')}-${part('month')}-${part('day')}`;
@@ -7,6 +8,7 @@
   async function startShiftWithObject(objName, objId, workShift) {
     if (startShiftInFlight || !requireEdit('start_shift')) return;
     if(!workShift){appNotice('Выберите тип смены: дневная или ночная');return;}
+    if(workShift!=='day'&&workShift!=='night'){appNotice('Выберите тип смены: дневная или ночная');return;}
     if(state.shift?.closing){showError('Сначала завершите закрытие предыдущей смены');return;}
     if(offlinePendingCount()){showError('Сначала синхронизируйте действия предыдущей смены');return;}
     if(state.shift?.isActive)return;

@@ -12,8 +12,9 @@ test('workShift is mandatory and invalid values are rejected before database acc
   for(const workShift of [undefined,'','morning'])assert.throws(()=>normalizeShiftStart({...base,...(workShift===undefined?{}:{workShift})}),{code:'invalid-start-operation'});
 });
 test('invalid IDs and timestamps are rejected before database access',()=>{
-  const base={id:'operation',objectId:'site',createdAt:1};
-  for(const patch of [{id:''},{id:'a/b'},{id:'a'.repeat(101)},{objectId:'../site'},{createdAt:NaN},{createdAt:0},{createdAt:1.5}])assert.throws(()=>normalizeShiftStart({...base,...patch}),{code:'invalid-start-operation'});
+  const base={id:'operation',objectId:'site',createdAt:1,workShift:'day'};
+  assert.deepEqual(normalizeShiftStart(base),{type:'start',...base});
+  for(const patch of [{id:''},{id:'a/b'},{id:'a'.repeat(101)},{objectId:'../site'},{createdAt:NaN},{createdAt:0},{createdAt:1.5}])assert.throws(()=>normalizeShiftStart({...base,...patch}),error=>error.code==='invalid-start-operation'&&error.message==='invalid-start-operation');
 });
 test('absent, disabled or malformed server object cannot start a shift',()=>{
   for(const object of [undefined,{}, {name:''},{name:' '},{name:'a'.repeat(501)},{name:'Site',deleted:true},{name:'Site',disabled:true}])assert.throws(()=>shiftStartPayload({id:'o',objectId:'site'},object,{uid:'u',display_name:'Actor'}),{code:'object-not-available'});
