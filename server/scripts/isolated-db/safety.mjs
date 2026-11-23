@@ -2,7 +2,8 @@ export const GENERATED_DATABASE_PREFIX = 'samosval_parallel_shifts_test_';
 export const BOOTSTRAP_MARKER = 'samosval-isolated-db-bootstrap:v1';
 
 const IDENTIFIER = /^[a-z][a-z0-9_]*$/;
-const RUNID = /^[a-f0-9]{12,24}$/;
+export const MAX_RUNID_LENGTH = 63 - Buffer.byteLength(GENERATED_DATABASE_PREFIX) - 1 - 12;
+const RUNID = new RegExp(`^[a-f0-9]{12,${MAX_RUNID_LENGTH}}$`);
 const HASH = /^[a-f0-9]{12}$/;
 const RESERVED = new Set([
   'postgres', 'template0', 'template1', 'samosval_test',

@@ -87,6 +87,12 @@
 
 **Совместимость replica:** out-of-order status/log до snapshot смены требует FK-строку, но payload `{}` нельзя пропускать как обычную canonical смену. Если текущий stream не умеет отложенное повторное проигрывание, заглушку нужно отличать структурным флагом: она строго inactive, скрыта от line/list-команд, не имеет canonical business-полей и может быть снята только атомарной promotion при полном shift snapshot. Нельзя ослаблять инварианты всех смен ради magic payload `{}`.
 
+## 14. Урок 24.11.2026 (изолированная БД): общая orchestrator-role не является authority запуска
+
+**Симптом:** cleanup проверял server-side receipt, но любой параллельный процесс под общей ролью orchestrator мог завершить зарегистрированную БД другого запуска; app-владелец мог напрямую менять COMMENT в обход advisory lock.
+**Причина:** receipt был привязан только к имени target, а владельцем target назначалась недоверенная login-role приложения.
+**Что делать:** authority запуска подтверждать высокоэнтропийной capability, хранить в registry только SHA-256; target отдавать отдельной `NOLOGIN` owner-role без membership у app/runtime/orchestrator. Все identity mutation выполнять только закрытыми `SECURITY DEFINER` функциями с capability, row lock и общим advisory lock; app/runtime должны получать только CONNECT и не владеть БД.
+
 ## Опыт выпусков (короткие уроки)
 
 - «Опубликовано» = GitHub Pages реально отдаёт новую версию (curl с cache-buster по `version.json`), а не «push прошёл». Развёртывание Pages занимает 1–3 минуты.

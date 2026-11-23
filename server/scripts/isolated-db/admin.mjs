@@ -2,7 +2,8 @@ import { BOOTSTRAP_MARKER, validateAdminUrl, validateGeneratedIdentifier } from 
 
 const MARKER_SETTING = 'samosval.isolated_db_bootstrap';
 const EXPECTED_SERVER_MAJOR = 16;
-const OWNER = 'samosval_test_app';
+const CAPABILITY = /^[a-f0-9]{64}$/;
+const OWNER = 'samosval_test_prepared_owner';
 
 export async function adminPreflight(client, adminUrl, { expectedRole = 'samosval_test_orchestrator', expectedServerAddress } = {}) {
   const url = validateAdminUrl(adminUrl);
@@ -28,10 +29,10 @@ export async function runAdminStatement(client, request) {
   if (!request || typeof request !== 'object' || Object.hasOwn(request, 'comment')) throw new Error('admin operation is not approved');
   if (request.operation === 'commentDatabase') {
     validateGeneratedIdentifier(request.database, { runid: request.runid, kind: 'target' });
-    if (request.owner !== OWNER || request.kind !== 'target') throw new Error('admin operation is not approved');
+    if (request.kind !== 'target' || !CAPABILITY.test(request.capability)) throw new Error('admin operation is not approved');
     const hash = request.database.slice(-12);
     const comment = `samosval-isolated-db:v1;kind=target;runid=${request.runid};hash=${hash};owner=${OWNER}`;
-    return client.query('SELECT samosval_isolated_admin.mark_reserved_target($1) AS comment', [request.database]).then(result => {
+    return client.query('SELECT samosval_isolated_admin.mark_reserved_target($1,$2) AS comment', [request.database, request.capability]).then(result => {
       if (result.rows[0]?.comment !== comment) throw new Error('admin operation is not approved');
       return result;
     });

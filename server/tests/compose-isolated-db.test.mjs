@@ -100,7 +100,7 @@ test('available compose resolver enforces exact default, test and api service se
   };
   assert.deepEqual(effective(null), []);
   assert.deepEqual(effective('test'), ['postgres']);
-  assert.deepEqual(effective('api'), ['api', 'postgres']);
+  assert.deepEqual(effective('api'), []);
 });
 
 test('compose exposes only the ephemeral bootstrap database on loopback', t => {
@@ -116,13 +116,9 @@ test('compose exposes only the ephemeral bootstrap database on loopback', t => {
   assert.doesNotMatch(config, /samosval_parallel_shifts_test\s*$/m);
 });
 
-test('compose API profile requires an injected generated target instead of maintenance database', t => {
+test('compose defers API profile until capability preflight has an owning task', t => {
   const config = renderCompose();
   if (!config) return t.skip('docker compose is unavailable');
-  assert.match(config, /api:/);
-  assert.match(config, /profiles:[\s\S]*api/);
-  assert.match(config, /POSTGRES_DB: samosval_parallel_shifts_test_0123456789ab_0123456789ab/);
-  assert.doesNotMatch(config.match(/api:[\s\S]*?(?=\n  postgres:)/)?.[0] ?? '', /POSTGRES_DB: postgres/);
-  assert.match(config, /127\.0\.0\.1/);
-  assert.match(config, /18080/);
+  assert.doesNotMatch(config, /^  api:$/m);
+  assert.doesNotMatch(config, /SAMOSVAL_API_TARGET_DATABASE|SAMOSVAL_CLEANUP_CAPABILITY|18080/);
 });
