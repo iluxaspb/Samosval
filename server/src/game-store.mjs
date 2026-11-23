@@ -97,7 +97,11 @@ export function submitGame(pool,uid,input,ws=WS){
     const grants=data.adjustments.filter(r=>r.targetUid===uid&&Number.isSafeInteger(r.amount)&&r.amount>0).reduce((n,r)=>n+r.amount,0);
     const funds=earned+(actor.role==='admin'?10000:0)+player.net+grants-own.reduce((n,r)=>n+r.price,0);
     if(kind==='purchase')a.price=themePrices[a.itemId];
-    let outcome;try{outcome=settle(data.head,player,a,funds,dayKey(now));}catch(e){throw fail(e.message,409);}
+    // Железное правило (решение владельца от 23.11.2026): администратору джекпот
+    // не выпадает никогда. Роль проверяется на сервере: settle с isAdmin
+    // детерминированно уводит бросок админа из джекпот-диапазона, символы и
+    // выплата согласованы — клиент с тем же флагом покажет тот же результат.
+    let outcome;try{outcome=settle(data.head,player,a,funds,dayKey(now),actor.role==='admin'?{isAdmin:true}:undefined);}catch(e){throw fail(e.message,409);}
     if(outcome.noop)return {result:{noop:true,reason:outcome.reason,delta:0}};
     const round=data.head.gameRound+1,state={gameRound:round,bank:outcome.head.bank,totalStakes:outcome.head.totalStakes,totalPayouts:outcome.head.totalPayouts,actors:{...data.head.actors,[uid]:round},player:outcome.player};
     const final={delta:outcome.delta,cost:outcome.cost||0,payout:outcome.payout||0,result:outcome.result||{},kind:a.kind,level:a.level||null,coin:a.coin??null,round};

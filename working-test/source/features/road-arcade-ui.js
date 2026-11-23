@@ -205,7 +205,7 @@ function renderSlot(host){const strip=icons=>{let cells='';for(let r=0;r<5;r++)f
   +mascot()+'<div class="slot-reels" aria-label="Результат барабанов">'+slotSymbols.map((s,i)=>reel(s,i)).join('')+'</div><div class="slot-result" id="slot-result" role="status">'+E(slotMessage||'Стартовый банк — 1 000 монет. Испытаем удачу?')+'</div><button class="slot-spin" id="slot-spin">'+(slotBusy?'Барабаны вращаются…':A.readSpin()?'Проверить незавершённое вращение':'Вращать · 10 🪙')+'</button><div class="slot-bank-details"><span>Внесено игроками: <b data-slot-stakes>'+f(A.head().totalStakes)+'</b></span><span>Выплачено: <b data-slot-payouts>'+f(A.head().totalPayouts)+'</b></span></div>'
   +'<div class="slot-bulbs slot-bulbs-bottom" aria-hidden="true">'+bulbs(14)+'</div>'
   +'<div class="slot-jackpot" id="slot-jackpot" hidden><div class="slot-jackpot-inner"><canvas id="slot-jackpot-matrix" width="420" height="120" aria-label="Джекпот"></canvas><p class="slot-jackpot-sum">+<b data-jackpot-sum>0</b> 🪙</p><p class="slot-jackpot-note">Общий банк автомата теперь ваш. Поздравляем!</p><button type="button" id="slot-jackpot-close">Забрать выигрыш</button><div class="slot-coin-rain" aria-hidden="true"></div></div></div>'
-  +'</section><details class="arcade-rules"><summary>Честные правила и шансы</summary><p>Каждое вращение независимо. 34% — выплата 15 монет, 8% — 30 монет, 1,49% — 150 монет, 0,01% (1 из 10 000) — весь текущий банк. В остальных 56,5% выплата равна нулю. Ставка — 10 монет. Выплата ограничена деньгами в банке после добавления ставки.</p><p>Банк общий: 1 000 стартовых монет + все ставки − все выплаты. Он не пополняется заново при обновлении страницы. Уменьшение кошелька и итог игры видны отдельно. Реальных денег и вывода средств нет.</p></details>';
+  +'</section><details class="arcade-rules"><summary>Честные правила и шансы</summary><p>Каждое вращение независимо. Комбинации и шансы: 🍒🍒🍒 — 20 монет (16%), ровно две 🍒 — 5 монет (25%), ⭐⭐⭐ — 30 (6%), 🔔🔔🔔 — 40 (3%), 🍋🍋🍋 — 50 (1,6%), 🚧🚧🚧 — 70 (0,7%), 💎💎💎 — 150 (0,3%), 7️⃣7️⃣7️⃣ — 500 (0,06%), 👑👑👑 — ДЖЕКПОТ, весь банк (0,01%, 1 из 10 000). В остальных 47,3% выплата равна нулю. Ставка — 10 монет, суммарная отдача около 96%. Выплата ограничена деньгами в банке после добавления ставки.</p><p>Банк общий: 1 000 стартовых монет + все ставки − все выплаты. Он не пополняется заново при обновлении страницы. Уменьшение кошелька и итог игры видны отдельно. Реальных денег и вывода средств нет. Администратору джекпот не выпадает никогда.</p></details>';
  host.querySelector('#slot-spin').onclick=spin;
  host.querySelector('#slot-jackpot-close')?.addEventListener('click',hideJackpot);
  startMatrixIdle();
@@ -225,7 +225,7 @@ async function spin(){
    try{
     // Итоговые символы зависят только от заранее сохранённого броска, поэтому
     // барабаны останавливаются на выпавшем результате, но деньги ещё не двигаются.
-    const shown=C.slotOutcome(operation.roll,Number(A.head()?.bank)||0).symbols;
+    const shown=C.slotOutcome(operation.roll,Number(A.head()?.bank)||0,currentUserRole==='admin'?{isAdmin:true}:undefined).symbols;
     slotSymbols=shown.slice();
     if(reelAnim&&reelAnim.active){
      reelAnim.symbols=slotSymbols.slice();
@@ -253,7 +253,7 @@ async function spin(){
     if(currentUid===user&&dialog.open&&view==='slot'){
      render(true);const shell=dialog.querySelector('.slot-shell');
      if(outcomeType==='jackpot'){shell?.classList.add('winner','jackpot');showJackpot(outcomePayout);tone('jackpot');speak('Джекпот! Поздравляем!');}
-     else if(outcomeProfit>0){shell?.classList.add('winner');matrixFlash(outcomeType==='big'?'КРУПНЫЙ ВЫИГРЫШ':'ВЫИГРЫШ',outcomeType==='big'?'#9be7ff':'#8ef2a8');tone(outcomeType==='big'?'win':'coin');speak('Выигрыш '+outcomeProfit+' монет.');}
+     else if(outcomeProfit>0){shell?.classList.add('winner');const bigWin=outcomeType==='seven'||outcomeType==='diamond';matrixFlash(bigWin?'КРУПНЫЙ ВЫИГРЫШ':'ВЫИГРЫШ',bigWin?'#9be7ff':'#8ef2a8');tone(bigWin?'win':'coin');speak('Выигрыш '+outcomeProfit+' монет.');}
      else if(outcomeType)tone('hurt');
     }}
   }
