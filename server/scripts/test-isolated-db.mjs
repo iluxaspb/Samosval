@@ -4,6 +4,26 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { requireIsolatedDatabase } from '../tests/helpers/isolated-db.mjs';
+import manifest from '../tests/db-test-manifest.mjs';
+import { loadManifest } from './isolated-db/manifest.mjs';
+import { discoverTests } from './isolated-db/discovery.mjs';
+
+const serverDirectory = realpathSync(join(dirname(fileURLToPath(import.meta.url)), '..'));
+const testsDirectory = realpathSync(join(serverDirectory, 'tests'));
+const requested = process.argv.slice(2);
+
+if (requested.length === 1 && requested[0] === '--list') {
+  try {
+    const discovery = await discoverTests(serverDirectory);
+    loadManifest(manifest, { discovered: discovery.roots.map(item => item.file) });
+    for (const entry of manifest.entries) console.log(`${entry.kind}\t${entry.discovery}\t${entry.file}`);
+    console.log(`discovered=${discovery.roots.length} manifest=${manifest.entries.length} fixtures=${manifest.harnessFixtures.length}`);
+    process.exit(0);
+  } catch (error) {
+    console.error(`isolated database inventory failed: ${error.message}`);
+    process.exit(2);
+  }
+}
 
 try {
   requireIsolatedDatabase(process.env.TEST_DATABASE_URL);
@@ -11,10 +31,6 @@ try {
   console.error(`isolated database preflight failed: ${error.message}`);
   process.exit(1);
 }
-
-const serverDirectory = realpathSync(join(dirname(fileURLToPath(import.meta.url)), '..'));
-const testsDirectory = realpathSync(join(serverDirectory, 'tests'));
-const requested = process.argv.slice(2);
 
 function approvedTestPath(input) {
   if (typeof input !== 'string' || !input.endsWith('.test.mjs')) {

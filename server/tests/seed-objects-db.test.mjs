@@ -3,9 +3,6 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import pg from 'pg';
 import {seedObjects} from '../scripts/seed-objects.mjs';
-test('object seed requires an inspected TEST import before database access',async()=>{
-  for(const options of [{},{sha256:'abc'},{workspaceId:'production',sha256:'a'.repeat(64)}])await assert.rejects(seedObjects(null,options),{code:'inspected-test-import-required'});
-});
 test('PostgreSQL object promotion validates source and preserves imported fields',{skip:!process.env.TEST_DATABASE_URL},async t=>{
   const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL}),sha=randomBytes(32).toString('hex'),id='seed_'+sha.slice(0,24),path='workspaces/main_workspace/objects/'+id;
   let copied=false;

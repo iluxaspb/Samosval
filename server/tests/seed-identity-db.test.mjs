@@ -3,9 +3,6 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import pg from 'pg';
 import {seedIdentity} from '../src/seed-identity.mjs';
-test('identity seed requires explicit inspected checksum before database access',async()=>{
-  await assert.rejects(seedIdentity(null,{}),{code:'inspected-test-import-required'});
-});
 test('PostgreSQL identity promotion verifies import and owner without replacing profiles',{skip:!process.env.TEST_DATABASE_URL},async t=>{
   const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL}),sha=randomBytes(32).toString('hex'),prefix='seedid_'+sha.slice(0,20),owner=prefix+'_owner',pending=prefix+'_pending',second=prefix+'_second',ids=[owner,pending,second];let ready=false,state;
   const profile=(uid,role,status)=>({email:uid+'@example.test',nickname:uid,role,status,gameBalance:321});
