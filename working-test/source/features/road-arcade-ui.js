@@ -764,7 +764,13 @@ function renderMario(host){
     +'<div class="mfr-row" style="font-size:13px;opacity:.85">Сверху — уровень, жизни, монеты, пауза, звуки. Кнопка ✕ — выход.</div>'
     +'<button type="button" id="mario-first-run-ok">Понятно, играть</button></div>';
     host.querySelector('.mario-game-wrapper').appendChild(ov);
-    ov.querySelector('#mario-first-run-ok').onclick=()=>{if(resumeAfterHint&&run&&!run.done&&!run.over)run.paused=false;lastFrame=0;render(true);startLoop();};
+    const okBtn=ov.querySelector('#mario-first-run-ok');
+    const closeHint=()=>{if(resumeAfterHint&&run&&!run.done&&!run.over)run.paused=false;lastFrame=0;render(true);startLoop();};
+    okBtn.onclick=closeHint;
+    // На некоторых мобильных WebView click по кнопке «под» таргетом pointer-зон
+    // не приходит. pointerdown с capture срабатывает всегда, а дубликат
+    // (click вслед за pointerdown) безопасен: памятка уже закрыта.
+    okBtn.addEventListener('pointerdown',e=>{e.preventDefault();e.stopImmediatePropagation();closeHint();},{capture:true});
  }
  if(!run)drawWelcome();else drawMario();
 }
