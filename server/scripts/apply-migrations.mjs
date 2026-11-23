@@ -24,7 +24,12 @@ export function buildPool(env = process.env) {
   });
 }
 
-export async function applyMigrations(pool, { dir = sqlDir, exclude = [] } = {}) {
+function migrationNumber(filename) {
+  const match = /^(\d+)_.*\.sql$/.exec(filename);
+  return match ? Number(match[1]) : null;
+}
+
+export async function applyMigrations(pool, { dir = sqlDir, exclude = [], through = Infinity } = {}) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       filename   TEXT PRIMARY KEY,
@@ -37,7 +42,10 @@ export async function applyMigrations(pool, { dir = sqlDir, exclude = [] } = {})
   // Часть миграций защищена guard-ами имени базы (018 только для базы резерва),
   // поэтому каталог целиком применим не в любую БД; исключения задаются явно.
   const excluded = new Set(exclude);
-  const files = readdirSync(dir).filter(f => f.endsWith('.sql') && !excluded.has(f)).sort();
+  const files = readdirSync(dir)
+    .filter(f => f.endsWith('.sql') && !excluded.has(f))
+    .filter(f => migrationNumber(f) === null || migrationNumber(f) <= through)
+    .sort();
   const results = [];
   for (const filename of files) {
     if (applied.has(filename)) { results.push({ filename, status: 'skipped' }); continue; }
