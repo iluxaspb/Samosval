@@ -1,0 +1,128 @@
+import { createHash } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import pg from 'pg';
+
+const APPROVED_DATABASE = 'samosval_parallel_shifts_test';
+const APPROVED_HOSTS = new Set(['postgres', 'localhost', '127.0.0.1', '[::1]']);
+const sqlDirectory = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'sql');
+
+export function requireIsolatedDatabase(url) {
+  if (process.env.SAMOSVAL_ISOLATED_TEST !== '1') {
+    throw new Error('SAMOSVAL_ISOLATED_TEST=1 is required');
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error('isolated database target is not approved');
+  }
+
+  const database = decodeURIComponent(parsed.pathname.slice(1));
+  if (
+    !['postgres:', 'postgresql:'].includes(parsed.protocol)
+    || !APPROVED_HOSTS.has(parsed.hostname)
+    || database !== APPROVED_DATABASE
+  ) {
+    throw new Error('isolated database target is not approved');
+  }
+  return parsed;
+}
+
+function isolatedPool() {
+  const url = requireIsolatedDatabase(process.env.TEST_DATABASE_URL);
+  return new pg.Pool({ connectionString: url.href, max: 2 });
+}
+
+export async function resetIsolatedDatabase() {
+  const pool = isolatedPool();
+  try {
+    await pool.query('DROP SCHEMA IF EXISTS public CASCADE');
+    await pool.query('CREATE SCHEMA public');
+  } finally {
+    await pool.end();
+  }
+}
+
+function migrationNumber(filename) {
+  const match = /^(\d+)_.*\.sql$/.exec(filename);
+  return match ? Number(match[1]) : null;
+}
+
+function retargetLegacyGuard(sql) {
+  return sql
+    .replaceAll("current_database() <> 'samosval_test'", `current_database() <> '${APPROVED_DATABASE}'`)
+    .replaceAll("current_database()<>'samosval_test'", `current_database()<>'${APPROVED_DATABASE}'`)
+    .replaceAll("current_database()<>'samosval_working_test_reserve'", `current_database()<>'${APPROVED_DATABASE}'`);
+}
+
+export async function applyMigrationsThrough(number) {
+  if (!Number.isInteger(number) || number < 1) throw new TypeError('migration number must be a positive integer');
+  const pool = isolatedPool();
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        filename text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now(),
+        checksum text
+      )`);
+    const filenames = (await readdir(sqlDirectory))
+      .filter(filename => migrationNumber(filename) !== null && migrationNumber(filename) <= number)
+      .sort();
+    for (const filename of filenames) {
+      const present = await pool.query('SELECT 1 FROM schema_migrations WHERE filename=$1', [filename]);
+      if (present.rowCount) continue;
+      const source = await readFile(join(sqlDirectory, filename), 'utf8');
+      await pool.query(retargetLegacyGuard(source));
+      const checksum = createHash('sha256').update(source).digest('hex');
+      await pool.query(
+        'INSERT INTO schema_migrations(filename,checksum) VALUES($1,$2) ON CONFLICT(filename) DO NOTHING',
+        [filename, checksum]
+      );
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function seedParallelShiftFixture(options = {}) {
+  const pool = isolatedPool();
+  const suffix = options.suffix ?? 'parallel_fixture';
+  const ids = {
+    workspaceId: options.workspaceId ?? `workspace_${suffix}`,
+    adminUid: options.adminUid ?? `admin_${suffix}`,
+    foremanUid: options.foremanUid ?? `foreman_${suffix}`,
+    objectAId: options.objectAId ?? `object_a_${suffix}`,
+    objectBId: options.objectBId ?? `object_b_${suffix}`,
+    truckId: options.truckId ?? `truck_${suffix}`,
+    shiftAId: options.shiftAId ?? `shift_a_${suffix}`,
+    shiftBId: options.shiftBId ?? `shift_b_${suffix}`,
+  };
+  try {
+    await pool.query('INSERT INTO workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING', [ids.workspaceId]);
+    for (const [uid, role] of [[ids.adminUid, 'admin'], [ids.foremanUid, 'foreman']]) {
+      await pool.query(
+        `INSERT INTO app_users(uid,email,display_name,role,status)
+         VALUES($1,$2,$3,$4,'active') ON CONFLICT(uid) DO NOTHING`,
+        [uid, `${uid}@example.test`, uid, role]
+      );
+    }
+    for (const objectId of [ids.objectAId, ids.objectBId]) {
+      await pool.query(
+        `INSERT INTO workspace_objects(workspace_id,object_id,payload)
+         VALUES($1,$2,$3) ON CONFLICT(workspace_id,object_id) DO NOTHING`,
+        [ids.workspaceId, objectId, { id: objectId, name: objectId }]
+      );
+    }
+    await pool.query(
+      `INSERT INTO line_trucks(workspace_id,truck_id,payload)
+       VALUES($1,$2,$3) ON CONFLICT(workspace_id,truck_id) DO NOTHING`,
+      [ids.workspaceId, ids.truckId, { id: ids.truckId, name: ids.truckId }]
+    );
+    return ids;
+  } finally {
+    await pool.end();
+  }
+}

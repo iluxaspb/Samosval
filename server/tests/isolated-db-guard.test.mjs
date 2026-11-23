@@ -1,0 +1,68 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  requireIsolatedDatabase,
+  resetIsolatedDatabase,
+} from './helpers/isolated-db.mjs';
+
+const isolatedUrl = 'postgresql://fixture-user:fixture-password@postgres:5432/samosval_parallel_shifts_test';
+
+function withIsolatedEnvironment(values, operation) {
+  const previous = Object.fromEntries(
+    Object.keys(values).map(key => [key, process.env[key]])
+  );
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return Promise.resolve()
+    .then(operation)
+    .finally(() => {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+}
+
+test('rejects_reserved_and_live_database_names', async () => {
+  await withIsolatedEnvironment({ SAMOSVAL_ISOLATED_TEST: '1' }, () => {
+    for (const url of [
+      'postgresql://fixture@postgres:5432/samosval_test',
+      'postgresql://fixture@postgres:5432/samosval_working_test_reserve',
+      'postgresql://fixture@samosval-test.iluxa.pro:5432/samosval_parallel_shifts_test',
+    ]) {
+      assert.throws(() => requireIsolatedDatabase(url), /isolated database target is not approved/i);
+    }
+  });
+});
+
+test('accepts_compose_test_database', async () => {
+  await withIsolatedEnvironment({ SAMOSVAL_ISOLATED_TEST: '1' }, () => {
+    const approved = requireIsolatedDatabase(isolatedUrl);
+    assert.ok(approved instanceof URL);
+    assert.equal(approved.hostname, 'postgres');
+    assert.equal(approved.pathname, '/samosval_parallel_shifts_test');
+  });
+
+  await withIsolatedEnvironment({ SAMOSVAL_ISOLATED_TEST: undefined }, () => {
+    assert.throws(() => requireIsolatedDatabase(isolatedUrl), /SAMOSVAL_ISOLATED_TEST=1 is required/);
+  });
+});
+
+test('reset_never_uses_unapproved_url', async () => {
+  await withIsolatedEnvironment({
+    SAMOSVAL_ISOLATED_TEST: undefined,
+    TEST_DATABASE_URL: 'postgresql://fixture@127.0.0.1:1/samosval_parallel_shifts_test',
+  }, async () => {
+    await assert.rejects(resetIsolatedDatabase(), /SAMOSVAL_ISOLATED_TEST=1 is required/);
+  });
+
+  await withIsolatedEnvironment({
+    SAMOSVAL_ISOLATED_TEST: '1',
+    TEST_DATABASE_URL: 'postgresql://fixture@127.0.0.1:1/samosval_test',
+  }, async () => {
+    await assert.rejects(resetIsolatedDatabase(), /isolated database target is not approved/i);
+  });
+});
