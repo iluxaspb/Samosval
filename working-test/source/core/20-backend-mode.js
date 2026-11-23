@@ -234,7 +234,15 @@
   watchWorkingAuthority();
 
   function getTestBackendIndicator(status) {
-    if(isNasRuntime())return {letter:status.state==='offline'?'О':'S',label:status.state==='offline'?'Ubuntu — локальная очередь':status.state==='ok'?'Ubuntu — сервер данных':'Ubuntu — '+status.text,provider:'ubuntu'};
+    if(isNasRuntime()){
+      // Сервер данных всегда Ubuntu; localStorage здесь ни при чём. Раньше
+      // при переполнении хранилища диагностика падала до reading() и
+      // показывала «Firebase — сервер данных», вводя в заблуждение.
+      if(status.state==='offline')return {letter:'О',label:'Ubuntu — локальная очередь',provider:'ubuntu'};
+      if(status.state==='ok')return {letter:'S',label:'Ubuntu — сервер данных',provider:'ubuntu'};
+      return {letter:'!',label:'Ubuntu — '+status.text,provider:'ubuntu'};
+    }
+    try{localStorage.getItem('samosval-working-test-backend-mode');}catch(e){return {letter:'!',label:'Ubuntu — память телефона переполнена',provider:'ubuntu'};}
     if (status.state === 'offline') return {letter:'О', label:'Офлайн', provider:'firebase'};
     if (!currentUid || status.state === 'init') return {letter:'…', label:'Firebase — подключение ещё не подтверждено', provider:'firebase'};
     if (status.state === 'error') return {letter:'!', label:'Firebase — требуется проверка синхронизации', provider:'firebase'};

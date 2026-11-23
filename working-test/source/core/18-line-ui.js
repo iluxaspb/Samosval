@@ -380,8 +380,9 @@
     return saveLineEvent(()=>runNasAdminAction('permissions.replace',{role,permissions:{tabs,actions}}));
   }
 
-  // Панель длинных ошибок: одна на всё приложение, закрывается только
-  // кнопкой «Понятно» (без таймера и закрытия по клику мимо панели).
+  // Панель длинных ошибок: одна на всё приложение, по центру экрана,
+  // закрывается только кнопкой «Понятно» (без таймера и закрытия по клику
+  // мимо панели).
   function showErrorPanel(html) {
     let panel = document.getElementById('errorPanel');
     if (!panel) {

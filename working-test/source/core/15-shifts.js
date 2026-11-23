@@ -236,7 +236,90 @@
     if(!currentUid)return [];
     try{const a=JSON.parse(localStorage.getItem(offlineJournalKey())||'[]');return Array.isArray(a)?a.filter(x=>x&&x.id&&x.shiftId&&x.truckId):[];}catch(e){console.error(e);return [];}
   }
-  function offlineJournalWrite(items){localStorage.setItem(offlineJournalKey(),JSON.stringify(items));updateSyncUI();}
+  // Журнал — транспорт догона сервера, а не история. Старые версии не удаляли
+  // подтверждённые записи: за месяцы работы localStorage переполнялся (~5 МБ),
+  // setItem падал и погрузка не сохранялась даже в онлайне (инцидент 23.11.2026).
+  // Подтверждённое сервером удаляется после доставки уведомления/аудита;
+  // отменённое — после проведения игрового штрафа; отказ сервера держим только
+  // непросмотренным разбором и не старше 50 последних.
+  const OFFLINE_JOURNAL_MAX_REJECTED=50;
+  function offlineJournalCompact(items){
+    const dependencies=new Set(items.filter(x=>x&&x.status==='pending'&&x.dependencyId).map(x=>x.dependencyId));
+    let unreviewed=0;
+    const keep=[];
+    for(let i=items.length-1;i>=0;i--){
+      const x=items[i];if(!x||!x.id)continue;
+      let keepIt;
+      if(x.status==='pending')keepIt=true;
+      else if(x.status==='confirmed')keepIt=!x.effectsDelivered;
+      else if(x.status==='cancelled')keepIt=!x.penaltyDelivered;
+      else if(x.status==='rejected')keepIt=!x.reviewed&&unreviewed++<OFFLINE_JOURNAL_MAX_REJECTED;
+      else keepIt=false;
+      if(keepIt||dependencies.has(x.id))keep.push(x);
+    }
+    return keep.reverse();
+  }
+  function offlineQuotaError(e){return !!(e&&(e.name==='QuotaExceededError'||e.code===22||/quota/i.test(String(e.message||''))));}
+  function offlineJournalWrite(items){
+    const pruned=offlineJournalCompact(items),key=offlineJournalKey();
+    try{localStorage.setItem(key,JSON.stringify(pruned));}
+    catch(e){
+      if(!offlineQuotaError(e))throw e;
+      // Память телефона переполнена. Пошаговая аварийная чистка: сначала
+      // старые отказы и строки без незавершённых эффектов, затем — всё, кроме
+      // неотправленных действий и их зависимостей (их терять нельзя).
+      const dependencies=new Set(pruned.filter(x=>x.status==='pending'&&x.dependencyId).map(x=>x.dependencyId));
+      const emergency=[
+        pruned.filter(x=>x.status==='pending'||dependencies.has(x.id)||(x.status==='confirmed'&&!x.effectsDelivered)||(x.status==='cancelled'&&!x.penaltyDelivered)),
+        pruned.filter(x=>x.status==='pending'||dependencies.has(x.id))
+      ];
+      for(const level of emergency){
+        try{localStorage.setItem(key,JSON.stringify(level));console.warn('[offline journal] память переполнена — выполнена аварийная чистка старых записей');updateSyncUI();return;}
+        catch(_){}
+      }
+      const failure=Error('Память устройства переполнена старыми записями: действие не удалось сохранить даже после автоматической чистки');
+      failure.storageQuota=true;throw failure;
+    }
+    updateSyncUI();
+  }
+  // Одноразовая (идемпотентная) чистка раздутых ключей при старте. Старые
+  // версии не удаляли подтверждённые записи журнала и писали полный аудит
+  // (тысячи записей) в кеш сессии — устройство должно разблокироваться при
+  // первом же открытии новой версии.
+  const OFFLINE_JOURNAL_KEY_PREFIX='samosval_working_test_offline_';
+  const SESSION_CACHE_KEY_PREFIX='samosval-working-test-cache-';
+  const STORAGE_AUDIT_LIMIT=200;
+  function storageShrinkAudit(value){
+    if(Array.isArray(value.audit))value.audit=value.audit.slice(0,STORAGE_AUDIT_LIMIT);
+    if(Array.isArray(value.lineAudit))value.lineAudit=value.lineAudit.slice(0,STORAGE_AUDIT_LIMIT);
+    return value;
+  }
+  function offlineStorageQuotaMigrate(){
+    try{
+      const keys=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k)keys.push(k);}
+      for(const key of keys){
+        if(key.startsWith(OFFLINE_JOURNAL_KEY_PREFIX)){
+          try{
+            const items=JSON.parse(localStorage.getItem(key)||'[]');
+            if(!Array.isArray(items))continue;
+            const pruned=offlineJournalCompact(items);
+            if(JSON.stringify(pruned)!==JSON.stringify(items)){
+              if(pruned.length)localStorage.setItem(key,JSON.stringify(pruned));
+              else localStorage.removeItem(key);
+            }
+          }catch(_){console.warn('[storage migrate] журнал не читается',key);}
+        }else if(key.startsWith(SESSION_CACHE_KEY_PREFIX)){
+          try{
+            const raw=localStorage.getItem(key);if(!raw)continue;
+            const value=storageShrinkAudit(JSON.parse(raw));
+            const packed=JSON.stringify(value);
+            if(packed!==raw)localStorage.setItem(key,packed);
+          }catch(_){console.warn('[storage migrate] кеш не читается',key);}
+        }
+      }
+    }catch(e){console.warn('[storage migrate]',e);}
+  }
+  offlineStorageQuotaMigrate();
   function offlinePendingOps(){return offlineJournalRead().filter(x=>x.status==='pending');}
   function offlinePendingForTruck(id){return offlinePendingOps().some(x=>x.truckId===id&&state.shift&&x.shiftId===state.shift.id);}
   function offlinePendingCount(){return offlinePendingOps().length;}

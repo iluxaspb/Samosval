@@ -119,11 +119,28 @@
       showToastEl(label+' · '+truckLabelHtml(id),false);
       if(navigator.onLine)offlineReplayJournal();
       return true;
-    }catch(e){showError('Действие не сохранено на устройстве: '+(e.message||e));return false;}
+    }catch(e){
+      if((e&&e.storageQuota)||offlineQuotaError(e))offlineShowQuotaPanel(e);
+      else showError('Действие не сохранено на устройстве: '+(e.message||e));
+      return false;
+    }
   }
   function offlineResolve(id,status,reason){
     const all=offlineJournalRead(),op=all.find(x=>x.id===id);
-    if(op&&op.status==='pending'){op.status=status;op.result=reason;op.resolvedAt=Date.now();offlineJournalWrite(all);}
+    if(op&&op.status==='pending'){
+      op.status=status;op.result=reason;op.resolvedAt=Date.now();offlineJournalWrite(all);
+      // Подтверждённая запись удаляется из журнала компакцией в offlineJournalWrite,
+      // как только уведомление/аудит доставлены (effectsDelivered) — сервер уже
+      // владеет данными, а вечный рост журнала переполнял память телефона.
+    }
+  }
+  // Квота localStorage: панель по центру экрана с человеческим текстом;
+  // техническая причина — мелким текстом внутри панели (класс error-panel-tech),
+  // а не в заголовке. Флаг storageQuota ставит offlineJournalWrite после
+  // неудачной аварийной чистки (её текст не содержит слова «quota»).
+  function offlineShowQuotaPanel(e){
+    showErrorPanel('Не удалось сохранить погрузку. Память телефона переполнена старыми записями — попробуйте ещё раз, приложение почистит их автоматически.'
+      +'<div class="error-panel-tech">'+escapeHtml((e&&e.message)||String(e))+'</div>');
   }
   function offlineAdoptResult(op,result){
     if(result.status){
