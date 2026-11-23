@@ -43,6 +43,8 @@ Realtime subscriptions/WebSocket, starts/closes of shifts, truck registration, c
 `npm install`, `npm run check`, `npm test`.
 The PostgreSQL concurrency test executes when `TEST_DATABASE_URL` points at a disposable test database containing `sql/001_init.sql`; GitHub Actions configures this automatically.
 
+For isolated database tests, the **official security boundary** is the direct executable command `./scripts/test-isolated-db.sh` run from `server/` by a clean invoking shell or CI step. It removes `NODE_OPTIONS` and `NODE_PATH` before Node starts, then validates `SAMOSVAL_ISOLATED_TEST=1` and the allowlisted `TEST_DATABASE_URL`. `npm run test:db` is a convenience alias for normal clean environments; it is **not** a security boundary because a malicious `NODE_OPTIONS` is already executed when the parent npm process starts. Future CI and automation must call the direct shell entrypoint and provide credentials only through their environment.
+
 ## Source mapping
 
 - `app/src/core/05-authentication.js`: Firebase Authentication + registration.

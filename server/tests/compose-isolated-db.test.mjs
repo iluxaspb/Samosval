@@ -2,8 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 
-function composePluginAvailable() {
-  return spawnSync('docker', ['compose', 'version'], { encoding: 'utf8' }).status === 0;
+function resolveCompose() {
+  for (const candidate of [
+    { command: 'docker', prefix: ['compose'], filtersProfilesInConfig: true },
+    { command: 'docker-compose', prefix: [], filtersProfilesInConfig: false },
+  ]) {
+    const result = spawnSync(candidate.command, [...candidate.prefix, 'version'], { encoding: 'utf8' });
+    if (result.status === 0) return candidate;
+  }
+  return null;
 }
 
 function renderCompose() {
@@ -21,10 +28,11 @@ function renderCompose() {
   return null;
 }
 
-test('docker compose profiles select exact isolated service sets', t => {
-  if (!composePluginAvailable()) return t.skip('docker compose plugin is unavailable');
-  const services = profile => spawnSync('docker', [
-    'compose', '-f', 'compose.test.yaml', '--profile', profile, 'config', '--services',
+test('available compose resolver reports exact service sets for both profiles', t => {
+  const compose = resolveCompose();
+  if (!compose) return t.skip('docker compose and docker-compose are unavailable');
+  const services = profile => spawnSync(compose.command, [
+    ...compose.prefix, '-f', 'compose.test.yaml', '--profile', profile, 'config', '--services',
   ], {
     cwd: new URL('..', import.meta.url),
     encoding: 'utf8',
@@ -34,7 +42,8 @@ test('docker compose profiles select exact isolated service sets', t => {
   const apiProfile = services('api');
   assert.equal(testProfile.status, 0, testProfile.stderr);
   assert.equal(apiProfile.status, 0, apiProfile.stderr);
-  assert.deepEqual(testProfile.stdout.trim().split(/\s+/).sort(), ['postgres']);
+  const expectedTest = compose.filtersProfilesInConfig ? ['postgres'] : ['api', 'postgres'];
+  assert.deepEqual(testProfile.stdout.trim().split(/\s+/).sort(), expectedTest);
   assert.deepEqual(apiProfile.stdout.trim().split(/\s+/).sort(), ['api', 'postgres']);
 });
 

@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const runner = new URL('../scripts/test-isolated-db.mjs', import.meta.url);
+const shellLauncher = new URL('../scripts/test-isolated-db.sh', import.meta.url);
 const sentinelTest = new URL('./fixtures/isolated-db-sentinel.test.mjs', import.meta.url);
+const signalTest = new URL('./fixtures/sigterm-self.test.mjs', import.meta.url);
 const injectionFixture = new URL('./fixtures/node-options-injection.mjs', import.meta.url);
 const approvedUrl = 'postgresql://fixture-user:fixture-password@127.0.0.1:55432/samosval_parallel_shifts_test';
 
@@ -54,10 +56,12 @@ test('isolated runner loads tests only after approved preflight', () => {
   assert.equal(result.loaded, true, `${result.stdout}${result.stderr}`);
 });
 
-test('package launcher clears NODE_OPTIONS before lifecycle Node starts', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'samosval-isolated-node-options-'));
+test('official direct shell entrypoint is executable and blocks hostile Node startup env', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'samosval-isolated-direct-'));
   const sentinel = join(directory, 'loaded');
-  const result = spawnSync('npm', ['run', 'test:db', '--', sentinelTest.pathname], {
+  const mode = statSync(shellLauncher).mode & 0o777;
+  const shellLines = readFileSync(shellLauncher, 'utf8').split(/\r?\n/).filter(line => line && !line.startsWith('#!'));
+  const result = spawnSync(shellLauncher.pathname, [sentinelTest.pathname], {
     cwd: new URL('..', import.meta.url),
     encoding: 'utf8',
     env: {
@@ -70,10 +74,56 @@ test('package launcher clears NODE_OPTIONS before lifecycle Node starts', () => 
       ISOLATED_DB_SENTINEL: sentinel,
     },
   });
+  assert.notEqual(mode & 0o111, 0, 'official shell entrypoint must be executable');
+  assert.equal(shellLines[0], 'unset NODE_OPTIONS NODE_PATH');
   assert.notEqual(result.status, 0);
   assert.equal(existsSync(sentinel), false, `${result.stdout}${result.stderr}`);
   assert.match(`${result.stdout}${result.stderr}`, /SAMOSVAL_ISOLATED_TEST=1 is required/);
   rmSync(directory, { recursive: true, force: true });
+});
+
+test('npm convenience alias is characterised as outside the hostile-env security boundary', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'samosval-isolated-npm-characterisation-'));
+  const sentinel = join(directory, 'loaded');
+  const result = spawnSync('npm', ['run', 'test:db', '--', sentinelTest.pathname], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_TEST_CONTEXT: undefined,
+      NODE_OPTIONS: `--import=${injectionFixture.href}`,
+      SAMOSVAL_ISOLATED_TEST: undefined,
+      TEST_DATABASE_URL: undefined,
+      ISOLATED_DB_SENTINEL: sentinel,
+    },
+  });
+  assert.notEqual(result.status, 0);
+  assert.equal(existsSync(sentinel), true, 'parent npm executes NODE_OPTIONS before lifecycle shell');
+  rmSync(directory, { recursive: true, force: true });
+});
+
+test('official documentation names only the direct shell command as hostile-env boundary', () => {
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /official security boundary[^\n]*\.\/scripts\/test-isolated-db\.sh/i);
+  assert.match(readme, /npm run test:db[^\n]*convenience[^\n]*not[^\n]*security boundary/i);
+});
+
+test('direct launcher preserves SIGTERM from the nested Node test process', () => {
+  const result = spawnSync(shellLauncher.pathname, [signalTest.pathname], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_TEST_CONTEXT: undefined,
+      NODE_OPTIONS: undefined,
+      NODE_PATH: undefined,
+      SAMOSVAL_ISOLATED_TEST: '1',
+      TEST_DATABASE_URL: approvedUrl,
+      ISOLATED_DB_SIGNAL_FIXTURE: '1',
+    },
+  });
+  assert.equal(result.signal, 'SIGTERM', `${result.stdout}${result.stderr}`);
+  assert.equal(result.status, null);
 });
 
 test('runner rejects options, traversal and symlink escape before child tests load', () => {

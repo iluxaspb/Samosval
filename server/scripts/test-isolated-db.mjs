@@ -51,11 +51,14 @@ delete childEnv.NODE_OPTIONS;
 delete childEnv.NODE_PATH;
 const result = spawnSync(
   process.execPath,
-  ['--test', '--test-concurrency=1', ...testFiles],
+  ['--test', '--experimental-test-isolation=none', '--test-concurrency=1', ...testFiles],
   { cwd: serverDirectory, env: childEnv, stdio: 'inherit' }
 );
 if (result.error) {
   console.error(`isolated test runner failed: ${result.error.message}`);
   process.exit(1);
+}
+if (result.signal) {
+  process.kill(process.pid, result.signal);
 }
 process.exit(result.status ?? 1);
