@@ -51,7 +51,11 @@ export async function resetIsolatedDatabase() {
 }
 
 export function retargetLegacyGuard(sql, filename) {
-  return transformLegacyMigrationGuard(sql, filename, APPROVED_DATABASE);
+  requireIsolatedDatabase(process.env.TEST_DATABASE_URL);
+  return transformLegacyMigrationGuard(sql, filename, APPROVED_DATABASE, {
+    legacyHelper: true,
+    isolated: process.env.SAMOSVAL_ISOLATED_TEST === '1',
+  });
 }
 
 export async function applyMigrationsThrough(number) {

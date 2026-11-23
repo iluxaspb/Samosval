@@ -90,6 +90,10 @@ const consumersByFile = {
     "tests/isolated-db-integration.test.mjs:pg"
   ],
   "isolated-db-runner": [],
+  "isolated-db-fixtures": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/isolated-db-fixtures.test.mjs:pg"
+  ],
   "isolated-db-templates": [
     "scripts/apply-migrations.mjs:pg",
     "tests/isolated-db-templates.test.mjs:pg"

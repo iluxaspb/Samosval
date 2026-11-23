@@ -11,6 +11,7 @@ import {
   quoteIdentifier,
 } from '../scripts/isolated-db/safety.mjs';
 import { adminPreflight, createProvisioningBroker, createTemplateBroker, generateRunCapability, runAdminStatement } from '../scripts/isolated-db/admin.mjs';
+import { EXPECTED_S24_HASH } from '../scripts/isolated-db/templates.mjs';
 
 const { Client } = pg;
 const runid = '0123456789ab';
@@ -150,19 +151,17 @@ test('closed template broker accepts only empty/S24 lifecycle operations without
     if (sql.includes('pg_stat_activity')) return { rows: [{ count: 0 }] };
     return { rows: [] };
   }, end: async () => {} };
-  const broker = createTemplateBroker({ bootstrapClient });
+  const broker = createTemplateBroker({ bootstrapClient, runid, capability });
   const empty = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_empty`;
   const s24 = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s24`;
-  const emptyComment = `samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=samosval_test_prepared_owner`;
-  const s24Comment = `samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S24;version=24;registry=${'b'.repeat(64)};owner=samosval_test_prepared_owner`;
-  await broker.run({ operation: 'createTemplate', database: empty, source: 'template0', runid, capability, comment: emptyComment });
-  await broker.run({ operation: 'createTemplate', database: s24, source: empty, runid, capability, comment: null });
-  await broker.run({ operation: 'freezeTemplate', database: s24, runid, capability, comment: s24Comment });
+  await broker.run({ operation: 'createTemplate', database: empty, source: 'template0', capability });
+  await broker.run({ operation: 'createTemplate', database: s24, source: empty, capability });
+  await broker.run({ operation: 'freezeTemplate', database: s24, registryHash: EXPECTED_S24_HASH, capability });
   assert.equal(calls.some(([config]) => String(config.text ?? config).includes(`CREATE DATABASE "${empty}" TEMPLATE "template0"`)), true);
   assert.equal(calls.some(([config]) => String(config.text ?? config).includes(`CREATE DATABASE "${s24}" TEMPLATE "${empty}"`)), true);
   assert.equal(calls.some(([config]) => String(config.text ?? config).includes(`ALTER DATABASE "${s24}" ALLOW_CONNECTIONS false`)), true);
-  await assert.rejects(broker.run({ operation: 'createTemplate', database: `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s25`, source: s24, runid, capability, comment: null }), /not approved/i);
-  await assert.rejects(broker.run({ operation: 'sql', sql: 'DROP DATABASE postgres' }), /not approved/i);
+  await assert.rejects(broker.run({ operation: 'createTemplate', database: `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s25`, source: s24 }), /not approved/i);
+  await assert.rejects(broker.run({ operation: 'sql', sql: 'DROP DATABASE postgres', capability }), /not approved/i);
 });
 
 test('drop revalidation rejects a replaced database fingerprint before destructive SQL', async () => {

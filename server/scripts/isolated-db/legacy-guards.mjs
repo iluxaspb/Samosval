@@ -35,13 +35,19 @@ function exactOccurrences(source, needle) {
   return spans;
 }
 
-export function transformLegacyMigrationGuard(source, filename, database) {
+export function transformLegacyMigrationGuard(source, filename, database, options = {}) {
   const guard = LEGACY_GUARDS[filename];
   if (!guard) {
     if (source.includes('current_database()')) throw new Error(`legacy guard unavailable: ${filename}`);
     return source;
   }
-  validateGeneratedIdentifier(database);
+  if (options.legacyHelper === true) {
+    if (options.isolated !== true || database !== 'samosval_parallel_shifts_test') {
+      throw new Error('legacy helper target is not approved');
+    }
+  } else {
+    validateGeneratedIdentifier(database);
+  }
   const checksum = createHash('sha256').update(source).digest('hex');
   if (checksum !== guard.checksum) throw new Error(`legacy migration checksum mismatch: ${filename}`);
   const spans = exactOccurrences(source, guard.source);

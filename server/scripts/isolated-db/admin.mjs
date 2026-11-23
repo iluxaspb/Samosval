@@ -1,5 +1,6 @@
-import { randomBytes } from 'node:crypto';
-import { BOOTSTRAP_MARKER, quoteIdentifier, validateAdminUrl, validateGeneratedIdentifier } from './safety.mjs';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { BOOTSTRAP_MARKER, GENERATED_DATABASE_PREFIX, quoteIdentifier, validateAdminUrl, validateGeneratedIdentifier } from './safety.mjs';
+import { EXPECTED_S24_HASH } from './templates.mjs';
 
 const MARKER_SETTING = 'samosval.isolated_db_bootstrap';
 const EXPECTED_SERVER_MAJOR = 16;
@@ -99,37 +100,53 @@ function quoteLiteral(value) {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-export function createTemplateBroker({ bootstrapClient }) {
+export function createTemplateBroker({ bootstrapClient, runid, capability }) {
   if (!bootstrapClient?.query || !bootstrapClient?.end) throw new Error('template broker configuration rejected');
+  validateCapability(capability);
+  validateGeneratedIdentifier(`${GENERATED_DATABASE_PREFIX}${runid}_tpl_empty`, { runid, kind: 'template' });
+  const boundRunid = runid;
+  const boundCapability = capability;
   let pending = Promise.resolve();
   return Object.freeze({
     async run(request) {
-      const allowedKeys = ['operation','database','source','runid','capability','comment'];
-      if (!request || !['createTemplate','freezeTemplate'].includes(request.operation)
-          || Object.keys(request).some(key => !allowedKeys.includes(key))) throw new Error('template operation is not approved');
-      validateGeneratedIdentifier(request.database, { runid: request.runid, kind: 'template' });
-      validateCapability(request.capability);
+      const allowedKeys = request?.operation === 'createTemplate'
+        ? ['operation', 'database', 'source', 'capability'] : ['operation', 'database', 'registryHash', 'capability'];
+      if (!request || !['createTemplate', 'freezeTemplate'].includes(request.operation)
+          || Object.keys(request).some(key => !allowedKeys.includes(key))
+          || request.runid !== undefined) throw new Error('template operation is not approved');
+      if (typeof request.capability !== 'string' || Buffer.byteLength(request.capability, 'utf8') !== Buffer.byteLength(boundCapability, 'utf8')
+          || !timingSafeEqual(Buffer.from(request.capability, 'utf8'), Buffer.from(boundCapability, 'utf8'))) {
+        throw new Error('template operation is not approved');
+      }
+      validateGeneratedIdentifier(request.database, { runid: boundRunid, kind: 'template' });
+      const suffix = request.database.endsWith('_tpl_empty') ? 'empty'
+        : request.database.endsWith('_tpl_s24') ? 'S24' : null;
+      if (request.operation === 'createTemplate') {
+        const expectedSource = suffix === 'empty' ? 'template0' : `${GENERATED_DATABASE_PREFIX}${boundRunid}_tpl_empty`;
+        if (request.source !== expectedSource) throw new Error('template operation is not approved');
+      } else if ((suffix === 'empty' && request.registryHash !== 'empty')
+          || (suffix === 'S24' && request.registryHash !== EXPECTED_S24_HASH)) {
+        throw new Error('template operation is not approved');
+      }
       const identifier = quoteIdentifier(request.database);
       const operation = pending.then(() => redacted(() => withTargetSessionLock(bootstrapClient, request.database, async () => {
         if (request.operation === 'createTemplate') {
-          if (request.database.endsWith('_tpl_empty')) {
-            if (request.source !== 'template0' || typeof request.comment !== 'string') throw new Error('template operation is not approved');
-          } else {
-            validateGeneratedIdentifier(request.source, { runid: request.runid, kind: 'template' });
-            if (!request.source.endsWith('_tpl_empty') || request.comment !== null) throw new Error('template operation is not approved');
-          }
           const source = request.source === 'template0' ? '"template0"' : quoteIdentifier(request.source);
           await bootstrapClient.query({ text: `CREATE DATABASE ${identifier} TEMPLATE ${source} OWNER ${OWNER}`, queryMode: 'simple' });
           await bootstrapClient.query({ text: `REVOKE CONNECT ON DATABASE ${identifier} FROM PUBLIC`, queryMode: 'simple' });
-          if (request.comment !== null) await bootstrapClient.query({ text: `COMMENT ON DATABASE ${identifier} IS ${quoteLiteral(request.comment)}`, queryMode: 'simple' });
-          return;
+          return Object.freeze({ database: request.database });
         }
-        if (typeof request.comment !== 'string' || request.source !== undefined) throw new Error('template operation is not approved');
-        await bootstrapClient.query({ text: `COMMENT ON DATABASE ${identifier} IS ${quoteLiteral(request.comment)}`, queryMode: 'simple' });
-        await bootstrapClient.query({ text: `REVOKE CONNECT ON DATABASE ${identifier} FROM PUBLIC, samosval_test_app, samosval_test_runtime`, queryMode: 'simple' });
-        await bootstrapClient.query({ text: `ALTER DATABASE ${identifier} ALLOW_CONNECTIONS false`, queryMode: 'simple' });
+        const expectedRegistry = suffix === 'empty' ? 'empty' : request.registryHash;
+        if ((suffix === 'empty' && request.registryHash !== 'empty')
+            || (suffix === 'S24' && request.registryHash !== EXPECTED_S24_HASH)) throw new Error('template operation is not approved');
+        const version = suffix === 'empty' ? 0 : 24;
+        const comment = `samosval-isolated-db:v1;kind=template;runid=${boundRunid};baseline=${suffix};version=${version};registry=${expectedRegistry};owner=${OWNER}`;
         const sessions = await bootstrapClient.query('SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname=$1', [request.database]);
         if (sessions.rows[0]?.count !== 0) throw new Error(CLOSED_ERROR);
+        await bootstrapClient.query({ text: `COMMENT ON DATABASE ${identifier} IS ${quoteLiteral(comment)}`, queryMode: 'simple' });
+        await bootstrapClient.query({ text: `REVOKE CONNECT ON DATABASE ${identifier} FROM PUBLIC, samosval_test_orchestrator, samosval_test_app, samosval_test_runtime`, queryMode: 'simple' });
+        await bootstrapClient.query({ text: `ALTER DATABASE ${identifier} ALLOW_CONNECTIONS false`, queryMode: 'simple' });
+        return Object.freeze({ database: request.database, comment });
       })));
       pending = operation.catch(() => {});
       return operation;

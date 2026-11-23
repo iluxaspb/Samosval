@@ -1,33 +1,30 @@
-const registry = new Map([
-  ['import-schema', 10],
-  ['identity-empty', 20],
-  ['auth-schema-018', 30],
-  ['authority-main-ubuntu', 40],
-  ['authority-main-firebase', 50],
-  ['replica-admin', 60],
-  ['replica-empty-stream-cursors', 70],
+import { createHash } from 'node:crypto';
+
+const TARGET=/^samosval_parallel_shifts_test_[a-f0-9]{12,20}_[a-f0-9]{12}$/;
+const REPLICA_UID='test-admin-replica';
+const IMPORT_DDL=`CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL); CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256) ON DELETE CASCADE,document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path)); CREATE INDEX IF NOT EXISTS migration_documents_path_idx ON migration_documents(document_path)`;
+const IMPORT_HASH=createHash('sha256').update(IMPORT_DDL).digest('hex');
+
+async function catalog(query,names){return (await query(`SELECT c.relname,c.relkind,owner.rolname owner,COALESCE(array_to_string(c.relacl,','),'') acl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles owner ON owner.oid=c.relowner WHERE n.nspname='public' AND c.relname=ANY($1) ORDER BY c.relname`,[names])).rows;}
+function exactNames(rows,names){return rows.map(r=>r.relname).join('|')===[...names].sort().join('|');}
+
+const registry=new Map([
+ ['import-schema',{order:10,async apply(q){await q(IMPORT_DDL);await q(`CREATE TABLE IF NOT EXISTS samosval_fixture_registry(id text PRIMARY KEY,source_hash text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['import-schema',IMPORT_HASH]);},async verify(q){const objects=await catalog(q,['migration_imports','migration_documents','migration_documents_path_idx']);const counts=(await q(`SELECT (SELECT count(*)::int FROM migration_imports) imports,(SELECT count(*)::int FROM migration_documents) documents,(SELECT source_hash FROM samosval_fixture_registry WHERE id='import-schema') hash`)).rows[0];return {objects:exactNames(objects,['migration_imports','migration_documents','migration_documents_path_idx']),empty:counts?.imports===0&&counts?.documents===0,hash:counts?.hash===IMPORT_HASH};}}],
+ ['identity-empty',{order:20,async apply(q){await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['identity-empty','baseline-s24']);},async verify(q){const row=(await q(`SELECT (SELECT count(*)::int FROM app_users) users,(SELECT count(*)::int FROM registration_requests) requests,(SELECT count(*)::int FROM identity_receipts) receipts,(SELECT count(*)::int FROM identity_audit) audit,(SELECT count(*)::int FROM identity_state WHERE initialized OR owner_uid IS NOT NULL) initialized`)).rows[0];return {empty:row&&Object.values(row).every(v=>v===0)};}}],
+ ['auth-schema-018',{order:30,async apply(q){await q(`CREATE TABLE IF NOT EXISTS user_credentials(uid text PRIMARY KEY REFERENCES app_users(uid) ON DELETE CASCADE,password_hash text NOT NULL,algorithm text NOT NULL DEFAULT 'scrypt-sha256',salt text NOT NULL,password_reset_required boolean NOT NULL DEFAULT false,created_at timestamptz NOT NULL DEFAULT now(),changed_at timestamptz NOT NULL DEFAULT now()); CREATE TABLE IF NOT EXISTS user_sessions(id text PRIMARY KEY,uid text NOT NULL REFERENCES app_users(uid) ON DELETE CASCADE,token_hash text NOT NULL,device_info jsonb,created_at timestamptz NOT NULL DEFAULT now(),expires_at timestamptz NOT NULL,revoked_at timestamptz); CREATE UNIQUE INDEX IF NOT EXISTS idx_user_sessions_token_hash ON user_sessions(token_hash); CREATE INDEX IF NOT EXISTS idx_user_sessions_uid ON user_sessions(uid); CREATE TABLE IF NOT EXISTS password_reset_tokens(token_hash text PRIMARY KEY,uid text NOT NULL REFERENCES app_users(uid) ON DELETE CASCADE,created_at timestamptz NOT NULL DEFAULT now(),expires_at timestamptz NOT NULL,used_at timestamptz); CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_uid ON password_reset_tokens(uid)`);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['auth-schema-018','018']);},async verify(q){const names=['user_credentials','user_sessions','password_reset_tokens','idx_user_sessions_token_hash','idx_user_sessions_uid','idx_password_reset_tokens_uid'];const objects=await catalog(q,names);const count=(await q(`SELECT (SELECT count(*)::int FROM user_credentials)+(SELECT count(*)::int FROM user_sessions)+(SELECT count(*)::int FROM password_reset_tokens) n`)).rows[0]?.n;return {objects:exactNames(objects,names),empty:count===0};}}],
+ ['authority-main-ubuntu',{order:40,async apply(q){await q(`UPDATE server_authority SET provider='ubuntu',generation=1,reason='initial',updated_by='system' WHERE workspace_id='main_workspace'`);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['authority-main-ubuntu','ubuntu-v1']);},async verify(q){const rows=(await q(`SELECT workspace_id,provider,generation::text generation,reason,updated_by FROM server_authority WHERE workspace_id='main_workspace'`)).rows;return {exact:rows.length===1&&rows[0].provider==='ubuntu'&&rows[0].generation==='1'&&rows[0].reason==='initial'&&rows[0].updated_by==='system'};}}],
+ ['authority-main-firebase',{order:50,async apply(q){await q(`UPDATE server_authority SET provider='firebase',generation=1,reason='fixture',updated_by='system' WHERE workspace_id='main_workspace'`);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['authority-main-firebase','firebase-v1']);},async verify(q){const rows=(await q(`SELECT workspace_id,provider,generation::text generation FROM server_authority WHERE workspace_id='main_workspace'`)).rows;return {exact:rows.length===1&&rows[0].provider==='firebase'&&rows[0].generation==='1'};}}],
+ ['replica-admin',{order:60,async apply(q){await q(`INSERT INTO app_users(uid,email,display_name,role,status,revision,profile,protected) VALUES ($1,$2,$3,'admin','active',1,'{}',false)`,[REPLICA_UID,'replica@example.invalid','Replica Admin']);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['replica-admin','replica-admin-v1']);},async verify(q){const rows=(await q(`SELECT uid,email,display_name,role,status FROM app_users`)).rows;return {exact:rows.length===1&&rows[0].uid===REPLICA_UID&&rows[0].email==='replica@example.invalid'&&rows[0].role==='admin'&&rows[0].status==='active'};}}],
+ ['replica-empty-stream-cursors',{order:70,async apply(q){await q(`DELETE FROM replica_stream; UPDATE replica_cursor SET f2s_seq=0,s2f_seq=0 WHERE workspace_id='main_workspace'`);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['replica-empty-stream-cursors','replica-empty-v1']);},async verify(q){const row=(await q(`SELECT (SELECT count(*)::int FROM replica_stream) stream,(SELECT count(*)::int FROM replica_cursor) cursors,(SELECT count(*)::int FROM replica_cursor WHERE workspace_id='main_workspace' AND f2s_seq=0 AND s2f_seq=0) initial`)).rows[0];const objects=await catalog(q,['replica_stream','replica_cursor']);return {objects:exactNames(objects,['replica_stream','replica_cursor']),empty:row?.stream===0,initial:row?.cursors===1&&row?.initial===1};}}],
 ]);
-
-export const FIXTURE_IDS = Object.freeze([...registry.keys()]);
-
-export async function applyFixtures(context, requested) {
-  if (!context || Object.hasOwn(context, 'adminUrl') || Object.hasOwn(context, 'capability')
-      || !context.fixtureClient || typeof context.fixtureClient.apply !== 'function'
-      || typeof context.fixtureClient.verify !== 'function') throw new Error('fixture context is not approved');
-  if (!Array.isArray(requested)) throw new Error('fixture list is not approved');
-  const unique = new Set();
-  for (const id of requested) {
-    if (!registry.has(id)) throw new Error(`fixture is unavailable: ${id}`);
-    if (unique.has(id)) throw new Error(`duplicate fixture: ${id}`);
-    unique.add(id);
-  }
-  const ordered = [...unique].sort((left, right) => registry.get(left) - registry.get(right));
-  const reports = [];
-  for (const id of ordered) {
-    await context.fixtureClient.apply(id);
-    const postcondition = await context.fixtureClient.verify(id);
-    if (!postcondition || postcondition.ok !== true) throw new Error(`fixture postcondition failed: ${id}`);
-    reports.push(Object.freeze({ id, postcondition: Object.freeze({ ...postcondition }) }));
-  }
-  return reports;
+export const FIXTURE_IDS=Object.freeze([...registry.keys()]);
+function passed(report){return report&&Object.values(report).every(v=>v===true);}
+export async function applyFixtures(context,requested){
+ if(!context||Object.keys(context).join()!=='query'||typeof context.query!=='function')throw new Error('fixture context is not approved');
+ if(!Array.isArray(requested))throw new Error('fixture list is not approved');
+ const unique=new Set();for(const id of requested){if(!registry.has(id))throw new Error(`fixture is unavailable: ${id}`);if(unique.has(id))throw new Error(`duplicate fixture: ${id}`);unique.add(id);}
+ const database=(await context.query('SELECT current_database() AS database')).rows[0]?.database;if(!TARGET.test(database))throw new Error('fixture target is not approved');
+ const ordered=[...unique].sort((a,b)=>registry.get(a).order-registry.get(b).order);const reports=[];
+ for(const id of ordered){const fixture=registry.get(id);try{await context.query('BEGIN');await fixture.apply(context.query);const postcondition=await fixture.verify(context.query);if(!passed(postcondition))throw new Error(`fixture postcondition failed: ${id}`);await context.query('COMMIT');reports.push(Object.freeze({type:'samosval-fixture-report:v1',id,postcondition:Object.freeze(postcondition)}));}catch(error){await context.query('ROLLBACK').catch(()=>{});if(error?.code==='23505'||error?.code==='42P07')throw new Error(`fixture already applied: ${id}`);throw error;}}
+ return reports;
 }
