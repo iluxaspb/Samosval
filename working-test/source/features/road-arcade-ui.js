@@ -241,7 +241,10 @@ async function spin(){
     // Ставка и выплата записываются ОДНОЙ серверной операцией только теперь —
     // после остановки барабанов. Повтор той же операции сервер не задваивает.
     const result=await A.transact(operation);if(currentUid!==user)return;A.storeSpin(null);if(!result.replayed&&result.payout>=result.cost)window.__gameMoneyFlow?.(-result.cost);
-    slotSymbols=result.result?.symbols||slotSymbols;
+    // Что остановилось — то остановилось: серверная транзакция прошла после
+    // полной остановки барабанов и засчитала тот же заранее фиксированный
+    // бросок, поэтому показанные символы не перерисовываются. Если всё же
+    // пришла другая комбинация — это дефект, показываем то, что встало.
     outcomeType=result.result?.type||'';outcomePayout=Number(result.payout)||0;outcomeCost=Number(result.cost)||C.BET;outcomeProfit=outcomePayout-outcomeCost;
     const profit=outcomeProfit;
     slotMessage=outcomeType==='jackpot'?'ДЖЕКПОТ! Выплата '+f(outcomePayout)+' 🪙 · общий банк ваш':profit>0?'Выплата '+f(outcomePayout)+' 🪙 · выигрыш за вычетом ставки +'+f(profit):profit===0?'Вернулась ставка: '+f(outcomePayout)+' 🪙. Итог 0.':'Выплата '+f(outcomePayout)+' 🪙 · итог −'+f(-profit);

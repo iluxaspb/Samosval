@@ -1,4 +1,3 @@
-import {randomInt} from 'node:crypto';
 import {fail,map} from './tabel-access.mjs';
 import {serviceActor,serviceCommand,validId} from './service-command.mjs';
 import {calculate} from './game-economy.mjs';
@@ -36,7 +35,14 @@ export function normalizeGame(input){
   if(a.kind==='mario'){
     if(!Number.isInteger(a.coin)||a.coin<0||a.coin>4||typeof a.day!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(a.day))throw fail('invalid-game-coin');action.coin=a.coin;action.day=a.day;
   }
-  // Slot outcomes and theme prices always come from the server.
+  if(a.kind==='slot'){
+    // Бросок фиксируется на клиенте до остановки барабанов; сервер засчитывает
+    // именно его, чтобы показанная комбинация совпадала с выплатой. Значение
+    // строго проверено — выбрать выигрыш клиент не может.
+    if(!Number.isInteger(a.roll)||a.roll<0||a.roll>=10000)throw fail('invalid-game-roll');
+    action.roll=a.roll;
+  }
+  // Theme prices always come from the server.
   return {id:input.id,type:input.type,action};
 }
 async function gameData(client,ws){
@@ -90,7 +96,7 @@ export function submitGame(pool,uid,input,ws=WS){
     const player={...(data.players[uid]||initialPlayer(uid,actor.email,actor.display_name)),name:actor.display_name,email:actor.email};
     const grants=data.adjustments.filter(r=>r.targetUid===uid&&Number.isSafeInteger(r.amount)&&r.amount>0).reduce((n,r)=>n+r.amount,0);
     const funds=earned+(actor.role==='admin'?10000:0)+player.net+grants-own.reduce((n,r)=>n+r.price,0);
-    if(kind==='purchase')a.price=themePrices[a.itemId];if(kind==='slot')a.roll=randomInt(10000);
+    if(kind==='purchase')a.price=themePrices[a.itemId];
     let outcome;try{outcome=settle(data.head,player,a,funds,dayKey(now));}catch(e){throw fail(e.message,409);}
     if(outcome.noop)return {result:{noop:true,reason:outcome.reason,delta:0}};
     const round=data.head.gameRound+1,state={gameRound:round,bank:outcome.head.bank,totalStakes:outcome.head.totalStakes,totalPayouts:outcome.head.totalPayouts,actors:{...data.head.actors,[uid]:round},player:outcome.player};
