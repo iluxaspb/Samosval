@@ -4,7 +4,7 @@
 
 **Goal:** Построить официальный детерминированный server test suite, в котором каждый PostgreSQL test-file запускается отдельным Node process group на собственной временной БД PostgreSQL 16 с декларативным baseline/fixtures, безопасным cleanup и полным versioned inventory.
 
-**Architecture:** Прямой shell entrypoint очищает hostile Node startup env и передаёт управление ESM orchestrator. Orchestrator валидирует полный manifest и static discovery, через ограниченную orchestration role готовит immutable run-scoped templates `empty/S24/S25`, клонирует отдельный marked target для каждого DB file, запускает один process group на файл и агрегирует machine-readable Node events без fail-fast. Cleanup разрешён только для exact tracked name/owner/COMMENT/state текущего run; unit и harness-contract фазы получают отдельные explicit env contracts.
+**Architecture:** Прямой shell entrypoint очищает hostile Node startup env и передаёт управление ESM orchestrator. Сначала suite строит безопасную основу `empty/S24/S25`; после отдельного product-коммита migration 026 атомарный infrastructure transition добавляет `S26` и replica fixtures/manifest entries. Orchestrator валидирует полный manifest и static discovery, через ограниченную orchestration role клонирует отдельный marked target для каждого DB file, запускает один process group на файл и агрегирует machine-readable Node events без fail-fast. Cleanup разрешён только для exact tracked name/owner/COMMENT/state текущего run; unit и harness-contract фазы получают отдельные explicit env contracts.
 
 **Tech Stack:** Node.js 22 ESM, `node:test` и machine-readable reporter events, PostgreSQL 16 (`pg`), POSIX shell/process groups/signals, Docker Compose v2, JSON reports, GitHub Actions.
 
@@ -21,8 +21,10 @@
 - Target lifecycle монотонен `creating → created → marked → running`; child разрешён только после reread exact COMMENT/owner/name и состояния `marked`.
 - Cleanup fail closed: missing/changed COMMENT, owner, runid, generated name или tracked state запрещает terminate/drop, записывает safety leak и даёт exit 3.
 - SQL identifiers — только ASCII lowercase `[a-z0-9_]`, максимум 63 bytes, безопасно quoted; COMMENT/query values параметризованы. Manifest/argv не поставляют SQL/name fragments.
-- Имена target: `samosval_parallel_shifts_test_<runid>_<12hex-file-hash>`, `runid` — минимум 12 lowercase crypto hex; template names используют отдельный `tpl_empty|tpl_s24|tpl_s25` suffix и отдельный cleanup predicate.
-- Template chain точен: `template0 → empty → S24 → S25`; template после проверки frozen (`datallowconn=false`, CONNECT revoked, zero sessions), custom schema/import/fixtures применяются только к target.
+- Имена target: `samosval_parallel_shifts_test_<runid>_<12hex-file-hash>`, `runid` — минимум 12 lowercase crypto hex; до migration 026 template names используют `tpl_empty|tpl_s24|tpl_s25`, после атомарного transition также `tpl_s26`; templates имеют отдельный cleanup predicate.
+- До появления 026 template chain точен: `template0 → empty → S24 → S25`. После отдельного product-коммита 026 infrastructure transition атомарно расширяет chain до `S26`; template после проверки frozen (`datallowconn=false`, CONNECT revoked, zero sessions), custom schema/import/fixtures применяются только к target.
+- Migration 025 остаётся strict canonical: `replica_placeholder`, `{}`-shift fixtures и nullable canonical exceptions запрещены. Исторические commits `9a59ce3`, `ec44885`, `7cdd9e8`, `1ae36cc` — evidence предыдущей реализации, а не отметки выполнения amendment.
+- Product migration 026/staging не реализуется этим infrastructure plan: suite только потребляет S26 после reviewable product Task 3 parallel-shifts plan; до него manifest не содержит несуществующих S26 paths/fixtures.
 - Legacy migration guards меняет только versioned exact registry после source SHA-256 и exact occurrence-count проверки; generic `.replaceAll()` запрещён, исходный migration checksum сохраняется.
 - Manifest перечисляет ровно один раз каждый прямой `server/tests/*.test.mjs` с обязательными `kind`, `discovery`, `reason`; DB entries также имеют все DB metadata без неявных defaults. Fixtures под `server/tests/fixtures/` живут только в `harnessFixtures` registry.
 - Смешанные seed unit/DB files разделяются до cutover; runtime skip не заменяет классификацию.
@@ -34,10 +36,10 @@
 - Report не содержит credentials, full URLs, SQL payload или PII; child output redacted до console/artifact. Atomic report path обязан пройти parent-realpath/symlink/hardlink/device guards.
 - Exit codes точны: `0` success; `1` test/setup/timeout/cleanup/leak failure без safety violation; `2` CLI/manifest/discovery/static-audit/report-path configuration error; `3` safety identity/endpoint invariant; `4` internal orchestrator/spawn/reporter error. После signal выполняются cleanup/report/leak check и re-emit исходного signal.
 - `--list` не требует compose/admin; `--file` допускает только manifest DB/harness-contract entries, отвергает unit с exit 2 и помечает artifact `selection=filtered`; filtered run никогда не является CI evidence.
-- Production files, frontend, product behavior и product migrations вне текущего Task 2 fix не изменяются.
+- Production files, frontend и product behavior не изменяются; единственная product correction этого плана — Task 0A strict 025. Migration 026 принадлежит parallel-shifts plan.
 - Каждая задача проходит RED → GREEN → review и заканчивается отдельным atomic commit с exact path staging; запрещены `git add .`, `git add server`, broad staging и смешивание соседних задач.
 - Compose teardown выполняется в `finally`/`trap` для каждого integration/acceptance запуска; никакой успешный или неуспешный прогон не оставляет compose volume/containers.
-- Task 3 parallel shifts остаётся заблокирован до двух подряд зелёных official unfiltered full runs, чистого CI artifact и широкого review.
+- Parallel-shifts migration 026 может начаться после GREEN Tasks 1–5 этого плана: manifest/safety/templates/per-file runner должны уметь исполнять S25 file на отдельной БД. Полный cutover Tasks 6–11 и CI evidence продолжаются после атомарного S26 transition; никакой circular dependency с будущим S26 нет.
 
 ## Review Focus
 
@@ -51,12 +53,21 @@
 
 ## Оценка объёма и фазы
 
-План содержит **11 reviewable задач (Task 0–10)** и четыре фазы:
+План содержит **12 reviewable задач (Task 0A и Tasks 1–11)** и пять фаз:
 
-1. **Граница и декларации:** Tasks 0–1.
-2. **PostgreSQL safety/provisioning:** Tasks 2–4.
-3. **Execution и миграция suites:** Tasks 5–8.
-4. **CI cutover и доказательство:** Tasks 9–10.
+1. **Немедленная prerequisite correction:** Task 0A.
+2. **S24/S25 manifest, safety и per-file foundation:** Tasks 1–5.
+3. **Внешняя product dependency:** parallel-shifts Task 3 создаёт migration 026 и targeted S25→026 tests; это не задача данного плана.
+4. **S26 transition и migration suites:** Tasks 6–10 (Task 6 добавляет S26, затем выполняются consumer/HTTP/CLI/CI задачи).
+5. **Полное доказательство:** Task 11.
+
+## Обязательный порядок между двумя планами
+
+1. Немедленно выполнить Task 0A: удалить отменённую placeholder-модель из unreleased 025 и старых fixtures/source.
+2. Выполнить Tasks 1–5 этого плана до GREEN S25 per-file runner (`manifest/discovery → bootstrap/safety → empty/S24/S25 templates → lifecycle → process/scheduler`).
+3. Выполнить parallel-shifts Task 3 (026 staging), Task 3A (deferred materializer) и Task 3B (full-only backup transport) только targeted через per-file S25/S26 transition contract.
+4. Выполнить Task 6 этого плана: атомарно добавить S26 template/fixtures/manifest entries, затем Tasks 7–11 и два полных unfiltered runs.
+5. Продолжить остальные задачи parallel-shifts. Common DB/deploy остаются только в позднем owner-approved release window.
 
 ## Карта файлов
 
@@ -77,8 +88,8 @@
 - Create: `server/scripts/isolated-db/safety.mjs` — URL/fingerprint/reserved/name/identifier/COMMENT predicates and redaction.
 - Create: `server/scripts/isolated-db/admin.mjs` — admin preflight и autocommit DDL API.
 - Create: `server/scripts/isolated-db/legacy-guards.mjs` — exact migration guard registry/checksums/counts.
-- Create: `server/scripts/isolated-db/templates.mjs` — `empty/S24/S25` chain, freeze/postconditions.
-- Create: `server/scripts/isolated-db/fixtures.mjs` — closed fixture registry and postcondition reports.
+- Create: `server/scripts/isolated-db/templates.mjs` — initial `empty/S24/S25` chain, freeze/postconditions; Task 6 later extends it to S26 only after 026 exists.
+- Create: `server/scripts/isolated-db/fixtures.mjs` — initial closed fixture registry; Task 6 adds `replica-pending-empty`/`replica-pending-out-of-order` after 026.
 - Create: `server/tests/isolated-db-bootstrap.test.mjs`, `server/tests/isolated-db-templates.test.mjs`, `server/tests/isolated-db-fixtures.test.mjs`.
 
 ### Per-file lifecycle и execution
@@ -116,7 +127,7 @@ validateAdminUrl(raw, policy) -> AdminEndpoint
 adminPreflight({adminUrl, expectedRole, bootstrapMarker}) -> Promise<AdminIdentity>
 makeRunIdentity() -> {runid, generatedRunPrefix}
 makeTargetName(runIdentity, canonicalFile) -> string
-prepareTemplates(context) -> Promise<Map<'empty'|'S24'|'S25', TemplateRecord>>
+prepareTemplates(context) -> Promise<Map<'empty'|'S24'|'S25'|'S26', TemplateRecord>> // S26 появляется только в Task 6 после 026
 applyFixturePlan({targetUrl, entry}) -> Promise<FixtureReport[]>
 provisionTarget({entry, template, run}) -> Promise<TargetRecord>
 cleanupTarget({admin, target}) -> Promise<CleanupReport>
@@ -134,62 +145,55 @@ runCli(argv, env) -> Promise<number|Signal>
 
 ## Фаза I — граница и декларации
 
-### Task 0: Безопасно завершить текущий Task 2 boundary
+### Task 0A: Prerequisite correction — вернуть strict canonical migration 025
+
+Историческое evidence: commits `9a59ce3`, `ec44885`, `7cdd9e8`, `1ae36cc` формально завершили прежний Task 0, но amendment `53690e0` отменил последнюю placeholder-модель. Историю не переписывать и эти commits не отмечать checkbox-ами текущей задачи.
 
 **Files:**
-- Modify from existing uncommitted diff: `server/sql/025_parallel_shifts_core.sql`
-- Modify from existing uncommitted diff: `server/scripts/apply-migrations.mjs`
-- Modify from existing uncommitted diff: `server/tests/helpers/isolated-db.mjs`
-- Modify from existing uncommitted diff: `server/tests/migration-registry.test.mjs`
-- Modify from existing uncommitted diff: `server/tests/parallel-shifts-migration-core.test.mjs`
-- Revert only temporary hack hunks: `server/scripts/test-isolated-db.mjs`
-- Revert only temporary hack test hunks: `server/tests/isolated-db-runner.test.mjs`
-- Keep untracked for Task 5, do not stage in Task 0: `server/tests/fixtures/isolated-db-process.test.mjs`
-- Delete after confirming it only supports filename hack: `server/tests/fixtures/parallel-shifts-migration-core-fixture.test.mjs`
+- Modify: `server/sql/025_parallel_shifts_core.sql`
+- Modify: `server/src/replica-materialize.mjs`
+- Modify: `server/tests/parallel-shifts-migration-core.test.mjs`
+- Modify: `server/tests/replica-materialize-parallel-shifts.test.mjs`
+- Modify: existing replica fixtures/tests that insert `{}` or omit full canonical shift fields, exact paths found by `rg 'replica_placeholder|payload.*\{\}' server/tests server/src server/sql`
+- Do not modify: runner/template/manifest infrastructure in this commit
 
 **Interfaces:**
-- Consumes: committed Task 1 harness at `0f3fa5a`, committed Task 2 at `158435c`, current uncommitted review fixes.
-- Produces: one atomic product Task 2 fix commit: migration atomicity/checksum validation, exact 025 legacy bridge/lock/backfill behavior and targeted tests; no filename-based suite isolation claim.
+- Consumes: unreleased 025 at HEAD `53690e0`; strict shift schema in design §4.1/§4.8.
+- Produces: 025 with no `replica_placeholder`; `shifts.state/object_id/object_name_snapshot/work_date/shift_type/opened_at/opened_by_uid` all `NOT NULL`; `shifts_legacy_bridge()` validates canonical payload on every INSERT/UPDATE path; replica materializer no longer manufactures parent shifts; every old fixture inserts a full canonical snapshot or explicitly expects missing-parent failure until 026 exists.
 
-- [ ] **Step 1: Preserve and classify the current diff before edits**
+- [ ] **Step 1: Add RED strict-schema and source-absence assertions**
 
-Run: `git status --short && git diff -- server/scripts/apply-migrations.mjs server/sql/025_parallel_shifts_core.sql server/tests/helpers/isolated-db.mjs server/tests/migration-registry.test.mjs server/tests/parallel-shifts-migration-core.test.mjs server/scripts/test-isolated-db.mjs server/tests/isolated-db-runner.test.mjs && git status --short server/tests/fixtures`
+In `parallel-shifts-migration-core.test.mjs`, add `migration_025_has_no_replica_placeholder_and_requires_full_canonical_shift` and `canonical_trigger_rejects_null_or_payload_mismatch_on_all_write_paths`. Assert information_schema has no placeholder column, seven canonical columns are `NO`, constraints/FKs remain strict, and INSERT/UPDATE cannot bypass payload/normalized equality. In `replica-materialize-parallel-shifts.test.mjs`, replace placeholder-success expectations with `status_or_log_before_parent_fails_atomically_until_026`; assert stream transaction leaves no `{}` shift/canonical child.
 
-Expected: only the known seven modified files and two untracked fixtures; save output in reviewer notes, not in repository.
+- [ ] **Step 2: Run RED targeted files on a disposable generated S24 target**
 
-- [ ] **Step 2: Remove the temporary filename-isolation behavior without touching product fixes**
+Run: `cd server && ./scripts/test-isolated-db.sh tests/parallel-shifts-migration-core.test.mjs tests/replica-materialize-parallel-shifts.test.mjs`
 
-Delete from `server/scripts/test-isolated-db.mjs` only `destructive`, `nondestructive`, `phases` and `startsWith('parallel-shifts-migration-core')`, restoring the committed shared launcher temporarily. Delete only `runner executes destructive migration test separately...` and its fixture constant from `server/tests/isolated-db-runner.test.mjs`. Remove `server/tests/fixtures/parallel-shifts-migration-core-fixture.test.mjs`; retain `isolated-db-process.test.mjs` untracked for the manifest/process-group contract in Task 5.
+Expected: FAIL because HEAD still exposes `replica_placeholder` and `ensureShift()` inserts `{}`. This is targeted evidence only; the generic untracked `server/tests/fixtures/isolated-db-process.test.mjs` remains untouched/un-staged.
 
-- [ ] **Step 3: Run targeted RED/diagnostic boundary checks**
+- [ ] **Step 3: Implement the minimal strict correction**
 
-Run from the correct worktree: `cd server && SAMOSVAL_ISOLATED_TEST=1 TEST_DATABASE_URL="$GENERATED_TASK2_DATABASE_URL" ./scripts/test-isolated-db.sh tests/parallel-shifts-migration-core.test.mjs tests/migration-registry.test.mjs`
+Remove the column, placeholder shape constraint/trigger branch and placeholder INSERT/UPDATE SQL. Restore canonical `SET NOT NULL` after validated backfill and preserve strict state/type/revision/FK/legacy-active checks plus object-lock immutability. Remove `ensureShift`; missing shift/truck remains an atomic error until migration 026 staging. Update every old replica fixture to a complete canonical snapshot (`id/shiftId`, object aliases, date aliases, type aliases, state/isActive, `startedAt`, `startedByUid`) backed by real object/user rows; do not weaken 025 tests.
 
-Expected: use only a disposable generated compose DB; if the shared launcher interaction is red, record it as the known suite-infrastructure blocker. Do **not** weaken product assertions and do **not** report the full suite green.
+- [ ] **Step 4: Run GREEN 025 and existing replica tests**
 
-- [ ] **Step 4: Run the targeted Task 2 file alone to GREEN**
+Run: `cd server && ./scripts/test-isolated-db.sh tests/parallel-shifts-migration-core.test.mjs tests/replica-materialize-parallel-shifts.test.mjs tests/replica-materialize.test.mjs tests/replica-store.test.mjs`
 
-Run: `cd server && SAMOSVAL_ISOLATED_TEST=1 TEST_DATABASE_URL="$GENERATED_TASK2_DATABASE_URL" ./scripts/test-isolated-db.sh tests/parallel-shifts-migration-core.test.mjs`
+Expected: PASS on generated isolated targets; `rg 'replica_placeholder' server/sql/025_parallel_shifts_core.sql server/src server/tests` returns no source/test reference; no common DB/deploy access.
 
-Expected: PASS for migration atomicity, source checksum mismatch, v1 bridge, object lock, canonical payload and FK/unique constraints; compose is torn down afterward.
-
-- [ ] **Step 5: Review the Task 2 product boundary**
-
-Confirm `git diff -- server/scripts/test-isolated-db.mjs server/tests/isolated-db-runner.test.mjs` is empty, no `startsWith('parallel-shifts-migration-core')` remains, product migration checksum is tested against original source, and `git status --short` still shows the retained generic untracked fixture only.
-
-- [ ] **Step 6: Commit exact Task 2 product files only**
+- [ ] **Step 5: Review and commit exact correction**
 
 ```bash
-git add server/scripts/apply-migrations.mjs \
-  server/sql/025_parallel_shifts_core.sql \
-  server/tests/helpers/isolated-db.mjs \
-  server/tests/migration-registry.test.mjs \
-  server/tests/parallel-shifts-migration-core.test.mjs
+git add server/sql/025_parallel_shifts_core.sql \
+  server/src/replica-materialize.mjs \
+  server/tests/parallel-shifts-migration-core.test.mjs \
+  server/tests/replica-materialize-parallel-shifts.test.mjs \
+  <each exact legacy replica fixture/test path actually changed>
 git diff --cached --check
-git commit -m "fix: harden parallel shift core migration"
+git commit -m "fix: restore strict canonical shifts in migration 025"
 ```
 
-Expected: no runner/fixture/infrastructure path in commit; targeted green is documented as Task 2 evidence only, Task 3 remains blocked.
+Expected: no plan/runner/manifest/S26 file staged; this commit is the immediate prerequisite for Task 1.
 
 ### Task 1: Complete versioned inventory, discovery и seed split
 
@@ -334,7 +338,7 @@ git commit -m "test: bootstrap least privilege isolated database roles"
 
 **Interfaces:**
 - Consumes: Task 2 admin API; canonical SQL migrations 001–025.
-- Produces: `transformLegacyGuards({filename,source,targetName})`, `prepareTemplates(context)`, `applyFixturePlan({targetUrl,entry})`; registry IDs exactly from spec §3.12.
+- Produces: `transformLegacyGuards({filename,source,targetName})`, initial `prepareTemplates(context)` map `empty|S24|S25`, `applyFixturePlan({targetUrl,entry})`; pre-026 registry IDs from spec §3.12 only. Task 6 extends these interfaces to S26/replica-pending IDs.
 
 - [ ] **Step 1: Write RED guard registry tests**
 
@@ -505,7 +509,56 @@ git diff --cached --check
 git commit -m "test: run each database file in an isolated process group"
 ```
 
-### Task 6: Migrate every DB consumer, hard-coded name и fixture dependency
+### Task 6: Атомарно добавить S26 template, fixtures и реальные manifest entries
+
+**Dependency gate:** начинается только после GREEN Tasks 1–5 и после отдельного parallel-shifts product commit, который создаёт `server/sql/026_parallel_shift_dependencies.sql` и реальные root tests. До этого шага S26 в machine-readable manifest/templates отсутствует.
+
+**Files:**
+- Modify: `server/scripts/isolated-db/templates.mjs`
+- Modify: `server/scripts/isolated-db/fixtures.mjs`
+- Modify: `server/tests/db-test-manifest.mjs`
+- Modify: `server/tests/isolated-db-templates.test.mjs`
+- Modify: `server/tests/isolated-db-fixtures.test.mjs`
+- Modify: `server/tests/db-test-manifest.test.mjs`
+
+**Interfaces:**
+- Consumes: `prepareTemplates(context)` for `empty|S24|S25`; canonical migration 026; actual discovered `parallel-shifts-migration-dependencies.test.mjs` and `replica-pending-materialize.test.mjs` paths if created by the product tasks.
+- Produces: `prepareTemplates(context) -> Map<'empty'|'S24'|'S25'|'S26',TemplateRecord>`; fixture IDs `replica-pending-empty`, `replica-pending-out-of-order`; exact S26 entries with `baseline:'S25',migrationsThrough:26` for migration tests and `baseline:'S26'` for runtime staging tests.
+
+- [ ] **Step 1: Add RED S26 transition tests**
+
+Add `s26_is_absent_before_026_and_atomic_after_026`, `s26_applies_only_026_and_freezes_with_zero_sessions`, `replica_pending_fixtures_require_s26`, and `manifest_adds_only_discovered_s26_root_files`. Assert S26 checksum/postconditions include direction-aware stream PK, protocol/hash versions, immutable trigger/roles, heads/pending exact checks/deferred triggers; fixture contains no payload copy and every `shifts` row is strict canonical.
+
+- [ ] **Step 2: Run RED through the S25 per-file foundation**
+
+Run: `cd server && node --test tests/isolated-db-templates.test.mjs tests/isolated-db-fixtures.test.mjs tests/db-test-manifest.test.mjs`
+
+Expected: FAIL because S26 transition is not registered; the pre-transition commit remains valid with `discovered == manifest`.
+
+- [ ] **Step 3: Implement the atomic S26 extension**
+
+Extend chain exactly `S25 → S26`, freeze S25 only after S26 clone, validate migration 026 checksum/schema/roles, and register only fixtures/root paths that now exist. `replica-pending-out-of-order` references immutable stream rows and heads/pending routing; it never inserts placeholder/null shifts or copies payload into staging.
+
+- [ ] **Step 4: Run GREEN S26 contracts and targeted product files**
+
+Run: `cd server && node --test tests/isolated-db-templates.test.mjs tests/isolated-db-fixtures.test.mjs tests/db-test-manifest.test.mjs tests/db-test-discovery.test.mjs && ./scripts/test-isolated-db.sh --file tests/parallel-shifts-migration-dependencies.test.mjs --file tests/replica-pending-materialize.test.mjs`
+
+Expected: PASS; filtered report says `selection=filtered`, both files have separate generated DBs, cleanup/leaks zero. If only one product root file exists, list only that real path—never predeclare the future path.
+
+- [ ] **Step 5: Commit exact transition paths**
+
+```bash
+git add server/scripts/isolated-db/templates.mjs \
+  server/scripts/isolated-db/fixtures.mjs \
+  server/tests/db-test-manifest.mjs \
+  server/tests/isolated-db-templates.test.mjs \
+  server/tests/isolated-db-fixtures.test.mjs \
+  server/tests/db-test-manifest.test.mjs
+git diff --cached --check
+git commit -m "test: add migration 026 isolated baseline"
+```
+
+### Task 7: Migrate every DB consumer, hard-coded name и fixture dependency
 
 **Files:**
 - Modify: every `kind:'db'` path listed in `server/tests/db-test-manifest.mjs`
@@ -557,7 +610,7 @@ git diff --cached --check
 git commit -m "test: migrate server database suites to generated targets"
 ```
 
-### Task 7: HTTP child special case, failure isolation и continuation
+### Task 8: HTTP child special case, failure isolation и continuation
 
 **Files:**
 - Modify: `server/tests/truck-phone-http.test.mjs`
@@ -600,7 +653,7 @@ git diff --cached --check
 git commit -m "test: isolate the HTTP server database process tree"
 ```
 
-### Task 8: CLI, safe artifact, package alias и Task 1 security boundary
+### Task 9: CLI, safe artifact, package alias и Task 1 security boundary
 
 **Files:**
 - Modify: `server/scripts/test-isolated-db.mjs`
@@ -657,7 +710,7 @@ git commit -m "test: finalize isolated suite cli and security boundary"
 
 ## Фаза IV — CI cutover и доказательство
 
-### Task 9: CI cutover to compose/direct runner и factual docs
+### Task 10: CI cutover to compose/direct runner и factual docs
 
 **Files:**
 - Modify: `.github/workflows/synology-server-tests.yml`
@@ -703,7 +756,7 @@ git diff --cached --check
 git commit -m "ci: run the official suite on isolated compose databases"
 ```
 
-### Task 10: Full unfiltered proof twice, baselines и broad review
+### Task 11: Full unfiltered proof twice, baselines и broad review
 
 **Files:**
 - Modify only if a newly proven infrastructure defect requires a focused fix: exact owning module/test from Tasks 1–9
@@ -753,9 +806,9 @@ For each finding: add failing owning test, run RED, make minimal infrastructure 
 
 Required `synology-server-tests`, `full-browser-integration`, `production-source-integrity`, `wincor-printer-tests` jobs are green as applicable. Download unfiltered artifact and recheck selection/counts/manifest hash/zero skips-cleanup-leaks; workflow teardown completed.
 
-- [ ] **Step 9: Declare Task 3 gate**
+- [ ] **Step 9: Declare full-suite cutover gate**
 
-Unblock parallel shifts Task 3 only when Steps 1–8 are all proven. Otherwise report exact blocker and keep Task 3 blocked. No release, deployment or common DB action belongs to this task.
+Tasks 3/3A/3B могли выполняться targeted после foundation Tasks 1–5. Здесь разблокировать продолжение parallel-shifts Task 4+ только когда Steps 1–8 доказаны на S26 full suite; иначе сообщить точный blocker. No release, deployment or common DB action belongs to this task.
 
 - [ ] **Step 10: Optional evidence-only commit**
 
@@ -769,9 +822,9 @@ git commit -m "docs: record isolated database suite acceptance"
 
 ## Self-review writing-plans
 
-- **Spec coverage:** §§1–12 mapped to Tasks 0–10: complete inventory/split (1), roles/bootstrap/safety (2), templates/guards/fixtures (3), target lifecycle/cleanup/leaks (4), env/process/scheduling/events/report/signals (5), all consumers (6), HTTP child (7), CLI/security/atomic report (8), CI/docs (9), numerical acceptance and Task 3 boundary (10). No open owner decision remains.
-- **Step scan:** every task has a named RED test class, exact verification command/result, minimal GREEN implementation boundary, review gate and exact staging. Broad per-file migration is constrained by generated manifest checklist and explicit staging rather than an unsafe directory add.
-- **Type consistency:** shared interfaces use the same names throughout; `TargetRecord` states and template-vs-target predicates are stable; full/filtered selection and exit/signal contracts are not redefined later.
-- **Review Focus:** all five conditions name owning tests in Tasks 1, 4, 5, 7 and 8.
-- **Proportion:** implementation bodies are intentionally omitted; plan records signatures, invariants, test assertions and commands rather than transcribing modules.
-- **Known gap:** отдельный SDD ledger-файл в worktree не найден; Task 1/2 history reconstructed from commits `84bd306`, `ba43924`, `1e7c452`, `2eb8662`, `f5ae399`, `158435c`, current uncommitted diff and parallel-shifts plan/spec. Перед execution главный агент должен приложить внешний ledger, если он хранится вне репозитория, но это не меняет утверждённые spec contracts.
+- **Spec coverage:** strict-025 amendment покрыт Task 0A; initial inventory/split (1), roles/bootstrap/safety (2), S24/S25 templates/guards/fixtures (3), target lifecycle/cleanup/leaks (4), per-file env/process/scheduling/events/report/signals (5), атомарный S26 transition после внешней 026 dependency (6), all consumers (7), HTTP child (8), CLI/security/atomic report (9), CI/docs (10), numerical acceptance (11). Circular dependency устранена: 026 ждёт foundation Tasks 1–5, а S26 infrastructure ждёт 026.
+- **Step scan:** каждая задача имеет named RED, точную команду/ожидание, минимальную GREEN boundary, review и exact staging; Task 0A и Task 6 не смешивают product staging с infrastructure.
+- **Type consistency:** `prepareTemplates` сначала возвращает `empty|S24|S25`, после Task 6 — `empty|S24|S25|S26`; `TargetRecord`, fixture IDs, full/filtered selection и exits не переименовываются.
+- **Review Focus:** пять исходных safety cases закреплены Tasks 1/4/5/8/9; strict canonical placeholder regression закреплена Task 0A, S26 schema/fixture transition — Task 6.
+- **Proportion:** implementation bodies опущены; план фиксирует signatures, dependencies, test assertions и commands, не транскрибирует код.
+- **History/ledger:** отдельный SDD ledger-файл в worktree не найден. Фактическая история восстановлена из commits `9a59ce3`, `ec44885`, `7cdd9e8`, `1ae36cc`, amendment `53690e0` и specs; это evidence, не выполненные checkbox-ы нового amendment. Блокеров по решениям владельца нет.

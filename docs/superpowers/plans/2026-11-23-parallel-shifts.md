@@ -24,17 +24,19 @@
 - `force-transfer` и detached completion — online-only; persisted queue никогда не меняет uid/workspace/shift/protocol/hash при replay.
 - После maintenance v1 list/snapshot/mutations отвечают `426 protocol-upgrade-required`; долгой совместимости v1/v2 нет.
 - Restored archive не становится active shift и допускает только trip/TTN update/delete с отдельными revision/receipt/audit.
+- Replica-owned shifts/statuses/logs и required users/objects/trucks восстанавливаются только неделимым exact bundle вместе с stream/heads/pending/cursor/hash/authority markers; selective restore отклоняется до любой mutation. Offline rebuild не используется.
+- Replica stream append-only; v2 document generation определяется direction-aware seq/head CAS, staging содержит только routing/provenance без payload, canonical shift всегда полный.
 - Все времена БД — `timestamptz`, work date вычисляется в `Europe/Moscow`, revisions — `bigint > 0`, JSON является snapshot, normalized columns — канон.
 - Коммуникация и пользовательские тексты — по-русски; код и имена следуют существующему стилю.
 - Каждая задача использует TDD, заканчивается отдельным коммитом; новая обнаруженная ловушка добавляется в `docs/opyt-oshibok.md` в том же коммите.
 
 ## Review Focus
 
-1. **Повтор operationId с тем же телом, но другим uid/shift/protocol или изменённым semantic field** должен вернуть `409 operation-id-reused`, ничего не раскрыть и не изменить — закрепляет `server/tests/v2-command.test.mjs::receipt_hash_binds_full_context` в Task 4.
-2. **Два конкурентных add/force-transfer одного truck** не должны создать два current status или два open detached trip — закрепляет `server/tests/v2-truck-transfer-db.test.mjs::concurrent_transfer_keeps_single_assignment` в Task 8.
-3. **Late response A после выбора B или смены аккаунта** не должен менять B/видимый DOM — закрепляют `working-test/source/core/shift-contexts.test.mjs::late_response_is_rejected_by_full_generation_key` в Task 13 и browser-test в Task 24.
-4. **Removed member между close prepare и finish** не должен получить receipt replay или закрыть смену — закрепляет `server/tests/v2-shift-close-db.test.mjs::removed_member_cannot_finish_or_replay` в Task 11.
-5. **Backup/report/material/archive operation A при наличии trap rows B** не должна читать, считать или менять B — закрепляет `server/tests/v2-query-isolation-db.test.mjs::all_scoped_stores_leave_trap_shift_unchanged` в Task 21.
+1. **Stale set/delete или позднее прибытие старого parent после newer pending/delete** не должно воскресить canonical status/log — `server/tests/replica-pending-materialize.test.mjs::stale_parent_or_generation_cannot_resurrect_document` в Task 4.
+2. **Selective restore любого replica-owned shift/status/log/parent/stream/head/pending/cursor member** отклоняется до checkpoint/DELETE/INSERT/restore_epoch — `server/tests/replica-exact-backup.test.mjs::selective_replica_bundle_is_rejected_before_mutation` в Task 5.
+3. **UPDATE/DELETE immutable stream либо duplicate operation id с иным kind/hash/protocol/hash_version** отклоняются без cursor/head/canonical mutation — `server/tests/parallel-shifts-migration-dependencies.test.mjs::stream_is_immutable_and_hash_kind_conflict_fails` в Task 3 и runtime duplicate test в Task 4.
+4. **Deferred invariant при NULL semantics:** pending-set head обязан иметь ровно одну pending row, а materialized/delete head — zero; `applied_seq IS NULL` допустим только pending-set — `server/tests/parallel-shifts-migration-dependencies.test.mjs::deferred_head_pending_invariant_rejects_null_and_orphans` в Task 3.
+5. **Legacy direction cursor preflight:** uncovered gap/missing head/row beyond cursor/ambiguous marker aborts 026 до PK/hash rewrite — `server/tests/parallel-shifts-migration-dependencies.test.mjs::legacy_direction_cursor_preflight_fails_closed` в Task 3.
 
 ---
 
@@ -42,8 +44,8 @@
 
 ### Новые серверные файлы
 
-- `server/sql/025_parallel_shifts_core.sql` — normalized `shifts`, `shift_members`, единственный current status, object lock, базовые индексы/constraints и безопасный backfill.
-- `server/sql/026_parallel_shift_dependencies.sql` — detached trips, scoped receipts/audit/history/logs/archive/tabel/material marker и protocol/hash columns.
+- `server/sql/025_parallel_shifts_core.sql` — strict normalized `shifts` без placeholder/null exceptions, `shift_members`, единственный current status, object lock, индексы/constraints и безопасный backfill.
+- `server/sql/026_parallel_shift_dependencies.sql` — direction-aware stream PK/protocol/hash/immutability roles+triggers, `replica_document_heads`, `replica_pending_documents`, deferred invariant, detached trips и scoped dependent attribution.
 - `server/sql/027_parallel_shift_permissions.sql` — `manage_shift_members`, `force_transfer_truck`, default-deny и defaults admin/senior.
 - `server/scripts/preflight-parallel-shifts.mjs` — read-only JSON-отчёт неоднозначных/null/payload mismatch данных; ненулевой exit при небезопасном backfill.
 - `server/src/v2-errors.mjs` — stable error envelope/status mapping.
@@ -58,8 +60,10 @@
 - `server/src/archive-store-v2.mjs` — restored archive read/allowed mutations.
 - `server/src/v2-router.mjs` — `/api/v2` route matching, auth, schemas и HTTP envelopes.
 - `server/src/protocol-gate.mjs` — maintenance и v1 `426` gate.
-- `server/tests/helpers/isolated-db.mjs` — только test-container URL, migrations 001–027, reset/seed/SQL snapshot helpers.
-- `server/tests/v2-*.test.mjs` — unit/DB/API/query isolation suites по доменам.
+- `server/src/replica-store.mjs`, `server/src/replica-materialize.mjs` — batch validation/JCS hash, stream/head CAS, deferred staging/promotion/delete state machine.
+- `server/src/backup-store.mjs` — full-only replica exact checkpoint/restore transport, pre-mutation selective rejection.
+- `server/tests/helpers/isolated-db.mjs` — только generated per-file test-container URL; S24/S25 foundation, затем S26 после isolated Task 6.
+- `server/tests/{parallel-shifts-migration-dependencies,replica-pending-materialize,replica-exact-backup,v2-*}.test.mjs` — migration/replica/unit/DB/API/query isolation suites.
 
 ### Изменяемые серверные файлы
 
@@ -99,93 +103,163 @@
 - `docs/parallel-shifts-query-inventory.md` — классификация каждого shift-related query и owning test.
 - `docs/opyt-oshibok.md`, `docs/project-state.md`, `docs/runbook.md` — только фактически подтверждённые изменения/ловушки.
 
-## Фаза I — схема и общие протоколы
+## Обязательный межплановый порядок
 
-### Task 1: Изолированный DB harness и migration guard
+1. **Сейчас:** isolated-db Task 0A удаляет отменённый `replica_placeholder` из unreleased 025, replica source/tests и переводит fixtures на полный canonical snapshot.
+2. **Foundation:** isolated-db Tasks 1–5 дают manifest/safety/templates `empty/S24/S25`, per-file target и process runner. До этого Task 3 ниже не начинается.
+3. **Product staging vertical:** Tasks 3–5 этого плана создают migration 026, deferred replica materializer и full-only backup transport. Для RED/GREEN используется targeted isolated file; общего DB/deploy нет.
+4. **S26 cutover:** isolated-db Task 6 атомарно добавляет S26 template/fixtures/реальные manifest entries, затем полный suite cutover и два unfiltered run.
+5. **Продолжение:** Tasks 6+ этого плана. Common DB/server deploy остаются только в позднем release-window Task 27 с отдельным owner-approved window.
 
-**Files:**
-- Create: `server/tests/helpers/isolated-db.mjs`
-- Create: `server/tests/isolated-db-guard.test.mjs`
-- Modify: `server/compose.test.yaml`
-- Modify: `server/package.json`
+## Оценка объёма
 
-**Interfaces:**
-- Consumes: `TEST_DATABASE_URL`, PostgreSQL 16 container из `server/compose.test.yaml`.
-- Produces: `requireIsolatedDatabase(url: string): URL`, `resetIsolatedDatabase(): Promise<void>`, `applyMigrationsThrough(number: number): Promise<void>`, `seedParallelShiftFixture(options): Promise<FixtureIds>`.
+План содержит **29 reviewable задач**: Tasks 1–27 плюс самостоятельные Tasks 3A/3B. Исторические номера 4–27 сохранены, чтобы не ломать ссылки; 3A/3B — отдельные commits между migration 026 и API v2. Каждый product/infrastructure commit reviewable отдельно.
 
-- [ ] **Step 1: Write the failing test** — добавить `rejects_reserved_and_live_database_names`, `accepts_compose_test_database`, `reset_never_uses_unapproved_url`; проверить запрет host live API и DB names `samosval_test`/`samosval_working_test_reserve`, а также обязательный marker `SAMOSVAL_ISOLATED_TEST=1`.
-- [ ] **Step 2: Run test to verify it fails**
+## Фаза I — схема, replica staging и общие протоколы
 
-Run: `cd server && PATH=/tmp/node-v22.11.0-linux-x64/bin:$PATH node --test tests/isolated-db-guard.test.mjs`
-Expected: FAIL — helper отсутствует.
-
-- [ ] **Step 3: Implement minimal harness** — harness до `pool.connect()` валидирует URL/marker; compose получает отдельное имя БД `samosval_parallel_shifts_test`, healthcheck и ephemeral profile; добавить script `test:db` без hard-coded credentials.
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `cd server && PATH=/tmp/node-v22.11.0-linux-x64/bin:$PATH node --test tests/isolated-db-guard.test.mjs`
-Expected: PASS; ни одного соединения с reserved/live target.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add server/tests/helpers/isolated-db.mjs server/tests/isolated-db-guard.test.mjs server/compose.test.yaml server/package.json
-git commit -m "test: add isolated database guard for parallel shifts"
-```
-
-### Task 2: Core schema shifts, memberships и current status
+### Task 1: Изолированный DB foundation — внешняя dependency, не дублировать
 
 **Files:**
-- Create: `server/sql/025_parallel_shifts_core.sql`
-- Create: `server/tests/parallel-shifts-migration-core.test.mjs`
-- Modify: `server/scripts/apply-migrations.mjs`
+- Owned by: `docs/superpowers/plans/2026-11-23-isolated-db-suite.md` Tasks 1–5
+- No product files changed by this task in this plan
 
 **Interfaces:**
-- Consumes: Task 1 DB harness; migrations 001–024.
-- Produces: normalized `shifts`, `shift_members`, status revisions/FKs/indexes; legacy `is_active` consistency bridge.
+- Consumes: strict 025 from isolated Task 0A.
+- Produces: official direct runner `./scripts/test-isolated-db.sh`, complete manifest/discovery, immutable `empty/S24/S25`, `provisionTarget`, one process group/file and filtered artifact semantics.
 
-- [ ] **Step 1: Write the failing test** — на базе после 001–024 проверить отсутствие schema, затем assertions: day/night одного object/date разрешены; concurrent exact active duplicate даёт unique violation; status PK остаётся `(workspace_id,truck_id)`; membership soft-remove pair constraint; revisions `>0`; normalized/payload mismatch fixture блокирует migration.
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 1: Verify dependency evidence** — run `cd server && node scripts/test-isolated-db.mjs --list`; Expected: manifest/discovery GREEN without DB.
+- [ ] **Step 2: Run the S25 per-file foundation acceptance** — execute isolated plan Task 5 two-target integration; Expected: separate generated DB names, cleanup/leaks zero.
+- [ ] **Step 3: Gate** — do not create 026 until isolated Tasks 1–5 are committed GREEN. No commit belongs to this dependency marker.
 
-Run: `cd server && SAMOSVAL_ISOLATED_TEST=1 TEST_DATABASE_URL="$TEST_DATABASE_URL" PATH=/tmp/node-v22.11.0-linux-x64/bin:$PATH node --test tests/parallel-shifts-migration-core.test.mjs`
-Expected: FAIL — migration 025 отсутствует.
+### Task 2: Strict canonical migration 025 prerequisite
 
-- [ ] **Step 3: Implement migration** — additive ALTER/backfill normalized columns (`state`, object snapshot/date/type/open/lock/close/revision), memberships и status revisions; derive Moscow work date; keep `is_active` with consistency constraint/trigger; abort on null/unknown/ambiguous JSON instead of guessing.
-- [ ] **Step 4: Run test to verify it passes** — той же командой; Expected: PASS, migration registry содержит checksum `025_parallel_shifts_core.sql`.
-- [ ] **Step 5: Commit**
+**Files:**
+- Owned by: isolated-db plan Task 0A
+- Verify: `server/sql/025_parallel_shifts_core.sql`, `server/src/replica-materialize.mjs`, existing replica/migration tests
 
-```bash
-git add server/sql/025_parallel_shifts_core.sql server/tests/parallel-shifts-migration-core.test.mjs server/scripts/apply-migrations.mjs
-git commit -m "feat: add normalized parallel shift core schema"
-```
+**Interfaces:**
+- Consumes: historical commits `9a59ce3`, `ec44885`, `7cdd9e8`, `1ae36cc` as evidence only; amendment `53690e0`.
+- Produces: strict canonical shifts with no placeholder language/column/branch/test, required normalized NOT NULL/FKs and canonical payload trigger.
 
-### Task 3: Detached trips, dependent attribution и migration preflight
+- [ ] **Step 1: Execute isolated Task 0A RED→GREEN→exact commit** — expected commit message `fix: restore strict canonical shifts in migration 025`.
+- [ ] **Step 2: Verify source absence** — `rg 'replica_placeholder' server/sql/025_parallel_shifts_core.sql server/src server/tests`; Expected: no match.
+- [ ] **Step 3: Gate** — Task 3 consumes this commit; do not reimplement 025 here.
+
+### Task 3: Migration 026 — direction-aware stream, heads, staging и dependent attribution
+
+**Dependency:** isolated Tasks 0A and 1–5 GREEN. Before per-file runner exists, only the single targeted migration file may run on a disposable generated DB; after foundation, use `--file`. This product task owns 026; isolated plan does not.
 
 **Files:**
 - Create: `server/sql/026_parallel_shift_dependencies.sql`
 - Create: `server/scripts/preflight-parallel-shifts.mjs`
 - Create: `server/tests/parallel-shifts-migration-dependencies.test.mjs`
 - Create: `server/tests/parallel-shifts-preflight.test.mjs`
+- Modify: `server/scripts/apply-migrations.mjs`
 
 **Interfaces:**
-- Consumes: normalized schema Task 2.
-- Produces: `detached_open_trips`, scoped receipts/audits/archive/tabel/material marker; `runParallelShiftPreflight(pool): Promise<PreflightReport>`.
+- Consumes: strict migration 025; legacy `replica_stream`, `replica_cursor`, current migration role/runtime role contracts; isolated S25 target.
+- Produces: stream PK `(workspace_id,direction,seq)`, unique `(workspace_id,direction,operation_id)`, `protocol_version/hash_version smallint NOT NULL DEFAULT 1 CHECK IN (1,2)`; `replica_document_heads`; `replica_pending_documents`; deferred constraint triggers; runtime transition function; immutable stream trigger/grants and restore role/function boundary; dependent shift attribution; `runParallelShiftPreflight(pool): Promise<PreflightReport>`.
 
-- [ ] **Step 1: Write the failing tests** — проверить one-open-detached unique, destination current-status consistency, `protocol_version/command_hash/shift_id`, archive `source_shift_id`, tabel `record_kind/shift_id`, marker unique per shift; preflight reports exact categories `nullShift`, `unknownShift`, `payloadMismatch`, `ambiguousObjectLock` and exits nonzero.
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 1: Write RED legacy preflight/stream migration tests**
 
-Run: `cd server && SAMOSVAL_ISOLATED_TEST=1 TEST_DATABASE_URL="$TEST_DATABASE_URL" PATH=/tmp/node-v22.11.0-linux-x64/bin:$PATH node --test tests/parallel-shifts-migration-dependencies.test.mjs tests/parallel-shifts-preflight.test.mjs`
-Expected: FAIL — 026 и preflight отсутствуют.
+Add `native_f2s_range_and_marker_covered_directional_subsequence_pass`, `legacy_direction_cursor_preflight_fails_closed`, `migration_preserves_v1_seq_payload_and_sha_bytes`, and `stream_is_immutable_and_hash_kind_conflict_fails`. Fixtures cover one cursor/workspace, native f2s exact `1..f2s_seq`, marker-covered ordered subsequence, s2f head, uncovered gap, duplicate/ambiguous operation identity, missing cursor/head, row beyond either cursor. Assert a failure leaves old PK/schema/hash bytes unchanged.
 
-- [ ] **Step 3: Implement minimal migration/preflight** — добавить FK/indexes для перечисленных в spec dependent entities; generic receipt nullable shift только для workspace-wide type; current destination trigger; marker/archive receipts/audit; preflight read-only и без вывода payload/PII.
-- [ ] **Step 4: Run tests to verify they pass** — той же командой; Expected: PASS и zero-issue fixture возвращает `{safe:true}`.
-- [ ] **Step 5: Commit**
+- [ ] **Step 2: Write RED heads/pending/dependent schema tests**
+
+Add `heads_have_exact_three_state_check_and_directional_fks`, `pending_has_no_payload_and_routes_status_logs`, `deferred_head_pending_invariant_rejects_null_and_orphans`, and dependent attribution assertions for receipts/audit/log/history/archive/tabel/material markers. Commit attempts must reject pending head without row, row without head/mismatched seq, pending row for materialized/delete, and settled/materialized state with `applied_seq IS NULL`.
+
+- [ ] **Step 3: Run RED on one isolated S25 target**
+
+Run: `cd server && ./scripts/test-isolated-db.sh --file tests/parallel-shifts-migration-dependencies.test.mjs --file tests/parallel-shifts-preflight.test.mjs`
+Expected: FAIL because 026/preflight are absent; report `selection=filtered`, no common DB.
+
+- [ ] **Step 4: Implement minimal 026 and preflight**
+
+Lock stream/cursor, validate history before DDL, never renumber/rewrite v1. Create exact schemas/checks/indexes/FKs from spec §4.8, fixed-search-path SECURITY DEFINER transition/restore functions, runtime direct heads/pending DML revoke, stream `BEFORE UPDATE OR DELETE` error `replica-stream-immutable`. Parent tables are not populated here. Add dependent `shift_id/source_shift_id/protocol_version/command_hash` columns and fail closed on null/unknown/ambiguous attribution.
+
+- [ ] **Step 5: Run GREEN targeted migration tests**
+
+Repeat Step 3. Expected: PASS; 026 registry checksum present; strict 025 tests remain GREEN; deferred triggers fire at COMMIT.
+
+- [ ] **Step 6: Commit exact migration boundary**
 
 ```bash
-git add server/sql/026_parallel_shift_dependencies.sql server/scripts/preflight-parallel-shifts.mjs server/tests/parallel-shifts-migration-dependencies.test.mjs server/tests/parallel-shifts-preflight.test.mjs
-git commit -m "feat: scope dependent data to shifts"
+git add server/sql/026_parallel_shift_dependencies.sql \
+  server/scripts/preflight-parallel-shifts.mjs \
+  server/scripts/apply-migrations.mjs \
+  server/tests/parallel-shifts-migration-dependencies.test.mjs \
+  server/tests/parallel-shifts-preflight.test.mjs
+git diff --cached --check
+git commit -m "feat: add replica staging migration 026"
 ```
 
-### Task 4: V2 errors, canonical hash и transactional receipts
+
+
+### Task 3A: Deferred replica-store/materializer state machine
+
+**Files:**
+- Modify: `server/src/replica-store.mjs`
+- Rewrite focused paths: `server/src/replica-materialize.mjs`
+- Create: `server/tests/replica-pending-materialize.test.mjs`
+- Modify: `server/tests/replica-store.test.mjs`
+
+**Interfaces:**
+- Consumes: 026 stream/heads/pending transition function and common lock order.
+- Produces: `normalizeReplicaOperation(raw): CanonicalReplicaOperation`; `hashReplicaOperationV2(operation): lowercaseHex`; `appendReplicaBatch(pool,workspaceId,actor,batch,{faultAt?}): Promise<ReplicaBatchResult>`; `applyReplicaDocument(client,workspaceId,{direction,seq,kind,payload,hashVersion}): Promise<'journal-only'|'materialized'|'staged'|'stale'>`; `promoteReplicaPending(client,workspaceId,{shiftIds?,truckIds?}): Promise<PromotionResult>`.
+
+- [ ] **Step 1: Write RED protocol/batch tests** — `delete_null_alias_hashes_as_absent_data`, `duplicate_batch_same_v2_hash_collapses_once`, `duplicate_id_different_kind_hash_or_version_conflicts_before_begin`, `legacy_v1_duplicate_remains_byte_stable`, unknown kind/collection and `data.id/path` mismatch leave stream/cursor unchanged. Hash exact JCS envelope `{protocolVersion:2,kind,payload}`; journal-only kinds advance stream/cursor only.
+- [ ] **Step 2: Write RED parent/promotion/generation tests** — status/log missing shift/truck stages; shift missing object/user rolls back; promotion runs after both shift and truck in either order; `stale_parent_or_generation_cannot_resurrect_document`; pending set→newer set, pending→delete, status A→pending B, log set→delete→set ID reuse; delete state has settled tombstone and zero pending.
+- [ ] **Step 3: Write RED concurrency/CAS/fault tests** — real separate connections observe common lock order (workspace advisory → cursor → heads/pending PK → shifts/trucks sorted → status → logs → stream refs), lower/equal/newer seq CAS, and injected faults after stream/head/canonical/pending/promotion/before-cursor roll back all six state classes.
+- [ ] **Step 4: Run RED**
+
+Run: `cd server && ./scripts/test-isolated-db.sh --file tests/replica-store.test.mjs --file tests/replica-pending-materialize.test.mjs`
+Expected: FAIL on missing v2 staging flow; no placeholder fixture.
+
+- [ ] **Step 5: Implement minimal deferred flow** — prevalidate whole batch before writes; normalize delete `data:null` before hash; persisted duplicate check includes protocol/hash_version/hash/kind; assign f2s seq, stream INSERT, head CAS, canonical delete/upsert or pending replace, promotion, cursor last in one transaction. Canonical writes require locked matching head seq; payload is reread/revalidated from immutable stream, never stored in pending.
+- [ ] **Step 6: Run GREEN and commit exact files**
+
+```bash
+git add server/src/replica-store.mjs \
+  server/src/replica-materialize.mjs \
+  server/tests/replica-store.test.mjs \
+  server/tests/replica-pending-materialize.test.mjs
+git diff --cached --check
+git commit -m "feat: defer out-of-order replica documents"
+```
+
+### Task 3B: Full-only replica exact backup/restore transport
+
+**Files:**
+- Modify: `server/src/backup-store.mjs`
+- Create: `server/tests/replica-exact-backup.test.mjs`
+- Modify: existing `server/tests/backup-store.test.mjs`
+
+**Interfaces:**
+- Consumes: immutable stream, heads/pending, restore SECURITY DEFINER entrypoint, common lock order.
+- Produces: `normalizeBackupSelection(request): BackupPlan`; `checkpointReplicaBundle(client,workspaceId): Promise<ReplicaExactBundle>`; `restoreReplicaExact(client,workspaceId,bundle,mode): Promise<RestoreResult>` where `mode={maintenanceMarker:string,exactRestore:true}` and selective replica selection is unrepresentable after normalization.
+
+- [ ] **Step 1: Write RED pre-mutation selection tests** — `selective_replica_bundle_is_rejected_before_mutation` varies each replica-owned shift/status/log, app_user/object/truck dependency, stream/head/pending/cursor/hash/authority marker. Spy/assert no advisory checkpoint, DELETE, INSERT or `restore_epoch` mutation. Non-replica section remains selective only without ownership/reference.
+- [ ] **Step 2: Write RED exact checkpoint/restore tests** — bundle with pending set and settled delete preserves original seq/recorded_at/payload/hash/protocol/hash_version, heads/pending/canonical/cursors; parent arrival promotes exactly once. Native canonical row without replica head remains according to manifest.
+- [ ] **Step 3: Write RED role/order/failure tests** — runtime/direct SQL and forged GUC cannot restore/update/delete stream; maintenance caller through fixed-search-path function succeeds. Restore order is users/authority/workspace parents → stream → shifts/trucks → statuses/logs → heads → pending → cursor last; constraints checked IMMEDIATE before commit; bad continuity/FK/hash/head invariant rolls all back. Checkpoint locks `:f2s` then `:s2f`, then common order.
+- [ ] **Step 4: Run RED**
+
+Run: `cd server && ./scripts/test-isolated-db.sh --file tests/backup-store.test.mjs --file tests/replica-exact-backup.test.mjs`
+Expected: FAIL until full-only section/transport exists.
+
+- [ ] **Step 5: Implement full-only transport** — normalization rejects partial bundle before transaction mutation; checkpoint is one repeatable exact image; exact restore never replays/rebuilds and never UPDATEs history, inserts original immutable rows through maintenance-only entrypoint and validates direction continuity/deferred invariant before commit.
+- [ ] **Step 6: Run GREEN and commit exact files**
+
+```bash
+git add server/src/backup-store.mjs \
+  server/tests/backup-store.test.mjs \
+  server/tests/replica-exact-backup.test.mjs
+git diff --cached --check
+git commit -m "feat: restore replica state as an exact bundle"
+```
+
+### Task 4: V2 errors, canonical command hash и transactional receipts
+
+**Execution gate:** начинается только после isolated-db Task 6 S26 transition и полного foundation/cutover proof; Tasks 3/3A/3B уже GREEN targeted.
 
 **Files:**
 - Create: `server/src/v2-errors.mjs`
@@ -654,7 +728,14 @@ Expected: FAIL — old object/day/type or workspace scope mixes records.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add working-test/tabel-v2 working-test/source/features/game-coins-v2.js tests/tabel-v2/parallel-shifts.test.mjs server/src server/tests/v2-derived-effects-db.test.mjs
+git add working-test/tabel-v2/domain.mjs working-test/tabel-v2/store.mjs \
+  working-test/tabel-v2/backend.mjs working-test/tabel-v2/summary.mjs \
+  working-test/tabel-v2/material-transfer.mjs working-test/tabel-v2/presence-nas.mjs \
+  working-test/source/features/game-coins-v2.js tests/tabel-v2/parallel-shifts.test.mjs \
+  server/src/tabel-store.mjs server/src/report-store.mjs server/src/history-store.mjs \
+  server/src/game-store.mjs server/src/game-transfer.mjs server/src/shift-archive.mjs \
+  server/tests/v2-derived-effects-db.test.mjs
+git diff --cached --check
 git commit -m "feat: attribute derived data to source shift"
 ```
 
@@ -680,7 +761,11 @@ Expected: FAIL with named offending stores/queries.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/parallel-shifts-query-inventory.md server/tests/v2-query-isolation-db.test.mjs server/src
+git add docs/parallel-shifts-query-inventory.md server/tests/v2-query-isolation-db.test.mjs \
+  server/src/control-store.mjs server/src/report-store.mjs server/src/history-store.mjs \
+  server/src/archive-store.mjs server/src/archive-read.mjs server/src/backup-store.mjs \
+  server/src/tabel-store.mjs server/src/game-store.mjs server/src/replica-materialize.mjs
+git diff --cached --check
 git commit -m "fix: enforce shift isolation across server queries"
 ```
 
@@ -785,7 +870,7 @@ git commit -m "test: verify two-user parallel shifts in mobile browser"
 
 - [ ] **Step 1: Write the failing test** — dry-run default; requires isolation marker outside approved explicit window token; backup verification checks SHA-256 plus restore/read counts; ordered phase state prevents publish/open before smoke; rollback before first v2 mutation vs forward-fix after it; restore requires separate destructive-confirm token and never runs automatically.
 - [ ] **Step 2: Run test to verify it fails** — targeted test; Expected: FAIL.
-- [ ] **Step 3: Implement scripts/runbook** — rehearse maintenance→backup→migration→server→PWA placeholder→smoke→open entirely on isolated copy; runbook leaves target DB/path/time as “сверить в окно”, documents real reserve-DB guard and explicit owner «да» gate.
+- [ ] **Step 3: Implement scripts/runbook** — rehearse maintenance→full exact backup→migration→server→staged PWA artifact→smoke→open entirely on isolated copy; runbook leaves target DB/path/time as “сверить в окно”, documents real reserve-DB guard and explicit owner «да» gate.
 - [ ] **Step 4: Run isolated rehearsal**
 
 Run: `cd server && SAMOSVAL_ISOLATED_TEST=1 TEST_DATABASE_URL="$TEST_DATABASE_URL" PATH=/tmp/node-v22.11.0-linux-x64/bin:$PATH node --test tests/parallel-shifts-maintenance.test.mjs && PATH=/tmp/node-v22.11.0-linux-x64/bin:$PATH node scripts/parallel-shifts-maintenance.mjs plan --isolated`
@@ -836,7 +921,14 @@ Expected: all PASS; Actions `synology-server-tests`, `full-browser-integration`,
 - [ ] **Step 5: Commit release artifact only after all checks pass**
 
 ```bash
-git add working-test/source working-test/build working-test/build-manifest.json index-working-test.html sw-working-test.js tests/tabel-v2/parallel-shifts-release.test.mjs tools/build-working-test.py tools/verify-working-test.py docs/opyt-oshibok.md
+git add working-test/source/features/release-history.js \
+  working-test/source/features/working-test-release.js working-test/source/shell.html \
+  tools/build-working-test.py tools/verify-working-test.py \
+  tests/tabel-v2/parallel-shifts-release.test.mjs \
+  index-working-test.html sw-working-test.js working-test/build-manifest.json \
+  <exact newly generated working-test/build/<build-id> files> \
+  <docs/opyt-oshibok.md only if actually changed>
+git diff --cached --check
 git commit -m "release: prepare working-test parallel shifts client"
 ```
 
@@ -883,3 +975,13 @@ git diff --exit-code -- index.html manifest.json manifest-production.webmanifest
 ```
 
 Ожидаемый общий результат: все suites зелёные, browser console без `pageerror`/module errors, Actions зелёные, production diff пуст, common server/DB не затронуты до Task 27.
+
+
+## Self-review writing-plans
+
+- **Spec coverage:** strict 025 делегирован isolated Task 0A; Tasks 3/3A/3B покрывают migration 026, stream/hash/direction preflight, heads/pending/deferred invariant, parent policy, generation state machine, concurrency/fault rollback и full-only exact backup. Tasks 4–27 сохраняют API/ACL/client/UX/rollout scope исходного плана.
+- **Step scan:** новые задачи имеют exact RED names, targeted per-file commands, minimal GREEN boundary и exact staging; broad directory staging удалён. Для generated build Task 26 требует перечислить exact build-id paths перед commit.
+- **Type consistency:** `protocol_version/hash_version`, direction-aware `(workspace_id,direction,seq)`, `head_seq/applied_seq`, canonical operation/hash и backup bundle names совпадают со spec; pending никогда не содержит payload.
+- **Review Focus:** stale resurrection (3A), selective restore (3B), immutable stream/hash-kind conflict (3/3A), deferred NULL semantics (3), legacy cursor preflight (3) имеют owning tests.
+- **Proportion:** schema tables не дублируются целиком; план фиксирует interfaces, test assertions, lock/restore order и commit boundaries.
+- **Dependency check:** порядок `0A → isolated 1–5 → parallel 3/3A/3B → isolated 6–11 → parallel 4+` не содержит цикла. Common DB/deploy остаются только Task 27 после явного согласия владельца.
