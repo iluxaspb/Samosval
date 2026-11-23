@@ -31,7 +31,8 @@ export function validateGeneratedIdentifier(value, options = {}) {
       const suffix = value.slice(`${GENERATED_DATABASE_PREFIX}${runid}_`.length);
       if (!value.startsWith(`${GENERATED_DATABASE_PREFIX}${runid}_`) || !HASH.test(suffix)) reject('generated identifier');
     } else if (kind === 'template') {
-      if (!value.startsWith(`${GENERATED_DATABASE_PREFIX}${runid}_tpl_`)) reject('generated identifier');
+      if (value !== `${GENERATED_DATABASE_PREFIX}${runid}_tpl_empty`
+          && value !== `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s24`) reject('generated identifier');
     } else reject('generated identifier');
   }
   return value;

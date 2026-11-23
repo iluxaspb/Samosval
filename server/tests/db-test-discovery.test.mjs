@@ -23,7 +23,7 @@ async function fixture(files) {
 test('discovered_equals_manifest_including_existing_replica_root', async () => {
   const discovery = await discoverTests(serverDirectory, { harnessFixtures: manifest.harnessFixtures });
   await loadManifest(manifest, { serverDirectory, discovered: discovery.roots });
-  assert.equal(discovery.roots.length, 64);
+  assert.equal(discovery.roots.length, 66);
   assert.ok(discovery.roots.some(item => item.file === 'tests/replica-materialize-parallel-shifts.test.mjs'));
 });
 

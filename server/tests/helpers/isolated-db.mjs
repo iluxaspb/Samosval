@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { applyMigrations } from '../../scripts/apply-migrations.mjs';
+import { transformLegacyMigrationGuard } from '../../scripts/isolated-db/legacy-guards.mjs';
 
 const APPROVED_DATABASE = 'samosval_parallel_shifts_test';
 const APPROVED_HOSTS = new Set(['postgres', 'localhost', '127.0.0.1', '[::1]']);
@@ -49,11 +50,8 @@ export async function resetIsolatedDatabase() {
   }
 }
 
-export function retargetLegacyGuard(sql) {
-  return sql
-    .replaceAll("current_database() <> 'samosval_test'", `current_database() <> '${APPROVED_DATABASE}'`)
-    .replaceAll("current_database()<>'samosval_test'", `current_database()<>'${APPROVED_DATABASE}'`)
-    .replaceAll("current_database()<>'samosval_working_test_reserve'", `current_database()<>'${APPROVED_DATABASE}'`);
+export function retargetLegacyGuard(sql, filename) {
+  return transformLegacyMigrationGuard(sql, filename, APPROVED_DATABASE);
 }
 
 export async function applyMigrationsThrough(number) {

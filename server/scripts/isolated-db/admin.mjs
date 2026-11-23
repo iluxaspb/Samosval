@@ -92,6 +92,51 @@ export async function runAdminStatement(client, request) {
   throw new Error('admin operation is not approved');
 }
 
+function quoteLiteral(value) {
+  if (typeof value !== 'string' || !/^samosval-isolated-db:v1;kind=template;runid=[a-f0-9]{12,20};baseline=(empty|S24);version=(0|24);registry=(empty|[a-f0-9]{64});owner=samosval_test_prepared_owner$/.test(value)) {
+    throw new Error('template operation is not approved');
+  }
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+export function createTemplateBroker({ bootstrapClient }) {
+  if (!bootstrapClient?.query || !bootstrapClient?.end) throw new Error('template broker configuration rejected');
+  let pending = Promise.resolve();
+  return Object.freeze({
+    async run(request) {
+      const allowedKeys = ['operation','database','source','runid','capability','comment'];
+      if (!request || !['createTemplate','freezeTemplate'].includes(request.operation)
+          || Object.keys(request).some(key => !allowedKeys.includes(key))) throw new Error('template operation is not approved');
+      validateGeneratedIdentifier(request.database, { runid: request.runid, kind: 'template' });
+      validateCapability(request.capability);
+      const identifier = quoteIdentifier(request.database);
+      const operation = pending.then(() => redacted(() => withTargetSessionLock(bootstrapClient, request.database, async () => {
+        if (request.operation === 'createTemplate') {
+          if (request.database.endsWith('_tpl_empty')) {
+            if (request.source !== 'template0' || typeof request.comment !== 'string') throw new Error('template operation is not approved');
+          } else {
+            validateGeneratedIdentifier(request.source, { runid: request.runid, kind: 'template' });
+            if (!request.source.endsWith('_tpl_empty') || request.comment !== null) throw new Error('template operation is not approved');
+          }
+          const source = request.source === 'template0' ? '"template0"' : quoteIdentifier(request.source);
+          await bootstrapClient.query({ text: `CREATE DATABASE ${identifier} TEMPLATE ${source} OWNER ${OWNER}`, queryMode: 'simple' });
+          await bootstrapClient.query({ text: `REVOKE CONNECT ON DATABASE ${identifier} FROM PUBLIC`, queryMode: 'simple' });
+          if (request.comment !== null) await bootstrapClient.query({ text: `COMMENT ON DATABASE ${identifier} IS ${quoteLiteral(request.comment)}`, queryMode: 'simple' });
+          return;
+        }
+        if (typeof request.comment !== 'string' || request.source !== undefined) throw new Error('template operation is not approved');
+        await bootstrapClient.query({ text: `COMMENT ON DATABASE ${identifier} IS ${quoteLiteral(request.comment)}`, queryMode: 'simple' });
+        await bootstrapClient.query({ text: `REVOKE CONNECT ON DATABASE ${identifier} FROM PUBLIC, samosval_test_app, samosval_test_runtime`, queryMode: 'simple' });
+        await bootstrapClient.query({ text: `ALTER DATABASE ${identifier} ALLOW_CONNECTIONS false`, queryMode: 'simple' });
+        const sessions = await bootstrapClient.query('SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname=$1', [request.database]);
+        if (sessions.rows[0]?.count !== 0) throw new Error(CLOSED_ERROR);
+      })));
+      pending = operation.catch(() => {});
+      return operation;
+    },
+  });
+}
+
 export function createProvisioningBroker({ bootstrapClient }) {
   if (!bootstrapClient?.query || !bootstrapClient?.end) throw new Error('provisioning broker configuration rejected');
   let pending = Promise.resolve();

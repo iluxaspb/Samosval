@@ -21,8 +21,8 @@ const dbFiles = [
 ];
 
 const harnessFiles = [
-  'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-guard',
-  'isolated-db-integration', 'isolated-db-runner'
+  'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-fixtures', 'isolated-db-guard',
+  'isolated-db-integration', 'isolated-db-runner', 'isolated-db-templates'
 ];
 
 const consumersByFile = {
@@ -90,6 +90,10 @@ const consumersByFile = {
     "tests/isolated-db-integration.test.mjs:pg"
   ],
   "isolated-db-runner": [],
+  "isolated-db-templates": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/isolated-db-templates.test.mjs:pg"
+  ],
   "json-response": [],
   "line-read": [
     "tests/line-read.test.mjs:db-env",
