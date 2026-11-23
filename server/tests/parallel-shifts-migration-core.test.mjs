@@ -214,7 +214,7 @@ test('025 rejects a normalized object change after the first confirmed line even
       `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
        VALUES($1,$2,$3,$4)`,
       [ids.workspaceId, ids.truckId, ids.shiftAId, {
-        id: ids.truckId, shiftId: ids.shiftAId, arriveTimestamp: 1795465000000,
+        id: ids.truckId, shiftId: ids.shiftAId, arriveStatus: '09:16', arriveTimestamp: 1795465000000,
       }],
     );
     await applyMigrationsThrough(25);
@@ -239,28 +239,103 @@ test('025 rejects a normalized object change after the first confirmed line even
   }
 });
 
-test('025 requires the complete real v1 canonical snapshot aliases on normalized writes', {
+test('025 requires universal v1 start aliases to match normalized columns', {
   skip: !approved,
 }, async () => {
   const ids = await prepareLegacyFixture('complete_payload');
   await applyMigrationsThrough(25);
   const pool = poolForTest();
   try {
-    const shiftId = 'normalized_incomplete_payload';
-    const payload = {
-      id: shiftId, objectId: ids.objectBId, startDate: '26.11.2026',
-      startedAt: 1795680000000, startedByUid: ids.adminUid, isActive: true, workShift: 'day',
+    const openedAt = 1795680000000;
+    const basePayload = {
+      objectId: ids.objectBId, objectName: 'Snapshot required', startDate: '26.11.2026',
+      startedAt: openedAt, startedByUid: ids.adminUid, isActive: true, workShift: 'day',
     };
-    await assert.rejects(
-      pool.query(
-        `INSERT INTO shifts(
-           workspace_id,shift_id,is_active,payload,state,object_id,object_name_snapshot,
-           work_date,shift_type,opened_at,opened_by_uid,revision
-         ) VALUES($1,$2,true,$3,'active',$4,'Snapshot required','2026-11-26','day',
-                  to_timestamp(1795680000000 / 1000.0),$5,1)`,
-        [ids.workspaceId, shiftId, payload, ids.objectBId, ids.adminUid],
-      ),
-      error => error.code === '23514',
+    const cases = [
+      ['missing_started_at', ({ startedAt, ...payload }) => payload],
+      ['wrong_started_at', payload => ({ ...payload, startedAt: openedAt + 1 })],
+      ['missing_started_by_uid', ({ startedByUid, ...payload }) => payload],
+      ['wrong_started_by_uid', payload => ({ ...payload, startedByUid: ids.foremanUid })],
+    ];
+    for (const [suffix, mutate] of cases) {
+      const shiftId = `normalized_${suffix}`;
+      const payload = mutate({ ...basePayload, id: shiftId });
+      await assert.rejects(
+        pool.query(
+          `INSERT INTO shifts(
+             workspace_id,shift_id,is_active,payload,state,object_id,object_name_snapshot,
+             work_date,shift_type,opened_at,opened_by_uid,revision
+           ) VALUES($1,$2,true,$3,'active',$4,'Snapshot required','2026-11-26','day',
+                    to_timestamp($5 / 1000.0),$6,1)`,
+          [ids.workspaceId, shiftId, payload, ids.objectBId, openedAt, ids.adminUid],
+        ),
+        error => error.code === '23514',
+        suffix,
+      );
+    }
+  } finally {
+    await pool.end();
+  }
+});
+
+test('025 backfills the exact earliest confirmed event within workspace and shift', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('event_scope');
+  const other = await seedParallelShiftFixture({
+    suffix: 'event_scope_other',
+    shiftAId: ids.shiftAId,
+  });
+  const pool = poolForTest();
+  try {
+    const earliest = 1795464100000;
+    const later = earliest + 1000;
+    const otherShiftEarlier = earliest - 1000;
+    const otherWorkspaceEarlier = earliest - 2000;
+    const trucks = ['event_scope_arrive', 'event_scope_load', 'event_scope_other_shift'];
+    for (const truckId of trucks) {
+      await pool.query(
+        `INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES($1,$2,$3)`,
+        [ids.workspaceId, truckId, { id: truckId }],
+      );
+    }
+    await pool.query(
+      `INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES
+       ($1,$2,$3,$4,$5),($1,$6,$3,$7,$8),($1,$9,$10,$11,$12),($13,$14,$3,$15,$16)`,
+      [ids.workspaceId, 'event_scope_log_later', ids.shiftAId, trucks[0],
+        { id: 'event_scope_log_later', shiftId: ids.shiftAId, truckId: trucks[0], timestamp: later },
+        'event_scope_log_earliest', trucks[1],
+        { id: 'event_scope_log_earliest', shiftId: ids.shiftAId, truckId: trucks[1], timestamp: earliest },
+        'event_scope_log_other_shift', ids.shiftBId, trucks[2],
+        { id: 'event_scope_log_other_shift', shiftId: ids.shiftBId, truckId: trucks[2], timestamp: otherShiftEarlier },
+        other.workspaceId, 'event_scope_log_other_workspace', other.truckId,
+        { id: 'event_scope_log_other_workspace', shiftId: ids.shiftAId, truckId: other.truckId, timestamp: otherWorkspaceEarlier }],
+    );
+    await pool.query(
+      `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES
+       ($1,$2,$5,$6),($1,$3,$5,$7),($1,$4,$8,$9)`,
+      [ids.workspaceId, ...trucks, ids.shiftAId,
+        { id: trucks[0], shiftId: ids.shiftAId, arriveStatus: '09:00', arriveTimestamp: later + 1000 },
+        { id: trucks[1], shiftId: ids.shiftAId, lastLoadLogId: 'event_scope_log_earliest', lastLoadTimestamp: later + 2000 },
+        ids.shiftBId,
+        { id: trucks[2], shiftId: ids.shiftBId, arriveStatus: '08:00', arriveTimestamp: otherShiftEarlier }],
+    );
+    await applyMigrationsThrough(25);
+    const locks = await pool.query(
+      `SELECT workspace_id,shift_id,object_locked_at FROM shifts
+        WHERE (workspace_id=$1 AND shift_id IN ($2,$3)) OR (workspace_id=$4 AND shift_id=$2)
+        ORDER BY workspace_id,shift_id`,
+      [ids.workspaceId, ids.shiftAId, ids.shiftBId, other.workspaceId],
+    );
+    const target = locks.rows.find(row => row.workspace_id === ids.workspaceId && row.shift_id === ids.shiftAId);
+    assert.equal(target.object_locked_at.toISOString(), new Date(earliest).toISOString());
+    assert.equal(
+      locks.rows.find(row => row.workspace_id === ids.workspaceId && row.shift_id === ids.shiftBId).object_locked_at.toISOString(),
+      new Date(otherShiftEarlier).toISOString(),
+    );
+    assert.equal(
+      locks.rows.find(row => row.workspace_id === other.workspaceId && row.shift_id === ids.shiftAId).object_locked_at.toISOString(),
+      new Date(otherWorkspaceEarlier).toISOString(),
     );
   } finally {
     await pool.end();
@@ -298,7 +373,8 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
        VALUES($1,$2,$3,$4)`,
       [ids.workspaceId, ids.truckId, ids.shiftAId, {
         id: ids.truckId, shiftId: ids.shiftAId,
-        arriveTimestamp: null, lastLoadTimestamp: null, arriveStatus: null,
+        arriveTimestamp: 1795464000000, arriveStatus: null,
+        lastLoadTimestamp: 1795464001000, lastLoadLogId: null,
       }],
     );
     const lockedTruckId = 'locked_truck_core_good';
@@ -310,7 +386,7 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
       `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
        VALUES($1,$2,$3,$4)`,
       [ids.workspaceId, lockedTruckId, ids.shiftBId, {
-        id: lockedTruckId, shiftId: ids.shiftBId, arriveTimestamp: 1795465000000,
+        id: lockedTruckId, shiftId: ids.shiftBId, arriveStatus: '09:16', arriveTimestamp: 1795465000000,
       }],
     );
     // Same object/date is intentional: day and night must not conflict.
@@ -561,15 +637,17 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
     // Two concurrent inserts for the same active canonical key: exactly one commits.
     const duplicateIdA = 'duplicate_a_core_good';
     const duplicateIdB = 'duplicate_b_core_good';
+    const duplicateStartedAt = Date.parse('2026-11-24T09:00:00.000Z');
     const insertDuplicate = async (client, shiftId) => client.query(
       `INSERT INTO shifts(
          workspace_id,shift_id,is_active,payload,state,object_id,object_name_snapshot,
          work_date,shift_type,opened_at,opened_by_uid,revision
-       ) VALUES($1,$2,true,$3,'active',$4,$5,'2026-11-24','day',now(),$6,1)`,
+       ) VALUES($1,$2,true,$3,'active',$4,$5,'2026-11-24','day',to_timestamp($6 / 1000.0),$7,1)`,
       [ids.workspaceId, shiftId, {
         id: shiftId, objectId: ids.objectBId, objectName: ids.objectBId,
-        startDate: '24.11.2026', workShift: 'day', isActive: true,
-      }, ids.objectBId, ids.objectBId, ids.adminUid],
+        startDate: '24.11.2026', startedAt: duplicateStartedAt, startedByUid: ids.adminUid,
+        workShift: 'day', isActive: true,
+      }, ids.objectBId, ids.objectBId, duplicateStartedAt, ids.adminUid],
     );
     const clients = [await pool.connect(), await pool.connect()];
     try {
@@ -650,5 +728,35 @@ expectUnsafeLegacyFixtureRejected('025 rejects payload identity and active-state
         SET payload=jsonb_set(jsonb_set(payload,'{id}','"different-shift"'::jsonb),'{isActive}','false'::jsonb)
       WHERE workspace_id=$1 AND shift_id=$2`,
     [ids.workspaceId, ids.shiftAId],
+  );
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects confirmed line activity with a missing timestamp', async (pool, ids) => {
+  await pool.query(
+    `INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload)
+     VALUES($1,'missing_timestamp',$2,$3,$4)`,
+    [ids.workspaceId, ids.shiftAId, ids.truckId, {
+      id: 'missing_timestamp', shiftId: ids.shiftAId, truckId: ids.truckId, volume: 24,
+    }],
+  );
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects confirmed arrival activity with a wrong-type timestamp', async (pool, ids) => {
+  await pool.query(
+    `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
+     VALUES($1,$2,$3,$4)`,
+    [ids.workspaceId, ids.truckId, ids.shiftAId, {
+      id: ids.truckId, shiftId: ids.shiftAId, arriveStatus: '09:00', arriveTimestamp: '1795465000000',
+    }],
+  );
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects confirmed load activity with an out-of-range timestamp', async (pool, ids) => {
+  await pool.query(
+    `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload)
+     VALUES($1,$2,$3,$4)`,
+    [ids.workspaceId, ids.truckId, ids.shiftAId, {
+      id: ids.truckId, shiftId: ids.shiftAId, lastLoadLogId: 'future_load', lastLoadTimestamp: 4102444800000,
+    }],
   );
 });

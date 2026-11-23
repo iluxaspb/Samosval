@@ -62,6 +62,38 @@ BEGIN
 END
 $validate_legacy_shifts$;
 
+DO $validate_confirmed_activity_timestamps$
+DECLARE
+  bad record;
+BEGIN
+  SELECT workspace_id,shift_id,source INTO bad
+    FROM (
+      SELECT l.workspace_id,l.shift_id,'line_log'::text AS source,l.payload->'timestamp' AS event_time
+        FROM line_logs l
+      UNION ALL
+      SELECT t.workspace_id,t.shift_id,'arrival'::text,t.payload->'arriveTimestamp'
+        FROM line_truck_statuses t
+       WHERE NULLIF(btrim(t.payload->>'arriveStatus'),'') IS NOT NULL
+      UNION ALL
+      SELECT t.workspace_id,t.shift_id,'load'::text,t.payload->'lastLoadTimestamp'
+        FROM line_truck_statuses t
+       WHERE NULLIF(btrim(t.payload->>'lastLoadLogId'),'') IS NOT NULL
+    ) confirmed
+   WHERE CASE
+     WHEN jsonb_typeof(event_time)='number' AND event_time #>> '{}' ~ '^[0-9]+$'
+       THEN (event_time #>> '{}')::numeric < 946684800000
+         OR (event_time #>> '{}')::numeric >= 4102444800000
+     ELSE true
+   END
+   LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'unsafe confirmed activity timestamp for workspace %, shift %, source %',
+      bad.workspace_id,bad.shift_id,bad.source
+      USING ERRCODE='check_violation';
+  END IF;
+END
+$validate_confirmed_activity_timestamps$;
+
 UPDATE shifts s
    SET state = CASE WHEN s.payload->>'closing'='true' THEN 'closing'
                     WHEN s.is_active THEN 'active' ELSE 'closed' END,
@@ -80,17 +112,16 @@ UPDATE shifts s
              SELECT (l.payload->>'timestamp')::numeric AS event_ms
                FROM line_logs l
               WHERE l.workspace_id=s.workspace_id AND l.shift_id=s.shift_id
-                AND jsonb_typeof(l.payload->'timestamp')='number'
              UNION ALL
              SELECT (t.payload->>'arriveTimestamp')::numeric
                FROM line_truck_statuses t
               WHERE t.workspace_id=s.workspace_id AND t.shift_id=s.shift_id
-                AND jsonb_typeof(t.payload->'arriveTimestamp')='number'
+                AND NULLIF(btrim(t.payload->>'arriveStatus'),'') IS NOT NULL
              UNION ALL
              SELECT (t.payload->>'lastLoadTimestamp')::numeric
                FROM line_truck_statuses t
               WHERE t.workspace_id=s.workspace_id AND t.shift_id=s.shift_id
-                AND jsonb_typeof(t.payload->'lastLoadTimestamp')='number'
+                AND NULLIF(btrim(t.payload->>'lastLoadLogId'),'') IS NOT NULL
            ) confirmed_events
           WHERE event_ms > 0
        ),
@@ -224,6 +255,11 @@ BEGIN
      OR NEW.payload->>'objectId' IS DISTINCT FROM NEW.object_id
      OR NULLIF(btrim(NEW.payload->>'objectName'),'') IS NULL
      OR NEW.payload->>'objectName' IS DISTINCT FROM NEW.object_name_snapshot
+     OR jsonb_typeof(NEW.payload->'startedAt') IS DISTINCT FROM 'number'
+     OR (NEW.payload->>'startedAt') !~ '^[0-9]+$'
+     OR to_timestamp((NEW.payload->>'startedAt')::double precision / 1000.0) IS DISTINCT FROM NEW.opened_at
+     OR NULLIF(btrim(NEW.payload->>'startedByUid'),'') IS NULL
+     OR NEW.payload->>'startedByUid' IS DISTINCT FROM NEW.opened_by_uid
      OR jsonb_typeof(NEW.payload->'isActive') IS DISTINCT FROM 'boolean'
      OR (NEW.payload->>'isActive')::boolean IS DISTINCT FROM NEW.is_active
      OR (NOT (NEW.payload ? 'startDate') AND NOT (NEW.payload ? 'date'))

@@ -83,7 +83,7 @@
 
 **Симптом:** после фиксации объекта legacy payload-only запись блокировалась, но согласованный `UPDATE` normalized columns вместе с JSON обходил запрет; backfill ставил время блокировки равным открытию смены.
 **Причина:** immutable-check находился только внутри ветки legacy normalization, а timestamp выводился не из события линии. Проверки payload также допускали отсутствие обязательных общих v1 snapshot aliases.
-**Что делать:** immutable-инварианты ставить после всех веток нормализации и сравнивать итоговые canonical columns; backfill времени брать детерминированный `MIN` только из подтверждённых числовых event timestamps (`line_logs.timestamp`, status `arriveTimestamp`/`lastLoadTimestamp`), unknown оставлять NULL; полноту payload закреплять по фактическим writer aliases, не выдумывая будущие v2-поля.
+**Что делать:** immutable-инварианты ставить после всех веток нормализации и сравнивать итоговые canonical columns; backfill времени брать детерминированный `MIN` только из подтверждённых event timestamps (`line_logs.timestamp`, arrival с непустым `arriveStatus`, load с непустым `lastLoadLogId`). Если подтверждённых событий нет — lock остаётся `NULL`; если marker подтверждения есть, но timestamp отсутствует, имеет неверный тип или лежит вне допустимого диапазона — миграция обязана прерваться целиком, а не скрыть событие из `MIN`. Полноту payload закреплять по фактическим writer aliases, не выдумывая будущие v2-поля.
 
 ## Опыт выпусков (короткие уроки)
 
