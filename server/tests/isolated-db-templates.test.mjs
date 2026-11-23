@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import pg from 'pg';
 
 import { applyMigrations } from '../scripts/apply-migrations.mjs';
@@ -8,6 +8,8 @@ import { createTemplateBroker, generateRunCapability } from '../scripts/isolated
 import { transformLegacyMigrationGuard } from '../scripts/isolated-db/legacy-guards.mjs';
 import { EXPECTED_S24_HASH, EXPECTED_S24_REGISTRY, inspectTemplateSeal, prepareTemplates, verifyS24Target, verifyTargetAuthority } from '../scripts/isolated-db/templates.mjs';
 import { GENERATED_DATABASE_PREFIX } from '../scripts/isolated-db/safety.mjs';
+import { FIXTURE_IDS } from '../scripts/isolated-db/fixtures.mjs';
+import manifest from './db-test-manifest.mjs';
 
 const runid = 'abcdef012345';
 const emptyName = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_empty`;
@@ -16,6 +18,31 @@ const migration = filename => readFileSync(new URL(`../sql/${filename}`, import.
 const OWNER = 'samosval_test_prepared_owner';
 const sealedCatalogRow = comment => ({ owner: OWNER, super: false, createdb: false, createrole: false, canlogin: false, allow_connections: false, sessions: 0, memberships: 0, comment, datacl: `{${OWNER}=CTc/${OWNER},=T/${OWNER}}` });
 const cleanAuthorityRow = { wrong_object_owners: 0, wrong_function_owners: 0, broad_object_acl: 0, broad_schema_acl: 0, default_acl_entries: 0 };
+
+// Shared programmable context for orchestration-level unit checks (RULING I):
+// queued rows per call, no production-SQL parsing anywhere.
+function stubbedTemplateContext() {
+  const calls = [];
+  const capability = 'a'.repeat(64);
+  const broker = createTemplateBroker({ bootstrapClient: { query: async sql => String(sql.text ?? sql).includes('pg_advisory_unlock') ? { rows: [{ unlocked: true }] } : { rows: [{ count: 0 }] }, end: async () => {} }, runid, capability });
+  const templateAnswers = [
+    EXPECTED_S24_REGISTRY.map(x => ({ ...x })),
+    [{ workspaces: true, users: true, authority: true, replica: true, phones: true }],
+    [cleanAuthorityRow],
+  ];
+  const catalogAnswers = [
+    [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=${OWNER}`)],
+    [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S24;version=24;registry=${EXPECTED_S24_HASH};owner=${OWNER}`)],
+  ];
+  return {
+    runid,
+    templateOperation: async request => { calls.push(request.operation); return broker.run({ ...request, capability }); },
+    async migrateTemplate() { calls.push('migrate'); },
+    async queryTemplate() { return { rows: templateAnswers.shift() ?? [] }; },
+    async queryCatalog() { return { rows: catalogAnswers.shift() ?? [] }; },
+    calls,
+  };
+}
 
 test('legacy guard exact checksum/count and separate helper compatibility', () => {
   const source = migration('002_tabel.sql');
@@ -46,27 +73,31 @@ test('prepareTemplates consumes trusted queries, exact chain and complete author
   const calls = [];
   const comments = new Map();
   const broker = createTemplateBroker({ bootstrapClient: { query: async sql => String(sql.text ?? sql).includes('pg_advisory_unlock') ? { rows: [{ unlocked: true }] } : { rows: [{ count: 0 }] }, end: async () => {} }, runid, capability: 'a'.repeat(64) });
+  // RULING I: a programmable stub, not a production-SQL double. Rows are queued
+  // per call in orchestration order; the unit proves decisions/sequencing only,
+  // while exact SQL stays covered by the real PostgreSQL test below.
+  const templateAnswers = [
+    EXPECTED_S24_REGISTRY.map(x => ({ ...x })),        // verifyS24Target registry rows
+    [{ workspaces: true, users: true, authority: true, replica: true, phones: true }], // schema postconditions
+    [cleanAuthorityRow],                               // verifyTargetAuthority inventory
+  ];
+  const catalogAnswers = [
+    [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=${OWNER}`)],
+    [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S24;version=24;registry=${EXPECTED_S24_HASH};owner=${OWNER}`)],
+  ];
   const context = {
     runid,
     templateOperation: async request => { calls.push(request.operation); const result = await broker.run({ ...request, capability: 'a'.repeat(64) }); if (result?.comment) comments.set(request.database, result.comment); return result; },
     async migrateTemplate() { calls.push('migrate'); },
-    async queryTemplate(_db, sql) {
-      return { rows: sql.includes('schema_migrations') ? EXPECTED_S24_REGISTRY.map(x => ({ ...x }))
-        : sql.includes('pg_proc') ? [cleanAuthorityRow]
-        : [{ workspaces: true, users: true, authority: true, replica: true, phones: true }] };
-    },
-    async queryCatalog(sql, values) {
-      const database = values?.[1];
-      if (!sql.includes('pg_shdescription')) return { rows: [] };
-      return { rows: database === emptyName
-        ? [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=${OWNER}`)]
-        : [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S24;version=24;registry=${EXPECTED_S24_HASH};owner=${OWNER}`)] };
-    },
+    async queryTemplate() { return { rows: templateAnswers.shift() ?? [] }; },
+    async queryCatalog() { return { rows: catalogAnswers.shift() ?? [] }; },
   };
   const records = await prepareTemplates(context);
   assert.deepEqual([...records.keys()], ['empty', 'S24']);
   assert.equal(records.get('S24').registryHash, EXPECTED_S24_HASH);
   assert.deepEqual(calls, ['createTemplate', 'freezeTemplate', 'createTemplate', 'migrate', 'freezeTemplate']);
+  assert.equal(templateAnswers.length, 0, 'every trusted template query must be consumed');
+  assert.equal(catalogAnswers.length, 0, 'every trusted catalog inspection must be consumed');
 });
 
 test('seal rejects held session and every authority mutation', async () => {
@@ -112,6 +143,19 @@ test('broker binds run/capability and derives exact semantic marker tuple', asyn
   ]) await assert.rejects(broker.run(request), /not approved/i);
 });
 
+test('template and fixture registries expose no S25 or S26 baseline', async () => {
+  // Restored gate (RULING I): explicit and mutation-sensitive, not implied elsewhere.
+  const records = await prepareTemplates(stubbedTemplateContext());
+  assert.deepEqual([...records.keys()], ['empty', 'S24']);
+  for (const baseline of ['S25', 'S26']) assert.equal(records.has(baseline), false);
+  assert.deepEqual(FIXTURE_IDS, ['import-schema', 'identity-empty', 'auth-schema-018', 'authority-main-ubuntu', 'authority-main-firebase', 'replica-admin', 'replica-empty-stream-cursors']);
+  for (const entry of manifest.entries) {
+    for (const fixture of entry.fixtures ?? []) assert.ok(FIXTURE_IDS.includes(fixture), `manifest fixture outside the closed pre-S25 registry: ${fixture}`);
+    assert.ok(!/S25|S26/.test(entry.baseline ?? ''), `S25/S26 baseline in manifest: ${entry.file}`);
+  }
+  // Product 025/026 files exist and stay product-owned; the I3 registries above must not reference them.
+});
+
 const bootstrapUrl = process.env.SAMOSVAL_TEST_BOOTSTRAP_URL;
 const appPassword = process.env.SAMOSVAL_TEST_APP_PASSWORD;
 
@@ -144,7 +188,11 @@ test('real PostgreSQL helper, immutable S24 and usable clone', { skip: !bootstra
     const cloneUrl = new URL(cloneDbUrl(bootstrapUrl, clone));
     const owner = new pg.Client({ connectionString: cloneUrl.href });
     await owner.connect();
-    await owner.query(`GRANT USAGE ON SCHEMA public TO samosval_test_app; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO samosval_test_app; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO samosval_test_app`);
+    // RULING F: explicit minimal grants — every privilege below is exercised by an
+    // assertion, and an unnamed table is proven to stay closed.
+    await owner.query(`GRANT USAGE ON SCHEMA public TO samosval_test_app`);
+    await owner.query(`GRANT SELECT ON public.workspaces TO samosval_test_app`);
+    await owner.query(`GRANT SELECT,INSERT ON public.workspace_objects TO samosval_test_app`);
     await owner.end();
     cloneUrl.username = 'samosval_test_app';
     cloneUrl.password = appPassword;
@@ -152,7 +200,10 @@ test('real PostgreSQL helper, immutable S24 and usable clone', { skip: !bootstra
     await app.connect();
     try {
       assert.equal((await app.query('SELECT count(*)::int n FROM workspaces')).rows[0].n, 1);
+      // RULING F: the grant list is explicit, so a table the proof never names stays closed.
+      await assert.rejects(app.query('SELECT count(*)::int n FROM truck_phones'), /permission denied/i);
       await app.query(`INSERT INTO workspace_objects(workspace_id,object_id,payload) VALUES ('main_workspace','probe','{}')`);
+      assert.equal((await app.query(`SELECT count(*)::int n FROM workspace_objects WHERE workspace_id='main_workspace' AND object_id='probe'`)).rows[0].n, 1);
       await assert.rejects(app.query(`ALTER DATABASE "${s24}" ALLOW_CONNECTIONS true`), /owner|permission/i);
       await assert.rejects(app.query(`CREATE SCHEMA forbidden`), /permission/i);
     } finally { await app.end(); }
@@ -183,6 +234,9 @@ test('legacy helper migration regression on approved isolated helper DB', { skip
       const registry = await verifyS24Target((text, values) => probe.query(text, values));
       assert.equal(registry.version, 24);
       assert.equal((await probe.query(`SELECT count(*)::int n FROM schema_migrations`)).rows[0].n, registry.count);
+      // RULING G: applyMigrationsThrough passes no exclude, so 018 is applied through the retarget guard.
+      assert.deepEqual((await probe.query(`SELECT filename FROM schema_migrations WHERE filename='018_auth_credentials.sql'`)).rows, [{ filename: '018_auth_credentials.sql' }]);
+      assert.equal((await probe.query(`SELECT to_regclass('public.user_credentials')::text name`)).rows[0].name, 'user_credentials');
     } finally { await probe.end(); }
   } finally {
     await admin.query(`DROP DATABASE IF EXISTS "${helper}" WITH (FORCE)`).catch(() => {});
