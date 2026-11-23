@@ -5,15 +5,21 @@ services:
     image: postgres:16-alpine
     restart: "no"
     environment:
-      POSTGRES_DB: samosval_parallel_shifts_test
-      POSTGRES_USER: ${POSTGRES_USER:-samosval_test_runner}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for the isolated test database}
+      POSTGRES_DB: postgres
+      POSTGRES_USER: samosval_test_bootstrap_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a runtime-generated bootstrap password}
+      SAMOSVAL_ORCHESTRATOR_PASSWORD: ${SAMOSVAL_ORCHESTRATOR_PASSWORD:?set a runtime-generated orchestrator password}
+      SAMOSVAL_TEST_APP_PASSWORD: ${SAMOSVAL_TEST_APP_PASSWORD:?set a runtime-generated test app password}
+      SAMOSVAL_TEST_RUNTIME_PASSWORD: ${SAMOSVAL_TEST_RUNTIME_PASSWORD:?set a runtime-generated runtime password}
     ports:
       - "127.0.0.1:${POSTGRES_TEST_PORT:-55432}:5432"
     tmpfs:
       - /var/lib/postgresql/data
+    volumes:
+      - ./scripts/isolated-db/bootstrap.sh:/docker-entrypoint-initdb.d/10-isolated-db-bootstrap.sh:ro
+      - ./scripts/isolated-db/bootstrap.sql:/opt/samosval/isolated-db-bootstrap.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d postgres"]
       interval: 2s
       timeout: 3s
       retries: 15
@@ -26,9 +32,9 @@ services:
     environment:
       PGHOST: postgres
       PGPORT: "5432"
-      POSTGRES_DB: samosval_parallel_shifts_test
-      POSTGRES_USER: ${POSTGRES_USER:-samosval_test_runner}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for the isolated test database}
+      POSTGRES_DB: postgres
+      POSTGRES_USER: samosval_test_app
+      POSTGRES_PASSWORD: ${SAMOSVAL_TEST_APP_PASSWORD:?set a runtime-generated test app password}
       PORT: "8080"
     depends_on:
       postgres:

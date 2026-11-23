@@ -1,0 +1,41 @@
+export const GENERATED_DATABASE_PREFIX = 'samosval_parallel_shifts_test_';
+export const BOOTSTRAP_MARKER = 'samosval-isolated-db-bootstrap:v1';
+
+const IDENTIFIER = /^[a-z][a-z0-9_]*$/;
+const RUNID = /^[a-f0-9]{12,24}$/;
+const HASH = /^[a-f0-9]{12}$/;
+const RESERVED = new Set([
+  'postgres', 'template0', 'template1', 'samosval_test',
+  'samosval_working_test_reserve', 'samosval_parallel_shifts_test',
+]);
+
+function reject(label) { throw new Error(`${label} is not approved`); }
+
+export function validateAdminUrl(input) {
+  let url;
+  try { url = new URL(input); } catch { reject('admin URL'); }
+  if (!['postgres:', 'postgresql:'].includes(url.protocol)) reject('admin URL');
+  if (!['127.0.0.1', 'localhost', '[::1]', 'postgres'].includes(url.hostname)) reject('admin URL');
+  if (url.pathname !== '/postgres' || url.search || url.hash || !url.username || !url.password) reject('admin URL');
+  return url;
+}
+
+export function validateGeneratedIdentifier(value, options = {}) {
+  if (typeof value !== 'string' || !IDENTIFIER.test(value) || Buffer.byteLength(value, 'utf8') > 63 || RESERVED.has(value)) reject('generated identifier');
+  if (options.runid !== undefined) {
+    const { runid, kind } = options;
+    if (!RUNID.test(runid)) reject('generated identifier');
+    if (kind === 'target') {
+      const suffix = value.slice(`${GENERATED_DATABASE_PREFIX}${runid}_`.length);
+      if (!value.startsWith(`${GENERATED_DATABASE_PREFIX}${runid}_`) || !HASH.test(suffix)) reject('generated identifier');
+    } else if (kind === 'template') {
+      if (!value.startsWith(`${GENERATED_DATABASE_PREFIX}${runid}_tpl_`)) reject('generated identifier');
+    } else reject('generated identifier');
+  }
+  return value;
+}
+
+export function quoteIdentifier(value) {
+  validateGeneratedIdentifier(value);
+  return `"${value.replaceAll('"', '""')}"`;
+}

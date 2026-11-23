@@ -21,8 +21,8 @@ const dbFiles = [
 ];
 
 const harnessFiles = [
-  'compose-isolated-db', 'isolated-db-guard', 'isolated-db-integration',
-  'isolated-db-runner'
+  'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-guard',
+  'isolated-db-integration', 'isolated-db-runner'
 ];
 
 const consumersByFile = {
@@ -71,6 +71,9 @@ const consumersByFile = {
   "identity-store": [
     "tests/identity-store.test.mjs:db-env",
     "tests/identity-store.test.mjs:pg"
+  ],
+  "isolated-db-bootstrap": [
+    "tests/isolated-db-bootstrap.test.mjs:pg"
   ],
   "isolated-db-guard": [
     "scripts/apply-migrations.mjs:pg",

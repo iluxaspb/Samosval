@@ -13,6 +13,14 @@ function resolveCompose() {
   return null;
 }
 
+const composeEnvironment = {
+  ...process.env,
+  POSTGRES_PASSWORD: 'compose-config-only',
+  SAMOSVAL_ORCHESTRATOR_PASSWORD: 'compose-config-orchestrator',
+  SAMOSVAL_TEST_APP_PASSWORD: 'compose-config-app',
+  SAMOSVAL_TEST_RUNTIME_PASSWORD: 'compose-config-runtime',
+};
+
 function renderCompose() {
   for (const command of [
     ['docker', ['compose', '-f', 'compose.test.yaml', 'config']],
@@ -21,7 +29,7 @@ function renderCompose() {
     const result = spawnSync(command[0], command[1], {
       cwd: new URL('..', import.meta.url),
       encoding: 'utf8',
-      env: { ...process.env, POSTGRES_PASSWORD: 'compose-config-only' },
+      env: composeEnvironment,
     });
     if (result.status === 0) return result.stdout;
   }
@@ -80,7 +88,7 @@ test('available compose resolver enforces exact default, test and api service se
   ], {
     cwd: new URL('..', import.meta.url),
     encoding: 'utf8',
-    env: { ...process.env, POSTGRES_PASSWORD: 'compose-config-only' },
+    env: composeEnvironment,
   });
   const effective = profile => {
     const result = invoke(profile);
@@ -94,14 +102,17 @@ test('available compose resolver enforces exact default, test and api service se
   assert.deepEqual(effective('api'), ['api', 'postgres']);
 });
 
-test('compose exposes only the ephemeral isolated database on loopback', t => {
+test('compose exposes only the ephemeral bootstrap database on loopback', t => {
   const config = renderCompose();
   if (!config) return t.skip('docker compose is unavailable');
-  assert.match(config, /samosval_parallel_shifts_test/);
+  assert.match(config, /POSTGRES_DB: postgres/);
+  assert.match(config, /bootstrap\.sh/);
+  assert.match(config, /bootstrap\.sql/);
   assert.match(config, /127\.0\.0\.1/);
   assert.match(config, /55432/);
   assert.match(config, /tmpfs:[\s\S]*\/var\/lib\/postgresql\/data/);
   assert.doesNotMatch(config, /0\.0\.0\.0/);
+  assert.doesNotMatch(config, /samosval_parallel_shifts_test\s*$/m);
 });
 
 test('compose preserves the documented API flow behind an explicit profile', t => {
