@@ -13,19 +13,6 @@ import { fail, map } from './tabel-access.mjs';
 const docId = path => String(path || '').split('/').filter(Boolean).pop() || '';
 const asObject = value => (map(value) ? value : {});
 
-// Резерв не должен падать из-за порядка доставки: зависимые строки
-// (статус/рейс ссылаются на смену) создаём заглушкой, настоящий документ
-// смены придёт следом и перезапишет payload.
-async function ensureShift(client, ws, shiftId) {
-  if (!shiftId) return;
-  await client.query(
-    `INSERT INTO shifts(workspace_id,shift_id,is_active,payload,replica_placeholder)
-     VALUES ($1,$2,false,$3::jsonb,true)
-     ON CONFLICT (workspace_id,shift_id) DO NOTHING`,
-    [ws, shiftId, '{}']
-  );
-}
-
 function permissionRows(payload) {
   const rows = [];
   for (const [role, permissions] of Object.entries(asObject(payload))) {
@@ -62,10 +49,10 @@ export async function applyReplicaDocument(client, ws, operation) {
         return true;
       }
       await client.query(
-        `INSERT INTO shifts(workspace_id,shift_id,is_active,payload,replica_placeholder)
-         VALUES ($1,$2,$3,$4::jsonb,false)
+        `INSERT INTO shifts(workspace_id,shift_id,is_active,payload)
+         VALUES ($1,$2,$3,$4::jsonb)
          ON CONFLICT (workspace_id,shift_id)
-         DO UPDATE SET is_active=EXCLUDED.is_active, payload=EXCLUDED.payload, replica_placeholder=false`,
+         DO UPDATE SET is_active=EXCLUDED.is_active, payload=EXCLUDED.payload`,
         [ws, id, data.isActive === true, JSON.stringify(data)]
       );
       return true;
@@ -90,7 +77,6 @@ export async function applyReplicaDocument(client, ws, operation) {
       }
       const shiftId = String(data.shiftId || '');
       if (!shiftId) throw fail('replica-status-without-shift');
-      await ensureShift(client, ws, shiftId);
       await client.query(
         `INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES ($1,$2,$3,$4::jsonb)
          ON CONFLICT (workspace_id,truck_id)
@@ -107,12 +93,13 @@ export async function applyReplicaDocument(client, ws, operation) {
       const shiftId = String(data.shiftId || '');
       const truckId = String(data.truckId || '');
       if (!shiftId || !truckId) throw fail('replica-log-without-shift');
-      await ensureShift(client, ws, shiftId);
-      // Рейс без строки самосвала тоже должен читаться: создаём заглушку.
-      await client.query(
-        'INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES ($1,$2,$3::jsonb) ON CONFLICT (workspace_id,truck_id) DO NOTHING',
-        [ws, truckId, JSON.stringify({ id: truckId, name: data.truckName || '' })]
+      const parents = await client.query(
+        `SELECT EXISTS(SELECT 1 FROM shifts WHERE workspace_id=$1 AND shift_id=$2) AS shift_exists,
+                EXISTS(SELECT 1 FROM line_trucks WHERE workspace_id=$1 AND truck_id=$3) AS truck_exists`,
+        [ws, shiftId, truckId]
       );
+      if (!parents.rows[0]?.shift_exists) throw fail('replica-log-shift-missing');
+      if (!parents.rows[0]?.truck_exists) throw fail('replica-log-truck-missing');
       await client.query(
         `INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES ($1,$2,$3,$4,$5::jsonb)
          ON CONFLICT (workspace_id,log_id)

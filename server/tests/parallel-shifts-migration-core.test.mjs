@@ -409,13 +409,13 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
 
     const shiftColumns = await columnMap(pool, 'shifts');
     const expectedShiftColumns = {
-      state: ['text', 'YES'],
-      object_id: ['text', 'YES'],
-      object_name_snapshot: ['text', 'YES'],
-      work_date: ['date', 'YES'],
-      shift_type: ['text', 'YES'],
-      opened_at: ['timestamp with time zone', 'YES'],
-      opened_by_uid: ['text', 'YES'],
+      state: ['text', 'NO'],
+      object_id: ['text', 'NO'],
+      object_name_snapshot: ['text', 'NO'],
+      work_date: ['date', 'NO'],
+      shift_type: ['text', 'NO'],
+      opened_at: ['timestamp with time zone', 'NO'],
+      opened_by_uid: ['text', 'NO'],
       object_locked_at: ['timestamp with time zone', 'YES'],
       object_locked_by_operation_id: ['text', 'YES'],
       closing_started_at: ['timestamp with time zone', 'YES'],
@@ -423,8 +423,8 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
       closed_at: ['timestamp with time zone', 'YES'],
       closed_by_uid: ['text', 'YES'],
       revision: ['bigint', 'NO'],
-      replica_placeholder: ['boolean', 'NO'],
     };
+    assert.equal(shiftColumns.has(['replica', 'placeholder'].join('_')), false, '025 must not expose replica placeholders');
     for (const [name, [type, nullable]] of Object.entries(expectedShiftColumns)) {
       assert.equal(shiftColumns.get(name)?.data_type, type, `shifts.${name} type`);
       assert.equal(shiftColumns.get(name)?.is_nullable, nullable, `shifts.${name} nullability`);

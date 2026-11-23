@@ -21,9 +21,9 @@ async function cleanup() {
   await pool.query('DELETE FROM line_logs WHERE log_id LIKE $1', [P + '%']);
   await pool.query('DELETE FROM line_truck_statuses WHERE truck_id LIKE $1', [P + '%']);
   await pool.query('DELETE FROM line_trucks WHERE truck_id LIKE $1', [P + '%']);
-  await pool.query('DELETE FROM workspace_objects WHERE object_id LIKE $1', [P + '%']);
   await pool.query('DELETE FROM shift_archives WHERE archive_id LIKE $1', [P + '%']);
   await pool.query('DELETE FROM shifts WHERE shift_id LIKE $1', [P + '%']);
+  await pool.query('DELETE FROM workspace_objects WHERE object_id LIKE $1', [P + '%']);
   await pool.query('DELETE FROM app_users WHERE uid LIKE $1', [P + '%']);
   await pool.query("DELETE FROM replica_stream WHERE operation_id LIKE 'zz-verify-%'");
 }
@@ -41,11 +41,15 @@ async function reset() {
 const batch = id => ({
   baseSeq: 0,
   operations: [
-    doc('1', 'shift', 'workspaces/main_workspace/shift/' + P + 'shift', { id: P + 'shift', isActive: true }),
+    doc('0', 'objects', 'workspaces/main_workspace/objects/' + P + 'obj', { id: P + 'obj', name: 'Объект' }),
+    doc('1', 'shift', 'workspaces/main_workspace/shift/' + P + 'shift', {
+      id: P + 'shift', shiftId: P + 'shift', objectId: P + 'obj', objectName: 'Объект',
+      startDate: '23.11.2026', date: '2026-11-23', startedAt: 1795420800000,
+      startedBy: UID, startedByUid: UID, isActive: true, state: 'active', workShift: 'day', type: 'day',
+    }),
     doc('2', 'trucks', 'workspaces/main_workspace/trucks/' + P + 'truck', { id: P + 'truck', name: 'Тест' }),
     doc('3', 'truckStatus', 'workspaces/main_workspace/truckStatus/' + P + 'truck', { id: P + 'truck', shiftId: P + 'shift', onLine: true }),
     doc('4', 'logs', 'workspaces/main_workspace/logs/' + P + 'log', { id: P + 'log', shiftId: P + 'shift', truckId: P + 'truck', volume: 12 }),
-    doc('5', 'objects', 'workspaces/main_workspace/objects/' + P + 'obj', { id: P + 'obj', name: 'Объект' }),
     doc('6', 'users', 'users/' + P + 'user', { email: 'zz-verify@example.invalid', role: 'driver', status: 'active', nickname: 'Резерв' }),
     doc('7', 'archive', 'workspaces/main_workspace/archive/' + P + 'arch', { id: P + 'arch', shiftId: P + 'shift', logs: [] }),
     doc('8', 'audit', 'workspaces/main_workspace/audit/' + P + 'audit', { text: 'служебная запись' })

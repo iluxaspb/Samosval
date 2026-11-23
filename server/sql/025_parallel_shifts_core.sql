@@ -60,8 +60,7 @@ ALTER TABLE shifts
   ADD COLUMN closing_by_uid text,
   ADD COLUMN closed_at timestamptz,
   ADD COLUMN closed_by_uid text,
-  ADD COLUMN revision bigint DEFAULT 1,
-  ADD COLUMN replica_placeholder boolean NOT NULL DEFAULT false;
+  ADD COLUMN revision bigint DEFAULT 1;
 
 DO $validate_legacy_shifts$
 DECLARE
@@ -168,34 +167,14 @@ UPDATE shifts s
        revision = 1;
 
 ALTER TABLE shifts
+  ALTER COLUMN state SET NOT NULL,
+  ALTER COLUMN object_id SET NOT NULL,
+  ALTER COLUMN object_name_snapshot SET NOT NULL,
+  ALTER COLUMN work_date SET NOT NULL,
+  ALTER COLUMN shift_type SET NOT NULL,
+  ALTER COLUMN opened_at SET NOT NULL,
+  ALTER COLUMN opened_by_uid SET NOT NULL,
   ALTER COLUMN revision SET NOT NULL,
-  ADD CONSTRAINT shifts_placeholder_shape_check CHECK (
-    (replica_placeholder
-     AND NOT is_active
-     AND payload='{}'::jsonb
-     AND state IS NULL
-     AND object_id IS NULL
-     AND object_name_snapshot IS NULL
-     AND work_date IS NULL
-     AND shift_type IS NULL
-     AND opened_at IS NULL
-     AND opened_by_uid IS NULL
-     AND object_locked_at IS NULL
-     AND object_locked_by_operation_id IS NULL
-     AND closing_started_at IS NULL
-     AND closing_by_uid IS NULL
-     AND closed_at IS NULL
-     AND closed_by_uid IS NULL)
-    OR
-    (NOT replica_placeholder
-     AND state IS NOT NULL
-     AND object_id IS NOT NULL
-     AND object_name_snapshot IS NOT NULL
-     AND work_date IS NOT NULL
-     AND shift_type IS NOT NULL
-     AND opened_at IS NOT NULL
-     AND opened_by_uid IS NOT NULL)
-  ),
   ADD CONSTRAINT shifts_state_check CHECK (state IN ('active','closing','closed')),
   ADD CONSTRAINT shifts_shift_type_check CHECK (shift_type IN ('day','night')),
   ADD CONSTRAINT shifts_revision_check CHECK (revision > 0),
@@ -220,23 +199,6 @@ DECLARE
   payload_date date;
   payload_type text;
 BEGIN
-  IF NEW.replica_placeholder THEN
-    IF TG_OP <> 'INSERT'
-       OR NEW.is_active
-       OR NEW.payload <> '{}'::jsonb
-       OR NEW.state IS NOT NULL
-       OR NEW.object_id IS NOT NULL
-       OR NEW.object_name_snapshot IS NOT NULL
-       OR NEW.work_date IS NOT NULL
-       OR NEW.shift_type IS NOT NULL
-       OR NEW.opened_at IS NOT NULL
-       OR NEW.opened_by_uid IS NOT NULL
-    THEN
-      RAISE EXCEPTION 'unsafe replica shift placeholder' USING ERRCODE='check_violation';
-    END IF;
-    RETURN NEW;
-  END IF;
-
   IF TG_OP='UPDATE' AND NEW.is_active IS DISTINCT FROM OLD.is_active
      AND NEW.payload IS NOT DISTINCT FROM OLD.payload
      AND NEW.state IS NOT DISTINCT FROM OLD.state THEN
