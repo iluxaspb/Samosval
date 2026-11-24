@@ -275,6 +275,19 @@ async function dropAuthorized(bootstrapClient, request, identifier) {
   return bootstrapClient.query({ text: `DROP DATABASE ${identifier}`, queryMode: 'simple' });
 }
 
+// The drop phase mirrors the terminate phase: a refusal observed inside the
+// held fence is a safety verdict with constant text, so the caller can report
+// the leak. A transport-level failure instead breaks the fence release, ends
+// the dedicated session and reaches the caller as CLOSED_ERROR.
+async function dropAuthorityRefusal(bootstrapClient, request, identifier) {
+  try {
+    return await dropAuthorized(bootstrapClient, request, identifier);
+  } catch (error) {
+    if (error?.code === 'ESAFETY') throw error;
+    throw safety('the drop authority refused the exact target (identity, state or authority)');
+  }
+}
+
 async function reservedTargetOperation(bootstrapClient, request, identifier) {
   if (request.operation === 'createReservedTarget') {
     await bootstrapClient.query('SELECT samosval_isolated_admin.reserve_target($1,$2,$3)', [request.database, request.runid, request.capability]);
@@ -316,7 +329,7 @@ async function cleanupReservedTarget(bootstrapClient, request, identifier) {
     // destroyed and the object is reported instead of retried.
     throw safety('the terminate phase refused the exact target (identity, state or authority)');
   }
-  await dropAuthorized(bootstrapClient, request, identifier);
+  await dropAuthorityRefusal(bootstrapClient, request, identifier);
   return Object.freeze({ database: request.database });
 }
 

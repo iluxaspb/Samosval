@@ -222,28 +222,35 @@ test('state below marked is never terminated or dropped by ordinary cleanup', as
   assert.equal(client.events.length, 0);
 });
 
-test('provisioning is globally serialized: two files never overlap their fences', async () => {
-  const client = session({ templates: new Set(S24_TEMPLATE) });
+test('provisioning is globally serialized: two sessions never overlap their fences', async () => {
+  // Two dedicated bootstrap sessions are two independent brokers and two
+  // independent session fences (one pending chain per session). Only the
+  // global provisioning semaphore can still serialize the two clones, so a
+  // shared peak counter inside onClone is what actually observes it.
+  const clients = [session({ templates: new Set(S24_TEMPLATE) }), session({ templates: new Set(S24_TEMPLATE) })];
   let active = 0;
   let peak = 0;
-  client.hooks.onClone = async () => { active += 1; peak = Math.max(peak, active); await new Promise(resolve => setTimeout(resolve, 5)); active -= 1; };
-  const ctx = context(client);
-  const [a, b] = await Promise.all([
-    provisionTarget(ctx, { file: 'tests/a.test.mjs', baseline: 'S24' }),
-    provisionTarget(ctx, { file: FILE_B, baseline: 'S24' }),
-  ]);
-  assert.equal(peak, 1, 'clone/setup must hold the global provisioning semaphore');
-  assert.notEqual(a.database, b.database);
-  const flat = kinds(client);
-  assert.equal(flat.filter(kind => kind === 'lock').length, 2);
-  assert.equal(flat.filter(kind => kind === 'unlock').length, 2);
-  // Serialize the two sequences and prove no fence opens before the previous one closed.
-  let open = false;
-  for (const kind of flat) {
-    if (kind === 'lock') { assert.equal(open, false, 'nested fences'); open = true; }
-    if (kind === 'unlock') { assert.equal(open, true); open = false; }
+  for (const client of clients) {
+    client.hooks.onClone = async () => { active += 1; peak = Math.max(peak, active); await new Promise(resolve => setTimeout(resolve, 5)); active -= 1; };
   }
-  assert.equal(open, false);
+  const [a, b] = await Promise.all([
+    provisionTarget(context(clients[0]), { file: 'tests/a.test.mjs', baseline: 'S24' }),
+    provisionTarget(context(clients[1]), { file: FILE_B, baseline: 'S24' }),
+  ]);
+  assert.equal(peak, 1, 'clone/setup must hold the global provisioning semaphore across sessions');
+  assert.notEqual(a.database, b.database);
+  for (const client of clients) {
+    const flat = kinds(client);
+    assert.equal(flat.filter(kind => kind === 'lock').length, 1);
+    assert.equal(flat.filter(kind => kind === 'unlock').length, 1);
+    // Serialize each sequence and prove no fence opens before the previous one closed.
+    let open = false;
+    for (const kind of flat) {
+      if (kind === 'lock') { assert.equal(open, false, 'nested fences'); open = true; }
+      if (kind === 'unlock') { assert.equal(open, true); open = false; }
+    }
+    assert.equal(open, false);
+  }
 });
 
 test('a failure before mark leaves the record below marked, performs no destructive query and always releases the fence', async () => {
@@ -381,14 +388,34 @@ test('cleanup_revalidates_identity_after_toctou', async () => {
   }
 });
 
-test('a replaced database (same name, drifted identity) survives because the drop fingerprint is reread', async () => {
+test('identity drift caught by the drop phase is a safety verdict: ESAFETY, not an infrastructure error', async () => {
+  // The same drift is ESAFETY when the terminate phase sees it. A drift one
+  // statement later (the drop authority, or the reread after it) must carry
+  // the same verdict, so a consumer never tells a leak from a broken session.
   const client = session({ templates: new Set(S24_TEMPLATE) });
   const { ctx, record } = await provisioned(client);
   client.hooks.afterAuthorize = w => { w.owner.set(NAME_A, 'samosval_test_orchestrator'); };
-  await assert.rejects(cleanupTarget(ctx, record, { phase: 'setup' }), /failed closed/i);
+  await assert.rejects(cleanupTarget(ctx, record, { phase: 'setup' }), error => error.code === 'ESAFETY');
   assert.equal(client.world.exists.has(NAME_A), true);
   assert.equal(client.events.some(event => Array.isArray(event) && event[0] === 'drop'), false);
   assert.equal(client.events.at(-1), 'unlock');
+});
+
+test('a connection break in the drop phase is an infrastructure failure: CLOSED_ERROR, never a safety verdict', async () => {
+  const client = session({ templates: new Set(S24_TEMPLATE) });
+  const { ctx, record } = await provisioned(client);
+  const inner = client.query;
+  let dead = false;
+  // A lost connection fails every later statement of the session, the fence
+  // release included; only ending the dedicated session clears the lock.
+  client.query = async (config, values) => {
+    if (dead || String(config?.text ?? config).includes('authorize_drop_target')) { dead = true; throw new Error('Connection terminated unexpectedly'); }
+    return inner(config, values);
+  };
+  await assert.rejects(cleanupTarget(ctx, record, { phase: 'setup' }), error => error.code !== 'ESAFETY' && /failed closed/i.test(error.message));
+  assert.equal(client.world.exists.has(NAME_A), true, 'nothing was destroyed by an infrastructure failure');
+  assert.equal(client.events.some(event => Array.isArray(event) && event[0] === 'drop'), false);
+  assert.equal(client.events.at(-1), 'end', 'the dedicated session is closed to clear the fence');
 });
 
 test('a session-fence release failure closes the dedicated session', async () => {
@@ -756,7 +783,7 @@ test('real PostgreSQL: a TOCTOU marker change between identity reread and termin
       },
       end: () => admin.end(),
     };
-    await assert.rejects(cleanupTarget({ ...ctx, bootstrapClient: hooked }, record, { phase: 'setup' }), error => error.code === 'ESAFETY' || /failed closed/i.test(error.message));
+    await assert.rejects(cleanupTarget({ ...ctx, bootstrapClient: hooked }, record, { phase: 'setup' }), error => error.code === 'ESAFETY');
     assert.equal((await catalogRow(admin, record.database)).comment, 'toctou replacement');
     assert.ok(await catalogRow(admin, record.database), 'the drifted target must survive');
   });
@@ -773,6 +800,43 @@ test('real PostgreSQL: leak check reports a foreign object under the run prefix 
       assert.ok(await catalogRow(admin, foreign), 'a leak check must not drop a foreign object');
     } finally {
       await admin.query(`DROP DATABASE IF EXISTS "${foreign}" WITH (FORCE)`);
+    }
+  });
+});
+
+test('real PostgreSQL: a lost bootstrap connection in the drop phase is CLOSED_ERROR, the target survives and a retry cleans it up', { skip: real.skip }, async () => {
+  await withRealRun(async ({ admin, ctx }) => {
+    const record = (await provisionTarget(ctx, { file: 'tests/a.test.mjs', baseline: 'S24' })).transition('running');
+    // A dedicated bootstrap session for the cleanup, so the test-side admin stays usable.
+    const session = new pg.Client({ connectionString: bootstrapUrl, application_name: 'i4_lifecycle_break' });
+    session.on('error', () => {});
+    await session.connect();
+    const inner = session.query.bind(session);
+    const hooked = {
+      query: async (config, values) => {
+        if (String(config?.text ?? config).includes('authorize_drop_target')) {
+          // Real transport failure: the server kills the held session itself,
+          // as a restart, a failover or an operator would; every later
+          // statement of the session fails, the fence release included.
+          await inner('SELECT pg_terminate_backend(pg_backend_pid())');
+          return inner(config, values);
+        }
+        return inner(config, values);
+      },
+      end: () => session.end(),
+    };
+    try {
+      await assert.rejects(
+        cleanupTarget({ ...ctx, bootstrapClient: hooked }, record, { phase: 'setup' }),
+        error => error.code !== 'ESAFETY' && /failed closed/i.test(error.message),
+      );
+      const row = await catalogRow(admin, record.database);
+      assert.equal(row.comment, record.comment, 'nothing was destroyed by an infrastructure failure');
+      // An infrastructure failure carries no verdict, so the same cleanup may be retried.
+      assert.equal((await cleanupTarget(ctx, record, { phase: 'setup' })).dropped, record.database);
+      assert.equal(await catalogRow(admin, record.database), undefined);
+    } finally {
+      await session.end().catch(() => {});
     }
   });
 });
