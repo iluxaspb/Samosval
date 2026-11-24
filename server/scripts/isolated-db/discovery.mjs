@@ -6,8 +6,7 @@ const STATIC_IMPORT_RE = /(?:^|;)\s*(?:import\s+(?:[^'";]+?\s+from\s+)?|export\s
 const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
 const ANY_DYNAMIC_IMPORT_RE = /\bimport\s*\(([^)]*)\)/g;
 const PG_IMPORT_RE = /(?:^|;)\s*import\s+(?:[^'";]+?\s+from\s+)?['"]pg['"]|\bimport\s*\(\s*['"]pg['"]\s*\)/m;
-const HARNESS_ROOTS = new Set(['compose-isolated-db.test.mjs', 'isolated-db-bootstrap.test.mjs', 'isolated-db-fixtures.test.mjs', 'isolated-db-guard.test.mjs', 'isolated-db-integration.test.mjs', 'isolated-db-lifecycle.test.mjs', 'isolated-db-runner.test.mjs', 'isolated-db-templates.test.mjs']);
-const PRE_I5_RESERVED_FIXTURE = 'tests/fixtures/isolated-db-process.test.mjs';
+const HARNESS_ROOTS = new Set(['compose-isolated-db.test.mjs', 'isolated-db-bootstrap.test.mjs', 'isolated-db-env.test.mjs', 'isolated-db-fixtures.test.mjs', 'isolated-db-guard.test.mjs', 'isolated-db-integration.test.mjs', 'isolated-db-lifecycle.test.mjs', 'isolated-db-process.test.mjs', 'isolated-db-runner.test.mjs', 'isolated-db-templates.test.mjs']);
 const DB_ENV_RE = /process\.env\.(?:TEST_DATABASE_URL|DATABASE_URL|PGHOST|PGPORT|PGDATABASE|PGUSER|PGPASSWORD|POSTGRES_DB|POSTGRES_USER|POSTGRES_PASSWORD)\b|process\.env\[['"](?:TEST_DATABASE_URL|DATABASE_URL|PGHOST|PGPORT|PGDATABASE|PGUSER|PGPASSWORD|POSTGRES_DB|POSTGRES_USER|POSTGRES_PASSWORD)['"]\]/;
 const HTTP_CHILD_RE = /\b(?:spawn|fork|execFile)\s*\([\s\S]{0,800}?(?:['"](?:server\/)?src\/index\.mjs['"]|\[\s*['"]src['"]\s*,\s*['"]index\.mjs['"]\s*\])/;
 const DB_HELPER_RE = /tests\/helpers\/isolated-db\.mjs$/;
@@ -78,12 +77,11 @@ export async function discoverTests(serverDirectoryInput, { harnessFixtures = []
     if (!inside(testsDirectory, canonical) || canonical !== lexical || !fixture.startsWith('tests/fixtures/')) throw new Error(`invalid canonical harness fixture ${fixture}`);
     excluded.add(canonical);
   }
-  const reserved = resolve(serverDirectory, PRE_I5_RESERVED_FIXTURE);
   const roots = [];
   for (const path of await testFiles(testsDirectory)) {
     const canonical = await realpath(path);
     if (!inside(testsDirectory, canonical) || canonical !== path) throw new Error(`test root must be canonical and not a symlink: ${slash(relative(serverDirectory, path))}`);
-    if (!excluded.has(canonical) && canonical !== reserved) roots.push(canonical);
+    if (!excluded.has(canonical)) roots.push(canonical);
   }
   roots.sort((a, b) => slash(relative(serverDirectory, a)).localeCompare(slash(relative(serverDirectory, b))));
   const sourceCache = new Map();

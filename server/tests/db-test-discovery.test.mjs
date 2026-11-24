@@ -23,9 +23,12 @@ async function fixture(files) {
 test('discovered_equals_manifest_including_existing_replica_root', async () => {
   const discovery = await discoverTests(serverDirectory, { harnessFixtures: manifest.harnessFixtures });
   await loadManifest(manifest, { serverDirectory, discovered: discovery.roots });
-  assert.equal(discovery.roots.length, 67);
+  assert.equal(discovery.roots.length, 69);
   assert.ok(discovery.roots.some(item => item.file === 'tests/replica-materialize-parallel-shifts.test.mjs'));
   assert.ok(manifest.harnessFixtures.includes('tests/fixtures/marker-tamper.test.mjs'));
+  assert.ok(manifest.harnessFixtures.includes('tests/fixtures/isolated-db-process.test.mjs'));
+  assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-env.test.mjs' && item.kind === 'harness-contract'));
+  assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-process.test.mjs' && item.kind === 'harness-contract'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-lifecycle.test.mjs' && item.kind === 'harness-contract' && item.discovery === 'harness-contract'));
 });
 

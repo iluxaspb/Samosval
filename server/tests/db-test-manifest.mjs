@@ -21,8 +21,9 @@ const dbFiles = [
 ];
 
 const harnessFiles = [
-  'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-fixtures', 'isolated-db-guard',
-  'isolated-db-integration', 'isolated-db-lifecycle', 'isolated-db-runner', 'isolated-db-templates'
+  'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-env', 'isolated-db-fixtures', 'isolated-db-guard',
+  'isolated-db-integration', 'isolated-db-lifecycle', 'isolated-db-process', 'isolated-db-runner',
+  'isolated-db-templates'
 ];
 
 const consumersByFile = {
@@ -75,6 +76,7 @@ const consumersByFile = {
   "isolated-db-bootstrap": [
     "tests/isolated-db-bootstrap.test.mjs:pg"
   ],
+  "isolated-db-env": [],
   "isolated-db-guard": [
     "scripts/apply-migrations.mjs:pg",
     "tests/helpers/isolated-db.mjs:db-env",
@@ -89,6 +91,7 @@ const consumersByFile = {
     "tests/isolated-db-integration.test.mjs:db-env",
     "tests/isolated-db-integration.test.mjs:pg"
   ],
+  "isolated-db-process": [],
   "isolated-db-lifecycle": [
     "scripts/apply-migrations.mjs:pg",
     "tests/isolated-db-lifecycle.test.mjs:pg"
@@ -302,7 +305,8 @@ const manifest = {
   harnessFixtures: [
     'tests/fixtures/isolated-db-sentinel.test.mjs',
     'tests/fixtures/marker-tamper.test.mjs',
-    'tests/fixtures/sigterm-self.test.mjs'
+    'tests/fixtures/sigterm-self.test.mjs',
+    'tests/fixtures/isolated-db-process.test.mjs'
   ]
 };
 
