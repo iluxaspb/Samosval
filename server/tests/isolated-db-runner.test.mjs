@@ -156,7 +156,7 @@ test('runner rejects options, traversal and symlink escape before child tests lo
        const result = run({ SAMOSVAL_ISOLATED_TEST: '1' }, [arg]);
       assert.notEqual(result.status, 0, arg);
       assert.equal(result.loaded, false, arg);
-       assert.match(`${result.stdout}${result.stderr}`, /test path is not approved|canonical.*symlink/i, arg);
+       assert.match(`${result.stdout}${result.stderr}`, /test path is not approved/i, arg);
     }
   } finally {
     rmSync(symlink, { force: true });
