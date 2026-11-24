@@ -332,6 +332,9 @@ async function main() {
         return { status: 'passed', pid: result.pid, parsed, database: null, cleanup: 'not-required' };
       } catch (error) {
         if (record) error.database = record.database;
+        if (!record && entry.metadata?.kind !== 'db' && entry.metadata?.file !== 'tests/isolated-db-integration.test.mjs') {
+          error.cleanup = 'not-required';
+        }
         if (error?.code === 'ESAFETY') throw error;
         if (!record && context && receipt && ['creating', 'created'].includes(receipt.state)) {
           try {

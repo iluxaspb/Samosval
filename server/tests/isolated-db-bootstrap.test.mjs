@@ -263,18 +263,28 @@ async function waitFor(check, message) {
 
 function connectionDenied(url) {
   const internal = new URL(url); internal.hostname = '127.0.0.1'; internal.port = '5432';
-  const result = spawnSync('docker-compose', ['-f', 'compose.test.yaml', 'exec', '-T', 'postgres', 'psql', '--no-psqlrc', internal.href, '-c', 'SELECT 1'], {
-    cwd: new URL('..', import.meta.url), encoding: 'utf8', env: process.env,
+  const container = dockerContainerId(new URL(realAdminUrl).port);
+  const result = spawnSync('docker', ['exec', container, 'psql', '--no-psqlrc', internal.href, '-c', 'SELECT 1'], {
+    encoding: 'utf8', env: process.env,
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /permission denied for database "postgres"/i);
 }
 
+function dockerContainerId(port) {
+  const result = spawnSync('docker', ['ps', '-q', '--filter', `publish=${port}`], { encoding: 'utf8', env: process.env });
+  assert.equal(result.status, 0, `docker ps failed: ${result.stderr}`);
+  const container = result.stdout.trim().split(/\s+/)[0];
+  assert.ok(container, `no Docker container found publishing PostgreSQL port ${port}`);
+  return container;
+}
+
 const capabilities = { a: generateRunCapability(), b: generateRunCapability(), c: generateRunCapability() };
 
 function rerunBootstrap() {
-  const result = spawnSync('docker-compose', ['-f', 'compose.test.yaml', 'exec', '-T', 'postgres', '/docker-entrypoint-initdb.d/10-isolated-db-bootstrap.sh'], {
-    cwd: new URL('..', import.meta.url), encoding: 'utf8', env: process.env,
+  const container = dockerContainerId(new URL(realAdminUrl).port);
+  const result = spawnSync('docker', ['exec', container, '/docker-entrypoint-initdb.d/10-isolated-db-bootstrap.sh'], {
+    encoding: 'utf8', env: process.env,
   });
   assert.equal(result.status, 0, result.stderr);
 }
@@ -326,19 +336,22 @@ test('compose bootstrap has closed roles, registry and function ACL surface', { 
 });
 
 test('bootstrap rerun restores mutated roles, membership, ownership, ACL and function allowlist', { skip: !bootstrapAdminUrl }, async () => {
-  await role(bootstrapAdminUrl, `CREATE ROLE samosval_i2_external_a; CREATE ROLE samosval_i2_external_b; CREATE ROLE samosval_i2_external_c; GRANT samosval_test_prepared_owner TO samosval_i2_external_a; GRANT samosval_i2_external_b TO samosval_i2_external_c; ALTER ROLE samosval_test_app INHERIT CREATEDB; ALTER ROLE samosval_test_orchestrator CREATEDB; GRANT samosval_test_prepared_owner TO samosval_test_app; GRANT SELECT ON samosval_isolated_admin.target_receipts TO samosval_test_orchestrator; GRANT USAGE ON SCHEMA samosval_isolated_admin TO PUBLIC; ALTER FUNCTION samosval_isolated_admin.terminate_exact_target(text,text) OWNER TO samosval_test_app; CREATE FUNCTION samosval_isolated_admin.terminate_exact_target(text) RETURNS integer LANGUAGE sql AS 'SELECT 0'; GRANT EXECUTE ON FUNCTION samosval_isolated_admin.terminate_exact_target(text) TO PUBLIC`);
-  rerunBootstrap(); rerunBootstrap();
-  const restored = await role(bootstrapAdminUrl, `SELECT rolname, rolinherit, rolcreatedb FROM pg_roles WHERE rolname IN ('samosval_test_app','samosval_test_orchestrator') ORDER BY rolname`);
-  assert.deepEqual(restored.rows, [
-    { rolname:'samosval_test_app', rolinherit:false, rolcreatedb:false },
-    { rolname:'samosval_test_orchestrator', rolinherit:false, rolcreatedb:false },
-  ]);
-  assert.equal((await role(bootstrapAdminUrl, `SELECT count(*)::int AS count FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE granted.rolname LIKE 'samosval_test_%' OR member.rolname LIKE 'samosval_test_%'`)).rows[0].count, 0);
-  assert.equal((await role(bootstrapAdminUrl, `SELECT pg_has_role('samosval_i2_external_c','samosval_i2_external_b','MEMBER') AS preserved`)).rows[0].preserved, true);
-  assert.equal((await role(bootstrapAdminUrl, `SELECT to_regprocedure('samosval_isolated_admin.terminate_exact_target(text)') IS NULL AS removed`)).rows[0].removed, true);
-  const restoredAcl = await role(bootstrapAdminUrl, `SELECT p.proowner::regrole::text AS owner, has_function_privilege('samosval_test_app',p.oid,'EXECUTE') AS app, has_table_privilege('samosval_test_orchestrator','samosval_isolated_admin.target_receipts','SELECT') AS registry, has_schema_privilege('public','samosval_isolated_admin','USAGE') AS public_schema FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='samosval_isolated_admin' AND p.proname='terminate_exact_target'`);
-  assert.deepEqual(restoredAcl.rows, [{ owner:'samosval_test_bootstrap_admin', app:false, registry:false, public_schema:false }]);
-  await role(bootstrapAdminUrl, 'DROP ROLE samosval_i2_external_a, samosval_i2_external_c; DROP OWNED BY samosval_i2_external_b; DROP ROLE samosval_i2_external_b');
+  try {
+    await role(bootstrapAdminUrl, `DO $cleanup$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_i2_external_a') THEN DROP OWNED BY samosval_i2_external_a; DROP ROLE samosval_i2_external_a; END IF; IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_i2_external_b') THEN DROP OWNED BY samosval_i2_external_b; DROP ROLE samosval_i2_external_b; END IF; IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_i2_external_c') THEN DROP OWNED BY samosval_i2_external_c; DROP ROLE samosval_i2_external_c; END IF; END $cleanup$; CREATE ROLE samosval_i2_external_a; CREATE ROLE samosval_i2_external_b; CREATE ROLE samosval_i2_external_c; GRANT samosval_test_prepared_owner TO samosval_i2_external_a; GRANT samosval_i2_external_b TO samosval_i2_external_c; ALTER ROLE samosval_test_app INHERIT CREATEDB; ALTER ROLE samosval_test_orchestrator CREATEDB; GRANT samosval_test_prepared_owner TO samosval_test_app; GRANT SELECT ON samosval_isolated_admin.target_receipts TO samosval_test_orchestrator; GRANT USAGE ON SCHEMA samosval_isolated_admin TO PUBLIC; ALTER FUNCTION samosval_isolated_admin.terminate_exact_target(text,text) OWNER TO samosval_test_app; CREATE FUNCTION samosval_isolated_admin.terminate_exact_target(text) RETURNS integer LANGUAGE sql AS 'SELECT 0'; GRANT EXECUTE ON FUNCTION samosval_isolated_admin.terminate_exact_target(text) TO PUBLIC`);
+    rerunBootstrap(); rerunBootstrap();
+    const restored = await role(bootstrapAdminUrl, `SELECT rolname, rolinherit, rolcreatedb FROM pg_roles WHERE rolname IN ('samosval_test_app','samosval_test_orchestrator') ORDER BY rolname`);
+    assert.deepEqual(restored.rows, [
+      { rolname:'samosval_test_app', rolinherit:false, rolcreatedb:false },
+      { rolname:'samosval_test_orchestrator', rolinherit:false, rolcreatedb:false },
+    ]);
+    assert.equal((await role(bootstrapAdminUrl, `SELECT count(*)::int AS count FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE granted.rolname LIKE 'samosval_test_%' OR member.rolname LIKE 'samosval_test_%'`)).rows[0].count, 0);
+    assert.equal((await role(bootstrapAdminUrl, `SELECT pg_has_role('samosval_i2_external_c','samosval_i2_external_b','MEMBER') AS preserved`)).rows[0].preserved, true);
+    assert.equal((await role(bootstrapAdminUrl, `SELECT to_regprocedure('samosval_isolated_admin.terminate_exact_target(text)') IS NULL AS removed`)).rows[0].removed, true);
+    const restoredAcl = await role(bootstrapAdminUrl, `SELECT p.proowner::regrole::text AS owner, has_function_privilege('samosval_test_app',p.oid,'EXECUTE') AS app, has_table_privilege('samosval_test_orchestrator','samosval_isolated_admin.target_receipts','SELECT') AS registry, has_schema_privilege('public','samosval_isolated_admin','USAGE') AS public_schema FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='samosval_isolated_admin' AND p.proname='terminate_exact_target'`);
+    assert.deepEqual(restoredAcl.rows, [{ owner:'samosval_test_bootstrap_admin', app:false, registry:false, public_schema:false }]);
+  } finally {
+    await role(bootstrapAdminUrl, `DO $cleanup$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_i2_external_a') THEN DROP OWNED BY samosval_i2_external_a; DROP ROLE samosval_i2_external_a; END IF; IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_i2_external_b') THEN DROP OWNED BY samosval_i2_external_b; DROP ROLE samosval_i2_external_b; END IF; IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_i2_external_c') THEN DROP OWNED BY samosval_i2_external_c; DROP ROLE samosval_i2_external_c; END IF; END $cleanup$`).catch(() => {});
+  }
 });
 
 test('drop fence blocks a competing trusted mutation and releases on injected failure', { skip: !bootstrapAdminUrl }, async () => {
