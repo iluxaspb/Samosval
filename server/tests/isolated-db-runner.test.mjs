@@ -139,25 +139,31 @@ test('direct launcher preserves SIGTERM from the nested Node test process', () =
   assert.equal(result.status, null);
 });
 
-test('runner rejects options, traversal and symlink escape before child tests load', () => {
+test('runner rejects options and traversal before child tests load', () => {
+  for (const arg of [
+    `--import=${injectionFixture.href}`,
+    '--require=./tests/fixtures/node-options-injection.mjs',
+    '--test-reporter=spec',
+    '../outside.test.mjs',
+  ]) {
+    const result = run({ SAMOSVAL_ISOLATED_TEST: '1' }, [arg]);
+    assert.notEqual(result.status, 0, arg);
+    assert.equal(result.loaded, false, arg);
+    assert.match(`${result.stdout}${result.stderr}`, /test path is not approved/i, arg);
+  }
+});
+
+test('runner rejects a symlink escape before child tests load', () => {
   const directory = mkdtempSync(join(tmpdir(), 'samosval-isolated-argv-'));
   const outside = join(directory, 'outside.test.mjs');
   const symlink = new URL('./fixtures/outside-link.test.mjs', import.meta.url);
   writeFileSync(outside, `import {writeFileSync} from 'node:fs'; writeFileSync(process.env.ISOLATED_DB_SENTINEL, 'escaped');`);
   symlinkSync(outside, symlink.pathname);
   try {
-    for (const arg of [
-      `--import=${injectionFixture.href}`,
-      '--require=./tests/fixtures/node-options-injection.mjs',
-      '--test-reporter=spec',
-      '../outside.test.mjs',
-      symlink.pathname,
-    ]) {
-       const result = run({ SAMOSVAL_ISOLATED_TEST: '1' }, [arg]);
-      assert.notEqual(result.status, 0, arg);
-      assert.equal(result.loaded, false, arg);
-       assert.match(`${result.stdout}${result.stderr}`, /test path is not approved/i, arg);
-    }
+    const result = run({ SAMOSVAL_ISOLATED_TEST: '1' }, [symlink.pathname]);
+    assert.notEqual(result.status, 0);
+    assert.equal(result.loaded, false);
+    assert.match(`${result.stdout}${result.stderr}`, /canonical and not a symlink/i);
   } finally {
     rmSync(symlink, { force: true });
     rmSync(directory, { recursive: true, force: true });
