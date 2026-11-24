@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 const VERSION = 1;
 const TOP_FIELDS = new Set(['manifestVersion', 'entries', 'harnessFixtures']);
 const COMMON_FIELDS = new Set(['file', 'kind', 'discovery', 'reason', 'consumers']);
+const HARNESS_FIELDS = new Set([...COMMON_FIELDS, 'env']);
 const DB_FIELDS = new Set([...COMMON_FIELDS, 'baseline', 'migrationsThrough', 'customSchema', 'importTables', 'fixtures', 'timeoutMs', 'serial', 'exclusive', 'allowedSkips']);
 const KINDS = new Set(['unit', 'db', 'harness-contract']);
 const DISCOVERY = new Set(['pure-import', 'direct', 'indirect-http', 'harness-contract']);
@@ -52,7 +53,7 @@ function validateSkips(values, file) {
 
 async function validateEntry(entry, serverDirectory) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail('entry must be an object');
-  const allowed = entry.kind === 'db' ? DB_FIELDS : COMMON_FIELDS;
+  const allowed = entry.kind === 'db' ? DB_FIELDS : entry.kind === 'harness-contract' ? HARNESS_FIELDS : COMMON_FIELDS;
   for (const field of Object.keys(entry)) if (!allowed.has(field)) fail(`unknown field ${field} in ${entry.file ?? '<unknown>'}`);
   for (const field of allowed) if (!(field in entry)) fail(`missing ${field} in ${entry.file ?? '<unknown>'}`);
   await canonicalPath(serverDirectory, entry.file);

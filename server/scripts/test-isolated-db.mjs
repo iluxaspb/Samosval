@@ -15,7 +15,9 @@ import {
   cleanupTarget,
   leakCheck,
   makeRunIdentity,
+  makeTargetName,
   provisionTarget,
+  recoverPartialTarget,
   targetUrl,
 } from './isolated-db/database.mjs';
 import { prepareTemplates } from './isolated-db/templates.mjs';
@@ -33,13 +35,7 @@ const serverDirectory = realpathSync(join(dirname(fileURLToPath(import.meta.url)
 const testsDirectory = realpathSync(join(serverDirectory, 'tests'));
 const requested = process.argv.slice(2);
 
-const HARNESS_ENV_BY_FILE = Object.freeze({
-  'tests/isolated-db-bootstrap.test.mjs': ['admin-url', 'bootstrap-url', 'app-password', 'runtime-password'],
-  'tests/isolated-db-fixtures.test.mjs': ['bootstrap-url'],
-  'tests/isolated-db-templates.test.mjs': ['bootstrap-url', 'app-password'],
-  'tests/isolated-db-lifecycle.test.mjs': ['bootstrap-url', 'app-password', 'runtime-password'],
-  'tests/isolated-db-integration.test.mjs': ['target-url', 'isolated-marker'],
-});
+
 
 function redact(text) {
   return String(text ?? '').replace(/([a-z][a-z0-9+.-]*:\/\/)[^@/\s]+@/gi, '$1');
@@ -205,9 +201,9 @@ async function grantTargetAccess(context, database) {
   await client.connect();
   try {
     await client.query('GRANT USAGE ON SCHEMA public TO samosval_test_app, samosval_test_runtime');
-    await client.query('GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO samosval_test_app, samosval_test_runtime');
-    await client.query('GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO samosval_test_app, samosval_test_runtime');
-    await client.query('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO samosval_test_app, samosval_test_runtime');
+    await client.query('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO samosval_test_app');
+    await client.query('GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO samosval_test_app');
+    await client.query('GRANT SELECT ON ALL TABLES IN SCHEMA public TO samosval_test_runtime');
   } finally {
     await client.end();
   }
@@ -240,6 +236,8 @@ async function main() {
     fail(error.message, 1);
   }
 
+  const { createSignalController } = await import('./isolated-db/process.mjs');
+  const signalController = createSignalController();
   const manifestByPath = new Map(manifest.entries.map(entry => [realpathSync(join(serverDirectory, entry.file)), entry]));
   const selected = testFiles.map(file => manifestByPath.get(file)).filter(Boolean);
   const needsTarget = selected.some(entry => entry.kind === 'db' || entry.file === 'tests/isolated-db-integration.test.mjs');
@@ -256,6 +254,7 @@ async function main() {
   }
 
   let provisioningStopped = Boolean(setupFailure);
+  let interrupted = null;
   const entries = testFiles.map((file, index) => {
     const metadata = manifestByPath.get(file);
     return {
@@ -271,15 +270,20 @@ async function main() {
     entries,
     jobs: 1,
     runJob: async entry => {
+      if ((await signalController.wait()).signal) throw Object.assign(new Error('run interrupted'), { code: 'EINTERRUPTED' });
       if (provisioningStopped && (entry.metadata?.kind === 'db' || entry.metadata?.file === 'tests/isolated-db-integration.test.mjs')) {
         throw setupFailure ?? new Error('provisioning stopped');
       }
       let record;
+      let receipt;
       let childTarget;
       let phase = 'setup';
       try {
         if (entry.metadata?.kind === 'db' || entry.metadata?.file === 'tests/isolated-db-integration.test.mjs') {
           const baseline = entry.metadata.baseline ?? 'S24';
+          context.lifecycle.onState = state => {
+            receipt = { database: makeTargetName(context.lifecycle.runid, entry.metadata.file), runid: context.lifecycle.runid, state };
+          };
           record = await provisionTarget(context.lifecycle, { file: entry.metadata.file, baseline });
           context.tracked.push(record);
           await grantTargetAccess(context, record.database);
@@ -295,7 +299,7 @@ async function main() {
           ? buildDbEnv(process.env, { targetUrl: childTarget })
           : entry.metadata?.kind === 'harness-contract'
             ? buildHarnessEnv(process.env, {
-                env: (HARNESS_ENV_BY_FILE[entry.metadata.file] ?? [])
+                env: (entry.metadata?.env ?? [])
                   .filter(name => name === 'target-url' ? childTarget !== undefined : process.env[HARNESS_ENV_REGISTRY[name]] !== undefined),
                 values: envValues(process.env, childTarget),
               })
@@ -306,7 +310,8 @@ async function main() {
           cwd: serverDirectory,
           env: childEnv,
           timeoutMs: entry.timeoutMs,
-          forwardSignals: true,
+          forwardSignals: !signalController,
+          signalController,
           redact,
         });
         if (result.stdout) process.stdout.write(result.stdout);
@@ -315,7 +320,7 @@ async function main() {
           allowedSkips: entry.metadata?.allowedSkips ?? [],
           secrets: context ? [context.lifecycle.capability] : [],
         });
-        if (result.signal) process.kill(process.pid, result.signal);
+        if (result.signal && !interrupted) { interrupted = result.signal; signalController.interrupt(result.signal); }
         if (result.timedOut || result.exitCode !== 0 || !parsed.ok) {
           throw new Error(`test process failed: ${entry.metadata?.file ?? entry.testFile}`);
         }
@@ -328,6 +333,10 @@ async function main() {
         return { status: 'passed', pid: result.pid, parsed, database: null, cleanup: 'not-required' };
       } catch (error) {
         if (error?.code === 'ESAFETY') throw error;
+        if (!record && context && receipt && ['creating', 'created'].includes(receipt.state)) {
+          try { await recoverPartialTarget(context.lifecycle, { database: receipt.database, runid: receipt.runid }); }
+          catch (recoveryError) { error.recovery = recoveryError.message; error.leak = true; }
+        }
         if (record && context) {
           try {
             const cleaned = await cleanupTarget(context.lifecycle, record, { phase });
@@ -357,6 +366,7 @@ async function main() {
     }
   }
 
+  interrupted = interrupted ?? (await signalController.wait()).signal;
   let leak = { clean: true, leaks: [] };
   let cleanupFailure = null;
   if (context) {
@@ -382,7 +392,14 @@ async function main() {
       })),
       cleanup: cleanupFailure ? 'failed' : 'complete',
       leaks: leak.leaks,
+      interrupted: Boolean(interrupted),
+      originalSignal: interrupted,
     });
+  }
+  signalController.close();
+  if (interrupted) {
+    process.removeAllListeners(interrupted);
+    process.kill(process.pid, interrupted);
   }
   return setupFailure || cleanupFailure || !leak.clean || results.some(result => result.status !== 'passed') ? 1 : 0;
 }

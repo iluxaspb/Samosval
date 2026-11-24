@@ -20,11 +20,12 @@ export function parseNodeEvents(tap, { allowedSkips = [], secrets = [] } = {}) {
   if (typeof tap !== 'string') refuse('TAP output is required');
   if (!Array.isArray(allowedSkips) || !Array.isArray(secrets)) refuse('skip and secret registries must be arrays');
 
+  const matches = tap.split(/\r?\n/).map(line => EVENT_RE.exec(line)).filter(Boolean);
+  const hasIndented = matches.some(match => match[1].length > 0);
   const events = [];
   const counts = { tests: 0, passed: 0, failed: 0, skipped: 0, todo: 0 };
-  for (const line of tap.split(/\r?\n/)) {
-    const match = EVENT_RE.exec(line);
-    if (!match || match[1].length === 0) continue;
+  for (const match of matches) {
+    if (hasIndented && match[1].length === 0) continue;
     const [, , result, number, description] = match;
     const skipMatch = /\s+# SKIP(?:\s+(.*))?$/.exec(description);
     const todoMatch = /\s+# TODO(?:\s+(.*))?$/.exec(description);
@@ -54,6 +55,6 @@ export function parseNodeEvents(tap, { allowedSkips = [], secrets = [] } = {}) {
     events: Object.freeze(events),
     counts: Object.freeze(counts),
     unexpectedSkips: Object.freeze(unexpectedSkips),
-    ok: counts.failed === 0 && unexpectedSkips.length === 0,
+    ok: counts.tests > 0 && counts.failed === 0 && unexpectedSkips.length === 0,
   };
 }

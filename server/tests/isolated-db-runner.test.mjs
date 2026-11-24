@@ -296,28 +296,29 @@ test('failure_continues_and_exclusive_waits_for_all_jobs', async () => {
   assert.equal(results[3].status, 'passed', 'a failure does not stop later files');
 });
 
-test('reporter parses machine events and makes unexpected skips failures', () => {
-  const tap = [
-    'TAP version 13',
-    '# Subtest: example.test.mjs',
-    '    ok 1 - ordinary test',
-    '    ok 2 - documented platform skip # SKIP unsupported on this platform',
-    '    ok 3 - unexpected skip # SKIP missing environment',
-    '    not ok 4 - failed assertion',
-    '    1..4',
-    'not ok 1 - example.test.mjs',
-    '1..1',
-    '# tests 4',
-    '# pass 1',
-    '# fail 1',
-    '# skipped 2',
-  ].join('\n');
+test('reporter parses real node TAP and makes unexpected skips failures', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'samosval-real-tap-'));
+  const fixture = join(directory, 'real.test.mjs');
+  writeFileSync(fixture, `import test from 'node:test';
+test('ordinary', () => {});
+test('documented platform skip', {skip: 'unsupported on this platform'}, () => {});
+test('unexpected skip', {skip: 'missing environment'}, () => {});
+`);
+  const output = spawnSync(process.execPath, ['--test', '--experimental-test-isolation=none', fixture], { encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: undefined } });
+  const tap = output.stdout;
   const parsed = parseNodeEvents(tap, {
     allowedSkips: [{ name: 'documented platform skip', reason: 'unsupported on this platform' }],
   });
-  assert.deepEqual(parsed.counts, { tests: 4, passed: 1, failed: 1, skipped: 2, todo: 0 });
+  assert.deepEqual(parsed.counts, { tests: 3, passed: 1, failed: 0, skipped: 2, todo: 0 });
   assert.equal(parsed.events.find(event => event.name === 'documented platform skip').allowedSkip, true);
   assert.deepEqual(parsed.unexpectedSkips.map(event => event.name), ['unexpected skip']);
+  assert.equal(parsed.ok, false);
+  rmSync(directory, { recursive: true, force: true });
+});
+
+test('reporter rejects empty output as not a test run', () => {
+  const parsed = parseNodeEvents('TAP version 13\n1..0\n');
+  assert.equal(parsed.counts.tests, 0);
   assert.equal(parsed.ok, false);
 });
 

@@ -296,7 +296,14 @@ const harnessEntries = harnessFiles.map(name => ({
   kind: 'harness-contract',
   discovery: 'harness-contract',
   reason: `harness-contract/harness-contract tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ') || 'no typed database consumer'}` ,
-  consumers: consumersByFile[name] ?? []
+  consumers: consumersByFile[name] ?? [],
+  env: {
+    'isolated-db-bootstrap': ['bootstrap-url', 'app-password', 'runtime-password'],
+    'isolated-db-fixtures': ['bootstrap-url'],
+    'isolated-db-templates': ['bootstrap-url', 'app-password'],
+    'isolated-db-lifecycle': ['bootstrap-url', 'app-password', 'runtime-password'],
+    'isolated-db-integration': ['target-url', 'isolated-marker']
+  }[name] ?? []
 }));
 
 const manifest = {

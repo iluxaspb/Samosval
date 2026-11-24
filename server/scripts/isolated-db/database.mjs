@@ -13,7 +13,7 @@ const LEAK_TYPE = 'samosval-leak-report:v1';
 // Monotonic lifecycle. A child may start only from "marked".
 const NEXT_STATE = Object.freeze({ creating: 'created', created: 'marked', marked: 'running' });
 const RECORD_STATES = new Set(Object.keys(NEXT_STATE).concat('running'));
-const CLEANUP_PHASES = new Set(['setup', 'assertion', 'timeout']);
+const CLEANUP_PHASES = new Set(['setup', 'running', 'assertion', 'timeout']);
 const CLEANUP_STATES = new Set(['marked', 'running']);
 const TEMPLATE_KINDS = new Set(['empty', 'S24']);
 const CONTEXT_KEYS = ['bootstrapClient', 'runid', 'capability', 'templates', 'onState'];

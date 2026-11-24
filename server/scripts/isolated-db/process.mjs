@@ -27,6 +27,7 @@ export function createSignalController() {
   const handlers = new Map([
     ['SIGINT', () => onSignal('SIGINT')],
     ['SIGTERM', () => onSignal('SIGTERM')],
+    ['SIGHUP', () => onSignal('SIGHUP')],
   ]);
   for (const [signal, handler] of handlers) process.on(signal, handler);
 
@@ -161,7 +162,7 @@ export async function runProcessGroup(request) {
 
   const stopGroup = async (reason, signal) => {
     timedOut = reason === 'timeout';
-    if (reason === 'signal') pendingReemit = signal;
+    if (reason === 'signal' && forwardSignals) pendingReemit = signal;
     signalGroup(child, 'SIGTERM');
     const outcome = await Promise.race([exited, delay(graceMs).then(() => null)]);
     if (outcome === null) signalGroup(child, 'SIGKILL');
@@ -176,9 +177,9 @@ export async function runProcessGroup(request) {
   const timer = setTimeout(() => { stopGroup('timeout'); }, timeoutMs);
   timer.unref?.();
 
-  const unregister = signalController?.register(() => stopGroup('signal', 'SIGTERM'));
+  const unregister = signalController?.register(signal => stopGroup('signal', signal));
 
-  const signalNames = forwardSignals ? ['SIGINT', 'SIGTERM'] : [];
+  const signalNames = forwardSignals ? ['SIGINT', 'SIGTERM', 'SIGHUP'] : [];
   for (const name of signalNames) {
     previousHandlers.set(name, process.listeners(name).slice());
     process.removeAllListeners(name);
