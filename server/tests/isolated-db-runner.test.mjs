@@ -104,7 +104,14 @@ test('npm convenience alias is characterised as outside the hostile-env security
     },
   });
   assert.notEqual(result.status, 0);
-   assert.equal(existsSync(sentinel), false, 'the new runner rejects before loading the test child');
+  // npm is a Node process, so NODE_OPTIONS preloads inside npm before the
+  // lifecycle shell can unset it: the characterisation is that npm is outside
+  // the hostile-env boundary. The runner itself must still refuse before the
+  // test child loads, so the sentinel may only carry the preload marker and
+  // never the child's environment dump.
+  assert.equal(existsSync(sentinel), true, 'parent npm executes NODE_OPTIONS before lifecycle shell');
+  assert.equal(readFileSync(sentinel, 'utf8'), 'NODE_OPTIONS preload executed\n');
+  assert.match(`${result.stdout}${result.stderr}`, /SAMOSVAL_ISOLATED_TEST=1 is required/);
   rmSync(directory, { recursive: true, force: true });
 });
 
