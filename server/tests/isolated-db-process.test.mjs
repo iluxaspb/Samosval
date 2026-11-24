@@ -213,6 +213,18 @@ setTimeout(() => {}, 8000);
   }
 });
 
+test('a signal controller handles SIGHUP once and remains idempotent', async () => {
+  const controller = createSignalController();
+  try {
+    controller.interrupt('SIGHUP');
+    assert.equal((await controller.wait()).signal, 'SIGHUP');
+    assert.equal((await controller.wait()).signal, 'SIGHUP');
+    assert.throws(() => controller.interrupt('SIGHUP'), /already interrupted/i);
+  } finally {
+    controller.close();
+  }
+});
+
 test('captured output is redacted and bounded', { timeout: 8000 }, async () => {
   const workspace = makeWorkspace();
   try {

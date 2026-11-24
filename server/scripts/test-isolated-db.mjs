@@ -320,7 +320,6 @@ async function main() {
           allowedSkips: entry.metadata?.allowedSkips ?? [],
           secrets: context ? [context.lifecycle.capability] : [],
         });
-        if (result.signal && !interrupted) { interrupted = result.signal; signalController.interrupt(result.signal); }
         if (result.timedOut || result.exitCode !== 0 || !parsed.ok) {
           throw new Error(`test process failed: ${entry.metadata?.file ?? entry.testFile}`);
         }
@@ -335,7 +334,11 @@ async function main() {
         if (record) error.database = record.database;
         if (error?.code === 'ESAFETY') throw error;
         if (!record && context && receipt && ['creating', 'created'].includes(receipt.state)) {
-          try { await recoverPartialTarget(context.lifecycle, { database: receipt.database, runid: receipt.runid }); }
+          try {
+            const recovery = await recoverPartialTarget(context.lifecycle, { database: receipt.database, runid: receipt.runid });
+            error.database = recovery.recovered;
+            error.recovery = recovery.recovered ? 'recovered' : null;
+          }
           catch (recoveryError) { error.recovery = recoveryError.message; error.leak = true; }
         }
         if (record && context) {

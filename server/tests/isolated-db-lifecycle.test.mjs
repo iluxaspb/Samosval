@@ -305,8 +305,8 @@ test('cleanup revalidates exact identity inside one held fence, terminates only 
   assert.equal(client.world.state.has(NAME_A), false);
 });
 
-test('cleanup runs for setup, assertion and timeout phases with the same fail-closed predicate', async () => {
-  for (const phase of ['setup', 'assertion', 'timeout']) {
+test('cleanup runs for setup, running, assertion and timeout phases with the same fail-closed predicate', async () => {
+  for (const phase of ['setup', 'running', 'assertion', 'timeout']) {
     const client = session({ templates: new Set(S24_TEMPLATE) });
     const { ctx, record } = await provisioned(client);
     const report = await cleanupTarget(ctx, record, { phase });

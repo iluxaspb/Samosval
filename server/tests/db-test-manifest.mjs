@@ -298,7 +298,10 @@ const harnessEntries = harnessFiles.map(name => ({
   reason: `harness-contract/harness-contract tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ') || 'no typed database consumer'}` ,
   consumers: consumersByFile[name] ?? [],
   env: {
-    'isolated-db-bootstrap': ['bootstrap-url', 'app-password', 'runtime-password'],
+    // This harness contract deliberately receives admin-url: it verifies that
+    // the orchestrator credential is distinct from bootstrap-admin credentials.
+    // No other child receives this privileged URL.
+    'isolated-db-bootstrap': ['admin-url', 'bootstrap-url', 'app-password', 'runtime-password'],
     'isolated-db-fixtures': ['bootstrap-url'],
     'isolated-db-templates': ['bootstrap-url', 'app-password'],
     'isolated-db-lifecycle': ['bootstrap-url', 'app-password', 'runtime-password'],

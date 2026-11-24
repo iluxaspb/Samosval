@@ -4,6 +4,7 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, statSync, sym
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { scheduleManifestJobs } from '../scripts/isolated-db/scheduler.mjs';
 import { parseNodeEvents } from '../scripts/isolated-db/reporter.mjs';
@@ -14,6 +15,7 @@ const shellLauncher = new URL('../scripts/test-isolated-db.sh', import.meta.url)
 const sentinelTest = new URL('./fixtures/isolated-db-sentinel.test.mjs', import.meta.url);
 const signalTest = new URL('./fixtures/sigterm-self.test.mjs', import.meta.url);
 const injectionFixture = new URL('./fixtures/node-options-injection.mjs', import.meta.url);
+const testsDirectory = fileURLToPath(new URL('.', import.meta.url));
 const approvedUrl = 'postgresql://fixture-user:fixture-password@127.0.0.1:55432/samosval_parallel_shifts_test';
 
 function run(env, args = [sentinelTest.pathname]) {
@@ -121,7 +123,7 @@ test('official documentation names only the direct shell command as hostile-env 
   assert.match(readme, /npm run test:db[^\n]*convenience[^\n]*not[^\n]*security boundary/i);
 });
 
-test('direct launcher preserves SIGTERM from the nested Node test process', () => {
+test('a nested child SIGTERM is a failed file, not an external runner interruption', () => {
   const result = spawnSync(shellLauncher.pathname, [signalTest.pathname], {
     cwd: new URL('..', import.meta.url),
     encoding: 'utf8',
@@ -135,8 +137,8 @@ test('direct launcher preserves SIGTERM from the nested Node test process', () =
       ISOLATED_DB_SIGNAL_FIXTURE: '1',
     },
   });
-  assert.equal(result.signal, 'SIGTERM', `${result.stdout}${result.stderr}`);
-  assert.equal(result.status, null);
+  assert.equal(result.signal, null, `${result.stdout}${result.stderr}`);
+  assert.equal(result.status, 1);
 });
 
 test('runner rejects options and traversal before child tests load', () => {
@@ -156,14 +158,14 @@ test('runner rejects options and traversal before child tests load', () => {
 test('runner rejects a symlink escape before child tests load', () => {
   const directory = mkdtempSync(join(tmpdir(), 'samosval-isolated-argv-'));
   const outside = join(directory, 'outside.test.mjs');
-  const symlink = new URL('./fixtures/outside-link.test.mjs', import.meta.url);
+  const symlink = join(directory, `outside-link-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.test.mjs`);
   writeFileSync(outside, `import {writeFileSync} from 'node:fs'; writeFileSync(process.env.ISOLATED_DB_SENTINEL, 'escaped');`);
-  symlinkSync(outside, symlink.pathname);
+  symlinkSync(outside, symlink);
   try {
-    const result = run({ SAMOSVAL_ISOLATED_TEST: '1' }, [symlink.pathname]);
+    const result = run({ SAMOSVAL_ISOLATED_TEST: '1' }, [symlink]);
     assert.notEqual(result.status, 0);
     assert.equal(result.loaded, false);
-    assert.match(`${result.stdout}${result.stderr}`, /canonical and not a symlink/i);
+    assert.match(`${result.stdout}${result.stderr}`, /test path is not approved/i);
   } finally {
     rmSync(symlink, { force: true });
     rmSync(directory, { recursive: true, force: true });
@@ -340,6 +342,21 @@ test('reporter rejects empty output as not a test run', () => {
   const parsed = parseNodeEvents('TAP version 13\n1..0\n');
   assert.equal(parsed.counts.tests, 0);
   assert.equal(parsed.ok, false);
+});
+
+test('reporter rejects an unexpected skip at any TAP nesting level', () => {
+  const parsed = parseNodeEvents(`TAP version 13
+ok 1 - top skip # SKIP missing environment
+    # Subtest: nested
+    ok 1 - child
+1..2
+# tests 2
+# pass 1
+# fail 0
+# skipped 1
+`);
+  assert.equal(parsed.ok, false);
+  assert.deepEqual(parsed.unexpectedSkips.map(event => event.name), ['top skip']);
 });
 
 test('reporter redacts capability and database URL from emitted events', () => {

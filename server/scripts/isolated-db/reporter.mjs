@@ -21,12 +21,11 @@ export function parseNodeEvents(tap, { allowedSkips = [], secrets = [] } = {}) {
   if (!Array.isArray(allowedSkips) || !Array.isArray(secrets)) refuse('skip and secret registries must be arrays');
 
   const matches = tap.split(/\r?\n/).map(line => EVENT_RE.exec(line)).filter(Boolean);
-  const hasIndented = matches.some(match => match[1].length > 0);
   const events = [];
+  const unexpectedSkips = [];
   const counts = { tests: 0, passed: 0, failed: 0, skipped: 0, todo: 0 };
   for (const match of matches) {
-    if (hasIndented && match[1].length === 0) continue;
-    const [, , result, number, description] = match;
+    const [, indent, result, number, description] = match;
     const skipMatch = /\s+# SKIP(?:\s+(.*))?$/.exec(description);
     const todoMatch = /\s+# TODO(?:\s+(.*))?$/.exec(description);
     const name = (skipMatch ? description.slice(0, skipMatch.index) : todoMatch ? description.slice(0, todoMatch.index) : description).trim();
@@ -42,15 +41,18 @@ export function parseNodeEvents(tap, { allowedSkips = [], secrets = [] } = {}) {
     if (reason !== undefined) event.reason = sanitize(reason, secrets);
     if (skipped) event.allowedSkip = allowedSkip;
     if (todo) event.todo = true;
-    events.push(event);
-
-    counts.tests += 1;
-    if (skipped) counts.skipped += 1;
-    else if (todo) counts.todo += 1;
-    else if (result === 'ok') counts.passed += 1;
-    else counts.failed += 1;
+    // Only level-zero events are file-level tests. Nested events are still
+    // inspected so an unexpected skip cannot be hidden in a subtest.
+    if (indent.length === 0) {
+      events.push(event);
+      counts.tests += 1;
+      if (skipped) counts.skipped += 1;
+      else if (todo) counts.todo += 1;
+      else if (result === 'ok') counts.passed += 1;
+      else counts.failed += 1;
+    }
+    if (skipped && !allowedSkip) unexpectedSkips.push(event);
   }
-  const unexpectedSkips = events.filter(event => event.status === 'skipped' && !event.allowedSkip);
   return {
     events: Object.freeze(events),
     counts: Object.freeze(counts),
