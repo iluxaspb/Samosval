@@ -332,6 +332,7 @@ async function main() {
         }
         return { status: 'passed', pid: result.pid, parsed, database: null, cleanup: 'not-required' };
       } catch (error) {
+        if (record) error.database = record.database;
         if (error?.code === 'ESAFETY') throw error;
         if (!record && context && receipt && ['creating', 'created'].includes(receipt.state)) {
           try { await recoverPartialTarget(context.lifecycle, { database: receipt.database, runid: receipt.runid }); }
@@ -387,8 +388,10 @@ async function main() {
         file: result.file,
         status: result.status,
         error: result.error,
-        cleanup: result.result?.cleanup ?? null,
-        database: result.result?.database ?? null,
+        cleanup: result.result?.cleanup ?? result.cleanup ?? null,
+        database: result.result?.database ?? result.database ?? null,
+        leak: result.result?.leak ?? result.leak ?? result.code === 'ESAFETY',
+        recovery: result.result?.recovery ?? result.recovery ?? null,
       })),
       cleanup: cleanupFailure ? 'failed' : 'complete',
       leaks: leak.leaks,
@@ -401,7 +404,12 @@ async function main() {
     process.removeAllListeners(interrupted);
     process.kill(process.pid, interrupted);
   }
-  return setupFailure || cleanupFailure || !leak.clean || results.some(result => result.status !== 'passed') ? 1 : 0;
+  const unconfirmedFileCleanup = results.some(result => result.status === 'failed'
+    && result.cleanup !== 'complete'
+    && result.cleanup !== 'already-absent'
+    && result.code !== 'ESAFETY'
+    && result.leak !== true);
+  return setupFailure || cleanupFailure || !leak.clean || unconfirmedFileCleanup || results.some(result => result.status !== 'passed') ? 1 : 0;
 }
 
 try {

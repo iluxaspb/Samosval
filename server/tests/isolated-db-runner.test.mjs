@@ -296,6 +296,26 @@ test('failure_continues_and_exclusive_waits_for_all_jobs', async () => {
   assert.equal(results[3].status, 'passed', 'a failure does not stop later files');
 });
 
+test('failed database file preserves proven cleanup and database metadata', async () => {
+  const error = Object.assign(new Error('fixture assertion failure'), {
+    code: 'TEST_FAILURE',
+    cleanup: 'complete',
+    database: 'samosval_i5_run_file_a',
+    leak: false,
+    recovery: 'drop-target',
+  });
+  const [result] = await scheduleManifestJobs({
+    entries: [{ file: 'tests/a.test.mjs' }],
+    runJob: async () => { throw error; },
+  });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.cleanup, 'complete');
+  assert.equal(result.database, 'samosval_i5_run_file_a');
+  assert.equal(result.leak, false);
+  assert.equal(result.recovery, 'drop-target');
+  assert.equal(result.code, 'TEST_FAILURE');
+});
+
 test('reporter parses real node TAP and makes unexpected skips failures', () => {
   const directory = mkdtempSync(join(tmpdir(), 'samosval-real-tap-'));
   const fixture = join(directory, 'real.test.mjs');

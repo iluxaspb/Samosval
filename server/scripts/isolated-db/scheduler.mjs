@@ -46,6 +46,10 @@ async function execute(entry, index, runJob) {
       status: 'failed',
       error: String(error?.message ?? error),
       code: typeof error?.code === 'string' ? error.code : undefined,
+      cleanup: error?.cleanup,
+      leak: error?.leak,
+      database: error?.database,
+      recovery: error?.recovery,
       startedAt,
       endedAt: Date.now(),
     };
