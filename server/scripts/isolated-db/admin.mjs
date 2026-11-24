@@ -76,14 +76,20 @@ export async function adminPreflight(client, adminUrl, { expectedRole = 'samosva
   return { serverMajor, marker: row.marker, address: row.address, port: Number(row.port) };
 }
 
+// The one exact target marker. kind=target keeps it apart from every
+// template marker; the marker carries no capability.
+export function targetComment(database, runid) {
+  validateGeneratedIdentifier(database, { runid, kind: 'target' });
+  return `samosval-isolated-db:v1;kind=target;runid=${runid};hash=${database.slice(-12)};owner=${OWNER}`;
+}
+
 export async function runAdminStatement(client, request) {
   if (!request || typeof request !== 'object' || Object.hasOwn(request, 'comment')) throw new Error('admin operation is not approved');
   if (request.operation === 'commentDatabase') {
     validateGeneratedIdentifier(request.database, { runid: request.runid, kind: 'target' });
     validateCapability(request.capability);
     if (request.kind !== 'target') throw new Error('admin operation is not approved');
-    const hash = request.database.slice(-12);
-    const comment = `samosval-isolated-db:v1;kind=target;runid=${request.runid};hash=${hash};owner=${OWNER}`;
+    const comment = targetComment(request.database, request.runid);
     return redacted(async () => {
       const result = await client.query('SELECT samosval_isolated_admin.mark_reserved_target($1,$2) AS comment', [request.database, request.capability]);
       if (result.rows[0]?.comment !== comment) throw new Error(CLOSED_ERROR);
@@ -154,31 +160,100 @@ export function createTemplateBroker({ bootstrapClient, runid, capability }) {
   });
 }
 
-export function createProvisioningBroker({ bootstrapClient }) {
-  if (!bootstrapClient?.query || !bootstrapClient?.end) throw new Error('provisioning broker configuration rejected');
-  let pending = Promise.resolve();
-  return Object.freeze({
-    async run(request) {
-      if (!request || !['createReservedTarget','dropReservedTarget'].includes(request.operation) || Object.keys(request).some(key => !['operation','database','runid','capability'].includes(key))) {
-        throw new Error('provisioning operation is not approved');
-      }
-      validateGeneratedIdentifier(request.database, { runid: request.runid, kind: 'target' });
-      validateCapability(request.capability);
-      const identifier = quoteIdentifier(request.database);
-      const operation = pending.then(() => redacted(() => withTargetSessionLock(bootstrapClient, request.database, async () => {
-        if (request.operation === 'createReservedTarget') {
-          await bootstrapClient.query('SELECT samosval_isolated_admin.reserve_target($1,$2,$3)', [request.database, request.runid, request.capability]);
-          await bootstrapClient.query({ text: `CREATE DATABASE ${identifier}`, queryMode: 'simple' });
-          await bootstrapClient.query({ text: `ALTER DATABASE ${identifier} OWNER TO ${OWNER}`, queryMode: 'simple' });
-          await bootstrapClient.query({ text: `GRANT CONNECT ON DATABASE ${identifier} TO samosval_test_app, samosval_test_runtime`, queryMode: 'simple' });
-          return runAdminStatement(bootstrapClient, { operation: 'commentDatabase', database: request.database, runid: request.runid, capability: request.capability, kind: 'target' });
-        }
-        const authorized = immutableFingerprint(await bootstrapClient.query(
-          'SELECT samosval_isolated_admin.authorize_drop_target($1,$2) AS fingerprint',
-          [request.database, request.capability],
-        ));
-        const revalidated = immutableFingerprint(await bootstrapClient.query({
-          text: `/* isolated-drop-revalidate */
+// ---- I4 lifecycle operations -------------------------------------------------
+// Enumerated and closed exactly like the I2 pair. An error that carries a
+// fixed safety verdict (ESAFETY, constant text only) passes the wrapper
+// unchanged so the lifecycle can report the leak; every other failure,
+// including driver text, collapses to CLOSED_ERROR.
+
+function safety(reason) {
+  return Object.assign(new Error(`isolated target safety: ${reason}`), { code: 'ESAFETY' });
+}
+
+async function classified(work) {
+  try { return await work(); } catch (error) { if (error?.code === 'ESAFETY') throw error; throw new Error(CLOSED_ERROR); }
+}
+
+// Reread of the exact target: pg_database owner and pg_shdescription marker.
+const IDENTITY_SQL = `/* isolated-target-identity */
+  SELECT d.datname, owner.rolname AS "owner", description.description AS "comment"
+  FROM pg_catalog.pg_database d
+  JOIN pg_catalog.pg_roles owner ON owner.oid=d.datdba
+  LEFT JOIN pg_catalog.pg_shdescription description ON description.objoid=d.oid AND description.classoid='pg_catalog.pg_database'::pg_catalog.regclass
+  WHERE d.datname=$1`;
+
+// Creation receipt of a partial create joined with the live catalog truth.
+// Readable only through the dedicated bootstrap session.
+const PARTIAL_RECEIPT_SQL = `/* isolated-partial-receipt */
+  SELECT receipt.runid, receipt.kind, receipt.state AS receipt_state, receipt.expected_owner,
+         d.datname AS database, owner.rolname AS "owner", description.description AS "comment"
+  FROM samosval_isolated_admin.target_receipts receipt
+  JOIN pg_catalog.pg_database d ON d.datname=receipt.target_name
+  JOIN pg_catalog.pg_roles owner ON owner.oid=d.datdba
+  LEFT JOIN pg_catalog.pg_shdescription description ON description.objoid=d.oid AND description.classoid='pg_catalog.pg_database'::pg_catalog.regclass
+  WHERE receipt.target_name=$1::name`;
+
+// A partial create carries no marker. Both sides of the comparison spell the
+// proven absence as one constant, so "no comment" is fingerprintable.
+const ABSENT_COMMENT = '<absent>';
+
+const PARTIAL_REVALIDATE_SQL = `/* isolated-drop-revalidate */
+  SELECT jsonb_build_object(
+    'databaseOid', d.oid::text,
+    'ownerOid', owner.oid::text,
+    'ownerName', owner.rolname,
+    'commentText', COALESCE(description.description, '${ABSENT_COMMENT}'),
+    'commentHash', encode(public.digest(COALESCE(description.description, ''), 'sha256'), 'hex'),
+    'receiptGeneration', receipt.receipt_generation::text,
+    'receiptState', receipt.state,
+    'capabilityBinding', encode(receipt.capability_hash, 'hex')
+  ) AS fingerprint
+  FROM samosval_isolated_admin.target_receipts receipt
+  JOIN pg_catalog.pg_database d ON d.datname=receipt.target_name
+  JOIN pg_catalog.pg_roles owner ON owner.oid=d.datdba
+  LEFT JOIN pg_catalog.pg_shdescription description ON description.objoid=d.oid AND description.classoid='pg_catalog.pg_database'::pg_catalog.regclass
+  WHERE receipt.target_name=$1::name`;
+
+// Exact prefix scan of the catalog. No LIKE and no regular expression: the
+// prefix is matched literally, so wildcard characters have no meaning.
+const CATALOG_SQL = `SELECT d.datname, owner.rolname AS "owner", description.description AS "comment"
+  FROM pg_catalog.pg_database d
+  JOIN pg_catalog.pg_roles owner ON owner.oid=d.datdba
+  LEFT JOIN pg_catalog.pg_shdescription description ON description.objoid=d.oid AND description.classoid='pg_catalog.pg_database'::pg_catalog.regclass
+  WHERE starts_with(datname, $1)
+  ORDER BY d.datname`;
+
+async function readIdentity(bootstrapClient, database) {
+  const result = await bootstrapClient.query({ text: IDENTITY_SQL, values: [database] });
+  const row = result?.rows?.[0];
+  if (row === undefined) return null;
+  if (result.rows.length !== 1 || row.datname !== database || typeof row.owner !== 'string') throw new Error(CLOSED_ERROR);
+  return row;
+}
+
+function requireIdentity(row, request) {
+  if (row === null || row.owner !== OWNER || row.comment !== targetComment(request.database, request.runid)) {
+    throw safety('identity mismatch for the exact target (marker or owner)');
+  }
+}
+
+function requirePartialProof(row, request) {
+  if (!row || row.database !== request.database) throw safety('partial-create receipt is missing: no creation receipt of this run is provable');
+  if (row.runid !== request.runid || row.kind !== 'target' || row.receipt_state !== 'reserved') {
+    throw safety('partial-create receipt is not a reserved creation receipt of this run');
+  }
+  if (row.owner !== OWNER || row.comment !== null) throw safety('identity mismatch on the partial-create target (marker or owner)');
+}
+
+// The I2 drop authority: authorize, reread the fingerprint, drop. The
+// statement sequence is shared by the I2 drop and the I4 cleanup unchanged.
+async function dropAuthorized(bootstrapClient, request, identifier) {
+  const authorized = immutableFingerprint(await bootstrapClient.query(
+    'SELECT samosval_isolated_admin.authorize_drop_target($1,$2) AS fingerprint',
+    [request.database, request.capability],
+  ));
+  const revalidated = immutableFingerprint(await bootstrapClient.query({
+    text: `/* isolated-drop-revalidate */
             SELECT jsonb_build_object(
               'databaseOid', d.oid::text,
               'ownerOid', owner.oid::text,
@@ -194,13 +269,119 @@ export function createProvisioningBroker({ bootstrapClient }) {
             JOIN pg_catalog.pg_roles owner ON owner.oid=d.datdba
             JOIN pg_catalog.pg_shdescription description ON description.objoid=d.oid AND description.classoid='pg_catalog.pg_database'::pg_catalog.regclass
             WHERE receipt.target_name=$1::name`,
-          values: [request.database],
-        }));
-        if (!sameFingerprint(authorized, revalidated)) throw new Error(CLOSED_ERROR);
-        return bootstrapClient.query({ text: `DROP DATABASE ${identifier}`, queryMode: 'simple' });
-      })));
-      pending = operation.catch(() => {});
-      return operation;
+    values: [request.database],
+  }));
+  if (!sameFingerprint(authorized, revalidated)) throw new Error(CLOSED_ERROR);
+  return bootstrapClient.query({ text: `DROP DATABASE ${identifier}`, queryMode: 'simple' });
+}
+
+async function reservedTargetOperation(bootstrapClient, request, identifier) {
+  if (request.operation === 'createReservedTarget') {
+    await bootstrapClient.query('SELECT samosval_isolated_admin.reserve_target($1,$2,$3)', [request.database, request.runid, request.capability]);
+    await bootstrapClient.query({ text: `CREATE DATABASE ${identifier}`, queryMode: 'simple' });
+    await bootstrapClient.query({ text: `ALTER DATABASE ${identifier} OWNER TO ${OWNER}`, queryMode: 'simple' });
+    await bootstrapClient.query({ text: `GRANT CONNECT ON DATABASE ${identifier} TO samosval_test_app, samosval_test_runtime`, queryMode: 'simple' });
+    return runAdminStatement(bootstrapClient, { operation: 'commentDatabase', database: request.database, runid: request.runid, capability: request.capability, kind: 'target' });
+  }
+  return dropAuthorized(bootstrapClient, request, identifier);
+}
+
+// reserve -> clone from the frozen template -> owner -> grant -> mark -> reread.
+async function cloneReservedTarget(bootstrapClient, request, identifier, templateIdentifier) {
+  await bootstrapClient.query('SELECT samosval_isolated_admin.reserve_target($1,$2,$3)', [request.database, request.runid, request.capability]);
+  await bootstrapClient.query({ text: `CREATE DATABASE ${identifier} TEMPLATE ${templateIdentifier}`, queryMode: 'simple' });
+  if (request.onState) await request.onState('created');
+  await bootstrapClient.query({ text: `ALTER DATABASE ${identifier} OWNER TO ${OWNER}`, queryMode: 'simple' });
+  await bootstrapClient.query({ text: `GRANT CONNECT ON DATABASE ${identifier} TO samosval_test_app, samosval_test_runtime`, queryMode: 'simple' });
+  const marked = await runAdminStatement(bootstrapClient, { operation: 'commentDatabase', database: request.database, runid: request.runid, capability: request.capability, kind: 'target' });
+  requireIdentity(await readIdentity(bootstrapClient, request.database), request);
+  return Object.freeze({ database: request.database, comment: marked.rows[0].comment });
+}
+
+// state check -> reread -> terminate the exact target -> drop authority. The
+// record state is refused inside the held fence, so the refusal is auditable
+// on the session; an already absent target has nothing left to destroy.
+async function cleanupReservedTarget(bootstrapClient, request, identifier) {
+  if (request.state !== 'marked' && request.state !== 'running') {
+    throw safety(`state ${String(request.state)} is below marked; ordinary cleanup is not approved`);
+  }
+  const identity = await readIdentity(bootstrapClient, request.database);
+  if (identity === null) return Object.freeze({ database: null });
+  requireIdentity(identity, request);
+  try {
+    await bootstrapClient.query('SELECT samosval_isolated_admin.terminate_exact_target($1,$2) AS terminated', [request.database, request.capability]);
+  } catch (error) {
+    if (error?.code === 'ESAFETY') throw error;
+    // The terminate predicate refused inside the same held fence: nothing was
+    // destroyed and the object is reported instead of retried.
+    throw safety('the terminate phase refused the exact target (identity, state or authority)');
+  }
+  await dropAuthorized(bootstrapClient, request, identifier);
+  return Object.freeze({ database: request.database });
+}
+
+// receipt proof -> partial drop authority -> drop. The reserved predicate is
+// a separate SQL function; it can never authorize a marked target.
+async function recoverReservedTarget(bootstrapClient, request, identifier) {
+  const proof = await bootstrapClient.query({ text: PARTIAL_RECEIPT_SQL, values: [request.database] });
+  if (!Array.isArray(proof?.rows) || proof.rows.length > 1) throw new Error(CLOSED_ERROR);
+  requirePartialProof(proof.rows[0], request);
+  const authorized = immutableFingerprint(await bootstrapClient.query(
+    'SELECT samosval_isolated_admin.authorize_partial_drop($1,$2) AS fingerprint',
+    [request.database, request.capability],
+  ));
+  const revalidated = immutableFingerprint(await bootstrapClient.query({ text: PARTIAL_REVALIDATE_SQL, values: [request.database] }));
+  if (!sameFingerprint(authorized, revalidated)) throw new Error(CLOSED_ERROR);
+  await bootstrapClient.query({ text: `DROP DATABASE ${identifier}`, queryMode: 'simple' });
+  return Object.freeze({ database: request.database });
+}
+
+async function catalogRunDatabases(bootstrapClient, request) {
+  const result = await bootstrapClient.query({ text: CATALOG_SQL, values: [`${GENERATED_DATABASE_PREFIX}${request.runid}`] });
+  if (!Array.isArray(result?.rows) || result.rows.some(row => typeof row?.datname !== 'string')) throw new Error(CLOSED_ERROR);
+  return result.rows.map(row => Object.freeze({ datname: row.datname, owner: row.owner ?? null, comment: row.comment ?? null }));
+}
+
+const TARGET_KEYS = ['operation', 'database', 'runid', 'capability'];
+const PROVISIONING_OPERATIONS = Object.freeze({
+  createReservedTarget: { keys: TARGET_KEYS, fence: true },
+  dropReservedTarget: { keys: TARGET_KEYS, fence: true },
+  cloneTarget: { keys: [...TARGET_KEYS, 'template', 'onState'], required: [...TARGET_KEYS, 'template'], fence: true, classified: true, template: true, run: cloneReservedTarget },
+  cleanupTarget: { keys: [...TARGET_KEYS, 'state'], required: [...TARGET_KEYS, 'state'], fence: true, classified: true, run: cleanupReservedTarget },
+  recoverTarget: { keys: TARGET_KEYS, required: TARGET_KEYS, fence: true, classified: true, run: recoverReservedTarget },
+  listRunDatabases: { keys: ['operation', 'runid'], required: ['operation', 'runid'], classified: true, catalog: true, run: catalogRunDatabases },
+});
+
+export function createProvisioningBroker({ bootstrapClient }) {
+  if (!bootstrapClient?.query || !bootstrapClient?.end) throw new Error('provisioning broker configuration rejected');
+  let pending = Promise.resolve();
+  return Object.freeze({
+    async run(request) {
+      const approved = request && Object.hasOwn(PROVISIONING_OPERATIONS, request.operation) ? PROVISIONING_OPERATIONS[request.operation] : null;
+      if (!approved || Object.keys(request).some(key => !approved.keys.includes(key))
+          || (approved.required ?? []).some(key => !Object.hasOwn(request, key))
+          || (request.onState !== undefined && typeof request.onState !== 'function')) {
+        throw new Error('provisioning operation is not approved');
+      }
+      if (approved.catalog) {
+        validateGeneratedIdentifier(`${GENERATED_DATABASE_PREFIX}${request.runid}_tpl_empty`, { runid: request.runid, kind: 'template' });
+      } else {
+        validateGeneratedIdentifier(request.database, { runid: request.runid, kind: 'target' });
+        validateCapability(request.capability);
+        if (approved.template) validateGeneratedIdentifier(request.template, { runid: request.runid, kind: 'template' });
+      }
+      const identifier = approved.catalog ? null : quoteIdentifier(request.database);
+      const templateIdentifier = approved.template ? quoteIdentifier(request.template) : null;
+      // Every mutating operation holds the per-target session fence. The
+      // read-only catalog scan stays fence-free and never blocks a cleanup.
+      const work = () => (approved.fence
+        ? withTargetSessionLock(bootstrapClient, request.database, () => (approved.run
+          ? approved.run(bootstrapClient, request, identifier, templateIdentifier)
+          : reservedTargetOperation(bootstrapClient, request, identifier)))
+        : approved.run(bootstrapClient, request));
+      const guarded = pending.then(() => (approved.classified ? classified(work) : redacted(work)));
+      pending = guarded.catch(() => {});
+      return guarded;
     },
   });
 }

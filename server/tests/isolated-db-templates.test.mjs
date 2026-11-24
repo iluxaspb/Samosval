@@ -119,6 +119,18 @@ test('seal rejects held session and every authority mutation', async () => {
   await assert.rejects(inspectTemplateSeal(async () => ({ rows: [] }), emptyName, sealed.comment), /template verification/i);
 });
 
+test('the seal counts memberships of the prepared owner itself, not of every role in the cluster', async () => {
+  // A correlated subquery that reads the outer member_role alias silently
+  // counts all memberships of the cluster; real PostgreSQL with its three
+  // built-in pg_monitor memberships then rejects every sealed template.
+  const sealed = sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=${OWNER}`);
+  let sql = '';
+  await inspectTemplateSeal(async (text, values) => { sql = text; assert.deepEqual(values, [OWNER, emptyName]); return { rows: [sealed] }; }, emptyName, sealed.comment);
+  const memberships = /(\(SELECT count\(\*\)::int FROM pg_auth_members[^)]*\)[^)]*memberships)/.exec(sql)?.[1] ?? '';
+  assert.match(memberships, /JOIN pg_roles member ON member\.oid=m\.member WHERE member\.rolname=\$1/, 'the membership count must bind the member role on its own');
+  assert.doesNotMatch(memberships, /member_role/, 'the membership count must not read the outer alias');
+});
+
 test('broker binds run/capability and derives exact semantic marker tuple', async () => {
   const capability = 'a'.repeat(64);
   const calls = [];

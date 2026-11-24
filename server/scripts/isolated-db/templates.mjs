@@ -68,7 +68,7 @@ export async function inspectTemplateSeal(queryCatalog, database, expectedCommen
     owner.rolname owner, owner.rolsuper super, owner.rolcreatedb createdb, owner.rolcreaterole createrole, owner.rolcanlogin canlogin,
     d.datallowconn allow_connections, d.datacl::text datacl, description.description comment,
     (SELECT count(*)::int FROM pg_stat_activity WHERE datname=d.datname) sessions,
-    (SELECT count(*)::int FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid WHERE member_role.rolname=$1) memberships
+    (SELECT count(*)::int FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE member.rolname=$1) memberships
     FROM pg_database d
     JOIN pg_roles owner ON owner.oid=d.datdba
     JOIN pg_roles member_role ON member_role.rolname=$1

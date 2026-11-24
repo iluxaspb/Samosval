@@ -54,6 +54,7 @@ DROP FUNCTION IF EXISTS samosval_isolated_admin.mark_reserved_target(text);
 DROP FUNCTION IF EXISTS samosval_isolated_admin.terminate_exact_target(text);
 DROP FUNCTION IF EXISTS samosval_isolated_admin.terminate_exact_target(text,text,text,text);
 DROP FUNCTION IF EXISTS samosval_isolated_admin.authorize_drop_target(text,text);
+DROP FUNCTION IF EXISTS samosval_isolated_admin.authorize_partial_drop(text,text);
 
 CREATE OR REPLACE FUNCTION samosval_isolated_admin.reserve_target(target_name text, runid text, capability text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
@@ -134,11 +135,39 @@ BEGIN
   RETURN fingerprint;
 END $$;
 
+CREATE OR REPLACE FUNCTION samosval_isolated_admin.authorize_partial_drop(target_name text, capability text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
+DECLARE receipt samosval_isolated_admin.target_receipts%ROWTYPE; fingerprint jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended(target_name, 0));
+  SELECT * INTO STRICT receipt FROM samosval_isolated_admin.target_receipts r WHERE r.target_name=authorize_partial_drop.target_name::name FOR UPDATE;
+  IF receipt.capability_hash <> public.digest(capability, 'sha256') OR receipt.state <> 'reserved' OR receipt.kind <> 'target' THEN RAISE EXCEPTION 'isolated authority rejected'; END IF;
+  SELECT jsonb_build_object(
+      'databaseOid', d.oid::text,
+      'ownerOid', owner.oid::text,
+      'ownerName', owner.rolname,
+      'commentText', COALESCE(description.description, '<absent>'),
+      'commentHash', encode(public.digest(COALESCE(description.description, ''), 'sha256'), 'hex'),
+      'receiptGeneration', receipt.receipt_generation::text,
+      'receiptState', receipt.state,
+      'capabilityBinding', encode(receipt.capability_hash, 'hex')
+    ) INTO fingerprint
+    FROM pg_database d
+    JOIN pg_roles owner ON owner.oid=d.datdba
+    LEFT JOIN pg_shdescription description ON description.objoid=d.oid AND description.classoid='pg_database'::regclass
+    WHERE d.datname=target_name
+      AND owner.rolname=receipt.expected_owner::text
+      AND description.description IS NULL;
+  IF fingerprint IS NULL THEN RAISE EXCEPTION 'isolated partial target identity mismatch'; END IF;
+  RETURN fingerprint;
+END $$;
+
 ALTER FUNCTION samosval_isolated_admin.reserve_target(text,text,text) OWNER TO CURRENT_USER;
 ALTER FUNCTION samosval_isolated_admin.mark_reserved_target(text,text) OWNER TO CURRENT_USER;
 ALTER FUNCTION samosval_isolated_admin.terminate_exact_target(text,text) OWNER TO CURRENT_USER;
 ALTER FUNCTION samosval_isolated_admin.authorize_drop_target(text,text) OWNER TO CURRENT_USER;
+ALTER FUNCTION samosval_isolated_admin.authorize_partial_drop(text,text) OWNER TO CURRENT_USER;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA samosval_isolated_admin FROM PUBLIC, samosval_test_app, samosval_test_runtime, samosval_test_prepared_owner;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA samosval_isolated_admin FROM samosval_test_orchestrator;
 GRANT USAGE ON SCHEMA samosval_isolated_admin TO samosval_test_orchestrator;
-GRANT EXECUTE ON FUNCTION samosval_isolated_admin.reserve_target(text,text,text), samosval_isolated_admin.mark_reserved_target(text,text), samosval_isolated_admin.terminate_exact_target(text,text), samosval_isolated_admin.authorize_drop_target(text,text) TO samosval_test_orchestrator;
+GRANT EXECUTE ON FUNCTION samosval_isolated_admin.reserve_target(text,text,text), samosval_isolated_admin.mark_reserved_target(text,text), samosval_isolated_admin.terminate_exact_target(text,text), samosval_isolated_admin.authorize_drop_target(text,text), samosval_isolated_admin.authorize_partial_drop(text,text) TO samosval_test_orchestrator;

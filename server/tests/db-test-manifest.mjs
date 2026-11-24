@@ -22,7 +22,7 @@ const dbFiles = [
 
 const harnessFiles = [
   'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-fixtures', 'isolated-db-guard',
-  'isolated-db-integration', 'isolated-db-runner', 'isolated-db-templates'
+  'isolated-db-integration', 'isolated-db-lifecycle', 'isolated-db-runner', 'isolated-db-templates'
 ];
 
 const consumersByFile = {
@@ -88,6 +88,10 @@ const consumersByFile = {
     "tests/helpers/isolated-db.mjs:pg",
     "tests/isolated-db-integration.test.mjs:db-env",
     "tests/isolated-db-integration.test.mjs:pg"
+  ],
+  "isolated-db-lifecycle": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/isolated-db-lifecycle.test.mjs:pg"
   ],
   "isolated-db-runner": [],
   "isolated-db-fixtures": [
@@ -297,6 +301,7 @@ const manifest = {
   entries: [...unitEntries, ...dbEntries, ...harnessEntries].sort((a, b) => a.file.localeCompare(b.file)),
   harnessFixtures: [
     'tests/fixtures/isolated-db-sentinel.test.mjs',
+    'tests/fixtures/marker-tamper.test.mjs',
     'tests/fixtures/sigterm-self.test.mjs'
   ]
 };

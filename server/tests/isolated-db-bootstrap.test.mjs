@@ -311,6 +311,7 @@ test('compose bootstrap has closed roles, registry and function ACL surface', { 
   const functions = await role(bootstrapAdminUrl, `SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args, p.proowner::regrole::text AS owner, has_function_privilege('samosval_test_orchestrator',p.oid,'EXECUTE') AS orch, has_function_privilege('samosval_test_app',p.oid,'EXECUTE') AS app, has_function_privilege('public',p.oid,'EXECUTE') AS public FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='samosval_isolated_admin' ORDER BY 1,2`);
   assert.deepEqual(functions.rows.map(r => [r.proname,r.args,r.owner,r.orch,r.app,r.public]), [
     ['authorize_drop_target','target_name text, capability text','samosval_test_bootstrap_admin',true,false,false],
+    ['authorize_partial_drop','target_name text, capability text','samosval_test_bootstrap_admin',true,false,false],
     ['mark_reserved_target','target_name text, capability text','samosval_test_bootstrap_admin',true,false,false],
     ['reserve_target','target_name text, runid text, capability text','samosval_test_bootstrap_admin',true,false,false],
     ['terminate_exact_target','target_name text, capability text','samosval_test_bootstrap_admin',true,false,false],
