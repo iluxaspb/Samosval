@@ -115,6 +115,18 @@
 - После среза v1 любые оставшиеся v1-писатели отвергаются: `archive-store.restoredLine`, `replica-materialize.mjs`, seed-хелпер `tests/helpers/isolated-db.mjs` (уже так и задумано — чинятся в Task 7 / 11–15). Тест, которому нужно «убрать» засеянную v1-строку из живого селектора, обязан писать канонические колонки (`state='historical', is_active=false`), а не payload.
 - Тесты этого файла надо прогонять на свежей БД одноразового кластера и пересоздавать её между файлами: смена CHECK-ов и триггера не видна в уже накатанной БД.
 
+## 23. Урок 25.11.2026 (P3, Task 3-FIX): «доказанный» uid и канонический дрейф на UPDATE
+
+**Симптом 1:** миграция 025 падала целиком на `23503` без workspace/shift_id, если legacy-смена была закрыта удалённым или неизвестным `closedByUid` (или висела в `closing` с неизвестным `closingByUid`). Диагностики нет, откатывается вся миграция.
+**Причина:** «доказанность» актора проверялась только на непустую строку (`NULLIF(btrim(...)) IS NOT NULL`), хотя `identity_resolution` уже требовал `EXISTS (SELECT 1 FROM app_users ...)`. Затем `ADD CONSTRAINT shifts_closed_by_fk` валидировал таблицу и падал на первой такой строке.
+**Что делать:** существование uid проверять в тех же `CASE`, что выводят `opened_by_uid`/`closing_by_uid`/`closed_by_uid`; строку `closed` без доказанного закрывающего приводить к `historical` в том же одноразовом блоке (close/closing-поля в NULL), а не выдумывать uid. `closing` с неизвестным `closingByUid` остаётся живой, но `closing_by_uid = NULL` (тип у неё доказан, актор — нет).
+
+**Симптом 2:** на strict v2-строке проходил `UPDATE shifts SET state='closed', closed_at=now(), closed_by_uid=<uid>` при payload `state:'active'`: клиент/реплика видит активную смену, БД считает её закрытой. Плюс `UPDATE ... SET payload_schema_version=2` повышал legacy-строку до v2 без v2-документа, а противоречащие явные колонки молча перезаписывались из payload.
+**Причина:** контроль «payload ↔ канонические колонки» остался только на INSERT; UPDATE-ветка была ничем не связана с документом.
+**Что делать:** на UPDATE сравнивать не «NEW vs payload» (там ещё и не тронутые OLD-значения), а «изменённое явно vs доказанное документом»: `NEW.col IS DISTINCT FROM OLD.col AND NEW.col IS DISTINCT FROM <значение из payload>` — по всем 11 полям, иначе `shift canonical payload mismatch`. Отдельное правило: без изменения payload `payload_schema_version` менять нельзя. Следствия, которые надо помнить: «голая» колонка больше не двигает жизненный цикл v2-строки (только документ с маркером закрытия), а писатель, который передаёт `is_active=false` вместе с closing-payload (так делает `shift-close.mjs:41`), получает отказ — по D1 при `closing` `is_active=true`, и в Task 7 писатель не должен передавать этот bridge-столбец вообще. Legacy v1-строки правило не трогает: ручное уточнение (`shift_type`/`opened_by_uid`) без изменения payload остаётся законным (§4.9).
+
+**Ловушка тестов:** ветку `shift canonical payload mismatch` до этого не исполнял ни один прогон (все INSERT-ы передавали 4 колонки). Тест на reject обязателен на каждую новую ветку триггера: удалённый старый тест «aliases match normalized columns» унёс всё покрытие молча.
+
 ## 21. Урок (P2 fix): закрытый allowlist и REVOKE-first
 
 **Симптом:** параметризуемый allowlist принимал произвольные имена и мог передать владельца чужих объектов, нарушая I1–I5; runtime получал DML на legacy `line_logs`, а verify не замечал EXECUTE у runtime и maintenance.
