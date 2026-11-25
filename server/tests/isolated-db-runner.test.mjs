@@ -124,7 +124,10 @@ test('official documentation names only the direct shell command as hostile-env 
 });
 
 test('a nested child SIGTERM is a failed file, not an external runner interruption', () => {
-  const result = spawnSync(shellLauncher.pathname, [signalTest.pathname], {
+  const directory = mkdtempSync(join(tmpdir(), 'samosval-isolated-signal-report-'));
+  const report = join(directory, 'report.json');
+  try {
+    const result = spawnSync(shellLauncher.pathname, [signalTest.pathname], {
     cwd: new URL('..', import.meta.url),
     encoding: 'utf8',
     env: {
@@ -134,12 +137,21 @@ test('a nested child SIGTERM is a failed file, not an external runner interrupti
       NODE_OPTIONS: undefined,
       NODE_PATH: undefined,
       SAMOSVAL_ISOLATED_TEST: '1',
-      ISOLATED_DB_SIGNAL_FIXTURE: '1',
-    },
-  });
-  assert.equal(result.signal, null, `${result.stdout}${result.stderr}`);
-  assert.equal(result.status, 1);
+       ISOLATED_DB_SIGNAL_FIXTURE: '1',
+       SAMOSVAL_ISOLATED_REPORT: report,
+     },
+    });
+    assert.equal(result.signal, null, `${result.stdout}${result.stderr}`);
+    assert.equal(result.status, 1);
+    const saved = JSON.parse(readFileSync(report, 'utf8'));
+    assert.equal(saved.interrupted, false);
+    assert.equal(saved.originalSignal, null);
+    assert.equal(saved.files[0].status, 'failed');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
+
 
 test('runner rejects options and traversal before child tests load', () => {
   for (const arg of [

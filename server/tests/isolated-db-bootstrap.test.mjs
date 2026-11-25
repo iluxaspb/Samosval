@@ -272,11 +272,12 @@ function connectionDenied(url) {
 }
 
 function dockerContainerId(port) {
+  assert.match(String(port ?? ''), /^\d+$/, 'PostgreSQL port must be explicit before querying Docker');
   const result = spawnSync('docker', ['ps', '-q', '--filter', `publish=${port}`], { encoding: 'utf8', env: process.env });
   assert.equal(result.status, 0, `docker ps failed: ${result.stderr}`);
-  const container = result.stdout.trim().split(/\s+/)[0];
-  assert.ok(container, `no Docker container found publishing PostgreSQL port ${port}`);
-  return container;
+  const containers = result.stdout.trim() ? result.stdout.trim().split(/\s+/) : [];
+  assert.equal(containers.length, 1, `expected exactly one Docker container publishing PostgreSQL port ${port}`);
+  return containers[0];
 }
 
 const capabilities = { a: generateRunCapability(), b: generateRunCapability(), c: generateRunCapability() };
