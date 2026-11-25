@@ -33,10 +33,10 @@ async function prepare() {
   await applyMigrationsThrough(25);
   const pool = poolForTest();
   try {
+    // Seed rows are migrated legacy documents; retire them from the live selector
+    // through canonical columns only (a v1 payload write is refused after cutover).
     await pool.query(
-      `UPDATE shifts
-          SET payload=jsonb_set(payload,'{isActive}','false'::jsonb)
-        WHERE workspace_id=$1`,
+      `UPDATE shifts SET state='historical',is_active=false WHERE workspace_id=$1`,
       [ids.workspaceId],
     );
     await pool.query(
@@ -58,6 +58,7 @@ async function prepare() {
 
 function shiftPayload(ids, shiftId, startedAt) {
   return {
+    payloadSchemaVersion: 2,
     id: shiftId,
     shiftId,
     objectId: ids.objectAId,
@@ -65,7 +66,7 @@ function shiftPayload(ids, shiftId, startedAt) {
     startDate: '23.11.2026',
     date: '2026-11-23',
     startedAt,
-    startedBy: ids.adminUid,
+    startedBy: 'Replica Admin',
     startedByUid: ids.adminUid,
     isActive: true,
     state: 'active',
@@ -154,7 +155,7 @@ test('replica log with an existing shift but missing truck fails atomically unti
   }
 });
 
-test('replica accepts a full canonical legacy shift snapshot and rejects the former partial fixture', {
+test('replica accepts a full canonical v2 shift snapshot and rejects legacy or partial documents', {
   skip: !approved,
 }, async () => {
   const ids = await prepare();
@@ -166,11 +167,27 @@ test('replica accepts a full canonical legacy shift snapshot and rejects the for
         baseSeq: 0,
         operations: [operation('partial-shift', 'shift', 'partial_shift', { id: 'partial_shift', isActive: true })],
       }, ids.workspaceId),
-      error => error.code === '23514' || error.code === '23502',
+      error => error.code === '23514' || error.code === '23502' || /protocol-upgrade-required/.test(error.message || ''),
     );
     assert.equal((await pool.query(
       'SELECT count(*)::int AS n FROM shifts WHERE workspace_id=$1 AND shift_id=$2',
       [ids.workspaceId, 'partial_shift'],
+    )).rows[0].n, 0);
+    await assert.rejects(
+      appendReplicaBatch(pool, ids.adminUid, {
+        baseSeq: 0,
+        operations: [operation('legacy-shift', 'shift', 'legacy_shift', {
+          id: 'legacy_shift', objectId: ids.objectBId, objectName: 'Legacy replica',
+          startDate: '23.11.2026', startedAt, startedBy: 'Replica Admin',
+          startedByUid: ids.adminUid, isActive: true, workShift: 'day',
+        })],
+      }, ids.workspaceId),
+      /protocol-upgrade-required/,
+      'a v1 replica shift must be refused after cutover',
+    );
+    assert.equal((await pool.query(
+      'SELECT count(*)::int AS n FROM shifts WHERE workspace_id=$1 AND shift_id=$2',
+      [ids.workspaceId, 'legacy_shift'],
     )).rows[0].n, 0);
     assert.equal((await pool.query(
       'SELECT count(*)::int AS n FROM replica_stream WHERE workspace_id=$1',

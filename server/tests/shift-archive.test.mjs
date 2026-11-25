@@ -4,13 +4,16 @@ import {linePeriod,buildShiftArchive,requireMaterialImport} from '../src/shift-a
 import {sourcePeriod} from '../../test-app/tabel-v2/material-transfer.mjs';
 const shift={id:'shift',objectId:'site',objectName:'Объект',startDate:'30.10.2026',startedAt:Date.parse('2026-10-30T08:00:00+03:00'),closingStartedAt:1000000,closingBy:'Админ'};
 const log=(id,truckId,timestamp,extra={})=>({id,truckId,timestamp,shiftId:shift.id,volume:24,...extra});
-test('server calendar and day/night boundary match the existing material-transfer logic',()=>{
+test('server calendar matches the material-transfer calendar without hour inference',()=>{
+  // The calendar date still matches the material-transfer source for a proved type.
   for(const hour of ['07:59','08:00','19:59','20:00']){
-    const s={...shift,startedAt:Date.parse('2026-10-30T'+hour+':00+03:00')};
+    const s={...shift,startedAt:Date.parse('2026-10-30T'+hour+':00+03:00'),workShift:'night'};
     const expected=sourcePeriod(s),actual=linePeriod(s);
-    assert.deepEqual(actual,{date:expected.date,kind:expected.shift});
+    assert.deepEqual(actual,{date:expected.date,kind:'night'});
   }
   for(const startDate of ['2026-02-30','31.02.2026',''])assert.throws(()=>linePeriod({...shift,startDate}));
+  // No hour fallback: a missing or unknown type is an error, never a guess.
+  for(const s of [{...shift},{...shift,workShift:'morning'},{...shift,kind:'evening'}])assert.throws(()=>linePeriod(s),{code:'unknown-shift-period'});
 });
 test('archive keeps GAI trips, but excludes them from ordinary totals',()=>{
   const rows=[log('a','truck',100),log('b','truck',300,{arrivalTimestamp:200}),log('c','gai',120,{isGAI:true,volume:100})];

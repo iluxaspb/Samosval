@@ -5,12 +5,9 @@ export function linePeriod(shift) {
   if(ru)date=`${ru[3]}-${ru[2].padStart(2,'0')}-${ru[1].padStart(2,'0')}`;
   const parsed=new Date(date+'T12:00:00Z');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==date)throw fail('invalid-shift-date',409);
-  let kind=shift.workShift||shift.kind;
-  if(!['day','night'].includes(kind)){
-    if(!Number.isFinite(Number(shift.startedAt))||!Number(shift.startedAt))throw fail('unknown-shift-period',409);
-    const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Moscow',hour:'2-digit',hourCycle:'h23'}).format(new Date(Number(shift.startedAt))));
-    kind=hour>=8&&hour<20?'day':'night';
-  }
+  // Day/night is never inferred from startedAt: an unproven type is not a type.
+  const kind=shift.workShift||shift.kind;
+  if(!['day','night'].includes(kind))throw fail('unknown-shift-period',409);
   return {date,kind};
 }
 export function buildShiftArchive(shift,logs,statuses,now=Date.now()) {

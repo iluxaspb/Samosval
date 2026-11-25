@@ -97,6 +97,24 @@
 
 ## Опыт выпусков (короткие уроки)
 
+## 22. Урок 25.11.2026 (P3, Task 3): strict-v2 provenance — догадки и v1-записи запрещены
+
+**Симптом:** миграция 025 классифицировала старые смены, но триггер `shifts_legacy_bridge` продолжал принимать v1-payload и заново выводить канонические поля из часов старта; закрытие по одному отображаемому имени давало «нормально закрытую» смену без актора.
+
+**Причина:** провенанс подменялся эвристикой (час `startedAt` → day/night), а `payload_schema_version` не был обязательным. Плюс сама модель жизненного цикла была неполной: `closing` трактовался как «не активна», хотя занимает линию.
+
+**Что делать (binding-решения D1–D5):**
+- `is_active = state IN ('active','closing')`; триггер форсирует это значение, `closing` всегда `is_active=true`.
+- `closed` требует доказанных `closed_at` + `closed_by_uid`. Закрытие только по отображаемому имени (`closedBy` без `closedByUid`) — это `historical`, `closed_at/by` остаются NULL; выдумывать актора/время нельзя. Продуктовый `shift-close.mjs` пишет только имя, поэтому такие закрытия осознанно уходят в `historical` (см. Task 7–15).
+- Никакого угадывания типа: нет `workShift`/`type` → `shift_type=NULL`, `shift_type_resolution='unresolved'`, значения `inferred` не существует. Неразрешённый тип при `active/closing` запрещён CHECK-ом; такие строки (включая `restored:true`) — `historical`.
+- Триггер = strict-v2 нормализатор: v1/missing `payloadSchemaVersion` → `protocol-upgrade-required` (23514); на INSERT требуется ровно 14-ключевой опубликованный v2-документ, иначе `invalid-shift-v2-provenance`.
+
+**Ловушки:**
+- `shift-close.mjs` оставляет в payload устаревшие `state:'active'`/`isActive:false` при `closing:true`, поэтому равенство alias-полей проверять нельзя — иначе реальное закрытие ломается. Жизненный цикл выводится по доказательствам, а не по stale-алиасу.
+- CHECK-и проверяют эквивалентность `(opened_by_uid IS NOT NULL) = (identity_resolution IN ('source','manual'))`; `UPDATE ... SET identity_resolution='manual', opened_by_uid=NULL` проходит по отдельности, но не вместе — «NULL-обход» ловится только парным тестом (`sql_null_cannot_bypass_provenance_checks`).
+- После среза v1 любые оставшиеся v1-писатели отвергаются: `archive-store.restoredLine`, `replica-materialize.mjs`, seed-хелпер `tests/helpers/isolated-db.mjs` (уже так и задумано — чинятся в Task 7 / 11–15). Тест, которому нужно «убрать» засеянную v1-строку из живого селектора, обязан писать канонические колонки (`state='historical', is_active=false`), а не payload.
+- Тесты этого файла надо прогонять на свежей БД одноразового кластера и пересоздавать её между файлами: смена CHECK-ов и триггера не видна в уже накатанной БД.
+
 ## 21. Урок (P2 fix): закрытый allowlist и REVOKE-first
 
 **Симптом:** параметризуемый allowlist принимал произвольные имена и мог передать владельца чужих объектов, нарушая I1–I5; runtime получал DML на legacy `line_logs`, а verify не замечал EXECUTE у runtime и maintenance.

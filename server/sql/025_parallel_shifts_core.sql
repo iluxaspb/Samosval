@@ -1,5 +1,9 @@
 -- Additive core schema for parallel shifts. Normalized columns become canonical;
--- legacy is_active remains as a consistency bridge during the v1/v2 cutover.
+-- legacy is_active remains as a consistency bridge during the v1/v2 cutover:
+--   * one-time legacy classification (v1 -> source/unresolved, no inference) runs
+--     in this transaction over the rows that already exist;
+--   * afterwards the runtime trigger is a strict v2 normalizer only, so a legacy
+--     writer cannot create new unresolved rows (protocol-upgrade-required).
 BEGIN;
 
 DO $validate_confirmed_activity_timestamps$
@@ -52,8 +56,12 @@ ALTER TABLE shifts
   ADD COLUMN object_name_snapshot text,
   ADD COLUMN work_date date,
   ADD COLUMN shift_type text,
+  ADD COLUMN shift_type_resolution text,
   ADD COLUMN opened_at timestamptz,
   ADD COLUMN opened_by_uid text,
+  ADD COLUMN opened_by_name_snapshot text,
+  ADD COLUMN identity_resolution text,
+  ADD COLUMN payload_schema_version smallint,
   ADD COLUMN object_locked_at timestamptz,
   ADD COLUMN object_locked_by_operation_id text,
   ADD COLUMN closing_started_at timestamptz,
@@ -78,10 +86,6 @@ BEGIN
               AND o.object_id=s.payload->>'objectId'
          )
       OR NULLIF(btrim(s.payload->>'objectName'),'') IS NULL
-      OR NULLIF(btrim(s.payload->>'startedByUid'),'') IS NULL
-      OR NOT EXISTS (
-           SELECT 1 FROM app_users u WHERE u.uid=s.payload->>'startedByUid'
-         )
       OR jsonb_typeof(s.payload->'startedAt') IS DISTINCT FROM 'number'
       OR (s.payload->>'startedAt') !~ '^[0-9]+$'
       OR (s.payload ? 'workShift' AND s.payload->>'workShift' NOT IN ('day','night'))
@@ -94,10 +98,26 @@ BEGIN
       OR (s.payload ? 'shiftId' AND s.payload->>'shiftId' IS DISTINCT FROM s.shift_id)
       OR (s.payload ? 'state' AND s.payload->>'state' IS DISTINCT FROM
             CASE WHEN s.payload->>'closing'='true' THEN 'closing'
-                 WHEN s.is_active THEN 'active' ELSE 'closed' END)
+                 WHEN s.is_active THEN 'active'
+                 WHEN jsonb_typeof(s.payload->'closedAt')='number'
+                      AND NULLIF(btrim(s.payload->>'closedByUid'),'') IS NOT NULL THEN 'closed'
+                 ELSE 'historical' END)
       OR (s.payload ? 'date' AND s.payload->>'date' IS DISTINCT FROM
             to_char(to_date(s.payload->>'startDate','DD.MM.YYYY'),'YYYY-MM-DD'))
-      OR (s.payload ? 'type' AND s.payload->>'type' IS DISTINCT FROM s.payload->>'workShift')
+      OR (s.payload ? 'type' AND s.payload ? 'workShift'
+          AND s.payload->>'type' IS DISTINCT FROM s.payload->>'workShift')
+      -- An unknown schema version is neither v2 nor a trustworthy legacy v1 row.
+      OR (s.payload ? 'payloadSchemaVersion'
+          AND s.payload->>'payloadSchemaVersion' NOT IN ('1','2'))
+      -- Strict v2 rows must carry full provenance; a malformed v2 blocks the
+      -- migration instead of being silently downgraded to legacy v1.
+      OR (s.payload->>'payloadSchemaVersion'='2' AND (
+            NULLIF(btrim(s.payload->>'startedByUid'),'') IS NULL
+            OR NOT EXISTS (
+                 SELECT 1 FROM app_users u WHERE u.uid=s.payload->>'startedByUid'
+               )
+            OR NULLIF(btrim(s.payload->>'startedBy'),'') IS NULL
+            OR COALESCE(NULLIF(s.payload->>'workShift',''),NULLIF(s.payload->>'type','')) IS NULL))
    LIMIT 1;
   IF FOUND THEN
     RAISE EXCEPTION 'unsafe legacy shift payload for workspace %, shift %', bad.workspace_id, bad.shift_id
@@ -108,16 +128,43 @@ $validate_legacy_shifts$;
 
 UPDATE shifts s
    SET state = CASE WHEN s.payload->>'closing'='true' THEN 'closing'
-                    WHEN s.is_active THEN 'active' ELSE 'closed' END,
+                    WHEN s.is_active THEN 'active'
+                    WHEN jsonb_typeof(s.payload->'closedAt')='number'
+                         AND NULLIF(btrim(s.payload->>'closedByUid'),'') IS NOT NULL THEN 'closed'
+                    ELSE 'historical' END,
+       -- is_active is a legacy bridge; during the cutover it means "occupies a
+       -- line", i.e. active OR closing, and never "confirmed provenance".
+       is_active = CASE WHEN s.payload->>'closing'='true' OR s.is_active THEN true ELSE false END,
        object_id = s.payload->>'objectId',
        object_name_snapshot = s.payload->>'objectName',
        work_date = to_date(s.payload->>'startDate','DD.MM.YYYY'),
-       shift_type = COALESCE(NULLIF(s.payload->>'workShift',''),
-         CASE WHEN extract(hour FROM to_timestamp((s.payload->>'startedAt')::double precision / 1000.0)
-                    AT TIME ZONE 'Europe/Moscow') BETWEEN 8 AND 19
-              THEN 'day' ELSE 'night' END),
+       payload_schema_version = CASE WHEN s.payload->>'payloadSchemaVersion'='2' THEN 2::smallint ELSE 1::smallint END,
+       identity_resolution = CASE
+         WHEN s.payload->>'payloadSchemaVersion'='2' THEN 'source'
+         WHEN NULLIF(btrim(s.payload->>'startedByUid'),'') IS NOT NULL
+              AND EXISTS (SELECT 1 FROM app_users u WHERE u.uid=s.payload->>'startedByUid')
+           THEN 'source'
+         ELSE 'unresolved' END,
+       opened_by_uid = CASE
+         WHEN s.payload->>'payloadSchemaVersion'='2' THEN s.payload->>'startedByUid'
+         WHEN NULLIF(btrim(s.payload->>'startedByUid'),'') IS NOT NULL
+              AND EXISTS (SELECT 1 FROM app_users u WHERE u.uid=s.payload->>'startedByUid')
+           THEN s.payload->>'startedByUid'
+         ELSE NULL END,
+       opened_by_name_snapshot = COALESCE(NULLIF(btrim(s.payload->>'startedBy'),''),'<unresolved>'),
+       shift_type_resolution = CASE
+         WHEN s.payload->>'payloadSchemaVersion'='2' THEN 'source'
+         WHEN COALESCE(NULLIF(s.payload->>'workShift',''),NULLIF(s.payload->>'type','')) IN ('day','night')
+           THEN 'source'
+         ELSE 'unresolved' END,
+       -- No hour inference: an unproven day/night becomes NULL/unresolved.
+       shift_type = CASE
+         WHEN s.payload->>'payloadSchemaVersion'='2'
+           THEN COALESCE(NULLIF(s.payload->>'workShift',''),NULLIF(s.payload->>'type',''))
+         WHEN COALESCE(NULLIF(s.payload->>'workShift',''),NULLIF(s.payload->>'type','')) IN ('day','night')
+           THEN COALESCE(NULLIF(s.payload->>'workShift',''),NULLIF(s.payload->>'type',''))
+         ELSE NULL END,
        opened_at = to_timestamp((s.payload->>'startedAt')::double precision / 1000.0),
-       opened_by_uid = s.payload->>'startedByUid',
        object_locked_at = (
          SELECT to_timestamp(min(event_ms)::double precision / 1000.0)
            FROM (
@@ -157,28 +204,76 @@ UPDATE shifts s
        END,
        closing_by_uid = CASE WHEN s.payload->>'closing'='true'
          THEN NULLIF(s.payload->>'closingByUid','') END,
+       -- A legacy 'closed' row needs both close-flavoured fields; without a
+       -- proven closer UID the row is historicalized, never a normal close.
        closed_at = CASE
          WHEN NOT s.is_active AND s.payload->>'closing' IS DISTINCT FROM 'true'
               AND jsonb_typeof(s.payload->'closedAt')='number'
+              AND NULLIF(btrim(s.payload->>'closedByUid'),'') IS NOT NULL
          THEN to_timestamp((s.payload->>'closedAt')::double precision / 1000.0)
        END,
-       closed_by_uid = CASE WHEN NOT s.is_active AND s.payload->>'closing' IS DISTINCT FROM 'true'
-         THEN NULLIF(s.payload->>'closedByUid','') END,
+       closed_by_uid = CASE
+         WHEN NOT s.is_active AND s.payload->>'closing' IS DISTINCT FROM 'true'
+              AND jsonb_typeof(s.payload->'closedAt')='number'
+              AND NULLIF(btrim(s.payload->>'closedByUid'),'') IS NOT NULL
+         THEN NULLIF(s.payload->>'closedByUid','')
+       END,
        revision = 1;
+
+-- D5: an unproven day/night may never back a live line. A row that would
+-- otherwise stay active/closing is historicalized instead of guessed, so the
+-- migration is not blocked by data that is legitimately unprovable.
+UPDATE shifts
+   SET state = 'historical',
+       is_active = false,
+       closing_started_at = NULL,
+       closing_by_uid = NULL,
+       closed_at = NULL,
+       closed_by_uid = NULL
+ WHERE shift_type_resolution = 'unresolved'
+   AND state IN ('active','closing');
 
 ALTER TABLE shifts
   ALTER COLUMN state SET NOT NULL,
   ALTER COLUMN object_id SET NOT NULL,
   ALTER COLUMN object_name_snapshot SET NOT NULL,
   ALTER COLUMN work_date SET NOT NULL,
-  ALTER COLUMN shift_type SET NOT NULL,
   ALTER COLUMN opened_at SET NOT NULL,
-  ALTER COLUMN opened_by_uid SET NOT NULL,
+  ALTER COLUMN opened_by_name_snapshot SET NOT NULL,
+  ALTER COLUMN payload_schema_version SET NOT NULL,
+  ALTER COLUMN identity_resolution SET NOT NULL,
+  ALTER COLUMN shift_type_resolution SET NOT NULL,
   ALTER COLUMN revision SET NOT NULL,
-  ADD CONSTRAINT shifts_state_check CHECK (state IN ('active','closing','closed')),
-  ADD CONSTRAINT shifts_shift_type_check CHECK (shift_type IN ('day','night')),
+  ADD CONSTRAINT shifts_state_check CHECK (state IN ('active','closing','closed','historical')),
+  ADD CONSTRAINT shifts_shift_type_check CHECK (shift_type IS NULL OR shift_type IN ('day','night')),
+  ADD CONSTRAINT shifts_payload_schema_version_check CHECK (payload_schema_version IN (1,2)),
+  ADD CONSTRAINT shifts_identity_resolution_check
+    CHECK (identity_resolution IN ('source','manual','unresolved')),
+  ADD CONSTRAINT shifts_shift_type_resolution_check
+    CHECK (shift_type_resolution IN ('source','manual','unresolved')),
+  -- SQL three-valued NULL: NULL IN (...) is NULL, so equivalence checks are
+  -- written explicitly. A NULL identity/type must pair with 'unresolved'.
+  ADD CONSTRAINT shifts_identity_provenance_check
+    CHECK ((opened_by_uid IS NOT NULL) = (identity_resolution IN ('source','manual'))),
+  ADD CONSTRAINT shifts_type_provenance_check
+    CHECK ((shift_type IS NOT NULL) = (shift_type_resolution IN ('source','manual'))),
+  ADD CONSTRAINT shifts_v2_provenance_check
+    CHECK (payload_schema_version = 1 OR (payload_schema_version = 2
+           AND identity_resolution = 'source' AND shift_type_resolution = 'source'
+           AND opened_by_uid IS NOT NULL AND shift_type IS NOT NULL)),
   ADD CONSTRAINT shifts_revision_check CHECK (revision > 0),
-  ADD CONSTRAINT shifts_legacy_active_check CHECK (is_active = (state = 'active')),
+  -- is_active means "occupies a line": active or closing.
+  ADD CONSTRAINT shifts_legacy_active_check CHECK (is_active = (state IN ('active','closing'))),
+  -- An unresolved type may never back a live tab; only closed/historical rows
+  -- may stay unproven.
+  ADD CONSTRAINT shifts_unresolved_type_not_live_check
+    CHECK (shift_type_resolution <> 'unresolved' OR state IN ('closed','historical')),
+  ADD CONSTRAINT shifts_closed_lifecycle_check
+    CHECK ((state = 'closed') = (closed_at IS NOT NULL AND closed_by_uid IS NOT NULL)),
+  ADD CONSTRAINT shifts_historical_lifecycle_check
+    CHECK (state <> 'historical' OR (closed_at IS NULL AND closed_by_uid IS NULL
+           AND closing_started_at IS NULL AND closing_by_uid IS NULL
+           AND is_active = false)),
   ADD CONSTRAINT shifts_object_fk FOREIGN KEY (workspace_id,object_id)
     REFERENCES workspace_objects(workspace_id,object_id),
   ADD CONSTRAINT shifts_opened_by_fk FOREIGN KEY (opened_by_uid) REFERENCES app_users(uid),
@@ -187,117 +282,182 @@ ALTER TABLE shifts
 
 CREATE UNIQUE INDEX shifts_one_open_canonical_key
   ON shifts(workspace_id,object_id,work_date,shift_type)
-  WHERE state IN ('active','closing');
+  WHERE state IN ('active','closing') AND shift_type_resolution IN ('source','manual');
 CREATE INDEX shifts_state_opened_idx ON shifts(workspace_id,state,opened_at);
 CREATE INDEX shifts_object_date_idx ON shifts(workspace_id,object_id,work_date);
 
 CREATE OR REPLACE FUNCTION shifts_legacy_bridge() RETURNS trigger
 LANGUAGE plpgsql AS $bridge$
 DECLARE
-  legacy_write boolean;
+  payload_write boolean;
+  payload_version text;
   payload_state text;
   payload_date date;
-  payload_type text;
 BEGIN
-  IF TG_OP='UPDATE' AND NEW.is_active IS DISTINCT FROM OLD.is_active
-     AND NEW.payload IS NOT DISTINCT FROM OLD.payload
-     AND NEW.state IS NOT DISTINCT FROM OLD.state THEN
-    RAISE EXCEPTION 'ambiguous legacy active update' USING ERRCODE='check_violation';
+  -- The historical name is kept because the P2 runtime role boundary allowlists
+  -- shifts_legacy_bridge() explicitly. The body is a strict v2 normalizer: the
+  -- one-time v1 classification above is the only legacy write in the system.
+  IF TG_OP='UPDATE' THEN
+    IF NEW.payload IS NOT DISTINCT FROM OLD.payload
+       AND NEW.state IS NOT DISTINCT FROM OLD.state
+       AND NEW.is_active IS DISTINCT FROM OLD.is_active THEN
+      RAISE EXCEPTION 'ambiguous legacy active update' USING ERRCODE='check_violation';
+    END IF;
+    payload_write := NEW.payload IS DISTINCT FROM OLD.payload;
+  ELSE
+    payload_write := true;
   END IF;
 
-  legacy_write := TG_OP='INSERT' AND NEW.state IS NULL
-    OR TG_OP='UPDATE' AND NEW.payload IS DISTINCT FROM OLD.payload
-       AND NEW.state IS NOT DISTINCT FROM OLD.state
-       AND NEW.object_id IS NOT DISTINCT FROM OLD.object_id
-       AND NEW.object_name_snapshot IS NOT DISTINCT FROM OLD.object_name_snapshot
-       AND NEW.work_date IS NOT DISTINCT FROM OLD.work_date
-       AND NEW.shift_type IS NOT DISTINCT FROM OLD.shift_type
-       AND NEW.opened_at IS NOT DISTINCT FROM OLD.opened_at
-       AND NEW.opened_by_uid IS NOT DISTINCT FROM OLD.opened_by_uid;
+  IF payload_write THEN
+    payload_version := NEW.payload->>'payloadSchemaVersion';
+    IF payload_version IS DISTINCT FROM '2' THEN
+      RAISE EXCEPTION 'protocol-upgrade-required: shift payload schema version % is not writable',
+        COALESCE(payload_version,'missing') USING ERRCODE='check_violation';
+    END IF;
 
-  IF legacy_write THEN
+    -- "Published v2" is exact: the documented key set and nothing extra, so a
+    -- forgotten key, a restore-only alias or a forged field is malformed v2 and
+    -- is never silently downgraded to legacy.
+    IF TG_OP='INSERT' AND (
+         NOT (NEW.payload ?& ARRAY['payloadSchemaVersion','id','shiftId','objectId',
+                                   'objectName','startDate','date','workShift','type',
+                                   'state','isActive','startedAt','startedBy','startedByUid'])
+         OR (SELECT count(*) FROM jsonb_object_keys(NEW.payload)) <> 14) THEN
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: start payload is not the exact published v2 document'
+        USING ERRCODE='check_violation';
+    END IF;
+
     IF NEW.payload->>'id' IS DISTINCT FROM NEW.shift_id
        OR (NEW.payload ? 'shiftId' AND NEW.payload->>'shiftId' IS DISTINCT FROM NEW.shift_id)
        OR NULLIF(btrim(NEW.payload->>'objectId'),'') IS NULL
        OR NULLIF(btrim(NEW.payload->>'objectName'),'') IS NULL
-       OR NULLIF(btrim(NEW.payload->>'startedByUid'),'') IS NULL
        OR jsonb_typeof(NEW.payload->'startedAt') IS DISTINCT FROM 'number'
        OR (NEW.payload->>'startedAt') !~ '^[0-9]+$'
        OR jsonb_typeof(NEW.payload->'isActive') IS DISTINCT FROM 'boolean'
+       OR NEW.payload->>'state' IS NULL
+       OR NEW.payload->>'state' NOT IN ('active','closing','closed','historical')
+       OR NULLIF(btrim(NEW.payload->>'startedByUid'),'') IS NULL
+       OR NOT EXISTS (SELECT 1 FROM app_users u WHERE u.uid=NEW.payload->>'startedByUid')
+       OR NULLIF(btrim(NEW.payload->>'startedBy'),'') IS NULL
+       OR NEW.payload->>'workShift' IS NULL
+       OR NEW.payload->>'workShift' NOT IN ('day','night')
+       OR NEW.payload->>'type' IS DISTINCT FROM NEW.payload->>'workShift'
     THEN
-      RAISE EXCEPTION 'unsafe legacy shift payload' USING ERRCODE='check_violation';
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: identity, type or lifecycle alias is not provable'
+        USING ERRCODE='check_violation';
     END IF;
+
     payload_date := CASE
       WHEN NEW.payload->>'startDate' ~ '^([0-2][0-9]|3[01])\.(0[1-9]|1[0-2])\.[0-9]{4}$'
         THEN to_date(NEW.payload->>'startDate','DD.MM.YYYY')
-      WHEN NEW.payload->>'date' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])$'
-        THEN (NEW.payload->>'date')::date
     END;
-    IF payload_date IS NULL THEN
-      RAISE EXCEPTION 'unsafe legacy shift date' USING ERRCODE='check_violation';
-    END IF;
-    payload_type := COALESCE(NULLIF(NEW.payload->>'workShift',''),NULLIF(NEW.payload->>'type',''));
-    IF payload_type IS NULL THEN
-      payload_type := CASE WHEN extract(hour FROM to_timestamp((NEW.payload->>'startedAt')::double precision / 1000.0) AT TIME ZONE 'Europe/Moscow') BETWEEN 8 AND 19 THEN 'day' ELSE 'night' END;
-    END IF;
-    IF payload_type NOT IN ('day','night')
-       OR (NEW.payload ? 'workShift' AND NEW.payload ? 'type'
-           AND NEW.payload->>'workShift' IS DISTINCT FROM NEW.payload->>'type')
+    IF payload_date IS NULL
+       OR to_char(payload_date,'DD.MM.YYYY') IS DISTINCT FROM NEW.payload->>'startDate'
+       OR NEW.payload->>'date' IS DISTINCT FROM to_char(payload_date,'YYYY-MM-DD')
+       OR to_char(to_timestamp((NEW.payload->>'startedAt')::double precision / 1000.0)
+                  AT TIME ZONE 'Europe/Moscow','DD.MM.YYYY') IS DISTINCT FROM NEW.payload->>'startDate'
     THEN
-      RAISE EXCEPTION 'unsafe legacy shift type' USING ERRCODE='check_violation';
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: shift date is not provable'
+        USING ERRCODE='check_violation';
     END IF;
-    payload_state := CASE WHEN NEW.payload->>'closing'='true' THEN 'closing'
-                          WHEN (NEW.payload->>'isActive')::boolean THEN 'active' ELSE 'closed' END;
-    IF NEW.payload ? 'state' AND NEW.payload->>'state' IS DISTINCT FROM payload_state THEN
-      RAISE EXCEPTION 'unsafe legacy shift state' USING ERRCODE='check_violation';
+
+    -- Lifecycle comes from evidence, never from a stale display alias. A normal
+    -- close needs a proved closer UID; without one the row is historical and no
+    -- synthetic close actor/time is invented (design §4.1, D2).
+    payload_state := CASE
+      WHEN NEW.payload->>'closing'='true' THEN 'closing'
+      WHEN NEW.payload->>'state'='closed' THEN 'closed'
+      WHEN NEW.payload->>'state'='historical' THEN 'historical'
+      WHEN (NEW.payload->>'isActive')::boolean THEN 'active'
+      WHEN jsonb_typeof(NEW.payload->'closedAt')='number'
+           AND NULLIF(btrim(NEW.payload->>'closedByUid'),'') IS NOT NULL THEN 'closed'
+      ELSE 'historical' END;
+
+    -- A terminal alias is an assertion and must be proved. A leftover 'active'
+    -- alias is only the pre-transition snapshot the close writer keeps.
+    IF NEW.payload->>'state'='closed' AND payload_state IS DISTINCT FROM 'closed' THEN
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: closed requires closed_at and proved closed_by_uid'
+        USING ERRCODE='check_violation';
     END IF;
+    IF NEW.payload->>'state'='closing' AND payload_state IS DISTINCT FROM 'closing' THEN
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: closing requires the closing marker'
+        USING ERRCODE='check_violation';
+    END IF;
+    IF NEW.payload->>'state'='historical' AND payload_state IS DISTINCT FROM 'historical' THEN
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: historical row keeps no close proof'
+        USING ERRCODE='check_violation';
+    END IF;
+    IF (payload_state='active' AND NOT (NEW.payload->>'isActive')::boolean)
+       OR (payload_state IN ('closed','historical') AND (NEW.payload->>'isActive')::boolean)
+    THEN
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: isActive contradicts the lifecycle'
+        USING ERRCODE='check_violation';
+    END IF;
+
+    -- Canonical columns are derived from the document. An INSERT that also
+    -- supplies contradictory columns is canonical drift: reject, never fix up.
+    IF TG_OP='INSERT' AND (
+         (NEW.state IS NOT NULL AND NEW.state IS DISTINCT FROM payload_state)
+      OR (NEW.object_id IS NOT NULL AND NEW.object_id IS DISTINCT FROM NEW.payload->>'objectId')
+      OR (NEW.object_name_snapshot IS NOT NULL
+          AND NEW.object_name_snapshot IS DISTINCT FROM NEW.payload->>'objectName')
+      OR (NEW.work_date IS NOT NULL AND NEW.work_date IS DISTINCT FROM payload_date)
+      OR (NEW.shift_type IS NOT NULL AND NEW.shift_type IS DISTINCT FROM NEW.payload->>'workShift')
+      OR (NEW.opened_at IS NOT NULL AND NEW.opened_at IS DISTINCT FROM
+            to_timestamp((NEW.payload->>'startedAt')::double precision / 1000.0))
+      OR (NEW.opened_by_uid IS NOT NULL AND NEW.opened_by_uid IS DISTINCT FROM NEW.payload->>'startedByUid')
+      OR (NEW.payload_schema_version IS NOT NULL AND NEW.payload_schema_version <> 2)
+      OR (NEW.identity_resolution IS NOT NULL AND NEW.identity_resolution <> 'source')
+      OR (NEW.shift_type_resolution IS NOT NULL AND NEW.shift_type_resolution <> 'source')
+      OR (NEW.is_active IS NOT NULL
+          AND NEW.is_active IS DISTINCT FROM (payload_state IN ('active','closing')))
+    ) THEN
+      RAISE EXCEPTION 'shift canonical payload mismatch' USING ERRCODE='check_violation';
+    END IF;
+
     NEW.state := payload_state;
     NEW.object_id := NEW.payload->>'objectId';
     NEW.object_name_snapshot := NEW.payload->>'objectName';
     NEW.work_date := payload_date;
-    NEW.shift_type := payload_type;
+    NEW.shift_type := NEW.payload->>'workShift';
+    NEW.shift_type_resolution := 'source';
     NEW.opened_at := to_timestamp((NEW.payload->>'startedAt')::double precision / 1000.0);
     NEW.opened_by_uid := NEW.payload->>'startedByUid';
-    NEW.closing_started_at := CASE WHEN payload_state='closing' AND jsonb_typeof(NEW.payload->'closingStartedAt')='number'
+    NEW.opened_by_name_snapshot := NEW.payload->>'startedBy';
+    NEW.identity_resolution := 'source';
+    NEW.payload_schema_version := 2;
+    NEW.closing_started_at := CASE WHEN payload_state='closing'
+      AND jsonb_typeof(NEW.payload->'closingStartedAt')='number'
       THEN to_timestamp((NEW.payload->>'closingStartedAt')::double precision / 1000.0) END;
-    NEW.closing_by_uid := CASE WHEN payload_state='closing' THEN NULLIF(NEW.payload->>'closingByUid','') END;
-    NEW.closed_at := CASE WHEN payload_state='closed' AND jsonb_typeof(NEW.payload->'closedAt')='number'
+    NEW.closing_by_uid := CASE WHEN payload_state='closing'
+      THEN NULLIF(NEW.payload->>'closingByUid','') END;
+    NEW.closed_at := CASE WHEN payload_state='closed'
       THEN to_timestamp((NEW.payload->>'closedAt')::double precision / 1000.0) END;
-    NEW.closed_by_uid := CASE WHEN payload_state='closed' THEN NULLIF(NEW.payload->>'closedByUid','') END;
+    NEW.closed_by_uid := CASE WHEN payload_state='closed'
+      THEN NEW.payload->>'closedByUid' END;
     NEW.revision := COALESCE(NEW.revision,1);
   END IF;
 
-  IF NEW.state='active' THEN NEW.is_active := true;
-  ELSIF NEW.state='closed' THEN NEW.is_active := false;
+  -- Design §4.1 / D1: is_active means "occupies a line" (active or closing).
+  IF NEW.state IN ('active','closing') THEN NEW.is_active := true;
+  ELSE NEW.is_active := false; END IF;
+
+  -- A migrated legacy row may be closed, historical or manually resolved, and its
+  -- non-provenance columns stay writable (object lock, revisions). It can never
+  -- become (or return to) a live line without a strict v2 document.
+  IF NEW.state IN ('active','closing') AND NEW.payload_schema_version IS DISTINCT FROM 2 THEN
+    IF TG_OP='INSERT' THEN
+      RAISE EXCEPTION 'protocol-upgrade-required: a legacy shift cannot become a live line'
+        USING ERRCODE='check_violation';
+    ELSIF OLD.state IS DISTINCT FROM NEW.state THEN
+      RAISE EXCEPTION 'protocol-upgrade-required: a legacy shift cannot become a live line'
+        USING ERRCODE='check_violation';
+    END IF;
   END IF;
 
   IF TG_OP='UPDATE' AND OLD.object_locked_at IS NOT NULL
      AND NEW.object_id IS DISTINCT FROM OLD.object_id THEN
     RAISE EXCEPTION 'shift object is locked' USING ERRCODE='check_violation';
-  END IF;
-
-  IF NEW.payload->>'id' IS DISTINCT FROM NEW.shift_id
-     OR NULLIF(btrim(NEW.payload->>'objectId'),'') IS NULL
-     OR NEW.payload->>'objectId' IS DISTINCT FROM NEW.object_id
-     OR NULLIF(btrim(NEW.payload->>'objectName'),'') IS NULL
-     OR NEW.payload->>'objectName' IS DISTINCT FROM NEW.object_name_snapshot
-     OR jsonb_typeof(NEW.payload->'startedAt') IS DISTINCT FROM 'number'
-     OR (NEW.payload->>'startedAt') !~ '^[0-9]+$'
-     OR to_timestamp((NEW.payload->>'startedAt')::double precision / 1000.0) IS DISTINCT FROM NEW.opened_at
-     OR NULLIF(btrim(NEW.payload->>'startedByUid'),'') IS NULL
-     OR NEW.payload->>'startedByUid' IS DISTINCT FROM NEW.opened_by_uid
-     OR jsonb_typeof(NEW.payload->'isActive') IS DISTINCT FROM 'boolean'
-     OR (NEW.payload->>'isActive')::boolean IS DISTINCT FROM NEW.is_active
-     OR (NOT (NEW.payload ? 'startDate') AND NOT (NEW.payload ? 'date'))
-     OR (NEW.payload ? 'shiftId' AND NEW.payload->>'shiftId' IS DISTINCT FROM NEW.shift_id)
-     OR (NEW.payload ? 'date' AND NEW.payload->>'date' IS DISTINCT FROM to_char(NEW.work_date,'YYYY-MM-DD'))
-     OR (NEW.payload ? 'startDate' AND NEW.payload->>'startDate' IS DISTINCT FROM to_char(NEW.work_date,'DD.MM.YYYY'))
-     OR (NEW.payload ? 'type' AND NEW.payload->>'type' IS DISTINCT FROM NEW.shift_type)
-     OR (NEW.payload ? 'workShift' AND NEW.payload->>'workShift' IS DISTINCT FROM NEW.shift_type)
-     OR (NEW.payload ? 'state' AND NEW.payload->>'state' IS DISTINCT FROM NEW.state)
-     OR (NEW.payload ? 'closing' AND (NEW.payload->>'closing')::boolean IS DISTINCT FROM (NEW.state='closing'))
-  THEN
-    RAISE EXCEPTION 'shift canonical payload mismatch' USING ERRCODE='check_violation';
   END IF;
   RETURN NEW;
 END
