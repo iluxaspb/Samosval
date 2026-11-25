@@ -59,7 +59,14 @@ function expectUnsafeLegacyFixtureRejected(name, mutate) {
     const pool = poolForTest();
     try {
       await mutate(pool, ids);
-      await assert.rejects(() => applyMigrationsThrough(25));
+      // Both preflight blocks of 025 must reject the fixture themselves; a side
+      // error (FK 23503, a cast failure, a typo in the SQL) would not match.
+      await assert.rejects(
+        () => applyMigrationsThrough(25),
+        error => error.code === '23514'
+          && /unsafe (legacy shift payload|confirmed activity timestamp)/.test(error.message),
+        'the fixture must fail a 025 preflight block, not some side error',
+      );
       assert.equal((await pool.query(
         `SELECT count(*)::int AS n FROM schema_migrations
           WHERE filename='025_parallel_shifts_core.sql'`,
@@ -689,6 +696,281 @@ test('025 rejects a payloadSchemaVersion change without a payload on a live lega
       `SELECT state,payload_schema_version::int AS psv FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
       [ids.workspaceId, ids.shiftAId],
     )).rows[0], { state: 'active', psv: 1 });
+  } finally {
+    await pool.end();
+  }
+});
+
+test('025 migrates a restored archive row restored on another calendar day', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('restored_otherday');
+  const pool = poolForTest();
+  try {
+    // restoredLine: startDate of the original shift, startedAt = restoration now.
+    const restored = restoredLine({
+      objectId: ids.objectAId, objectName: '', date: '20.11.2026',
+      logs: [], activeLineIds: [], ttnStatus: {},
+    }, { id: 'restored_otherday', recordId: 'archive_restored_otherday' }, { uid: ids.adminUid, display_name: 'Admin' },
+      Date.parse('2026-11-25T09:00:00Z')).shift;
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,$3,$4)',
+      [ids.workspaceId, restored.id, true, restored],
+    );
+    await applyMigrationsThrough(25);
+    assert.deepEqual((await pool.query(
+      `SELECT state,is_active,payload_schema_version::int AS psv,identity_resolution,
+              shift_type,shift_type_resolution,work_date::text AS work_date,
+              opened_at,closed_at,closed_by_uid,closing_started_at,closing_by_uid
+         FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, restored.id],
+    )).rows[0], {
+      state: 'historical', is_active: false, psv: 1,
+      identity_resolution: 'source', shift_type: null, shift_type_resolution: 'unresolved',
+      work_date: '2026-11-20', opened_at: new Date(Date.parse('2026-11-25T09:00:00Z')),
+      closed_at: null, closed_by_uid: null, closing_started_at: null, closing_by_uid: null,
+    });
+  } finally {
+    await pool.end();
+  }
+});
+
+test('025 fills an empty restored objectName from the workspace object', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('restored_noname');
+  const pool = poolForTest();
+  try {
+    const restored = restoredLine({
+      objectId: ids.objectAId, objectName: '', date: '23.11.2026',
+      logs: [], activeLineIds: [], ttnStatus: {},
+    }, { id: 'restored_noname', recordId: 'archive_restored_noname' }, { uid: ids.adminUid, display_name: 'Admin' },
+      Date.parse('2026-11-23T09:00:00Z')).shift;
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,$3,$4)',
+      [ids.workspaceId, restored.id, true, restored],
+    );
+    await applyMigrationsThrough(25);
+    const row = (await pool.query(
+      `SELECT object_name_snapshot,state,is_active FROM shifts
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, restored.id],
+    )).rows[0];
+    assert.equal(row.object_name_snapshot, ids.objectAId,
+      'the snapshot comes from workspace_objects.payload name (the seed object name is the id)');
+    assert.equal(row.state, 'historical');
+    assert.equal(row.is_active, false);
+  } finally {
+    await pool.end();
+  }
+});
+
+test('025 keeps a restored row with a payload workShift a historical snapshot', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('restored_typed');
+  const pool = poolForTest();
+  try {
+    const restored = {
+      ...restoredLine({
+        objectId: ids.objectAId, objectName: 'Typed restore', date: '22.11.2026',
+        logs: [], activeLineIds: [], ttnStatus: {},
+      }, { id: 'restored_typed', recordId: 'archive_restored_typed' }, { uid: ids.adminUid, display_name: 'Admin' },
+        Date.parse('2026-11-23T09:00:00Z')).shift,
+      workShift: 'day',
+    };
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,$3,$4)',
+      [ids.workspaceId, restored.id, true, restored],
+    );
+    await applyMigrationsThrough(25);
+    assert.deepEqual((await pool.query(
+      `SELECT state,is_active,shift_type FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, restored.id],
+    )).rows[0], { state: 'historical', is_active: false, shift_type: 'day' },
+    'the type is stored as data but never backs a live line');
+  } finally {
+    await pool.end();
+  }
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects a restored row with an unknown objectId', async (pool, ids) => {
+  const restored = restoredLine({
+    objectId: 'missing_object_restored', objectName: 'Ghost object', date: '22.11.2026',
+    logs: [], activeLineIds: [], ttnStatus: {},
+  }, { id: 'restored_ghost', recordId: 'archive_restored_ghost' }, { uid: ids.adminUid, display_name: 'Admin' },
+    Date.parse('2026-11-23T09:00:00Z')).shift;
+  await pool.query(
+    'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,$3,$4)',
+    [ids.workspaceId, restored.id, true, restored],
+  );
+});
+
+test('v2 trigger mirrors the preflight lifecycle marker rules', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('v2_marker_mirror');
+  await applyMigrationsThrough(25);
+  const pool = poolForTest();
+  try {
+    const startedAt = Date.parse('2026-11-26T06:00:00Z'); // 09:00 Europe/Moscow
+    const live = shiftStartPayload(
+      { id: 'mirror_live', objectId: ids.objectAId, createdAt: startedAt, workShift: 'day' },
+      { name: 'Mirror object' },
+      { uid: ids.adminUid, display_name: 'Admin' },
+      startedAt,
+    );
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,true,$3)',
+      [ids.workspaceId, live.id, live],
+    );
+    const rejects = (label, payload, pattern) => assert.rejects(
+      pool.query(
+        'UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+        [ids.workspaceId, live.id, payload],
+      ),
+      error => error.code === '23514' && pattern.test(error.message),
+      label,
+    );
+    // A closing document without a numeric closingStartedAt: preflight rejects
+    // the same shape on legacy rows, the trigger must reject it on v2 rows too.
+    await rejects('closing without closingStartedAt',
+      { ...live, isActive: false, closing: true, closingBy: 'Admin' },
+      /closing requires a numeric closingStartedAt/);
+    // Both markers at once: preflight rejects it, the trigger must too.
+    await rejects('closing and closedAt together',
+      { ...live, isActive: false, closing: true, closingStartedAt: startedAt + 60000,
+        closingBy: 'Admin', closedAt: startedAt + 120000, closedByUid: ids.adminUid },
+      /closing and closedAt cannot coexist/);
+    // A string closedAt must give the provenance error, not a cast error (22P02).
+    await rejects('string closedAt',
+      { ...live, isActive: false, state: 'closed', closedAt: 'not-a-number',
+        closedByUid: ids.adminUid },
+      /closed requires closed_at and proved closed_by_uid/);
+    // A terminal state alias without the proof: the targeted provenance error,
+    // not a generic lifecycle CHECK failure.
+    await rejects('closed alias without proof',
+      { ...live, isActive: false, state: 'closed' },
+      /closed requires closed_at and proved closed_by_uid/);
+    // The row is untouched after all four rejected documents.
+    assert.deepEqual((await pool.query(
+      `SELECT state,is_active,payload_schema_version::int AS psv FROM shifts
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, live.id],
+    )).rows[0], { state: 'active', is_active: true, psv: 2 });
+  } finally {
+    await pool.end();
+  }
+});
+
+test('real writer contract until Task 7: payload-only passes, a column write is rejected', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('writer_contract');
+  await applyMigrationsThrough(25);
+  const pool = poolForTest();
+  try {
+    const startedAt = Date.parse('2026-11-26T18:00:00Z'); // 21:00 Europe/Moscow
+    const live = shiftStartPayload(
+      { id: 'contract_live', objectId: ids.objectAId, createdAt: startedAt, workShift: 'night' },
+      { name: 'Contract object' },
+      { uid: ids.adminUid, display_name: 'Admin' },
+      startedAt,
+    );
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,true,$3)',
+      [ids.workspaceId, live.id, live],
+    );
+    // shift-close.mjs prepare writes payload + is_active=false; until Task 7 the
+    // column part is rejected (lesson 24), the payload alone moves the row.
+    const prepared = {
+      ...live, isActive: false, closing: true, closeArchiveId: 'closed_contract_live',
+      closingStartedAt: startedAt + 60000, closingBy: 'Admin',
+    };
+    await assert.rejects(
+      pool.query(
+        'UPDATE shifts SET is_active=false,payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+        [ids.workspaceId, live.id, prepared],
+      ),
+      error => error.code === '23514',
+      'the v1 writer column form is rejected until Task 7',
+    );
+    await pool.query(
+      'UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+      [ids.workspaceId, live.id, prepared],
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT state,is_active FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, live.id],
+    )).rows[0], { state: 'closing', is_active: true });
+  } finally {
+    await pool.end();
+  }
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects a state alias without markers contradicting is_active', async (pool, ids) => {
+  const startedAt = Date.parse('2026-11-18T06:00:00Z');
+  await pool.query(
+    'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,false,$3)',
+    [ids.workspaceId, 'state_no_markers', {
+      id: 'state_no_markers', objectId: ids.objectAId, objectName: 'Stale state',
+      startDate: '18.11.2026', startedAt, startedBy: 'Legacy Person', isActive: false,
+      state: 'active',
+    }],
+  );
+});
+
+test('close-field drift and consistent payload updates on a closed v2 row', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('closed_drift');
+  await applyMigrationsThrough(25);
+  const pool = poolForTest();
+  try {
+    const startedAt = Date.parse('2026-11-26T06:00:00Z'); // 09:00 Europe/Moscow
+    const live = shiftStartPayload(
+      { id: 'closed_drift_live', objectId: ids.objectAId, createdAt: startedAt, workShift: 'day' },
+      { name: 'Closed drift object' },
+      { uid: ids.adminUid, display_name: 'Admin' },
+      startedAt,
+    );
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,true,$3)',
+      [ids.workspaceId, live.id, live],
+    );
+    const closed = {
+      ...live, isActive: false, state: 'closed',
+      closedAt: startedAt + 120000, closedByUid: ids.adminUid, closedBy: 'Admin',
+    };
+    await pool.query(
+      'UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+      [ids.workspaceId, live.id, closed],
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT state,closed_at,closed_by_uid FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, live.id],
+    )).rows[0], { state: 'closed', closed_at: new Date(startedAt + 120000), closed_by_uid: ids.adminUid });
+    // The consistent document-only close update is accepted; a bare close-column
+    // write that the document does not prove is drift.
+    const moved = { ...closed, closedAt: startedAt + 180000 };
+    await pool.query(
+      'UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+      [ids.workspaceId, live.id, moved],
+    );
+    assert.equal((await pool.query(
+      `SELECT closed_at FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, live.id],
+    )).rows[0].closed_at.toISOString(), new Date(startedAt + 180000).toISOString());
+    const expectDrift = (label, column, value) => assert.rejects(
+      pool.query(
+        `UPDATE shifts SET ${column}=$3 WHERE workspace_id=$1 AND shift_id=$2`,
+        [ids.workspaceId, live.id, value],
+      ),
+      error => error.code === '23514' && /shift canonical payload mismatch/.test(error.message),
+      label,
+    );
+    await expectDrift('closed_by_uid drift on a closed row', 'closed_by_uid', ids.foremanUid);
+    await expectDrift('closed_at drift on a closed row', 'closed_at', new Date(startedAt + 240000));
   } finally {
     await pool.end();
   }

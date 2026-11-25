@@ -97,6 +97,17 @@
 
 ## Опыт выпусков (короткие уроки)
 
+## 25. Урок 25.11.2026 (P3, Task 3-FIX3): preflight 025 падал на restored-строках и на маркерном NULL
+
+**Симптом 1:** миграция 025 не применялась на базе, где есть восстановленные из архива смены: `restoredLine` (`server/src/archive-store.mjs:24`) пишет `startDate` исходной смены и `startedAt` = момент восстановления, поэтому preflight-сверка «Москва-дата `startedAt` = `startDate`» падала (`unsafe legacy shift payload`, 23514, вся миграция). Пустой `objectName` (`archive.objectName||''`) ломал проверку непустого имени.
+**Что делать:** restored-строка — архивный снимок, а не живая смена этого дня. Признак — `payload ? 'restoredFrom'` ИЛИ `payload->>'restored'='true'` (оба встречаются: `restoredFrom` пишет `restoredLine`, `restored:true` добавляет параллельное восстановление). Для неё не требовать равенства Москва-даты, `work_date` брать из `startDate`, `opened_at` — из `startedAt`; пустое имя заполнять из `workspace_objects.payload->>'name'`, иначе `''`; всегда `state='historical'`, `is_active=false`, close-поля NULL. Остальные проверки формы (id/objectId/startedAt/workShift/startDate) сохраняются.
+
+**Симптом 2 (моя ошибка в этом же фиксе):** маркер написал как `NOT (payload ? 'restoredFrom' OR payload->>'restored'='true')`. Для обычной строки второй операнд даёт `NULL`, `false OR NULL` = `NULL`, `NOT NULL` = `NULL` — CASE уходил в `ELSE false`, и backfill ставил всем строкам `is_active=false` при `state='active'`. Миграция падала на `shifts_legacy_active_check`, 37 тестов краснели.
+**Что делать:** любой маркер из jsonb, участвующий в `NOT`/`CASE`, оборачивать в `COALESCE(..., false)`: `COALESCE(payload->>'restored','')='true'`. `payload->>'x'='y'` при отсутствии ключа — это NULL, а не false.
+
+**Симптом 3:** триггер принимал v2-документы, которые preflight для legacy отвергает: `closing:true` без числового `closingStartedAt` (вечная closing) и `closing:true` + числовой `closedAt` (оба маркера). Плюс `payload_state` строился по алиасу `state`, поэтому guard-ы «closed requires proof» были недостижимы, а строковый `closedAt` давал `22P02` из `::double precision` вместо провенанс-ошибки.
+**Что делать:** `payload_state` строить по доказательствам (маркеры → `closedAt`+uid → `isActive` → historical), алиас `state` сверять после; зеркалить в триггере маркерные правила preflight; все cast-ы `::double precision` выполнять только внутри веток, где `jsonb_typeof(...)='number'` уже проверен.
+
 ## 24. Урок 25.11.2026 (P3, Task 3-FIX2): legacy-строка повышалась до v2 через UPDATE с v2-payload
 
 **Симптом:** UPDATE с валидным v2-документом поверх legacy-строки (`payload_schema_version=1`) проходил: строка получала `payload_schema_version=2`, `identity_resolution='source'`, `opened_by_uid` и `shift_type` из документа. Историческая строка с неизвестным провенансом начинала выглядеть как исходно полная v2-смена; живая legacy-линия получала v2-документ, которого у неё не было.

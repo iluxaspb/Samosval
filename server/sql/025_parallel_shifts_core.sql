@@ -85,7 +85,10 @@ BEGIN
             WHERE o.workspace_id=s.workspace_id
               AND o.object_id=s.payload->>'objectId'
          )
-      OR NULLIF(btrim(s.payload->>'objectName'),'') IS NULL
+      OR (NULLIF(btrim(s.payload->>'objectName'),'') IS NULL
+          -- D7: a restored archive row may carry an empty objectName snapshot;
+          -- the backfill fills it deterministically from workspace_objects.
+          AND NOT (s.payload ? 'restoredFrom' OR COALESCE(s.payload->>'restored','')='true'))
       OR jsonb_typeof(s.payload->'startedAt') IS DISTINCT FROM 'number'
       OR (s.payload->>'startedAt') !~ '^[0-9]+$'
       OR (s.payload ? 'workShift' AND s.payload->>'workShift' NOT IN ('day','night'))
@@ -93,8 +96,12 @@ BEGIN
       OR (s.payload ? 'workShift' AND s.payload ? 'type'
           AND s.payload->>'workShift' IS DISTINCT FROM s.payload->>'type')
       OR (s.payload->>'startDate') !~ '^([0-2][0-9]|3[01])\.(0[1-9]|1[0-2])\.[0-9]{4}$'
-      OR to_char(to_timestamp((s.payload->>'startedAt')::double precision / 1000.0)
-                 AT TIME ZONE 'Europe/Moscow','DD.MM.YYYY') <> s.payload->>'startDate'
+      -- D7: a restored archive row keeps startDate of the original shift while
+      -- startedAt is the restoration moment, so the Moscow-date equality is not
+      -- required for it (work_date still comes from startDate, format still checked).
+      OR (NOT (s.payload ? 'restoredFrom' OR COALESCE(s.payload->>'restored','')='true')
+          AND to_char(to_timestamp((s.payload->>'startedAt')::double precision / 1000.0)
+                     AT TIME ZONE 'Europe/Moscow','DD.MM.YYYY') <> s.payload->>'startDate')
       OR (s.payload ? 'shiftId' AND s.payload->>'shiftId' IS DISTINCT FROM s.shift_id)
       -- D6: real writers (shift-close.mjs) keep a stale state/isActive alias while
       -- closing/closed. Markers decide the lifecycle; the alias is checked only
@@ -144,11 +151,20 @@ UPDATE shifts s
                     WHEN jsonb_typeof(s.payload->'closedAt')='number'
                          AND NULLIF(btrim(s.payload->>'closedByUid'),'') IS NOT NULL THEN 'closed'
                     ELSE 'historical' END,
-       -- is_active is a legacy bridge; during the cutover it means "occupies a
-       -- line", i.e. active OR closing, and never "confirmed provenance".
-       is_active = CASE WHEN s.payload->>'closing'='true' OR s.is_active THEN true ELSE false END,
+       -- D7: a restored archive row is never a live line regardless of its
+       -- payload aliases; the original stays archived, the copy is a snapshot.
+       is_active = CASE WHEN NOT (s.payload ? 'restoredFrom' OR COALESCE(s.payload->>'restored','')='true')
+                         AND (s.payload->>'closing'='true' OR s.is_active)
+                        THEN true ELSE false END,
        object_id = s.payload->>'objectId',
-       object_name_snapshot = s.payload->>'objectName',
+       object_name_snapshot = CASE
+         WHEN NULLIF(btrim(s.payload->>'objectName'),'') IS NOT NULL
+           THEN s.payload->>'objectName'
+         WHEN s.payload ? 'restoredFrom' OR COALESCE(s.payload->>'restored','')='true' THEN (
+           SELECT COALESCE(NULLIF(btrim(o.payload->>'name'),''),'')
+             FROM workspace_objects o
+            WHERE o.workspace_id=s.workspace_id AND o.object_id=s.payload->>'objectId')
+         ELSE s.payload->>'objectName' END,
        work_date = to_date(s.payload->>'startDate','DD.MM.YYYY'),
        payload_schema_version = CASE WHEN s.payload->>'payloadSchemaVersion'='2' THEN 2::smallint ELSE 1::smallint END,
        identity_resolution = CASE
@@ -253,6 +269,18 @@ UPDATE shifts
        closed_by_uid = NULL
  WHERE state = 'closed'
    AND (closed_at IS NULL OR closed_by_uid IS NULL);
+
+-- D7: a restored archive copy is a snapshot of the original, never a live line
+-- and never a lifecycle of its own. Whatever its payload aliases say, the row
+-- is historical and occupies no line (the unique one-open index ignores it).
+UPDATE shifts
+   SET state = 'historical',
+       is_active = false,
+       closing_started_at = NULL,
+       closing_by_uid = NULL,
+       closed_at = NULL,
+       closed_by_uid = NULL
+ WHERE payload ? 'restoredFrom' OR COALESCE(payload->>'restored','')='true';
 
 -- D5: an unproven day/night may never back a live line. A row that would
 -- otherwise stay active/closing is historicalized instead of guessed, so the
@@ -433,16 +461,29 @@ BEGIN
         USING ERRCODE='check_violation';
     END IF;
 
-    -- Lifecycle comes from evidence, never from a stale display alias. A normal
-    -- close needs a proved closer UID; without one the row is historical and no
-    -- synthetic close actor/time is invented (design §4.1, D2).
+    -- Lifecycle comes from evidence, never from a stale display alias (D2/D6):
+    -- the markers decide, the state alias is only an assertion to be checked
+    -- afterwards. Mirrors the preflight rules for legacy rows.
+    IF NEW.payload ? 'closing'
+       AND jsonb_typeof(NEW.payload->'closing') IS DISTINCT FROM 'boolean' THEN
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: closing must be a JSON boolean'
+        USING ERRCODE='check_violation';
+    END IF;
+    IF NEW.payload->>'closing'='true'
+       AND jsonb_typeof(NEW.payload->'closedAt')='number' THEN
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: closing and closedAt cannot coexist'
+        USING ERRCODE='check_violation';
+    END IF;
+    IF NEW.payload->>'closing'='true'
+       AND jsonb_typeof(NEW.payload->'closingStartedAt') IS DISTINCT FROM 'number' THEN
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: closing requires a numeric closingStartedAt'
+        USING ERRCODE='check_violation';
+    END IF;
     payload_state := CASE
       WHEN NEW.payload->>'closing'='true' THEN 'closing'
-      WHEN NEW.payload->>'state'='closed' THEN 'closed'
-      WHEN NEW.payload->>'state'='historical' THEN 'historical'
-      WHEN (NEW.payload->>'isActive')::boolean THEN 'active'
       WHEN jsonb_typeof(NEW.payload->'closedAt')='number'
            AND NULLIF(btrim(NEW.payload->>'closedByUid'),'') IS NOT NULL THEN 'closed'
+      WHEN (NEW.payload->>'isActive')::boolean THEN 'active'
       ELSE 'historical' END;
 
     -- A terminal alias is an assertion and must be proved. A leftover 'active'
