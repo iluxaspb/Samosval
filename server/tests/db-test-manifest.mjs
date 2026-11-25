@@ -307,7 +307,7 @@ const harnessEntries = harnessFiles.map(name => ({
     'isolated-db-templates': ['bootstrap-url', 'app-password'],
     'isolated-db-lifecycle': ['bootstrap-url', 'app-password', 'runtime-password'],
      'isolated-db-integration': ['target-url', 'isolated-marker'],
-     'parallel-shifts-runtime-roles': ['bootstrap-url', 'runtime-password', 'maintenance-password']
+    'parallel-shifts-runtime-roles': ['bootstrap-url', 'runtime-password', 'maintenance-password']
   }[name] ?? []
 }));
 

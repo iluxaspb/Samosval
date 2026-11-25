@@ -23,32 +23,49 @@ test('parallel shift runtime and maintenance role boundary is isolated and idemp
   try {
     await broker.run({ operation: 'createReservedTarget', database, runid, capability }); created = true;
     await withClient(urlFor(database, 'samosval_test_bootstrap_admin', new URL(bootstrapUrl).password), async client => {
-      await client.query('CREATE TABLE public.role_probe_table(id integer)');
-      await client.query('CREATE FUNCTION public.role_probe_migration() RETURNS void LANGUAGE sql SECURITY DEFINER AS $$ SELECT NULL::void $$');
-      const opts = { runtimePassword, maintenancePassword, database, objects: { tables: ['role_probe_table'], functions: ['role_probe_migration()'] } };
+       await client.query('CREATE TABLE public.shifts(id integer)');
+       await client.query('CREATE TABLE public.shift_members(id integer)');
+       await client.query('CREATE TABLE public.line_truck_statuses(id integer)');
+       await client.query('CREATE TABLE public.line_logs(id integer)');
+       await client.query('CREATE FUNCTION public.shifts_legacy_bridge() RETURNS void LANGUAGE sql SECURITY DEFINER AS $$ SELECT NULL::void $$');
+       await client.query('CREATE FUNCTION public.enforce_shift_member_role() RETURNS void LANGUAGE sql SECURITY DEFINER AS $$ SELECT NULL::void $$');
+       const opts = { runtimePassword, maintenancePassword, database, objects: { tables: ['shifts', 'shift_members', 'line_truck_statuses'], functions: ['shifts_legacy_bridge()', 'enforce_shift_member_role()'] } };
+       await assert.rejects(bootstrapParallelShiftRoles(client, { ...opts, objects: { tables: ['app_users'] } }), /not an approved parallel-shift object/);
       await bootstrapParallelShiftRoles(client, opts); await bootstrapParallelShiftRoles(client, opts);
       await client.query('ALTER ROLE samosval_runtime BYPASSRLS');
       await bootstrapParallelShiftRoles(client, opts);
-      const report = await verifyParallelShiftRoleBoundary(client, opts.objects);
-      assert.equal(JSON.stringify(report).includes(runtimePassword), false); assert.equal(JSON.stringify(report).includes(maintenancePassword), false);
-      assert.deepEqual(report.roles.runtime, { superuser: false, bypassrls: false, canlogin: true, memberOf: [] });
-      assert.deepEqual(report.roles.maintenance.memberOf, []);
-      assert.deepEqual(report.owners.runtimeOwnedObjects, []); assert.deepEqual(report.owners.maintenanceOwnedObjects, []);
+       const report = await verifyParallelShiftRoleBoundary(client, opts.objects);
+       assert.equal(JSON.stringify(report).includes(runtimePassword), false); assert.equal(JSON.stringify(report).includes(maintenancePassword), false);
+       assert.deepEqual(report.roles.runtime, { superuser: false, bypassrls: false, canlogin: true, memberOf: [] });
+       assert.deepEqual(report.roles.maintenance.memberOf, []);
+       assert.deepEqual(report.owners.runtimeOwnedObjects, []); assert.deepEqual(report.owners.maintenanceOwnedObjects, []);
+       assert.deepEqual(report.functionExecute, {
+         'shifts_legacy_bridge()': { public: false, runtime: false, maintenance: false },
+         'enforce_shift_member_role()': { public: false, runtime: false, maintenance: false },
+       });
+       assert.deepEqual(report.violations, []);
+       await client.query('GRANT EXECUTE ON FUNCTION public.shifts_legacy_bridge() TO samosval_runtime');
+       await client.query('GRANT INSERT ON TABLE public.shifts TO samosval_runtime');
+       await bootstrapParallelShiftRoles(client, opts);
+       const recovered = await verifyParallelShiftRoleBoundary(client, opts.objects);
+       assert.equal(recovered.functionExecute['shifts_legacy_bridge()'].runtime, false);
+       assert.equal((await client.query("SELECT has_table_privilege('samosval_runtime', 'public.shifts', 'INSERT') AS allowed")).rows[0].allowed, false);
+       assert.equal((await client.query("SELECT has_table_privilege('samosval_runtime', 'public.line_logs', 'INSERT') AS allowed")).rows[0].allowed, false);
     });
     await withClient(urlFor(database, 'samosval_runtime', runtimePassword), async client => {
       const role = (await client.query('SELECT rolsuper AS superuser, rolbypassrls AS bypassrls, NOT rolcanlogin AS no_login FROM pg_roles WHERE rolname=current_user')).rows[0];
       assert.deepEqual(role, { superuser: false, bypassrls: false, no_login: false });
       assert.equal((await client.query('SELECT 1')).rows[0]['?column?'], 1);
-      assert.equal((await client.query('SELECT * FROM public.role_probe_table')).rowCount, 0);
+       assert.equal((await client.query('SELECT * FROM public.shifts')).rowCount, 0);
       await rejectsQuery(client, 'SET ROLE samosval_schema_owner');
-      for (const sql of ['INSERT INTO public.role_probe_table VALUES (1)', 'UPDATE public.role_probe_table SET id=2', 'DELETE FROM public.role_probe_table', 'ALTER TABLE public.role_probe_table ADD COLUMN denied integer', 'CREATE TRIGGER denied_trigger AFTER INSERT ON public.role_probe_table FOR EACH ROW EXECUTE FUNCTION public.role_probe_migration()', 'CREATE OR REPLACE FUNCTION public.role_probe_migration() RETURNS void LANGUAGE sql AS $$ SELECT NULL::void $$', 'SELECT public.role_probe_migration()']) await rejectsQuery(client, sql);
+       for (const sql of ['INSERT INTO public.shifts VALUES (1)', 'UPDATE public.shifts SET id=2', 'DELETE FROM public.shifts', 'ALTER TABLE public.shifts ADD COLUMN denied integer', 'CREATE TRIGGER denied_trigger AFTER INSERT ON public.shifts FOR EACH ROW EXECUTE FUNCTION public.shifts_legacy_bridge()', 'CREATE OR REPLACE FUNCTION public.shifts_legacy_bridge() RETURNS void LANGUAGE sql AS $$ SELECT NULL::void $$', 'SELECT public.shifts_legacy_bridge()']) await rejectsQuery(client, sql);
     });
     await withClient(urlFor(database, 'samosval_maintenance', maintenancePassword), async client => {
-      await rejectsQuery(client, 'SELECT public.role_probe_migration()');
-      await withClient(urlFor(database, 'samosval_test_bootstrap_admin', new URL(bootstrapUrl).password), admin => admin.query('GRANT EXECUTE ON FUNCTION public.role_probe_migration() TO samosval_maintenance'));
-      assert.equal((await client.query("SELECT has_function_privilege(current_user, 'public.role_probe_migration()', 'EXECUTE') AS allowed")).rows[0].allowed, true);
-      await withClient(urlFor(database, 'samosval_test_bootstrap_admin', new URL(bootstrapUrl).password), admin => admin.query('REVOKE EXECUTE ON FUNCTION public.role_probe_migration() FROM samosval_maintenance'));
-      await rejectsQuery(client, 'SELECT public.role_probe_migration()');
+       await rejectsQuery(client, 'SELECT public.shifts_legacy_bridge()');
+       await withClient(urlFor(database, 'samosval_test_bootstrap_admin', new URL(bootstrapUrl).password), admin => admin.query('GRANT EXECUTE ON FUNCTION public.shifts_legacy_bridge() TO samosval_maintenance'));
+       assert.equal((await client.query("SELECT has_function_privilege(current_user, 'public.shifts_legacy_bridge()', 'EXECUTE') AS allowed")).rows[0].allowed, true);
+       await withClient(urlFor(database, 'samosval_test_bootstrap_admin', new URL(bootstrapUrl).password), admin => admin.query('REVOKE EXECUTE ON FUNCTION public.shifts_legacy_bridge() FROM samosval_maintenance'));
+       await rejectsQuery(client, 'SELECT public.shifts_legacy_bridge()');
     });
   } finally {
     if (created) await broker.run({ operation: 'dropReservedTarget', database, runid, capability }).catch(() => {});

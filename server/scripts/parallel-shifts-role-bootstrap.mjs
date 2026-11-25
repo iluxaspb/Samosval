@@ -3,10 +3,9 @@ import pg from 'pg';
 
 const { Client } = pg;
 const ROLE_NAMES = ['samosval_schema_owner', 'samosval_migration_evidence_owner', 'samosval_runtime', 'samosval_maintenance'];
-export const DEFAULT_OBJECTS = Object.freeze({
-  tables: ['shifts', 'shift_members', 'line_truck_statuses'],
-  functions: ['shifts_legacy_bridge()', 'enforce_shift_member_role()'],
-});
+export const CANONICAL_TABLES = Object.freeze(['shifts', 'shift_members', 'line_truck_statuses']);
+export const CANONICAL_FUNCTIONS = Object.freeze(['shifts_legacy_bridge()', 'enforce_shift_member_role()']);
+export const DEFAULT_OBJECTS = Object.freeze({ tables: CANONICAL_TABLES, functions: CANONICAL_FUNCTIONS });
 
 function identifier(value, label = 'identifier') {
   if (typeof value !== 'string' || !/^[a-z][a-z0-9_]*$/.test(value) || value.length > 63) throw new Error(`${label} is not approved`);
@@ -25,6 +24,12 @@ async function setPassword(client, role, password) {
 
 export async function bootstrapParallelShiftRoles(client, options = {}) {
   const { runtimePassword, maintenancePassword, database = null, objects = DEFAULT_OBJECTS } = options;
+  for (const table of objects.tables ?? []) {
+    if (!CANONICAL_TABLES.includes(table)) throw new Error(`table ${table} is not an approved parallel-shift object`);
+  }
+  for (const fn of objects.functions ?? []) {
+    if (!CANONICAL_FUNCTIONS.includes(fn)) throw new Error(`function ${fn} is not an approved parallel-shift object`);
+  }
   await client.query(`DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_schema_owner') THEN CREATE ROLE samosval_schema_owner NOLOGIN; END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_migration_evidence_owner') THEN CREATE ROLE samosval_migration_evidence_owner NOLOGIN; END IF;
@@ -46,18 +51,18 @@ export async function bootstrapParallelShiftRoles(client, options = {}) {
   }
   for (const table of objects.tables ?? []) {
     const q = identifier(table, 'table');
+    await client.query(`DO $$ BEGIN IF to_regclass('public.${table}') IS NOT NULL THEN REVOKE ALL ON TABLE public.${q} FROM samosval_runtime, samosval_maintenance; END IF; END $$`);
     await client.query(`DO $$ BEGIN IF to_regclass('public.${table}') IS NOT NULL THEN ALTER TABLE public.${q} OWNER TO samosval_schema_owner; END IF; END $$`);
   }
   for (const fn of objects.functions ?? []) {
     const q = functionName(fn);
-    await client.query(`DO $$ BEGIN IF to_regprocedure('public.${fn}') IS NOT NULL THEN ALTER FUNCTION ${q} OWNER TO samosval_schema_owner; REVOKE EXECUTE ON FUNCTION ${q} FROM PUBLIC; END IF; END $$`);
+    await client.query(`DO $$ BEGIN IF to_regprocedure('public.${fn}') IS NOT NULL THEN REVOKE ALL ON FUNCTION ${q} FROM PUBLIC, samosval_runtime, samosval_maintenance; ALTER FUNCTION ${q} OWNER TO samosval_schema_owner; END IF; END $$`);
   }
   await client.query('GRANT USAGE ON SCHEMA public TO samosval_runtime');
   for (const table of objects.tables ?? []) {
     const q = identifier(table, 'table');
     await client.query(`DO $$ BEGIN IF to_regclass('public.${table}') IS NOT NULL THEN GRANT SELECT ON TABLE public.${q} TO samosval_runtime; END IF; END $$`);
   }
-  await client.query(`DO $$ BEGIN IF to_regclass('public.line_logs') IS NOT NULL THEN GRANT SELECT, INSERT, UPDATE ON TABLE public.line_logs TO samosval_runtime; END IF; END $$`);
 }
 
 export async function verifyParallelShiftRoleBoundary(client, expected = {}) {
@@ -67,13 +72,28 @@ export async function verifyParallelShiftRoleBoundary(client, expected = {}) {
     WHERE r.rolname = ANY($1) GROUP BY r.rolname, r.rolsuper, r.rolbypassrls, r.rolcanlogin`, [ROLE_NAMES]);
   const byName = Object.fromEntries(roles.rows.map(row => [row.rolname, { superuser: row.superuser, bypassrls: row.bypassrls, canlogin: row.canlogin, memberOf: Array.from(row.memberOf ?? []) }]));
   const owned = await client.query(`SELECT owner.rolname AS owner, n.nspname||'.'||c.relname AS object FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles owner ON owner.oid=c.relowner WHERE owner.rolname IN ('samosval_runtime','samosval_maintenance') AND n.nspname NOT IN ('pg_catalog','information_schema') UNION ALL SELECT owner.rolname, n.nspname||'.'||p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles owner ON owner.oid=p.proowner WHERE owner.rolname IN ('samosval_runtime','samosval_maintenance') AND n.nspname NOT IN ('pg_catalog','information_schema')`);
-  const publicExecute = {};
+  const functionExecute = {};
   for (const fn of expected.functions ?? DEFAULT_OBJECTS.functions) {
-    const result = await client.query(`SELECT CASE WHEN to_regprocedure($1) IS NULL THEN NULL
+    const result = await client.query(`SELECT CASE WHEN to_regprocedure($1) IS NULL THEN false
       ELSE has_function_privilege($2, to_regprocedure($1), 'EXECUTE') END AS allowed`, [`public.${fn}`, 'public']);
-    publicExecute[fn] = result.rows[0]?.allowed === true;
+    const runtime = await client.query(`SELECT CASE WHEN to_regprocedure($1) IS NULL THEN false ELSE has_function_privilege($2, to_regprocedure($1), 'EXECUTE') END AS allowed`, [`public.${fn}`, 'samosval_runtime']);
+    const maintenance = await client.query(`SELECT CASE WHEN to_regprocedure($1) IS NULL THEN false ELSE has_function_privilege($2, to_regprocedure($1), 'EXECUTE') END AS allowed`, [`public.${fn}`, 'samosval_maintenance']);
+    functionExecute[fn] = { public: result.rows[0]?.allowed === true, runtime: runtime.rows[0]?.allowed === true, maintenance: maintenance.rows[0]?.allowed === true };
   }
-  return { roles: { runtime: byName.samosval_runtime, maintenance: byName.samosval_maintenance, schemaOwner: byName.samosval_schema_owner, evidenceOwner: byName.samosval_migration_evidence_owner }, owners: { runtimeOwnedObjects: owned.rows.filter(r => r.owner === 'samosval_runtime').map(r => r.object), maintenanceOwnedObjects: owned.rows.filter(r => r.owner === 'samosval_maintenance').map(r => r.object) }, publicExecute };
+  const report = { roles: { runtime: byName.samosval_runtime, maintenance: byName.samosval_maintenance, schemaOwner: byName.samosval_schema_owner, evidenceOwner: byName.samosval_migration_evidence_owner }, owners: { runtimeOwnedObjects: owned.rows.filter(r => r.owner === 'samosval_runtime').map(r => r.object), maintenanceOwnedObjects: owned.rows.filter(r => r.owner === 'samosval_maintenance').map(r => r.object) }, functionExecute };
+  const violations = [];
+  for (const name of ['runtime', 'maintenance']) {
+    if (!report.roles[name] || report.roles[name].superuser) violations.push(`${name} must not be superuser`);
+    if (!report.roles[name] || report.roles[name].bypassrls) violations.push(`${name} must not bypassrls`);
+    if (report.roles[name]?.canlogin !== true) violations.push(`${name} must be login`);
+  }
+  for (const name of ['schemaOwner', 'evidenceOwner']) {
+    if (!report.roles[name] || report.roles[name].canlogin === true) violations.push(`${name} must not be login`);
+  }
+  for (const [name, role] of Object.entries(report.roles)) if (!role || role.memberOf.length) violations.push(`${name} must have no memberships`);
+  for (const name of ['runtimeOwnedObjects', 'maintenanceOwnedObjects']) if (report.owners[name].length) violations.push(`${name} must be empty`);
+  for (const [fn, subjects] of Object.entries(functionExecute)) for (const [subject, allowed] of Object.entries(subjects)) if (allowed) violations.push(`${subject} has EXECUTE on ${fn}`);
+  return { ...report, violations };
 }
 
 if (process.argv[1]?.endsWith('parallel-shifts-role-bootstrap.mjs')) {
@@ -86,6 +106,7 @@ if (process.argv[1]?.endsWith('parallel-shifts-role-bootstrap.mjs')) {
     client = new Client({ connectionString: url }); await client.connect();
     await bootstrapParallelShiftRoles(client, { runtimePassword, maintenancePassword, database: new URL(url).pathname.slice(1) });
     const report = await verifyParallelShiftRoleBoundary(client); console.log(JSON.stringify(report));
+    if (report.violations.length > 0) process.exitCode = 1;
   } catch (error) { console.error(`role boundary failed: ${error.message}`); process.exitCode = 1; }
   finally { if (client) await client.end().catch(() => {}); }
 }

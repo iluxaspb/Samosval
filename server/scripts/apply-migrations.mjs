@@ -68,8 +68,14 @@ export async function applyMigrations(pool, {
     .filter(f => migrationNumber(f) === null || migrationNumber(f) <= through)
     .sort();
   if (requireRoleBoundary && files.includes('025_parallel_shifts_core.sql')) {
-    const roles = await pool.query("SELECT count(*)::int AS count FROM pg_roles WHERE rolname IN ('samosval_schema_owner','samosval_runtime')");
-    if (roles.rows[0]?.count !== 2) throw new Error('parallel shift roles must be bootstrapped before 025');
+    const need = ['samosval_schema_owner', 'samosval_migration_evidence_owner', 'samosval_runtime', 'samosval_maintenance'];
+    const roles = await pool.query('SELECT rolname, rolsuper, rolbypassrls, rolcanlogin FROM pg_roles WHERE rolname = ANY($1)', [need]);
+    if (roles.rowCount !== 4) throw new Error('parallel shift roles must be bootstrapped before 025');
+    for (const r of roles.rows) {
+      const mustLogin = r.rolname === 'samosval_runtime' || r.rolname === 'samosval_maintenance';
+      if (r.rolsuper || r.rolbypassrls) throw new Error(`parallel shift role ${r.rolname} must be NOSUPERUSER NOBYPASSRLS`);
+      if (r.rolcanlogin !== mustLogin) throw new Error(`parallel shift role ${r.rolname} has wrong login attribute`);
+    }
   }
   const results = [];
   for (const filename of files) {
