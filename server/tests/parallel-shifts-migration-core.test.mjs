@@ -385,6 +385,164 @@ test('legacy_resolution_dimensions_are_independent', {
   }
 });
 
+// A legacy row keeps its own provenance: a v2 document must never promote it
+// (design §4.1). The v2 documents below come from shiftStartPayload, so the
+// date/startDate/type alignment is the production one, not hand-written.
+function promoDocument(opId, objectId, adminUid) {
+  const startedAt = Date.parse('2026-11-25T06:00:00Z'); // 09:00 Europe/Moscow
+  return shiftStartPayload(
+    { id: opId, objectId, createdAt: startedAt, workShift: 'day' },
+    { name: 'Promo object' },
+    { uid: adminUid, display_name: 'Admin' },
+    startedAt,
+  );
+}
+
+test('025 legacy historical row with unresolved provenance is not promoted by a v2 payload', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('promo_hist');
+  const pool = poolForTest();
+  try {
+    await pool.query(
+      `INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,false,$3)`,
+      [ids.workspaceId, 'shift_promo_hist', {
+        id: 'shift_promo_hist', objectId: ids.objectAId, objectName: 'Promo legacy',
+        startDate: '18.11.2026', startedAt: Date.parse('2026-11-18T06:00:00Z'),
+        startedBy: 'Legacy Person', isActive: false,
+      }],
+    );
+    await applyMigrationsThrough(25);
+    const before = (await pool.query(
+      `SELECT state,payload_schema_version::int AS psv,identity_resolution,shift_type_resolution,opened_by_uid,shift_type
+         FROM shifts WHERE workspace_id=$1 AND shift_id='shift_promo_hist'`,
+      [ids.workspaceId],
+    )).rows[0];
+    assert.deepEqual(before, {
+      state: 'historical', psv: 1, identity_resolution: 'unresolved',
+      shift_type_resolution: 'unresolved', opened_by_uid: null, shift_type: null,
+    });
+
+    const doc = promoDocument('promo_hist', ids.objectBId, ids.adminUid);
+    await assert.rejects(
+      pool.query(
+        `UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2`,
+        [ids.workspaceId, 'shift_promo_hist', doc],
+      ),
+      error => error.code === '23514'
+        && /invalid-shift-v2-provenance: a legacy row is never promoted to strict v2/.test(error.message),
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT state,payload_schema_version::int AS psv,identity_resolution,shift_type_resolution,opened_by_uid,shift_type
+         FROM shifts WHERE workspace_id=$1 AND shift_id='shift_promo_hist'`,
+      [ids.workspaceId],
+    )).rows[0], before, 'a rejected promotion must leave the row untouched');
+  } finally {
+    await pool.end();
+  }
+});
+
+test('025 live legacy row is not promoted to strict v2 by a v2 payload', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('promo_live');
+  await applyMigrationsThrough(25);
+  const pool = poolForTest();
+  try {
+    const doc = promoDocument('a_promo_live', ids.objectBId, ids.adminUid);
+    assert.equal(doc.id, ids.shiftAId, 'the document must address the legacy live row');
+    await assert.rejects(
+      pool.query(
+        `UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2`,
+        [ids.workspaceId, ids.shiftAId, doc],
+      ),
+      error => error.code === '23514'
+        && /invalid-shift-v2-provenance: a legacy row is never promoted to strict v2/.test(error.message),
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT state,is_active,payload_schema_version::int AS psv,identity_resolution FROM shifts
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, ids.shiftAId],
+    )).rows[0], { state: 'active', is_active: true, psv: 1, identity_resolution: 'source' });
+  } finally {
+    await pool.end();
+  }
+});
+
+test('025 manual column resolution of a legacy row stays legal without a v2 payload', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('promo_manual');
+  const pool = poolForTest();
+  try {
+    await pool.query(
+      `INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,false,$3)`,
+      [ids.workspaceId, 'shift_promo_manual', {
+        id: 'shift_promo_manual', objectId: ids.objectAId, objectName: 'Manual legacy',
+        startDate: '18.11.2026', startedAt: Date.parse('2026-11-18T06:00:00Z'),
+        startedBy: 'Legacy Person', isActive: false,
+      }],
+    );
+    await applyMigrationsThrough(25);
+    const payloadBefore = (await pool.query(
+      `SELECT payload FROM shifts WHERE workspace_id=$1 AND shift_id='shift_promo_manual'`,
+      [ids.workspaceId],
+    )).rows[0].payload;
+    await pool.query(
+      `UPDATE shifts SET opened_by_uid=$3,identity_resolution='manual',
+              shift_type='day',shift_type_resolution='manual'
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, 'shift_promo_manual', ids.adminUid],
+    );
+    const row = (await pool.query(
+      `SELECT state,is_active,payload_schema_version::int AS psv,identity_resolution,
+              shift_type_resolution,opened_by_uid,shift_type,payload
+         FROM shifts WHERE workspace_id=$1 AND shift_id='shift_promo_manual'`,
+      [ids.workspaceId],
+    )).rows[0];
+    assert.equal(row.psv, 1);
+    assert.equal(row.state, 'historical');
+    assert.equal(row.is_active, false);
+    assert.equal(row.identity_resolution, 'manual');
+    assert.equal(row.opened_by_uid, ids.adminUid);
+    assert.equal(row.shift_type_resolution, 'manual');
+    assert.equal(row.shift_type, 'day');
+    assert.deepEqual(row.payload, payloadBefore, 'manual resolution must not touch the payload');
+  } finally {
+    await pool.end();
+  }
+});
+
+test('025 strict v2 row still follows its own v2 document after the promotion guard', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('promo_regress');
+  await applyMigrationsThrough(25);
+  const pool = poolForTest();
+  try {
+    const live = promoDocument('regress_v2', ids.objectAId, ids.adminUid);
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,true,$3)',
+      [ids.workspaceId, live.id, live],
+    );
+    const closing = {
+      ...live, isActive: false, closing: true, state: 'closing',
+      closingStartedAt: live.startedAt + 3600000, closingBy: 'Admin',
+    };
+    await pool.query(
+      'UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+      [ids.workspaceId, live.id, closing],
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT state,is_active,payload_schema_version::int AS psv FROM shifts
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, live.id],
+    )).rows[0], { state: 'closing', is_active: true, psv: 2 });
+  } finally {
+    await pool.end();
+  }
+});
+
 test('strict v2 canonical columns cannot drift from the document on update', {
   skip: !approved,
 }, async () => {

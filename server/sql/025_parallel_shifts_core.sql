@@ -340,6 +340,16 @@ BEGIN
       RAISE EXCEPTION 'invalid-shift-v2-provenance: payload_schema_version cannot change without a v2 payload'
         USING ERRCODE='check_violation';
     END IF;
+    -- §4.1: a legacy/manual row is never promoted to strict v2 by a v2 document,
+    -- and never masked as "always complete". A v1 write to such a row keeps its
+    -- protocol-upgrade-required answer below; a manual column edit with an
+    -- unchanged payload (§4.9) does not touch this rule.
+    IF payload_write
+       AND OLD.payload_schema_version IS DISTINCT FROM 2
+       AND NEW.payload->>'payloadSchemaVersion'='2' THEN
+      RAISE EXCEPTION 'invalid-shift-v2-provenance: a legacy row is never promoted to strict v2'
+        USING ERRCODE='check_violation';
+    END IF;
   ELSE
     payload_write := true;
   END IF;
