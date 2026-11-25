@@ -48,6 +48,7 @@ export async function applyMigrations(pool, {
   exclude = [],
   through = Infinity,
   transformSource = source => source,
+  requireRoleBoundary = false,
 } = {}) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -66,6 +67,10 @@ export async function applyMigrations(pool, {
     .filter(f => f.endsWith('.sql') && !excluded.has(f))
     .filter(f => migrationNumber(f) === null || migrationNumber(f) <= through)
     .sort();
+  if (requireRoleBoundary && files.includes('025_parallel_shifts_core.sql')) {
+    const roles = await pool.query("SELECT count(*)::int AS count FROM pg_roles WHERE rolname IN ('samosval_schema_owner','samosval_runtime')");
+    if (roles.rows[0]?.count !== 2) throw new Error('parallel shift roles must be bootstrapped before 025');
+  }
   const results = [];
   for (const filename of files) {
     const sql = readFileSync(join(dir, filename), 'utf8');
@@ -105,7 +110,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url).endsWith(process.argv[1].s
   // 018 применим только в базе резерва — по умолчанию исключаем.
   const exclude = process.env.MIGRATIONS_EXCLUDE ? process.env.MIGRATIONS_EXCLUDE.split(',').map(s => s.trim()).filter(Boolean) : ['018_auth_credentials.sql'];
   try {
-    const results = await applyMigrations(pool, { exclude });
+    const results = await applyMigrations(pool, { exclude, requireRoleBoundary: true });
     for (const r of results) {
       if (r.status === 'applied') console.log(`applied  ${r.filename}`);
       else console.log(`skip     ${r.filename}`);

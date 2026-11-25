@@ -19,6 +19,7 @@ const composeEnvironment = {
   SAMOSVAL_ORCHESTRATOR_PASSWORD: 'compose-config-orchestrator',
   SAMOSVAL_TEST_APP_PASSWORD: 'compose-config-app',
   SAMOSVAL_TEST_RUNTIME_PASSWORD: 'compose-config-runtime',
+  SAMOSVAL_TEST_MAINTENANCE_PASSWORD: 'compose-config-maintenance',
 };
 
 function renderCompose() {

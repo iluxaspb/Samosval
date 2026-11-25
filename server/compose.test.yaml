@@ -17,6 +17,7 @@ services:
       SAMOSVAL_ORCHESTRATOR_PASSWORD: ${SAMOSVAL_ORCHESTRATOR_PASSWORD:?set a runtime-generated orchestrator password}
       SAMOSVAL_TEST_APP_PASSWORD: ${SAMOSVAL_TEST_APP_PASSWORD:?set a runtime-generated test app password}
       SAMOSVAL_TEST_RUNTIME_PASSWORD: ${SAMOSVAL_TEST_RUNTIME_PASSWORD:?set a runtime-generated runtime password}
+      SAMOSVAL_TEST_MAINTENANCE_PASSWORD: ${SAMOSVAL_TEST_MAINTENANCE_PASSWORD:?set a runtime-generated maintenance password}
     ports:
       - "127.0.0.1:${POSTGRES_TEST_PORT:-55432}:5432"
     tmpfs:

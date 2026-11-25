@@ -29,6 +29,7 @@ export const HARNESS_ENV_REGISTRY = {
   'bootstrap-url': 'SAMOSVAL_TEST_BOOTSTRAP_URL',
   'app-password': 'SAMOSVAL_TEST_APP_PASSWORD',
   'runtime-password': 'SAMOSVAL_TEST_RUNTIME_PASSWORD',
+  'maintenance-password': 'SAMOSVAL_TEST_MAINTENANCE_PASSWORD',
   'target-url': 'TEST_DATABASE_URL',
   'isolated-marker': 'SAMOSVAL_ISOLATED_TEST',
 };

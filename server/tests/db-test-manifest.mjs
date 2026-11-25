@@ -23,10 +23,11 @@ const dbFiles = [
 const harnessFiles = [
   'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-env', 'isolated-db-fixtures', 'isolated-db-guard',
   'isolated-db-integration', 'isolated-db-lifecycle', 'isolated-db-process', 'isolated-db-runner',
-  'isolated-db-templates'
+  'isolated-db-templates', 'parallel-shifts-runtime-roles'
 ];
 
 const consumersByFile = {
+  'parallel-shifts-runtime-roles': ['scripts/parallel-shifts-role-bootstrap.mjs:pg', 'tests/parallel-shifts-runtime-roles.test.mjs:pg'],
   "archive-parallel-restore": [
     "tests/archive-parallel-restore.test.mjs:db-env",
     "tests/archive-parallel-restore.test.mjs:pg"
@@ -305,7 +306,8 @@ const harnessEntries = harnessFiles.map(name => ({
     'isolated-db-fixtures': ['bootstrap-url'],
     'isolated-db-templates': ['bootstrap-url', 'app-password'],
     'isolated-db-lifecycle': ['bootstrap-url', 'app-password', 'runtime-password'],
-    'isolated-db-integration': ['target-url', 'isolated-marker']
+     'isolated-db-integration': ['target-url', 'isolated-marker'],
+     'parallel-shifts-runtime-roles': ['bootstrap-url', 'runtime-password', 'maintenance-password']
   }[name] ?? []
 }));
 

@@ -92,7 +92,7 @@ test('harness_env_fails_closed_on_unknown_or_missing_dependencies', () => {
 });
 
 test('harness_env_registry_is_closed_and_versioned', () => {
-  assert.deepEqual(Object.keys(HARNESS_ENV_REGISTRY).sort(), ['admin-url', 'app-password', 'bootstrap-url', 'isolated-marker', 'runtime-password', 'target-url']);
+  assert.deepEqual(Object.keys(HARNESS_ENV_REGISTRY).sort(), ['admin-url', 'app-password', 'bootstrap-url', 'isolated-marker', 'maintenance-password', 'runtime-password', 'target-url']);
   assert.equal(HARNESS_ENV_REGISTRY['target-url'], 'TEST_DATABASE_URL');
   assert.equal(HARNESS_ENV_REGISTRY['isolated-marker'], 'SAMOSVAL_ISOLATED_TEST');
 });

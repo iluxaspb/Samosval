@@ -7,11 +7,19 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_test_app') THEN CREATE ROLE samosval_test_app; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_test_runtime') THEN CREATE ROLE samosval_test_runtime; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_test_prepared_owner') THEN CREATE ROLE samosval_test_prepared_owner; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_schema_owner') THEN CREATE ROLE samosval_schema_owner; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_migration_evidence_owner') THEN CREATE ROLE samosval_migration_evidence_owner; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_runtime') THEN CREATE ROLE samosval_runtime; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_maintenance') THEN CREATE ROLE samosval_maintenance; END IF;
 END $$;
 ALTER ROLE samosval_test_orchestrator LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'orchestrator_password';
 ALTER ROLE samosval_test_app LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'test_app_password';
 ALTER ROLE samosval_test_runtime LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'runtime_password';
 ALTER ROLE samosval_test_prepared_owner NOLOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+ALTER ROLE samosval_schema_owner NOLOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+ALTER ROLE samosval_migration_evidence_owner NOLOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+ALTER ROLE samosval_runtime LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'runtime_password';
+ALTER ROLE samosval_maintenance LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'maintenance_password';
 
 DO $$ DECLARE membership record; BEGIN
   FOR membership IN
@@ -22,7 +30,7 @@ DO $$ DECLARE membership record; BEGIN
   LOOP EXECUTE format('REVOKE %I FROM %I', membership.granted_role, membership.member_role); END LOOP;
 END $$;
 
-REVOKE CONNECT ON DATABASE postgres FROM PUBLIC, samosval_test_app, samosval_test_runtime, samosval_test_prepared_owner;
+REVOKE CONNECT ON DATABASE postgres FROM PUBLIC, samosval_test_app, samosval_test_runtime, samosval_test_prepared_owner, samosval_runtime, samosval_maintenance, samosval_schema_owner, samosval_migration_evidence_owner;
 GRANT CONNECT ON DATABASE postgres TO samosval_test_orchestrator;
 ALTER ROLE samosval_test_orchestrator IN DATABASE postgres SET samosval.isolated_db_bootstrap = 'samosval-isolated-db-bootstrap:v1';
 

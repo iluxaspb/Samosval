@@ -97,6 +97,22 @@
 
 ## Опыт выпусков (короткие уроки)
 
+## 20. Урок 25.11.2026 (P2): три ловушки при вводе продуктовых ролей в тестовый кластер
+
+**Симптом 1:** продуктовый bootstrap ролей, написанный «поверх» тестовой инфраструктуры, ломает I1–I5: черновик делал `ALTER SCHEMA public OWNER TO samosval_schema_owner` и `REVOKE ALL ON ALL TABLES/FUNCTIONS IN SCHEMA public`.
+**Причина:** `scripts/test-isolated-db.mjs:126-140` уже отдаёт `public` и все объекты шаблона роли `samosval_test_prepared_owner`, а `scripts/isolated-db/templates.mjs:34-47` (`verifyTargetAuthority`) требует, чтобы **все** объекты принадлежали ровно ей, иначе `target authority verification failed closed`. Привязка I1/I2/I4/I5 — владелец **базы** и receipt/COMMENT, а не объектов.
+**Что делать:** продуктовый bootstrap владеет только объектами из явного allowlist (`shifts`, `shift_members`, `line_truck_statuses`, функции этих триггеров), отсутствие объекта — норма до Task 3. Владельца схемы `public` и четыре тестовые роли не трогать. Массовые `REVOKE` по схеме запрещены.
+
+**Симптом 2:** `validateAdminUrl` (`scripts/isolated-db/safety.mjs:20`) разрешает только порт **55432**; прогон harness-тестов на любом другом порту даёт `admin URL is not approved`, а при отсутствии пароля app-роли — `SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string`.
+**Причина:** жёстко зашитые порт и набор кредов harness-контракта.
+**Что делать:** harness-тесты (`isolated-db-bootstrap`, `isolated-db-lifecycle`, `isolated-db-templates`, `parallel-shifts-runtime-roles`) гонять только на **55432** и передавать все пять паролей (`POSTGRES_PASSWORD`, orchestrator, app, runtime, maintenance) в каждом шелле — иначе часть тестов падает на аутентификации, а не на логике.
+
+**Симптом 3:** CLI-вход модуля зависал навсегда после ошибки, а `verifyParallelShiftRoleBoundary` падал на `function "public.shifts_legacy_bridge()" does not exist`.
+**Причина:** клиент закрывался только в успешной ветке, и `has_function_privilege` вызывался для несуществующей функции.
+**Что делать:** `client.end()` — всегда в `finally`; проверку `EXECUTE` делать через `to_regprocedure(...) IS NULL THEN NULL`. CLI обязан возвращать `exit=1` при отсутствии пароля и `exit=0` при успехе.
+
+**Проверенный рецепт приёмки P2:** свежий кластер на 55432 (`down -v` → `up -d`, проект `samosval-p2-verify`), пять паролей в env, `node --test --experimental-test-isolation=none` по четырём harness-файлам + новый тест → `66/66`; повторный прогон на том же кластере краснеет законно (урок 19).
+
 ## 19. Урок 25.11.2026 (I5): одноразовый кластер и фиксированные runid
 
 **Симптом:** второй прогон `tests/isolated-db-bootstrap.test.mjs` на том же кластере краснеет (`isolated target reservation rejected`, `admin operation failed closed`), хотя первый прогон зелёный 17/17.
