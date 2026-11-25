@@ -1,0 +1,5504 @@
+
+const firebaseConfig = {
+    apiKey: "AIzaSyB42a5kp__3i9rD2BocdnOuKKoSlvEFLI4",
+    authDomain: "samosval-test.firebaseapp.com",
+    projectId: "samosval-test",
+    messagingSenderId: "537285153088",
+    storageBucket: "samosval-test.firebasestorage.app",
+    appId: "1:537285153088:web:cc40d712f36581784a2aa5"
+  };
+
+  // ==========================================
+  // ВСТРОЕННАЯ КОНСОЛЬ ОТЛАДКИ
+  // ==========================================
+  const appConsoleLogs = [];
+  const APP_CONSOLE_MAX = 500;
+  let consoleFilterMode = 'all';
+  const _origConsoleLog = console.log.bind(console);
+  const _origConsoleWarn = console.warn.bind(console);
+  const _origConsoleError = console.error.bind(console);
+  const _origConsoleInfo = console.info.bind(console);
+
+  function _addConsoleEntry(type, args) {
+    try {
+      const text = args.map(a => {
+        if (a instanceof Error) return a.message + (a.stack ? '\n' + a.stack.split('\n').slice(1,3).join(' ') : '');
+        if (typeof a === 'object' && a !== null) { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+        return String(a);
+      }).join(' ');
+      appConsoleLogs.push({ type, text, ts: Date.now() });
+      while (appConsoleLogs.length > APP_CONSOLE_MAX) appConsoleLogs.shift();
+      renderConsoleIfActive();
+    } catch(e) {}
+  }
+
+  console.log = function(...args) { _addConsoleEntry('log', args); _origConsoleLog.apply(console, args); };
+  console.warn = function(...args) { _addConsoleEntry('warn', args); _origConsoleWarn.apply(console, args); };
+  console.error = function(...args) { _addConsoleEntry('error', args); _origConsoleError.apply(console, args); };
+  console.info = function(...args) { _addConsoleEntry('info', args); _origConsoleInfo.apply(console, args); };
+
+  window.addEventListener('error', (e) => { _addConsoleEntry('error', ['[Uncaught] ' + (e.message||'') + ' — ' + (e.filename||'').split('/').pop() + ':' + (e.lineno||'')]); });
+  window.addEventListener('unhandledrejection', (e) => { const r = e.reason; _addConsoleEntry('error', ['[Promise rejection] ' + (r?.message || r || 'unknown')]); });
+
+  function renderConsoleIfActive() {
+    const tabAdmin = document.getElementById('tab-admin');
+    if (!tabAdmin || !tabAdmin.classList.contains('active')) return;
+    const sec = document.getElementById('admin-sub-console');
+    if (!sec || !sec.classList.contains('active')) return;
+    renderConsole();
+  }
+
+  function renderConsole() {
+    const view = document.getElementById('consoleView');
+    if (!view) return;
+    const filtered = consoleFilterMode === 'all' ? appConsoleLogs : appConsoleLogs.filter(l => l.type === consoleFilterMode);
+    if (!filtered.length) { view.innerHTML = '<div style="color:#475569; text-align:center; padding:20px; font-family:sans-serif;">Пусто</div>'; return; }
+    view.innerHTML = filtered.slice(-500).map(l => {
+      const color = l.type === 'error' ? '#f87171' : l.type === 'warn' ? '#fbbf24' : l.type === 'info' ? '#60a5fa' : '#94a3b8';
+      const icon = l.type === 'error' ? '❌' : l.type === 'warn' ? '⚠️' : l.type === 'info' ? 'ℹ️' : '›';
+      const time = new Date(l.ts).toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      const safeText = String(l.text).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      return `<div style="color:${color}; border-bottom:1px solid #1e293b; padding:5px 0; word-break:break-all; user-select:text; font-family:'Courier New',monospace;"><span style="color:#475569; font-size:9px;">${time}</span> ${icon} ${safeText}</div>`;
+    }).join('');
+    requestAnimationFrame(() => { view.scrollTop = view.scrollHeight; });
+  }
+
+  function consoleClear() { appConsoleLogs.length = 0; renderConsole(); if (typeof showToastEl === 'function') showToastEl('🗑 Консоль очищена', false); }
+  async function consoleCopy() {
+    const filtered = consoleFilterMode === 'all' ? appConsoleLogs : appConsoleLogs.filter(l => l.type === consoleFilterMode);
+    if (!filtered.length) { if (typeof showToastEl === 'function') showToastEl('Нечего копировать', true); return; }
+    const text = filtered.map(l => { const time = new Date(l.ts).toLocaleTimeString('ru-RU'); return `[${time}] [${l.type.toUpperCase()}] ${l.text}`; }).join('\n');
+    try { await navigator.clipboard.writeText(text); if (typeof showToastEl === 'function') showToastEl('📋 Скопировано в буфер', false); }
+    catch(e) { if (typeof showToastEl === 'function') showToastEl('⚠️ Браузер заблокировал копирование', true); }
+  }
+  function consoleFilter(mode) {
+    consoleFilterMode = mode;
+    document.querySelectorAll('[data-console-filter]').forEach(b => {
+      if (b.dataset.consoleFilter === mode) { b.classList.add('btn-quick'); b.classList.remove('btn-secondary'); }
+      else { b.classList.remove('btn-quick'); b.classList.add('btn-secondary'); }
+    });
+    renderConsole();
+  }
+
+  const FORCED_ADMIN_EMAIL = 'iluxaspb@gmail.com';
+  const GAI_PDF_DELAY_MS = 60000;
+
+  const ROLES = {
+    admin: { label: 'Администратор', icon: '👑', color: 'admin' },
+    senior_foreman: { label: 'Старший прораб', icon: '👑', color: 'senior_foreman' },
+    foreman: { label: 'Прораб', icon: '🔧', color: 'foreman' },
+    master: { label: 'Мастер', icon: '🛠', color: 'master' },
+    lopater: { label: 'Лопатер', icon: '🪏', color: 'lopater' },
+    viewer: { label: 'Наблюдатель', icon: '👁', color: 'viewer' }
+  };
+
+  const ALL_TABS = ['line', 'timesheet', 'report', 'archive', 'trucks', 'analytics', 'backup', 'admin'];
+  const TAB_LABELS = { timesheet: 'Табель', line: 'Линия', report: 'Сводка', archive: 'Архив', trucks: 'База', analytics: 'Аналитика', backup: 'Резерв', admin: 'Админ' };
+
+  const ALL_ACTIONS = [
+    'timesheet_edit', 'timesheet_manage', 'timesheet_export',
+    'start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'line_timer_reset', 'undo_action',
+    'view_truck_phone', 'call_truck_phone', 'add_truck_phone',
+    'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'import_backup',
+    'view_card_stats', 'view_header', 'undo_any', 'view_gai_report', 'view_reis_in_ticker'
+  ];
+  const ACTION_LABELS = {
+    timesheet_edit: 'Табель: часы и материалы', timesheet_manage: 'Табель: справочники и экипажи', timesheet_export: 'Табель: выгрузка CSV',
+    start_shift: 'Начать смену', close_shift: 'Закрыть смену', edit_line: 'Изменять линию',
+    action_arrive: 'Кнопка «Приехал»', action_load: 'Кнопка «Погрузка»', action_ttn: 'Кнопка «ТТН»', line_timer_reset: 'Сброс таймера ходки',
+    undo_action: 'Отменять СВОИ действия', undo_any: 'Отменять действия ЛЮБОГО пользователя',
+    view_truck_phone: 'Читать телефон самосвала', call_truck_phone: 'Кнопка Позвонить', add_truck_phone: 'Добавлять отсутствующий телефон',
+    edit_logs: 'Редактировать рейсы', manage_trucks: 'Управлять базой самосвалов', manage_objects: 'Управлять базой объектов',
+    archive_edit: 'Редактировать архив', archive_delete: 'Удалять из архива', import_backup: 'Импорт бэкапа',
+    view_card_stats: 'Показывать рейсы/объем на карточках', view_header: 'Показывать верхнюю панель (шапку)',
+    view_gai_report: 'Показывать отчет ГАИ', view_reis_in_ticker: 'Показывать № рейса в статус-баре'
+  };
+
+  ALL_ACTIONS.push('history_view','history_undo_own','history_undo_any','history_redo_own','history_redo_any');
+  Object.assign(ACTION_LABELS,{"history_view": "Открывать журнал отмены и восстановления", "history_undo_own": "Отменять свои действия в журнале", "history_undo_any": "Отменять любые действия в журнале", "history_redo_own": "Восстанавливать свои действия в журнале", "history_redo_any": "Восстанавливать любые действия в журнале"});
+  // Гранулярные права на вкладки табеля. Если роли ни одно из них не выдано,
+  // табель показывает все вкладки как раньше (обратная совместимость).
+  ALL_ACTIONS.push('tabel_tab_shift','tabel_tab_table','tabel_tab_request','tabel_tab_catalog','tabel_tab_history');
+  Object.assign(ACTION_LABELS,{"tabel_tab_shift": "Табель: Смена", "tabel_tab_table": "Табель: Таблица", "tabel_tab_request": "Табель: Заявки", "tabel_tab_catalog": "Табель: Справочник", "tabel_tab_history": "Табель: История"});
+  const DEFAULT_PERMISSIONS = {
+    // Старший прораб: все права прораба плюс сброс таймера ходки.
+    senior_foreman: { tabs: ['line', 'report', 'archive', 'trucks', 'analytics', 'backup'], actions: ['start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'line_timer_reset', 'undo_action', 'undo_any', 'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
+    foreman: { tabs: ['line', 'report', 'archive', 'trucks', 'analytics', 'backup'], actions: ['start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'undo_action', 'undo_any', 'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
+    master: { tabs: ['line', 'report', 'archive', 'analytics'], actions: ['start_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'undo_action', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
+    lopater: { tabs: ['line', 'report'], actions: ['action_arrive', 'action_load', 'undo_action', 'view_card_stats', 'view_header'] },
+    viewer: { tabs: ['line', 'report', 'archive', 'analytics'], actions: ['view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] }
+  };
+
+  // Если приложение открыто с домена Ubuntu — API по тому же origin:
+  // это убирает CORS, порты и внешние блокировки.
+  const WORKING_TEST_UBUNTU_API_BASE = (typeof location !== 'undefined' && location.hostname === 'samosval-test.iluxa.pro')
+    ? location.origin
+    : 'https://samosval-test.iluxa.pro';
+  // Рабочая версия всегда работает через Ubuntu API (NAS-рантайм). Firebase
+  // SDK не загружается (см. shell.html): все обращения firebase.* в активном
+  // коде — за флагом FIREBASE_SDK_PRESENT, который здесь всегда false.
+  // firebaseConfig остаётся: projectId используется в ключах localStorage.
+  const FIREBASE_SDK_PRESENT = typeof firebase !== 'undefined';
+  const workingFirebaseApp = null;
+  const auth = null;
+  // Заглушка db/refs для мёртвых Firebase-веток: построение цепочки
+  // (.collection().doc()) ничего не бросает, но любой await такого объекта
+  // отклоняется понятной ошибкой — мёртвые ветки падают громко, а загрузка
+  // приложения не ломается.
+  function makeFirebaseStub() {
+    const unavailable = new Error('Firebase SDK не загружен: рабочая версия использует Ubuntu API');
+    const stub = new Proxy(function () {}, {
+      get(target, key) {
+        if (key === 'then') return (resolve, reject) => Promise.reject(unavailable).then(resolve, reject);
+        if (key === 'catch' || key === 'finally') return (fn) => Promise.reject(unavailable)[key](fn);
+        if (key === Symbol.toPrimitive || key === 'toString') return () => 'firebase-unavailable';
+        return stub;
+      },
+      apply() { return stub; }
+    });
+    return stub;
+  }
+  let secondaryApp;
+  if (FIREBASE_SDK_PRESENT) {
+    // Инвариант NAS-сборки: SDK не загружается. Если скрипты вернули в shell,
+    // падаем громко на старте, а не по загадочным ошибкам в рантайме.
+    throw new Error('Firebase SDK загружен, но рабочая версия работает только через Ubuntu API');
+  }
+  const db = makeFirebaseStub();
+  // Legacy versions stored passwords in localStorage. Remove these credentials.
+  try { localStorage.removeItem('working-test-saved-pass'); } catch (e) { console.warn('Не удалось очистить старый пароль', e); }
+  window.TestStorageState = FIREBASE_SDK_PRESENT ? window.TestStorageState : { persistent: false, error: 'firebase-sdk-not-loaded' };
+  const WT_STORAGE_PREFIX = 'working-test:';
+  const WORKSPACE_ID = 'main_workspace';
+  const wsRef = db.collection('workspaces').doc(WORKSPACE_ID);
+  const refs = {
+    trucks: wsRef.collection('trucks'), objects: wsRef.collection('objects'), logs: wsRef.collection('logs'),
+    truckStatus: wsRef.collection('truckStatus'), shift: wsRef.collection('shift').doc('current'),
+    archive: wsRef.collection('archive'), trash: wsRef.collection('trash'), audit: wsRef.collection('audit'),
+    coinTransactions: wsRef.collection('coinTransactions'),
+    notifications: wsRef.collection('notifications'), plugins: wsRef.collection('plugins'),
+    patches: wsRef.collection('patches')
+  };
+  const usersRef = db.collection('users');
+  const permsRef = db.collection('settings').doc('permissions');
+  const requestsRef = db.collection('registration_requests');
+  const appConfigRef = db.collection('settings').doc('appConfig');
+
+  const TRASH_DAYS = 30;
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const MIN_CYCLE_MINUTES = 15;
+
+  let settings = Object.assign({ hapticArrive: true, hapticLoad: true, hapticTtn: true, cycleMinutes: MIN_CYCLE_MINUTES, holdLoad: 0.5, holdArrive: 0.5, holdTtn: 0.5 }, JSON.parse(localStorage.getItem('working-test-settings') || '{}'));
+
+  let state = { trucks: [], objects: [], logs: [], truckStatus: {}, shift: null, restoredShifts: [], archive: [], trash: [], audit: [], notifications: [], users: [], requests: [], plugins: [], patches: [] };
+  // Object IDs are stable across rename; snapshot names are only fallback.
+  function objectTitle(id, fallback = '—') {
+    return (state.objects || []).find(o => o.id === id)?.name || fallback || '—';
+  }
+  let permissionsConfig = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS));
+  let appConfig = { maxEnabled: false, maxUrl: '', maxToken: '', maxChatId: '', notifyStart: true, notifyArrive: true, notifyLoad: true, notifyTtn: true, notifyLineStart: true, notifyLineEnd: true };
+
+  let unsubscribers = [];
+  let currentEmail = '';
+  let currentUid = '';
+  let currentUserRole = null;
+  let currentUserStatus = null;
+  let activeProfileKey = '';
+  let permissionsLoaded = false; // === SECURITY: флаг готовности прав ===
+  let currentUserNickname = '';
+  let initialized = false;
+  let viewingArchiveId = null;
+  let viewingArchiveGAITable = false;
+  let editingLogId = null;
+  let toastTimer1 = null, toastTimer2 = null;
+  let touchStartY = 0, touchStartX = 0, isScrolling = false;
+  let pendingOps = 0;
+  let loadInFlight = {};
+  let renderLinePending = false;
+  let usersUnsubscriber = null;
+  let reqsUnsubscriber = null;
+  let userDocUnsubscriber = null;
+  let profileServerConfirmed = false;
+  let permissionsServerConfirmed = false;
+  // Monotonically changes for every Firebase Auth callback, including logout.
+  // Async profile/permission work must never cross this boundary.
+  let authSessionGeneration = 0;
+  function isAuthSessionReady(generation = authSessionGeneration) {
+    return generation === authSessionGeneration
+      && !!currentUid
+      && currentUserStatus === 'active'
+      && profileServerConfirmed
+      && permissionsServerConfirmed;
+  }
+  let appConfigSyncUid = '';
+  let appConfigSyncGeneration = 0;
+  let showGAITable = false;
+  let confirmedLoadIds = new Set();
+  function validTickerNotification(item) {
+    if (!item) return false;
+    if (item.type !== 'load') return true;
+    return !!item.logId && confirmedLoadIds.has(item.logId)
+      && state.logs.some(log => log.id === item.logId
+        && (!state.shift || log.shiftId === state.shift.id));
+  }
+  function lastValidNotification() {
+    return (state.notifications || []).find(validTickerNotification) || null;
+  }
+  let lastTickerId = null;
+  let lastTickerTs = 0;
+  let pluginTabs = {};
+  let pluginPdfButtons = [];
+
+  function pendingStart() { pendingOps++; updateSyncUI(); }
+  function pendingEnd() { pendingOps = Math.max(0, pendingOps - 1); updateSyncUI(); }
+  function tf(p) { pendingStart(); p.then(() => pendingEnd()).catch(e => { console.warn(e); pendingEnd(); }); }
+  async function tfAwait(p) { pendingStart(); try { return await p; } finally { pendingEnd(); } }
+  let syncState = { fromCache: {}, everConnected: {}, docCount: {}, pendingWrites: {}, lastSuccessAt: 0 };
+
+  // === СИСТЕМА ПАТЧЕЙ ===
+  // === ПАТЧИ (слой удалён в 1.7.10) ===
+  // Живой функционал встроенных патчей перенесён в features/ (undo-redo,
+  // analytics-v2, reset-hold, pretty-confirm, ticker-name, nav-sort,
+  // fix-log-delete, anim-speeds, admin-compact). Пользовательские патчи из
+  // коллекции auxiliary больше не исполняются: eval-патчи были механизмом
+  // доставки правок до появления модульной сборки. Функции остаются
+  // совместимыми заглушками — их вызывают 21-nas-runtime и reset-settings.
+  async function loadAndApplyPatches() {
+    if(isNasRuntime())return refreshNasAuxiliary();
+    return;
+  }
+
+  function applyAllPatches() {
+    // Патчи не применяются: функциональность вшита в модули features/.
+    return;
+  }
+
+  function renderPatchesList() {
+    // Вкладка «🔧 Патчи» удалена из админки вместе со слоем патчей.
+    return;
+  }
+  function isForcedAdminEmail(email) { return String(email || '').toLowerCase() === FORCED_ADMIN_EMAIL; }
+  function canViewReleaseHistory() { return permissionsLoaded && currentUserStatus === 'active' && ['admin','foreman','senior_foreman'].includes(currentUserRole); }
+  function canAdmin() { return currentUserStatus === 'active' && currentUserRole === 'admin'; }
+
+  // === SECURITY: пока permissionsLoaded === false, разрешаем только 'line' (и админа) ===
+  function hasTabAccess(tabName) {
+    if(currentUserStatus!=='active')return false;
+    if (currentUserRole === 'admin') return true;
+    if (!permissionsLoaded) return tabName === 'line';
+    if(tabName==='timesheet'&&(currentUserRole==='foreman'||currentUserRole==='senior_foreman'))return true;
+    if (!permissionsConfig[currentUserRole]) return false;
+    return Array.isArray(permissionsConfig[currentUserRole].tabs) && permissionsConfig[currentUserRole].tabs.includes(tabName);
+  }
+
+  function hasPermission(action) { if(currentUserStatus!=='active')return false; if (currentUserRole === 'admin') return true; if (!permissionsLoaded) return false; const actions = permissionsConfig[currentUserRole]?.actions; return Array.isArray(actions) && actions.includes(action); }
+
+  // Вкладки табеля, доступные текущему пользователю. Пока роли не выдано ни одного
+  // granular-права tabel_tab_*, возвращаем null: табель показывает все вкладки как
+  // раньше, чтобы существующие права пользователей не менялись автоматически.
+  function tabelTabViews(){
+    if(currentUserRole === 'admin') return null;
+    const granted = ['shift','table','request','catalog','history'].filter(tab => hasPermission('tabel_tab_' + tab));
+    return granted.length ? granted : null;
+  }
+  function requireEdit(action, actionName) { if (hasPermission(action)) return true; showError('👁 Нет прав на ' + (actionName || 'это действие')); return false; }
+
+  // === SECURITY: обновляем классы perm-blocked для кнопок ===
+  function updateNavUI() {
+    renderTestBackendControls();
+    ALL_TABS.forEach(tab => {
+      const btn = document.getElementById(tab==='timesheet'?'nav-tabel-v2':'nav-' + tab);
+      if (btn) {
+        const allowed = tab === 'admin' ? canAdmin() : hasTabAccess(tab);
+        btn.style.display = allowed ? '' : 'none';
+        if (allowed) btn.classList.remove('perm-blocked');
+        else btn.classList.add('perm-blocked');
+      }
+    });
+  }
+
+  // === УТИЛИТЫ ===
+  function sanitizeName(name) { if (!name) return ''; let s = String(name).trim(); let at = s.indexOf('@'); if (at > 0) s = s.substring(0, at); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+  function getUserName() { return currentUserNickname || sanitizeName(currentEmail) || '—'; }
+  function resolveUserDisplayName(email, fallbackNick) {
+    const clean=value=>String(value||'').trim(),normal=value=>clean(value).toLowerCase();
+    const identity=normal(email);
+    if(identity&&identity===normal(currentEmail)&&clean(currentUserNickname))return clean(currentUserNickname);
+    const user=identity?(state.users||[]).find(u=>normal(u.email)===identity):null;
+    if(clean(user?.nickname))return clean(user.nickname);
+    const fallback=clean(fallbackNick);
+    if(fallback&&fallback!=='—'&&(!identity||normal(fallback)!==identity))return fallback;
+    return sanitizeName(email||fallback)||'—';
+  }
+  function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  function nowTimeStr() { return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }); }
+  function nowDateStr() { return new Date().toLocaleDateString('ru-RU'); }
+  function formatIdleDuration(ms) { if (ms < 0) ms = 0; let s = Math.floor(ms/1000), h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60; return h > 0 ? h + ':' + pad2(m) + ':' + pad2(sec) : pad2(m) + ':' + pad2(sec); }
+  function formatLoadAge(timestamp) {
+    const seconds=Math.max(0,Math.floor((Date.now()-Number(timestamp))/1000));
+    if(!Number(timestamp)||!Number.isFinite(seconds))return 'ещё не было';
+    if(seconds<60)return 'только что';
+    const minutes=Math.floor(seconds/60);
+    if(minutes<60)return minutes+' мин назад';
+    const hours=Math.floor(minutes/60),rest=minutes%60;
+    if(hours<24)return hours+' ч'+(rest?' '+rest+' мин':'')+' назад';
+    const days=Math.floor(hours/24),remaining=hours%24;
+    return days+' д'+(remaining?' '+remaining+' ч':'')+' назад';
+  }
+  function formatTimeAgo(ts) { if (!ts) return '—'; let diff = Date.now() - ts; if (diff < 0) diff = 0; let s = Math.floor(diff/1000); if (s < 10) return 'только что'; if (s < 60) return s + ' сек. назад'; let m = Math.floor(s/60); if (m < 60) return m + ' мин. назад'; let h = Math.floor(m/60), mm = m%60; if (h < 24) return mm === 0 ? (h + ' ч. назад') : (h + ' ч. ' + mm + ' мин. назад'); return Math.floor(h/24) + ' дн. назад'; }
+  function daysLeft(deletedAt) { let remain = (TRASH_DAYS * MS_PER_DAY) - (Date.now() - (deletedAt || 0)); return Math.max(0, Math.ceil(remain / MS_PER_DAY)); }
+  function vibrate(pattern) { try { if (navigator.vibrate) navigator.vibrate(pattern); } catch(e){} }
+  function vibArrive() { if (settings.hapticArrive) vibrate(12); }
+  function vibLoad() { if (settings.hapticLoad) vibrate([15,30,15]); }
+  function vibTtn() { if (settings.hapticTtn) vibrate(25); }
+
+  function renderRussianPlate(numberStr) {
+    let clean = String(numberStr == null ? '' : numberStr).replace(/\s+/g, '').trim();
+    let m = clean.match(/^([а-яёa-z]{1})(\d{3})([а-яёa-z]{2})(\d{2,3})$/i);
+    if (m) return `<div class="ru-plate"><div class="ru-plate-main"><span>${escapeHtml(m[1].toLowerCase())}</span><span class="plate-digit">${escapeHtml(m[2])}</span><span>${escapeHtml(m[3].toLowerCase())}</span></div><div class="ru-plate-region"><span class="region-code">${escapeHtml(m[4])}</span><span class="region-rus">RUS</span><div class="ru-plate-flag"><span></span><span></span><span></span></div></div></div>`;
+    let formatted = escapeHtml(clean).replace(/\d+/g, d => `<span class="plate-digit">${d}</span>`);
+    return `<div class="ru-plate"><div class="ru-plate-main">${formatted}</div></div>`;
+  }
+  function findTruck(id) { return state.trucks.find(t => t.id === id); }
+  function truckLabelHtml(id, fallbackName) {
+    let t = findTruck(id);
+    if (!t) return fallbackName ? `<b>${escapeHtml(String(fallbackName).split(' ')[0])}</b> ${renderRussianPlate(String(fallbackName).split(' ').slice(1).join(' '))}` : '<b>Машина</b>';
+    return `<b>${escapeHtml(t.brand)}</b> ${renderRussianPlate(t.number)}`;
+  }
+  function truckName(id) { let t = findTruck(id); return t ? `${t.brand} ${t.number}` : 'Машина'; }
+  function getActiveLineIds() { return Object.keys(state.truckStatus).filter(id => state.truckStatus[id] && state.truckStatus[id].onLine === true); }
+  // Reports, paper sheets, header totals and PDF must all see the same LOCAL
+  // pending trips, even if an older Firestore cache snapshot arrives meanwhile.
+  function getLogs() {
+    const shiftId=state.shift?.id;
+    if(!shiftId)return [];
+    const logs=state.logs.filter(l=>l.shiftId===shiftId);
+    const ids=new Set(logs.map(l=>l.id));
+    for(const op of offlinePendingOps()){
+      if(op.type!=='load'||op.shiftId!==shiftId)continue;
+      if(ids.has('pending_'+op.id)||ids.has(op.logId))continue;
+      const ts=Math.max(Number(op.createdAt)||0,Number(op.arrivalTimestamp||0)+1,Number(op.lastLoadTimestamp||0)+1);
+      const log={id:'pending_'+op.id,offlinePending:true,offlineOperationId:op.id,
+        shiftId,truckId:op.truckId,truckName:op.truckName||truckName(op.truckId),
+        volume:Number(op.volume)||0,isGAI:!!op.isGAI,
+        timeStr:new Date(ts).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
+        timestamp:ts,arrivalTimestamp:op.arrivalTimestamp||null,createdBy:op.actor,
+        createdByEmail:op.email||'',comment:''};
+      logs.push(log);ids.add(log.id);
+    }
+    return logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+  }
+
+  function sessionCacheKey() { if(isNasRuntime())return 'samosval-working-test-cache-nas-v1:'+nasStorageScope(); return 'samosval-working-test-cache-v1:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID + ':' + (currentUid || 'signed-out'); }
+  function saveCache() { try { localStorage.setItem(sessionCacheKey(), JSON.stringify({ trucks: state.trucks, objects: state.objects, logs: offlinePendingCount()?offlineRemoteLogs:state.logs, truckStatus: offlinePendingCount()?offlineRemoteStatuses:state.truckStatus, shift: state.shift, restoredShifts: state.restoredShifts||[], archive: state.archive, trash: state.trash, audit: state.audit.slice(0, 200), lineAudit: (state.lineAudit || []).slice(0, 200), notifications: (state.notifications || []).slice(0, 10), savedAt: Date.now() })); } catch(e) {} }
+  function loadCache() { try { if (!currentUid) return; let raw = localStorage.getItem(sessionCacheKey()); if (!raw) return; let c = JSON.parse(raw); state.trucks = c.trucks||[]; state.objects = c.objects||[]; state.logs = c.logs||[]; state.truckStatus = c.truckStatus||{}; state.shift = c.shift||null; state.restoredShifts = c.restoredShifts||[]; state.archive = c.archive||[]; state.trash = c.trash||[]; state.audit = c.audit||[]; state.lineAudit = c.lineAudit||[]; state.notifications = c.notifications||[]; } catch(e) {} }
+
+  function markSync(source, fromCache, hasPendingWrites, docCount) {
+    if (syncState.errors) delete syncState.errors[source];
+    syncState.fromCache[source] = !!fromCache; syncState.docCount[source] = docCount || 0;
+    if (!fromCache) { syncState.everConnected[source] = true; syncState.lastSuccessAt = Date.now(); if(source==='status'||source==='shift')offlineTransportRecovered();try{if(typeof nasConnectionHeart==='function')nasConnectionHeart(true);}catch(_){} }
+    syncState.pendingWrites[source] = !!hasPendingWrites;
+    if (!hasPendingWrites) delete syncState.pendingWrites[source];
+    updateSyncUI();
+    // A replay may have been blocked by a just-completed status/shift write.
+    // The queue must be retried when the authoritative snapshot confirms that
+    // write; otherwise a load enqueued during arrival remains pending forever.
+    if ((source === 'status' || source === 'shift') && !hasPendingWrites && typeof offlineReplayJournal === 'function' && offlinePendingCount() > 0) {
+      queueMicrotask(() => offlineReplayJournal());
+    }
+  }
+  function reportSyncError(source, error) {
+    syncState.errors = syncState.errors || {};
+    syncState.errors[source] = { code: error?.code || 'unknown', message: error?.message || String(error), at: Date.now() }; if(offlineTransportError(error))offlineTransportFailed(error);try{if(offlineTransportError(error))nasConnectionHeart(false,error);}catch(_){}
+    console.error('[sync:' + source + ']', error);
+    updateSyncUI();
+  }
+  function getSyncStatus() {
+    const queued=offlinePendingCount();
+    let showOffline=offlineServerUnreachable||!navigator.onLine;
+    if(showOffline&&offlineStatusSince&&Date.now()-offlineStatusSince<OFFLINE_UI_GRACE_MS)showOffline=false;
+    if(showOffline)return{ state: 'offline', text: 'Работа локально' + (queued ? ` · действий к отправке: ${queued}` : '') };
+    if (Object.keys(syncState.errors || {}).length) {
+      // Жёлтый баннер на весь экран оправдан только когда данных ещё нет:
+      // первичная загрузка не удалась. Фоновый сбой источника, который уже
+      // хотя бы раз успешно читался, не мельтешит баннером: ошибка видна
+      // цветом точки синхронизации, её подсказкой и в диагностике по нажатию.
+      const failed = Object.keys(syncState.errors);
+      if (failed.every(source => syncState.ever_connected[source])) return { state: 'degraded', text: 'Перечитываем: ' + failed.join(', ') };
+      return {state:'error',text:'Ошибка загрузки: ' + failed.join(', ')};
+    }
+    if (!currentUserRole) return {state:'init',text:'Проверка учётной записи…'};
+    if (!initialized || !permissionsLoaded) return { state: 'init', text: 'Загрузка данных и прав…' };
+    const required = ['profile','permissions','trucks','status','shift'];
+    if (required.some(source => !syncState.everConnected[source] || syncState.fromCache[source])) return {state:'init',text:'Данные из кеша. Ожидаем подтверждения сервера…'};
+    if (pendingOps > 0 || queued > 0) return { state: 'syncing', text: `Синхронизация... (${pendingOps + queued})` };
+    const failures=offlineUnreviewedFailures().length;
+    if(failures)return {state:'error',text:'Не подтверждено действий: '+failures+' · Нажмите индикатор для подробностей'};
+    return { state: 'ok', text: 'Всё на сервере' };
+  }
+  function updateSyncUI() {
+    const dot = document.getElementById('syncDot'), badge = document.getElementById('syncBadge');
+    if (!dot) return;
+    const st = getSyncStatus();
+    const backend = getTestBackendIndicator(st);
+    renderTestBackendControls(st);
+    let notice = document.getElementById('sessionSyncNotice');
+    if (!notice) { notice = document.createElement('div'); notice.id = 'sessionSyncNotice'; notice.style.cssText = 'padding:8px 12px;font-size:12px;background:#332611;color:#fcd34d;line-height:1.4'; document.getElementById('mainHeader')?.append(notice); }
+    // degraded — фоновая ошибка источника при уже загруженных данных: баннер
+    // на весь экран не показываем, сбой виден только цветом точки и подсказкой.
+    notice.hidden = !currentUid || st.state === 'ok' || st.state === 'syncing' || st.state === 'degraded';
+    notice.textContent = st.text + (st.state === 'error' ? ' · Нажмите точку синхронизации для подробностей.' : '');
+    dot.className = 'sync-dot ' + st.state;
+    dot.textContent = backend.letter;
+    dot.dataset.provider = backend.provider;
+    const runtimeLabel = TEST_BACKEND_MODE_LABELS[window.WorkingTestAuthority?.runtimeProvider === 'ubuntu' ? 'ubuntu' : 'firebase'];
+    let tip = backend.label + ' · ' + runtimeLabel + ' · ' + st.text;
+    if (syncState.lastSuccessAt && (st.state === 'ok' || st.state === 'offline')) tip += ' · ' + formatTimeAgo(syncState.lastSuccessAt);
+    dot.parentElement.title = tip;
+    dot.parentElement.setAttribute('aria-label', tip);
+    if (badge) {const count=pendingOps+offlinePendingCount();if(count>0){badge.textContent=count>99?'99+':count;badge.classList.add('show');}else badge.classList.remove('show');}
+  }
+  function showSyncDiagnostics() {
+    const sources = ['trucks','objects','logs','status','shift','archive','trash','audit','notifications','plugins','patches','users','requests'];
+    let lines = ['── ДИАГНОСТИКА ──', '', `Online: ${navigator.onLine ? 'да' : 'НЕТ'}`, `Пользователь: ${currentEmail || '—'}`, `Роль: ${ROLES[currentUserRole]?.label || currentUserRole || '—'}`, `Права загружены: ${permissionsLoaded ? 'да' : 'нет'}`, `Приехал: ${hasPermission('action_arrive') ? 'разрешено' : 'нет права'}`, `Погрузка: ${hasPermission('action_load') ? 'разрешено' : 'нет права'}`, `pendingOps: ${pendingOps}`, `Max: ${appConfig.maxEnabled ? 'вкл' : 'выкл'}`, `Патчей: ${state.patches.length}`, ''];
+    lines.push('Режим сервера: ' + TEST_BACKEND_MODE_LABELS[window.WorkingTestAuthority?.runtimeProvider === 'ubuntu' ? 'ubuntu' : 'firebase'] + (window.WorkingTestAuthority?.generation ? ' (поколение ' + window.WorkingTestAuthority.generation + ')' : ''), getTestBackendIndicator(getSyncStatus()).label);
+    // Вход выполняет локальный сервер Ubuntu, поэтому сессии Firebase нет и
+    // синхронизация Firestore недоступна. Данные идут через Ubuntu API.
+    lines.push('Вход: Ubuntu API · Firebase-синхронизация недоступна (нет сессии Firebase)');
+    lines.push('Страница: ' + location.pathname, 'База: ' + firebaseConfig.projectId, 'UID: ' + (currentUid || '—'));
+    Object.entries(syncState.errors || {}).forEach(([source,error]) => lines.push('ОШИБКА ' + source + ': ' + error.code + ' · ' + error.message));
+    sources.forEach(s => { lines.push(`${s.padEnd(11)} | ${syncState.pendingWrites[s]?'ДА':'—'} | ${syncState.docCount[s]||0}`); });
+    const rejected=offlineUnreviewedFailures();
+    if(rejected.length) {
+      lines.push('','── НЕПОДТВЕРЖДЁННЫЕ ДЕЙСТВИЯ ──');
+      rejected.forEach(x=>lines.push(x.truckName||truckName(x.truckId),new Date(x.createdAt).toLocaleString('ru-RU'),offlineReasonLabel(x.result),''));
+      lines.push('Карточки показывают итоговое серверное состояние.');
+    }
+    appNotice(lines.join('\n'));
+    if(rejected.length) {
+      const all=offlineJournalRead();
+      all.forEach(x=>{if(x.status==='rejected')x.reviewed=true;});
+      offlineJournalWrite(all);
+    }
+    // Инструмент разбора неподтверждённых изменений (панель с кнопками
+    // «Повторить/Отбросить») открывается и отсюда, а не только из баннера
+    // обновления.
+    if(typeof window!=='undefined'&&typeof window.__wtShowUnsyncedPanel==='function'){try{window.__wtShowUnsyncedPanel();}catch(_){}}
+  }
+  function stopSync() {
+    stopNasRuntime();
+    lineCountAuditStop?.(); lineCountAuditStop = null; lineCountAuditKey = ''; state.lineAudit = [];
+    unsubscribers.forEach(u => { try { u(); } catch(e){} }); unsubscribers = [];
+    if (usersUnsubscriber) { try { usersUnsubscriber(); } catch(e){} usersUnsubscriber = null; }
+    if (reqsUnsubscriber) { try { reqsUnsubscriber(); } catch(e){} reqsUnsubscriber = null; }
+  }
+  // TEST runtime is hosted on Ubuntu. Firebase is used only for authentication
+  // tokens; application data and writes go through the Ubuntu API.
+  const UBUNTU_API_BASE = WORKING_TEST_UBUNTU_API_BASE;
+  function nasProvider() {
+    // Единственный сервер данных — Ubuntu. Firebase используется только для
+    // входа пользователей, переключения режимов больше нет.
+    return 'ubuntu';
+  }
+  function isNasRuntime() { return nasProvider() !== 'firebase'; }
+  function nasApiBase() { return UBUNTU_API_BASE; }
+  function nasStorageScope() { const base=nasApiBase();let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval-working-test-nas-epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify([nasProvider(),base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
+  let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0, nasPresenceTimer=null, nasGamesTimer=null;
+  // Пробуждение после смены сети: обработчики событий и защита от наложения.
+  let nasWakeStop=null, nasWakeInFlight=false, nasWakeAt=0;
+  // Активное обновление: пока приложение на экране, данные читаются сами.
+  let nasActivityTimer=null, nasActivityInFlight=false, nasActivityPending=false, nasActivityGate=null;
+  // Single-writer authority as announced by the server. The phone never decides
+  // this on its own: it mirrors the server and stops writing when it is not the
+  // declared authority.
+  let nasAuthority = { provider: 'ubuntu', generation: 0 };
+  const nasReceiptFloors = new Map();
+  const nasPresenceLeavers=new Set();
+  let nasAdministration=null,nasAdminRead=null,nasCatalogRead=null,nasCatalogSnapshot=null;
+  let nasSettingsSnapshot=null,nasSettingsRead=null;
+  let nasArchiveRead=null;
+  let nasGameRead=null,nasGameSnapshot=null,nasGameReady=false,nasGameReceiptFloor=0;
+  let nasAuxSnapshot=null,nasAuxRead=null;
+  // Хэши значимых данных линии и сеанса: неизменный снапшот не должен
+  // гонать полную перерисовку (карточки «Линии» дёргались на каждом цикле).
+  function nasStableHash(value){try{return JSON.stringify(value);}catch(_){return null;}}
+  let nasLineHash=null,nasSessionHash=null;
+  // После сворачивания приложения сокет и таймеры могут «умереть». Пока
+  // «сторож» промиса не пуст, повторный вызов возвращает тот же мёртвый
+  // промис, и ошибка источника никогда не снимается. При возврате в
+  // приложение сторожа сбрасываются, и чтение начинается заново.
+  // Флаги серии и пробуждения сбрасываются тоже: на замороженной вкладке их
+  // «finally» может не выполниться никогда, и тогда каждый новый возврат из
+  // фона уходил в «pending», а реальный запрос с прерыванием мёртвого сокета
+  // (nasNetworkWake → abortInflight) не запускался — оставался «не в сети».
+  function nasDropHungReads(){nasSettingsRead=null;nasArchiveRead=null;nasGameRead=null;nasAuxRead=null;nasCatalogRead=null;nasAdminRead=null;nasActivityInFlight=false;nasActivityPending=false;nasActivityGate=null;}
+  // Правила повторов живут в отдельном файле 26-nas-resume.js. До его
+  // загрузки (и в тестах) пользуемся безопасной копией того же состояния.
+  function nasSyncNewState(){return typeof WorkingTestNasResume!=='undefined'?WorkingTestNasResume.createState():{items:{}};}
+  function nasSyncApi(){return typeof WorkingTestNasResume!=='undefined'?WorkingTestNasResume:null;}
+  let nasSyncRetry=nasSyncNewState(), nasSyncTimer=null, nasLastSessionAt=0, nasHiddenAt=0;
+  const nasCommandFlights=new Map();
+  function stopNasRuntime() {
+    if(typeof resetTruckPhones==='function')resetTruckPhones();
+    nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
+    nasConnectionStop();
+    nasWakeStop?.();nasWakeStop=null;nasWakeInFlight=false;nasWakeAt=0;
+    if(nasActivityTimer&&typeof clearInterval==='function'){clearInterval(nasActivityTimer);nasActivityTimer=null;}
+    nasActivityTimer=null;nasActivityInFlight=false;nasActivityPending=false;nasActivityGate=null;
+    if(nasSyncTimer&&typeof clearInterval==='function'){clearInterval(nasSyncTimer);nasSyncTimer=null;}
+    nasSyncTimer=null;nasSyncRetry=nasSyncNewState();nasLastSessionAt=0;nasHiddenAt=0;
+    if(nasPresenceTimer&&typeof clearInterval==='function'){clearInterval(nasPresenceTimer);nasPresenceTimer=null;}
+    if(nasGamesTimer&&typeof clearInterval==='function'){clearInterval(nasGamesTimer);nasGamesTimer=null;}
+    nasRuntimeStop?.(); nasRuntimeStop = null;
+    nasRuntimeClient?.stop(); nasRuntimeClient = null;
+    nasReceiptFloors.clear();
+    nasPresenceLeavers.clear();
+    nasAdministration=null;nasAdminRead=null;nasCatalogRead=null;nasCatalogSnapshot=null;nasCommandFlights.clear();
+    nasSettingsSnapshot=null;nasSettingsRead=null;
+    nasArchiveRead=null;
+    nasGameRead=null;nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;
+    nasAuxSnapshot=null;nasAuxRead=null;
+    nasLineHash=null;nasSessionHash=null;
+  }
+  // Резерв может быть ещё не наполнен: администратору нужен выход обратно на
+  // Firebase прямо с экрана ожидания, иначе режим не вернуть из интерфейса.
+  function installNasReturnToFirebase(){
+    const card=document.querySelector('#pendingScreen .pending-card');
+    if(!card||document.getElementById('nasReturnFirebaseBtn'))return;
+    const btn=document.createElement('button');
+    btn.id='nasReturnFirebaseBtn';btn.className='btn btn-secondary';
+    btn.style.width='100%';btn.style.marginTop='10px';
+    btn.textContent='Вернуться на Firebase (администратор)';
+    btn.addEventListener('click',async()=>{
+      btn.disabled=true;
+      try{
+        const snap=await db.collection('users').doc(currentUid).get();
+        if(!snap.exists||snap.data().role!=='admin')throw Error('Вернуть режим может только администратор');
+        const current=await readWorkingAuthority();
+        await writeAuthority('firebase',current.generation);
+        showToastEl('Сервер данных: Firebase',false);
+        location.reload();
+      }catch(error){
+        btn.disabled=false;
+        showError(error.message||'Не удалось вернуть режим');
+      }
+    });
+    card.append(btn);
+  }
+  function loadNasSessionClient() { return import(new URL('./working-test/synology/session-client.mjs',document.baseURI).href); }
+  function applyNasSession(session) {
+    const profile=session.profile, active=session.identityReady&&profile?.status==='active'&&!profile.deleted;
+    // Значимая часть сеанса — права и профиль. Пока она не изменилась, полная
+    // перерисовка не нужна: снапшоты линии приходят своим путём.
+    const sessionChanged=nasStableHash([session.permissions,profile?.role,profile?.status,profile?.deleted,profile?.nickname])!==nasSessionHash;
+    if(sessionChanged)nasSessionHash=nasStableHash([session.permissions,profile?.role,profile?.status,profile?.deleted,profile?.nickname]);
+    if(session.authority&&Number.isSafeInteger(session.authority.generation)&&session.authority.generation>0){
+      const next={provider:session.authority.provider==='firebase'?'firebase':'ubuntu',generation:session.authority.generation};
+      if(next.provider!==nasAuthority.provider||next.generation!==nasAuthority.generation){
+        const previous=nasAuthority;nasAuthority=next;
+        try{if(typeof CustomEvent==='function')window.dispatchEvent(new CustomEvent('samosval-working-test-authority-changed',{detail:{previous,current:next}}));}catch(_){}
+      }
+    }
+    if(currentUserRole&&currentUserRole!==profile?.role){nasReadGeneration++;nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;window.__gameAccessChanged?.();}
+    currentUserRole=profile?.role||null;currentUserStatus=active?'active':profile?.status==='disabled'||profile?.deleted?'disabled':'pending';
+    currentUserNickname=profile?.nickname||sanitizeName(currentEmail);
+    permissionsConfig=active?{...(currentUserRole==='admin'?permissionsConfig:{}),[currentUserRole]:session.permissions}:{};permissionsLoaded=!!active;
+    if((!active||!hasPermission('view_truck_phone'))&&typeof resetTruckPhones==='function')resetTruckPhones();
+    // The NAS session arrives over authenticated HTTPS from the server, so it
+    // is the server confirmation for profile and permissions. Without this the
+    // game wallet reported "ready" while every action was refused as unsynced.
+    profileServerConfirmed=!!active;permissionsServerConfirmed=!!active;
+    if(active)document.body.setAttribute('data-perms-ready','1');else document.body.removeAttribute('data-perms-ready');
+    document.getElementById('pendingScreen').style.display=currentUserStatus==='pending'?'flex':'none';
+    document.getElementById('disabledScreen').style.display=currentUserStatus==='disabled'?'flex':'none';
+    document.getElementById('mainHeader').style.display=active?'':'none';
+    document.querySelector('.container').style.display=active?'':'none';document.querySelector('nav').style.display=active?'flex':'none';
+    if(!active){
+      nasSettingsSnapshot=null;appConfig={};nasGameSnapshot=null;nasGameReady=false;nasGameReceiptFloor=0;window.__gameAccessChanged?.();
+      state.trucks=[];state.logs=[];state.truckStatus={};state.shift=null;state.restoredShifts=[];state.archive=[];state.trash=[];state.audit=[];state.users=[];
+      offlineRemoteStatuses={};offlineRemoteLogs=[];initialized=false;cancelHold();
+      document.querySelectorAll('dialog[open]').forEach(d=>d.close());
+      document.getElementById('registrationStatusText').textContent = session.identityReady
+        ? 'Учётная запись ожидает допуска на сервере Ubuntu.'
+        : 'В Ubuntu-резерве нет вашей учётной записи: резерв ещё не наполнен рабочими данными. Вернитесь на Firebase, если вы администратор.';
+      document.getElementById('disabledStatusText').textContent=profile?.rejectionReason||'Доступ ограничен администратором.';
+      installNasReturnToFirebase();
+    }
+    markSync('profile',false,false,profile?1:0);markSync('permissions',false,false,active?1:0);
+    if(!sessionChanged)return;
+    updateUserBadge();updateNavUI();applyRoleUI();renderAll();
+  }
+  // NAS versions deployed before the server ticker fix return opaque truck IDs.
+  // The browser can safely render its verified catalog without changing NAS data.
+  function presentNasLineNotification(item){
+    if(!item||typeof item.id!=='string'||!item.id.startsWith('nas_')||!['arrive','load','ttn','reset'].includes(item.type))return item;
+    const labels={arrive:'Прибытие на линию',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'};
+    const truck=state.trucks.find(row=>row.id===item.truckId);
+    const visibleTruck=truck?truckLabelHtml(item.truckId):'<b>Самосвал</b>';
+    const log=item.type==='load'&&!item.logId?state.logs.find(row=>row.clientOperationId===item.actionId&&row.truckId===item.truckId&&row.shiftId===item.shiftId):null;
+    return {...item,html:labels[item.type]+' · '+visibleTruck,...(log?{logId:log.id}:{})};
+  }
+  function refreshNasLineNotificationDisplay(){
+    state.notifications=(state.notifications||[]).map(presentNasLineNotification);
+  }
+  function acceptNasLineSnapshot(snapshot) {
+    // A snapshot read before a committed receipt must not roll the UI backwards.
+    for(const floor of nasReceiptFloors.values()){
+      if(floor.shiftId!==snapshot.shift?.id)continue;
+      const status=snapshot.statuses.find(s=>s.id===floor.truckId);
+      if(!status||Number(status.cycleRevision||0)<floor.cycle||Number(status.ttnRevision||0)<floor.ttn)return false;
+    }
+    nasReceiptFloors.clear();
+    // Неизменный снапшот не перерисовывает интерфейс: полная перерисовка
+    // гоняет все вкладки, а таймеры ходки пересортировывают карточки каждый
+    // цикл. Хэш покрывает всё значимое: смены, машины, статусы и рейсы.
+    const significant=[snapshot.shift,snapshot.trucks,snapshot.statuses,snapshot.logs,snapshot.restoredShifts||[],snapshot.cycleMinutes];
+    const nextHash=nasStableHash(significant);
+    const lineChanged=nextHash!==null&&nextHash!==nasLineHash;
+    if(lineChanged)nasLineHash=nextHash;
+    state.shift=snapshot.shift;state.trucks=snapshot.trucks;
+    // Восстановленные для правок архивные смены живут параллельно активной
+    // линии: пользователь редактирует их через отчёт, не закрывая текущую.
+    state.restoredShifts=snapshot.restoredShifts||[];
+    // Рейсы восстановленных смен попадают в общий список: правки (✏️/X) ищут
+    // лог по id, а сводки активной смены фильтруются по shiftId и их не видят.
+    // offlineRemoteLogs — источник офлайн-проекции: кладём их туда, иначе
+    // offlineProjectState затрёт список своим срезом.
+    const restoredLogs=state.restoredShifts.flatMap(r=>r.logs);
+    offlineRemoteLogs=[...snapshot.logs,...restoredLogs];
+    settings.cycleMinutes=snapshot.cycleMinutes;
+    offlineRemoteStatuses=Object.fromEntries(snapshot.statuses.map(s=>[s.id,s]));
+    // NAS snapshots are authoritative: ticker load events must match confirmed logs.
+    confirmedLoadIds=new Set(snapshot.logs.map(log=>log.id));
+    offlineProjectState();initialized=true;
+    refreshNasLineNotificationDisplay();
+    for(const [source,count] of [['trucks',snapshot.trucks.length],['status',snapshot.statuses.length],['logs',snapshot.logs.length],['shift',snapshot.shift?1:0]])markSync(source,false,false,count);
+    markSync('nas',false,false,snapshot.logs.length);
+    // Кеш и перерисовку обновляем только при реальных изменениях линии.
+    if(!lineChanged)return true;
+    saveCache();renderAll();return true;
+  }
+  // Разовое пробуждение после смены сети (VPN, Wi-Fi <-> мобильная) или
+  // возврата во вкладку. Один короткий запрос probe(); при успехе сбрасываем
+  // флаг «Работа локально», сразу читаем линию и отправляем накопленную
+  // очередь. Отдельного цикла нет — только существующая подписка.
+  async function nasNetworkWake(epoch,client,{force=false}={}){
+    if(!client||epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||nasWakeInFlight)return;
+    if(typeof navigator!=='undefined'&&!navigator.onLine)return;
+    const now=Date.now();
+    if(!force&&now-nasWakeAt<2500)return;
+    nasWakeAt=now;nasWakeInFlight=true;
+    const live=()=>epoch===nasRuntimeEpoch&&client===nasRuntimeClient;
+    try{
+      // Зависшие чтения прошлого соединения не должны перекрывать проверку.
+      nasDropHungReads();
+      try{nasRuntimeClient?.abortInflight?.();}catch(_){}
+      // Probe идёт отдельным запросом: зависшие фоновые чтения его не держат.
+      let probeOk=false;
+      try{if(typeof client.probe==='function')await client.probe(15000);else await client.readSession();probeOk=true;}catch(_){probeOk=false;}
+      // Результат пробы питает единый супервизор связи: восстановление
+      // подтверждается сразу, а не по 15-с таймауту его цикла.
+      if(probeOk)nasConnection?.reportSuccess?.();else nasConnection?.reportFailure?.('transport');
+      if(!probeOk)return;
+      if(!live())return;
+      offlineTransportRecovered();
+      // Связь подтверждена: ошибки источников читаем заново без задержки.
+      nasSyncApi()?.reset?.(nasSyncRetry);
+      nasResumePolling?.();
+      await nasRefreshLine().catch(()=>{});
+      if(live())void replayNasOfflineJournal().catch(()=>{});
+    }catch(_){
+      // Краткий обрыв связи: подписка повторит попытку сама. Без уведомлений.
+    }finally{nasWakeInFlight=false;}
+  }
+  function nasActivityApi(){return typeof WorkingTestNasActivity!=='undefined'?WorkingTestNasActivity:null;}
+  // Единый канал восстановления связи (1.7.10): состояние одно на всё
+  // приложение, повторы — только здесь. Пока супервизор считает связь
+  // потерянной, каналы не шлют собственных повторов.
+  let nasConnection=null;
+  function nasConnectionOnline(){return !nasConnection||nasConnection.snapshot().online;}
+  function nasConnectionStop(){try{nasConnection?.stop?.();}catch(_){}nasConnection=null;}
+  // «Сердце» связи: любой успешный ответ канала подтверждает связь, любая
+  // транспортная ошибка любого канала — единственный сигнал потери.
+  // Вызывается из markSync/reportSyncError (03-formatting.js).
+  function nasConnectionHeart(ok,error){
+    if(!nasConnection)return;
+    try{
+      if(ok)nasConnection.reportSuccess();
+      else nasConnection.reportFailure(error?.name==='TypeError'||!navigator?.onLine?'browser-offline':'transport');
+    }catch(_){}
+  }
+  function nasStartConnection(client,epoch){
+    const api=typeof WorkingTestNasConnection!=='undefined'?WorkingTestNasConnection:null;
+    if(!api)return;
+    nasConnectionStop();
+    nasConnection=api.create({
+      probe:async()=>{
+        if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Сеанс изменился');
+        // Проба — лёгкий GET /api/v1/session с 15-с таймаутом.
+        if(typeof client.probe==='function')return await client.probe(15000);
+        return await client.readSession();
+      },
+      log:text=>{console.log(text);},
+      emit:(kind,detail)=>{
+        try{window.dispatchEvent(new CustomEvent('samosval-working-test-connection',{detail:{kind,...detail}}));}catch(_){}
+        if(kind==='offline'){
+          // Одно сообщение на переход, а не по одному на каждый канал.
+          showToastEl('📴 Нет связи с сервером, переподключаюсь…',true);
+        }else if(kind==='online'){
+          showToastEl('✅ Связь восстановлена',false);
+          // Один общий цикл перечитывания: линия первой (урок 1.6.0).
+          nasDropHungReads();
+          nasSyncApi()?.reset?.(nasSyncRetry);
+          nasResumePolling?.();
+          void nasRefreshLine().catch(()=>{}).then(()=>{
+            if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)return;
+            const reads=[refreshNasObjects,refreshNasSettings,refreshNasAuxiliary,refreshNasGames];
+            if(hasTabAccess('archive')||hasTabAccess('analytics'))reads.push(refreshNasArchive);
+            if(canAdmin())reads.push(refreshNasAdministration);
+            return Promise.allSettled(reads.map(read=>{try{return Promise.resolve(read());}catch(_){return Promise.resolve();}}));
+          }).then(()=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient)void replayNasOfflineJournal().catch(()=>{});});
+        }
+        try{updateSyncUI();}catch(_){}
+      }
+    });
+  }
+  // Быстрая проверка связи при возврате из фона: лёгкий probe() прерывает
+  // мёртвые сокеты (abortInflight) и снимает «Работа локально» за секунды,
+  // не дожидаясь полной серии nasActiveRefresh и её reads.
+  function nasFastLinkCheck(epoch,client){
+    if(!client||epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)return;
+    if(typeof navigator!=='undefined'&&navigator.onLine===false)return;
+    if(typeof document!=='undefined'&&document.hidden)return;
+    try{client.abortInflight?.();}catch(_){}
+    Promise.resolve(client.probe()).then(()=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient){offlineTransportRecovered();nasConnection?.reportSuccess?.();}},()=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient)nasConnection?.reportFailure?.('transport');});
+  }
+  function nasActivityGateState(){if(!nasActivityGate){const api=nasActivityApi();nasActivityGate=api?api.createGate({minGap:4000}):{lastAt:0,minGap:4000,pending:false};}return nasActivityGate;}
+  // Приложение активно на экране: вкладка видима и сеть есть.
+  function nasScreenActive(){if(typeof document!=='undefined'&&document.hidden)return false;if(typeof navigator!=='undefined'&&navigator.onLine===false)return false;return true;}
+  // Полное обновление всех данных, пока приложение активно. Ничего не экономим:
+  // линия, справочники, игры, настройки, архив и админка перечитываются при
+  // каждом возврате на экран и по таймеру. Порядок важен: линия первой, потому
+  // что она поднимает поколение чтений и отменяет устаревшие ответы.
+  async function nasActiveRefresh(reason,{force=true}={}){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    if(!client||epoch!==nasRuntimeEpoch||currentUserStatus!=='active')return false;
+    if(!nasScreenActive())return false;
+    // Периодический опрос не идёт, пока супервизор считает связь потерянной:
+    // он сам перечитает все источники после первой успешной пробы.
+    if(reason==='poll'&&!nasConnectionOnline())return false;
+    // Оффлайн по решению супервизора: не шлём новые запросы каналов до
+    // восстановления пробы. Исключение — браузер сообщил «сеть вернулась»:
+    // это и есть сигнал для пробуждения.
+    if(reason!=='online'&&!nasConnectionOnline())return false;
+    const api=nasActivityApi(),gate=nasActivityGateState();
+    const allowed=api?api.allow(gate,Date.now(),force):true;
+    if(!allowed){nasActivityPending=true;return false;}
+    if(nasActivityInFlight){nasActivityPending=true;return false;}
+    nasActivityInFlight=true;
+    const live=()=>epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&currentUserStatus==='active'&&nasScreenActive();
+    try{
+      if(reason==='poll'){
+        // Периодический опрос не рвёт текущие запросы пользователя и не
+        // перезапускает подписку: перечитываем линию и остальные источники.
+        await nasRefreshLine().catch(()=>{});
+      }else{
+        // Возврат на экран: полный путь пробуждения — проверка связи,
+        // подписка и линия.
+        await nasNetworkWake(epoch,client,{force:true});
+      }
+      if(!live())return false;
+      // Бэкофф надзирателя (26-nas-resume) уважается и здесь: источник, чья
+      // последняя ошибка моложе текущей паузы повтора, не перечитывается
+      // этим циклом — его повторит надзиратель по расписанию. Раньше 15-с
+      // цикл и надзиратель конкурировали, и ретраи шли в 2–3 раза чаще
+      // номинала.
+      const resume=nasSyncApi(),syncErrors=(typeof syncState!=='undefined'&&syncState.errors)||{};
+      const reads=[['nas-objects',refreshNasObjects],['nas-settings',refreshNasSettings],['nas-auxiliary',refreshNasAuxiliary],['nas-games',refreshNasGames]];
+      if(hasTabAccess('archive')||hasTabAccess('analytics'))reads.push(['nas-archive',refreshNasArchive]);
+      if(canAdmin())reads.push(['nas-admin',refreshNasAdministration]);
+      await Promise.allSettled(reads.map(([source,read])=>{
+        if(resume&&syncErrors[source]&&!resume.due(nasSyncRetry,source,Date.now()))return Promise.resolve();
+        try{return Promise.resolve(read());}catch(error){return Promise.reject(error);}
+      }));
+      if(live())void replayNasOfflineJournal().catch(()=>{});
+      return true;
+    }catch(_){return false;}
+    finally{nasActivityInFlight=false;
+      if(nasActivityPending){nasActivityPending=false;setTimeout(()=>{void nasActiveRefresh('pending',{force:false});},0);}}
+  }
+  // Ключ ошибки источника → повторное чтение. Успешное чтение само снимает
+  // ошибку через markSync, поэтому отдельной очистки здесь не нужно.
+  function nasSyncSources(){
+    return {'nas':nasRefreshLine,'nas-objects':refreshNasObjects,'nas-games':refreshNasGames,
+      'nas-auxiliary':refreshNasAuxiliary,'nas-archive':refreshNasArchive,
+      'nas-settings':refreshNasSettings,'nas-admin':refreshNasAdministration};
+  }
+  // Надзиратель: повторяет чтение только упавших источников с нарастающей
+  // паузой. Ничего не делает, когда приложение свёрнуто, сети нет или связь
+  // потеряна по решению единого супервизора (повторы делает только он).
+  function nasSyncSupervisorTick(){
+    if(typeof document!=='undefined'&&document.hidden)return;
+    if(typeof navigator!=='undefined'&&!navigator.onLine)return;
+    if(!nasConnectionOnline())return;
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    if(!client||epoch!==nasRuntimeEpoch||currentUserStatus!=='active')return;
+    const resume=nasSyncApi();if(!resume)return;
+    const errors=(typeof syncState!=='undefined'&&syncState.errors)||{},sources=nasSyncSources(),now=Date.now();
+    for(const source of Object.keys(errors)){
+      const read=sources[source];if(typeof read!=='function')continue;
+      if(!resume.due(nasSyncRetry,source,now))continue;
+      let pending;
+      try{pending=read();}catch(_){resume.recordFailure(nasSyncRetry,source,now);continue;}
+      Promise.resolve(pending).then(()=>{resume.recordSuccess(nasSyncRetry,source);},
+        ()=>{resume.recordFailure(nasSyncRetry,source,Date.now());});
+    }
+    // Долгая тишина в подписке: поднимаем её и проверяем связь принудительно.
+    if(now-nasLastSessionAt>20000&&!nasWakeInFlight){nasLastSessionAt=now;nasResumePolling?.();void nasNetworkWake(epoch,client,{force:true});}
+  }
+  async function startNasRuntime(user) {
+    const epoch=nasRuntimeEpoch;
+    // Nothing is server-confirmed until the first NAS session arrives.
+    profileServerConfirmed=false;permissionsServerConfirmed=false;
+    try{
+      const {createNasClient}=await loadNasSessionClient();
+      if(epoch!==nasRuntimeEpoch||wtAuthUser()!==user||currentUid!==user.uid)return;
+      const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>wtAuthUser(),workspaceId:WORKSPACE_ID,timeoutMs:15000});nasRuntimeClient=client;
+      nasStartConnection(client,epoch);
+      // Pulse: proves this phone is alive and tells the servers how many phones
+      // still see the primary. Failover needs many phones, not one.
+      const pulse=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;if(typeof client.writeAuthorityPresence!=='function')return;try{client.writeAuthorityPresence({}).catch(()=>{});}catch(_){}};
+      if(nasPresenceTimer&&typeof clearInterval==='function')clearInterval(nasPresenceTimer);
+      nasPresenceTimer=typeof setInterval==='function'?setInterval(pulse,30000):null;pulse();
+      for(const name of ['plugins','patches','audit','notifications'])refs[name]=nasAuxCollection(name,client,epoch);
+      let registering=false;
+      nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
+        onSession:session=>{if(epoch!==nasRuntimeEpoch)return;
+          // Отмечаем живой ответ сервера: по этой метке надзиратель понимает,
+          // что подписка молчит слишком долго.
+          nasLastSessionAt=Date.now();
+          // Любой успешный ответ сервера доказывает, что связь есть: снимаем
+          // «Работа локально» и накопленный бэкофф повтора очереди.
+          offlineTransportRecovered();applyNasSession(session);
+          if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasSettings().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-settings',error);});
+          if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch)nasGameReadError(error);});
+          if(session.profile?.status==='active'&&!session.profile.deleted)void refreshNasAuxiliary().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-auxiliary',error);});
+          if(session.profile?.status==='active'&&(hasTabAccess('archive')||hasTabAccess('analytics')))void refreshNasArchive().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-archive',error);});
+          if(session.identityReady&&!session.profile&&!registering){registering=true;void ensureNasPendingAccount(user).catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-registration',error);}).finally(()=>{registering=false;});}
+          if(session.profile?.status==='active'&&(session.permissions.tabs.includes('line')||session.permissions.tabs.includes('trucks')||session.permissions.tabs.includes('timesheet')))void refreshNasObjects().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-objects',error);});
+          if(canAdmin())void refreshNasAdministration().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-admin',error);});},
+        onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal().catch(()=>{});},
+        onError:error=>{if(epoch!==nasRuntimeEpoch)return;reportSyncError('nas',error);}
+      });};nasResumePolling();
+      // Отсчёт тишины подписки начинается сразу: иначе до первого сеанса
+      // надзиратель каждые 2,5 секунды заново перезапускал бы подписку.
+      nasLastSessionAt=Date.now();
+      // Надзиратель повторов: раз в 2,5 секунды проверяет, не застряла ли
+      // подписка и не остались ли ошибки источников без повторного чтения.
+      if(nasSyncTimer&&typeof clearInterval==='function')clearInterval(nasSyncTimer);
+      nasSyncTimer=typeof setInterval==='function'?setInterval(nasSyncSupervisorTick,2500):null;
+      // После смены сети браузер часто НЕ присылает 'online', а старые сокеты
+      // висят до собственного таймаута. Любой возврат на экран — это полное
+      // обновление данных: видимость, фокус, сеть, pageshow, разблокировка.
+      nasWakeStop?.();
+      const wakeOnline=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;
+        nasResumePolling?.();void nasActiveRefresh('online',{force:true});};
+      const wakeVisible=()=>{if(typeof document!=='undefined'&&document.visibilityState==='hidden'){nasHiddenAt=Date.now();return;}
+        nasDropHungReads();nasFastLinkCheck(epoch,client);void nasActiveRefresh('visibilitychange',{force:true});};
+      const wakeFocus=()=>{nasDropHungReads();void nasActiveRefresh('focus',{force:true});};
+      // Возврат из кэша браузера (bfcache): страница «оживает» без перезагрузки.
+      const wakePageShow=event=>{const persisted=!!(event&&event.persisted);if(!persisted&&!nasHiddenAt)return;
+        nasDropHungReads();nasFastLinkCheck(epoch,client);void nasActiveRefresh('pageshow',{force:true});};
+      // Разблокировка экрана телефона и выход из фона в мобильной оболочке.
+      // Page Lifecycle API отправляет freeze/resume на document, а НЕ на window:
+      // без document-слушателя разблокировка экрана в PWA не будила приложение,
+      // и данные после пробуждения не обновлялись.
+      const wakeResume=()=>{nasDropHungReads();nasFastLinkCheck(epoch,client);void nasActiveRefresh('resume',{force:true});};
+      const wakeFreeze=()=>{nasHiddenAt=Date.now();};
+      if(typeof window!=='undefined'&&typeof window.addEventListener==='function'){
+        window.addEventListener('online',wakeOnline);window.addEventListener('focus',wakeFocus);
+        window.addEventListener('pageshow',wakePageShow);window.addEventListener('resume',wakeResume);
+        if(typeof document!=='undefined'&&typeof document.addEventListener==='function'){
+          document.addEventListener('visibilitychange',wakeVisible);
+          document.addEventListener('resume',wakeResume);
+          document.addEventListener('freeze',wakeFreeze);
+        }
+        nasWakeStop=()=>{window.removeEventListener('online',wakeOnline);window.removeEventListener('focus',wakeFocus);
+          window.removeEventListener('pageshow',wakePageShow);window.removeEventListener('resume',wakeResume);
+          if(typeof document!=='undefined'&&typeof document.removeEventListener==='function'){
+            document.removeEventListener('visibilitychange',wakeVisible);
+            document.removeEventListener('resume',wakeResume);
+            document.removeEventListener('freeze',wakeFreeze);
+          }nasWakeStop=null;};
+      }
+      // Пока приложение активно на экране — обновляем всё каждые 15 секунд.
+      if(nasActivityTimer&&typeof clearInterval==='function')clearInterval(nasActivityTimer);
+      // Страховка: в фоне/на заблокированном экране таймеры замирают, а события
+      // пробуждения могут не прийти. Разрыв между тиками больше двух интервалов
+      // (30 с) означает, что приложение спало — обновляем всё принудительно.
+      let nasActivityTickAt=Date.now();
+      nasActivityTimer=typeof setInterval==='function'?setInterval(()=>{const now=Date.now(),gap=now-nasActivityTickAt;nasActivityTickAt=now;if(!nasScreenActive())return;void nasActiveRefresh(gap>45000?'resume':'poll',{force:gap>45000});},15000):null;
+      // Если игровая книга не загрузилась при входе (сбой сети), без повтора
+      // кнопки игр оставались вечно неактивными. Пробуем снова каждые 30 секунд.
+      if(nasGamesTimer&&typeof clearInterval==='function')clearInterval(nasGamesTimer);
+      nasGamesTimer=typeof setInterval==='function'?setInterval(()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||nasGameReady)return;void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch)nasGameReadError(error);});},30000):null;
+    }catch(error){if(epoch===nasRuntimeEpoch)reportSyncError('nas',error);}
+  }
+  function loadNasTabelRemote(){return import(new URL('./working-test/synology/tabel-remote.mjs',document.baseURI).href);}
+  async function refreshNasAuxiliary(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
+    if(nasAuxRead)return nasAuxRead;
+    const work=(async()=>{const snapshot=await client.readAuxiliary();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration)return;
+      const pluginsChanged=JSON.stringify(state.plugins)!==JSON.stringify(snapshot.plugins),patchesChanged=JSON.stringify(state.patches)!==JSON.stringify(snapshot.patches);
+      markSync('nas-auxiliary',false,false,1);nasAuxSnapshot=snapshot;state.plugins=snapshot.plugins;state.patches=snapshot.patches;state.audit=snapshot.audit.slice(0,200);state.lineAudit=snapshot.audit;
+      state.notifications=snapshot.notifications;offlineProjectTicker();refreshNasLineNotificationDisplay();
+      for(const key of ['plugins','patches','audit','notifications'])markSync(key,false,false,snapshot[key].length);
+      if(pluginsChanged)initPlugins();if(patchesChanged){state.patches.sort((a,b)=>(a.order||0)-(b.order||0));if(!window.__nasPatchesApplied){window.__nasPatchesApplied=true;applyAllPatches();}}
+      saveCache();renderStatusTicker();renderHeaderStats();if(canAdmin()){renderPluginsList();renderPatchesList();}
+    })();nasAuxRead=work;try{return await work;}finally{if(nasAuxRead===work)nasAuxRead=null;}
+  }
+  function nasAuxCollection(name,client,epoch,filters=[],ordering=null,maximum=null){
+    const guard=()=>{if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch||currentUid!==client.uid||currentUserStatus!=='active')throw Error('Сеанс Ubuntu изменился');};
+    const document=id=>({id,ref:null,exists:true,data:()=>{const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id);if(!row)return undefined;const {id:_,revision,...data}=row;return data;}});
+    const wrap=row=>{const snap=document(row.id);snap.ref=collection.doc(row.id);return snap;};
+    const collection={
+      doc:(id='record_'+crypto.randomUUID().replaceAll('-',''))=>({id,path:'workspaces/'+WORKSPACE_ID+'/'+name+'/'+id,
+        get:async()=>{guard();await refreshNasAuxiliary();guard();const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id);return {id,exists:!!row,data:()=>{if(!row)return undefined;const {id:_,revision,...data}=row;return data;}};},
+        set:async(data,options)=>{guard();if(!nasAuxSnapshot)await refreshNasAuxiliary();guard();const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id),{id:_,revision,...before}=row||{};
+          await nasBusinessCommand('auxiliary',name+':'+id,{type:'auxiliary.save',collection:name,recordId:id,expectedRevision:row?.revision||0,data:options?.merge?{...before,...data}:data});guard();await refreshNasAuxiliary();},
+        update:async data=>{guard();if(!nasAuxSnapshot)await refreshNasAuxiliary();guard();const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id);if(!row)throw Error('Запись уже отсутствует');return collection.doc(id).set(data,{merge:true});},
+        delete:async()=>{guard();if(!nasAuxSnapshot)await refreshNasAuxiliary();guard();const row=nasAuxSnapshot?.[name]?.find(r=>r.id===id);if(!row)return;await nasBusinessCommand('auxiliary',name+':'+id,{type:'auxiliary.delete',collection:name,recordId:id,expectedRevision:row.revision});guard();await refreshNasAuxiliary();}}),
+      add:async data=>{const ref=collection.doc();await ref.set(data);return ref;},
+      where:(field,operator,value)=>nasAuxCollection(name,client,epoch,[...filters,[field,operator,value]],ordering,maximum),
+      orderBy:(field,direction='asc')=>nasAuxCollection(name,client,epoch,filters,[field,direction],maximum),
+      limit:n=>nasAuxCollection(name,client,epoch,filters,ordering,n),
+      get:async()=>{guard();await refreshNasAuxiliary();guard();let rows=(nasAuxSnapshot?.[name]||[]).filter(row=>filters.every(([k,op,v])=>{if(op==='==')return row[k]===v;if(op==='>=')return row[k]>=v;if(op==='<')return row[k]<v;throw Error('Неподдерживаемый фильтр');}));
+        if(ordering){const [k,d]=ordering;rows=rows.slice().sort((a,b)=>(a[k]>b[k]?1:a[k]<b[k]?-1:0)*(d==='desc'?-1:1));}if(maximum!==null)rows=rows.slice(0,maximum);const docs=rows.map(wrap);return {docs,size:docs.length,empty:!docs.length,forEach:fn=>docs.forEach(fn),metadata:{fromCache:false,hasPendingWrites:false}};}
+    };return collection;
+  }
+  async function nasBackupRead(id){if(!canAdmin()||!nasRuntimeClient)throw Error('Требуется администратор Ubuntu');return nasRuntimeClient.readBackups(id);}
+  async function nasBackupCommand(target,fields){return nasBusinessCommand('backup',target,fields);}
+  async function nasReportAction(type,log,data){
+    const expected={volume:log.volume,timestamp:log.timestamp,timeStr:log.timeStr,comment:log.comment||'',truckId:log.truckId,shiftId:log.shiftId};
+    const result=await nasBusinessCommand('report',log.id,{type,logId:log.id,expected,...(data?{data}:{})});
+    await nasRefreshLine();await Promise.allSettled([refreshNasGames(),refreshNasAuxiliary()]);return result;
+  }
+  async function nasHistoryAction(action,direction){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Ubuntu не загружен');
+    const key='samosval_working_test_nas_history_v1:'+client.scope+':'+action.id+':'+direction;
+    let op=JSON.parse(localStorage.getItem(key)||'null');if(!op){op={id:'history_'+crypto.randomUUID().replaceAll('-',''),actionId:action.id,direction,expectedRevision:action.revision};localStorage.setItem(key,JSON.stringify(op));}
+    let result;try{result=await client.submitHistory(op,{operationScope:client.scope});}catch(error){if([400,409].includes(error.status)&&epoch===nasRuntimeEpoch)localStorage.removeItem(key);throw error;}if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
+    localStorage.removeItem(key);await nasRefreshLine();await Promise.allSettled([refreshNasGames(),refreshNasAuxiliary()]);return result;
+  }
+  window.addEventListener('load',()=>{
+    if(!isNasRuntime())return;
+    const oldUndo=window.undoLastAction;
+    window.undoLastAction=async()=>{
+      if(offlineLocalTicker())return undoLastOfflineAction();
+      try{const snapshot=await nasRuntimeClient.readHistory(),last=lastValidNotification();const action=snapshot.items.find(x=>x.id===last?.actionId);if(!action?.canUndo)throw Error('Откройте журнал: это действие уже изменено или недоступно для отмены');if(await appConfirm('Отменить действие?'))await nasHistoryAction(action,'undo');}catch(error){showError(error.message);}
+    };
+  });
+  function acceptNasSettings(snapshot){
+    markSync('nas-settings',false,false,1);nasSettingsSnapshot=snapshot;appConfig={...snapshot.data};
+    settings.cycleMinutes=snapshot.data.cycleMinutes;renderAppSettingsIfActive();window.__gameConfigChanged?.();
+    window.dispatchEvent(new Event('review-flags-changed'));
+  }
+  async function refreshNasSettings(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
+    if(nasSettingsRead)return nasSettingsRead;
+    const work=(async()=>{const snapshot=await client.readSettings();if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&currentUserStatus==='active'&&generation===nasReadGeneration&&(!nasSettingsSnapshot||snapshot.revision>=nasSettingsSnapshot.revision))acceptNasSettings(snapshot);})();
+    nasSettingsRead=work;try{return await work;}finally{if(nasSettingsRead===work)nasSettingsRead=null;}
+  }
+  async function nasSaveSettings(patch,values){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!canAdmin())throw Error('Требуется администратор');
+    if(!nasSettingsSnapshot)await refreshNasSettings();
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||!nasSettingsSnapshot)throw Error('Обновите настройки Ubuntu');
+    const result=await nasBusinessCommand('settings','config',{type:values?'settings.rewards':'settings.patch',expectedRevision:nasSettingsSnapshot.revision,...(values?{values}:{patch})});
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||!canAdmin())throw Error('Сеанс администратора изменился');
+    acceptNasSettings({revision:result.result.revision,data:result.result.data});return result.result.data;
+  }
+  async function refreshNasArchive(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
+    if(nasArchiveRead)return nasArchiveRead;
+    const work=(async()=>{const snapshot=await client.readArchive();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration||!hasTabAccess('archive')&&!hasTabAccess('analytics'))return;
+      markSync('nas-archive',false,false,snapshot.archives.length);state.archive=snapshot.archives;state.trash=snapshot.trash;markSync('archive',false,false,state.archive.length);markSync('trash',false,false,state.trash.length);saveCache();renderAll();})();
+    nasArchiveRead=work;try{return await work;}finally{if(nasArchiveRead===work)nasArchiveRead=null;}
+  }
+  async function nasArchiveAction(type,id){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    const row=(type==='trash.purge'?state.trash:state.archive).find(x=>x.id===id);if(!row)throw Error('Обновите архив');
+    const result=await nasBusinessCommand('archive',id,{type,recordId:id,expectedRevision:row.revision});
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
+    await refreshNasArchive();if(type==='archive.restore')await nasRefreshLine();return result;
+  }
+  async function refreshNasGames(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=nasReadGeneration;if(!client||currentUserStatus!=='active')return;
+    if(nasGameRead)return nasGameRead;
+    const work=(async()=>{const snapshot=await client.readGames();if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUserStatus!=='active'||generation!==nasReadGeneration)return;
+      if(snapshot.head.gameRound<nasGameReceiptFloor)return;
+      markSync('nas-games',false,false,snapshot.records.length);nasGameSnapshot=snapshot;nasGameReady=true;window.__gameAccessChanged?.();window.RoadArcade?.sync();})();
+    nasGameRead=work;try{return await work;}finally{if(nasGameRead===work)nasGameRead=null;}
+  }
+  function nasGameReadError(error){
+    if([401,403].includes(error.status)){nasGameReady=false;nasGameSnapshot=null;nasGameReceiptFloor=0;}
+    // A failed background read cannot revoke a previously confirmed wallet.
+    // Every play still needs an authenticated server transaction and receipt.
+    // Кошелёк уже подтверждён → этот сбой чисто фоновый: жёлтый баннер
+    // «Ошибка загрузки» не поднимается (getSyncStatus показывает такое как
+    // degraded), ошибка остаётся на точке синхронизации и в диагностике.
+    window.__gameAccessChanged?.();window.RoadArcade?.sync();reportSyncError('nas-games',error);
+  }
+  function acceptNasGameReceipt(result){
+    const h=result?.confirmedHead;
+    if(!nasGameSnapshot||!h||!Number.isSafeInteger(h.gameRound)||h.gameRound<1||!Number.isSafeInteger(h.bank)||h.bank<0||h.userUid!==currentUid||h.player?.uid!==currentUid||typeof h.id!=='string')return false;
+    nasGameReceiptFloor=Math.max(nasGameReceiptFloor,h.gameRound);
+    const records=nasGameSnapshot.records.filter(r=>r.id!==h.id).concat(h);
+    const newer=h.gameRound>=nasGameSnapshot.head.gameRound;
+    nasGameSnapshot={...nasGameSnapshot,records,...(newer?{head:h}:{}),players:{...nasGameSnapshot.players,...(h.gameRound>=(nasGameSnapshot.players[currentUid]?._round||0)?{[currentUid]:{...h.player,_round:h.gameRound}}:{})}};
+    nasGameReady=true;window.__gameAccessChanged?.();window.RoadArcade?.sync();return true;
+  }
+  async function nasGameAction(action){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    // Roll фиксируется на клиенте до анимации остановки, и сервер обязан
+    // засчитать именно его: иначе барабаны останавливаются на одной
+    // комбинации, а серверная выплата считается по другой — подмена.
+    const {id,...gameAction}=action;
+    const target=gameAction.kind==='slot'||gameAction.kind==='dino'?(gameAction.kind+':'+id):gameAction.kind==='purchase'?'theme:'+gameAction.itemId:gameAction.kind+':'+gameAction.level+':'+(gameAction.coin??'');
+    const receipt=await nasBusinessCommand('game',target,{type:'game.play',action:gameAction});
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Учётная запись изменилась');
+    if(gameAction.kind!=='purchase'&&acceptNasGameReceipt(receipt.result)){
+      void refreshNasGames().catch(error=>{if(epoch===nasRuntimeEpoch&&client===nasRuntimeClient)nasGameReadError(error);});
+      return receipt.result;
+    }
+    await refreshNasGames();return receipt.result;
+  }
+  async function nasGrantCoins(targetUid,amount,reason){
+    const receipt=await nasBusinessCommand('game','grant:'+targetUid,{type:'game.grant',targetUid,amount,reason});
+    await refreshNasGames();return receipt.result;
+  }
+  async function refreshNasObjects(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client||currentUserStatus!=='active')return;
+    if(nasCatalogRead)return nasCatalogRead;
+    const work=(async()=>{const catalog=await client.readCatalog();if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||!hasTabAccess('line')&&!hasTabAccess('trucks')&&!hasTabAccess('timesheet'))return;
+      markSync('nas-objects',false,false,catalog.objects.length);nasCatalogSnapshot=catalog;state.trucks=catalog.trucks.map(row=>({...row.data,id:row.id,revision:row.revision}));state.objects=catalog.objects.map(row=>({...row.data,id:row.id,revision:row.revision}));if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName);
+      void refreshTruckPhones();
+      markSync('objects',false,false,state.objects.length);saveCache();window.dispatchEvent(new Event('samosval-working-test-objects-changed'));
+    })();nasCatalogRead=work;try{return await work;}finally{if(nasCatalogRead===work)nasCatalogRead=null;}
+  }
+  function nasTabelHost(){
+    const client=nasRuntimeClient,user=wtAuthUser(),epoch=nasRuntimeEpoch;
+    if(!client||!user)throw Error('Сеанс Ubuntu не загружен');
+    const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||wtAuthUser()!==user||currentUid!==client.uid||currentUserStatus!=='active'||!permissionsLoaded||!hasTabAccess('timesheet'))throw Error('Доступ к табелю изменился');};
+    const remoteFactory=async jobGuard=>{
+      guard();const {createTabelRemote}=await loadNasTabelRemote();guard();
+      return createTabelRemote({datasetEpoch:client.datasetEpoch,baseUrl:nasApiBase(),
+        getIdToken:async force=>{guard();const token=await user.getIdToken(force);guard();return token;},
+        guard:job=>{guard();jobGuard?.(job);}});
+    };
+    return {session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,name:getUserName(),role:currentUserRole,
+      active:epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&currentUserStatus==='active',view:epoch===nasRuntimeEpoch&&permissionsLoaded&&hasTabAccess('timesheet'),edit:hasPermission('timesheet_edit'),tabelTabs:tabelTabViews(),objectId:state.shift?.objectId,runtimeId:epoch,
+      provider:nasProvider(),providerScope:client.scope}),remoteFactory,
+      presenceRemote:{list:target=>{guard();return client.readPresence(target);},write:payload=>{guard();return client.writePresence(payload);},remove:payload=>client.removePresence(payload)},
+      registerPresenceLeave:callback=>{nasPresenceLeavers.add(callback);return ()=>nasPresenceLeavers.delete(callback);},
+      get shift(){return state.shift;},get objects(){return state.objects;},
+      users:async()=>{guard();const result=await client.readMembers();guard();return result.members.map(m=>({...m,id:m.uid}));},
+      readCatalog:async()=>{const remote=await remoteFactory();const row=await remote.read('_catalog/config');guard();const data=row.data||{};
+        if(data.equipment!==undefined&&!Array.isArray(data.equipment)||data.people!==undefined&&!Array.isArray(data.people))throw Error('Не подтверждён формат справочника табеля');
+        return {equipment:data.equipment||[],people:data.people||[]};},
+      snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive}),
+      createObject:async(name,startDate)=>{guard();const result=await nasSaveRecord('object','',{name,...(startDate?{startDate}:{})},0);guard();return {...result.result.data,id:result.result.id};}
+    };
+  }
+  async function leaveNasPresence(){
+    let timer;try{await Promise.race([Promise.allSettled([...nasPresenceLeavers].map(fn=>Promise.resolve().then(fn))),new Promise(resolve=>{timer=setTimeout(resolve,1500);})]);}finally{clearTimeout(timer);}
+  }
+  async function ensureNasPendingAccount(user,getUser=()=>wtAuthUser()) {
+    if(getUser()!==user)throw Error('Сеанс регистрации изменился');
+    const {createNasClient}=await loadNasSessionClient();
+    if(getUser()!==user)throw Error('Сеанс регистрации изменился');
+    const client=createNasClient({baseUrl: nasApiBase(), getUser,workspaceId:WORKSPACE_ID,timeoutMs:15000});
+    try{return await client.registerPending({nickname:sanitizeName(user.email||'')});}finally{client.stop();}
+  }
+  async function refreshNasAdministration() {
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    if(!client||!canAdmin())throw Error('Требуется активный администратор Ubuntu');
+    if(nasAdminRead)return nasAdminRead;
+    const work=(async()=>{
+      const snapshot=await client.readAdministration();
+      if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!canAdmin())throw Error('Сеанс администратора изменился');
+      markSync('nas-admin',false,false,snapshot.users.length);nasAdministration=snapshot;state.users=snapshot.users.map(u=>({...u,id:u.uid}));state.requests=snapshot.requests.map(r=>({...r,id:r.uid}));
+      permissionsConfig={...snapshot.permissions,admin:permissionsConfig.admin};
+      requestSyncStatus.requests=true;requestSyncStatus.users=true;requestSyncStatus.errors={};renderAdminPanel();return snapshot;
+    })();nasAdminRead=work;
+    try{return await work;}finally{if(nasAdminRead===work)nasAdminRead=null;}
+  }
+  function nasIdentityJournalKey(){return 'samosval_working_test_nas_identity_v1:'+nasStorageScope();}
+  async function nasAdminAction(type,payload) {
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    if(!client||!canAdmin()||!navigator.onLine)throw Error('Для изменения доступа нужен администратор и соединение с Ubuntu');
+    if(!nasAdministration)await refreshNasAdministration();
+    if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||!canAdmin())throw Error('Сеанс администратора изменился');
+    const key=nasIdentityJournalKey(),intent=JSON.stringify({type,...payload});
+    const stored=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(stored))throw Error('Не удалось прочитать очередь изменения доступа');
+    const target=payload.uid||payload.role,existing=stored.find(x=>x.type===type&&x.target===target);
+    if(existing&&existing.intent!==intent)throw Error('Предыдущее изменение ещё ожидает подтверждения. Повторите его перед новым изменением');
+    let queued=existing;
+    if(!queued){
+      const operation={id:'identity_'+crypto.randomUUID().replaceAll('-',''),type,...payload};
+      if(type==='permissions.replace'){
+        const config=nasAdministration.permissions[payload.role];if(!config)throw Error('Обновите матрицу прав');operation.expectedRevision=config.revision;
+      }else{
+        const profile=[...nasAdministration.users,...nasAdministration.deletedUsers].find(u=>u.uid===payload.uid);if(!profile)throw Error('Обновите список пользователей');
+        if(type.startsWith('registration.')){
+          const request=nasAdministration.requests.find(r=>r.uid===payload.uid);if(!request)throw Error('Заявка уже рассмотрена. Обновите список');
+          operation.expectedRevision=request.revision;operation.expectedProfileRevision=profile.revision;
+        }else operation.expectedRevision=profile.revision;
+      }
+      queued={type,target,intent,operation,scope:client.scope};stored.push(queued);localStorage.setItem(key,JSON.stringify(stored));
+    }
+    try{
+      const result=await client.submitAdministration(queued.operation,{operationScope:queued.scope});
+      if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient)throw Error('Сеанс администратора изменился');
+      const latest=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify(latest.filter(x=>x.operation.id!==queued.operation.id)));
+      await refreshNasAdministration().catch(error=>reportSyncError('nas-admin',error));return result;
+    }catch(error){
+      // A conflict is authoritative; a transport/auth failure retains the same ID.
+      if([400,409].includes(error.status)&&epoch===nasRuntimeEpoch){const latest=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify(latest.filter(x=>x.operation.id!==queued.operation.id)));await refreshNasAdministration().catch(()=>{});}
+      // Ошибки, кроме 400/409, остаются в очереди: панель «Неподтверждённые
+      // изменения» покажет причину застревания (markNasCommandFailed).
+      else if(typeof markIdentityCommandFailed==='function'&&epoch===nasRuntimeEpoch){try{markIdentityCommandFailed(key,queued.operation.id,error);}catch(_){}}
+      throw error;
+    }
+  }
+  async function runNasAdminAction(type,payload) {
+    try{await nasAdminAction(type,payload);showToastEl('Изменение сохранено на Ubuntu',false);return true;}
+    catch(error){if(canAdmin())renderAdminPanel();showError(error.message||'Изменение не подтверждено');return false;}
+  }
+  async function replayNasOfflineJournal() {
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    if(!client||offlineReplayRunning||!navigator.onLine||!permissionsLoaded||currentUserStatus!=='active'||Date.now()<offlineServerRetryAt)return;
+    // Never replay into a server that is not the declared authority.
+    if(!nasCanWrite())return;
+    const live=()=>epoch===nasRuntimeEpoch&&nasRuntimeClient===client&&client.uid===currentUid;
+    offlineReplayRunning=true;
+    try{
+      for(const op of offlinePendingOps()){
+        if(!live()||!navigator.onLine||currentUserStatus!=='active')break;
+        if(op.dependencyId){const previous=offlineJournalRead().find(x=>x.id===op.dependencyId);if(previous?.status==='pending')break;if(previous?.status==='rejected'){offlineResolve(op.id,'rejected','previous-action-rejected');offlineProjectState();refreshLineViews();continue;}}
+        try{
+          const result=await client.submitLine(op,{operationScope:op.operationScope});
+          if(!live())return;
+          if(result.status)nasReceiptFloors.set(op.truckId,{truckId:op.truckId,shiftId:op.shiftId,cycle:Number(result.status.cycleRevision||0),ttn:Number(result.status.ttnRevision||0)});
+          // The NAS transaction owns audit/history. Never deliver Firebase effects.
+          const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id&&x.status==='pending');
+          if(!saved)continue;
+          Object.assign(saved,{status:result.outcome,result:result.reason||result.outcome,resolvedAt:Date.now(),effectsDelivered:true,savedResult:{status:result.status||null,log:result.log||null}});
+          offlineJournalWrite(all);offlineAdoptResult(op,result);offlineTransportRecovered();
+          if(result.outcome==='rejected')showErrorPanel('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)));
+        }catch(error){
+          if(!live())return;
+          // HTTP/auth/transport failures have no business receipt. Keep the intent.
+          reportSyncError('nas',error);
+          if(error.retryable||error.uncertain)offlineTransportFailed(error);
+          break;
+        }
+      }
+    }finally{offlineReplayRunning=false;if(live())updateSyncUI();}
+  }
+
+  function nasCanWrite(){return nasAuthority.provider==='ubuntu';}
+  function nasAuthorityError(){return Error('Сейчас данные принимает резервный сервер. Запись на этом сервере закрыта — действия сохраняются на телефоне.');}
+  // Persist the complete immutable intent before sending. Lost replies reuse IDs.
+  async function nasBusinessCommand(channel,target,fields) {
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    if(!client||currentUserStatus!=='active'||!navigator.onLine)throw Error('Нужно соединение с Ubuntu');
+    if(!nasCanWrite())throw nasAuthorityError();
+    const captured=JSON.parse(JSON.stringify(fields));
+    const key='samosval_working_test_nas_commands_v1:'+client.scope,slot=channel+':'+target;
+    const {expectedRevision,expectedTtnRevision,expectedObjectId,expected,...desired}=captured,intent=JSON.stringify(desired);
+    const flightKey=key+':'+slot;
+    const inflight=nasCommandFlights.get(flightKey);
+    if(inflight){if(inflight.intent!==intent)throw Error('Предыдущее изменение ещё отправляется');return inflight.work;}
+    const live=()=>epoch===nasRuntimeEpoch&&client===nasRuntimeClient&&client.uid===currentUid;
+    const run=async()=>{
+      if(!live())throw Error('Учётная запись изменилась');
+      const queue=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(queue))throw Error('Не удалось прочитать очередь Ubuntu');
+      let pending=queue.find(x=>x.slot===slot);
+      if(pending&&pending.intent!==intent)throw Error('Сначала повторите предыдущее неподтверждённое изменение');
+      if(!pending){
+        const id=(channel==='report'?'report_':'cmd_')+crypto.randomUUID().replaceAll('-',''),operation={id,...captured};
+        if(channel==='control'&&operation.type.endsWith('.create'))operation.recordId='record_'+id;
+        if(channel==='start')operation.createdAt=Date.now();
+        pending={slot,intent,operation,scope:client.scope};queue.push(pending);localStorage.setItem(key,JSON.stringify(queue));
+      }
+      const remove=()=>{if(!live())return;const latest=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify(latest.filter(x=>x.operation.id!==pending.operation.id)));};
+      nasReadGeneration++;nasPollHolds++;nasRuntimeStop?.();nasRuntimeStop=null;
+      try{
+        const method={control:'submitControl',start:'startShift',close:'closeShift',settings:'submitSettings',archive:'submitArchive',game:'submitGame',auxiliary:'submitAuxiliary',report:'submitReport',backup:'submitBackup',notification:'submitNotificationTest'}[channel];
+        const result=await client[method](pending.operation,{operationScope:pending.scope});
+        if(!live())throw Error('Учётная запись изменилась');
+        remove();return result;
+      }catch(error){
+        // 400/409 — сервер сам отказал: команды гарантированно нет на сервере.
+        // Остальные ошибки сохраняются в самой команде (markNasCommandFailed):
+        // панель «Неподтверждённые изменения» покажет причину застревания,
+        // окончательный отказ (4xx кроме 408/429) помечается failed и
+        // удаляется только явным решением пользователя в панели, не молча.
+        if([400,409].includes(error.status))remove();
+        else if(typeof markNasCommandFailed==='function'&&live()){try{markNasCommandFailed(key,pending.operation.id,error);}catch(_){}}
+        throw error;
+      }
+      finally{if(live()){nasPollHolds--;if(!nasPollHolds)nasResumePolling?.();}}
+    };
+    const work=navigator.locks?navigator.locks.request(key,run):Promise.resolve().then(run);nasCommandFlights.set(flightKey,{work,intent});
+    try{return await work;}finally{if(nasCommandFlights.get(flightKey)?.work===work)nasCommandFlights.delete(flightKey);}
+  }
+  function nasRecordRevision(kind,id){
+    const rows=kind==='truck'?nasCatalogSnapshot?.trucks:nasCatalogSnapshot?.objects;
+    return rows?.find(row=>row.id===id)?.revision;
+  }
+  async function nasRefreshLine(){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=++nasReadGeneration;if(!client)return;
+    const snapshot=await client.readLine();if(client===nasRuntimeClient&&epoch===nasRuntimeEpoch&&generation===nasReadGeneration)acceptNasLineSnapshot(snapshot);
+  }
+  async function nasSaveRecord(kind,id,data,revision){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+    const result=await nasBusinessCommand('control',kind+':'+(id||'new'),{type:kind+(id?'.update':'.create'),...(id?{recordId:id}:{}),expectedRevision:id?revision:0,data});
+    await Promise.allSettled([refreshNasObjects(),nasRefreshLine()]);if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch)throw Error('Учётная запись изменилась');renderAll();return result;
+  }
+  async function nasDeleteRecord(kind,id,revision){
+    await nasBusinessCommand('control',kind+':'+id,{type:kind+'.delete',recordId:id,expectedRevision:revision});
+    await Promise.allSettled([refreshNasObjects(),nasRefreshLine()]);renderAll();
+  }
+  async function nasChangeMembership(id,adding){
+    if(offlinePendingForTruck(id))throw Error('Сначала синхронизируйте действия этого самосвала');
+    const status=state.truckStatus[id],shiftId=state.shift?.id;if(!shiftId)throw Error('Смена не открыта');
+    const result=await nasBusinessCommand('control','membership:'+id,{type:adding?'line.add':'line.remove',truckId:id,shiftId,expectedRevision:Number(status?.cycleRevision||0),expectedTtnRevision:Number(status?.ttnRevision||0)});
+    const row=result.result;nasReceiptFloors.set(id,{truckId:id,shiftId,cycle:Number(row.cycleRevision||0),ttn:Number(row.ttnRevision||0)});
+    offlineRemoteStatuses[id]=row;offlineProjectState();saveCache();renderAll();await nasRefreshLine();
+  }
+
+  function loadNasMaterialTransfer(){return import(new URL('./working-test/tabel-v2/material-transfer.mjs',document.baseURI).href);}
+  async function nasCloseCurrentShift(shiftId){
+    const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Ubuntu не загружен');
+    const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUid!==client.uid)throw Error('Учётная запись изменилась');};
+    const key='samosval_working_test_nas_close_v1:'+client.scope+':'+shiftId;
+    let prepared=JSON.parse(localStorage.getItem(key)||'null');
+    if(!prepared){prepared=await nasBusinessCommand('close',shiftId+':prepare',{type:'prepare',shiftId});guard();localStorage.setItem(key,JSON.stringify(prepared));}
+    if(prepared.shift?.id!==shiftId||prepared.archive&&prepared.archive.sourceShiftId!==shiftId)throw Error('Сохранённое закрытие относится к другой смене');
+    await nasRefreshLine();guard();
+    // Восстановленная архивная смена уже переносила материал при исходном
+    // закрытии: повторного переноса в табель не делаем, только архивация.
+    const restoredShift=(state.restoredShifts||[]).some(r=>r.shift.id===shiftId);
+    if(prepared.archive&&!restoredShift){const module=await loadNasMaterialTransfer();guard();await module.transferClosedLine(nasTabelHost(),prepared.shift,prepared.archive);guard();}
+    await nasBusinessCommand('close',shiftId+':finish',{type:'finish',shiftId});guard();
+    localStorage.removeItem(key);
+    await nasRefreshLine().catch(error=>reportSyncError('nas',error));guard();
+  }
+// Надзиратель за повторными чтениями сервера после сворачивания приложения.
+// Чистые правила без браузера и без сети: их можно проверить отдельно.
+// Файл идемпотентен: повторная загрузка не ломает уже созданный объект.
+(function (root) {
+  'use strict';
+
+  if (root.WorkingTestNasResume) return;
+
+  // Источники, ошибки которых снимаются только успешным повторным чтением.
+  const SOURCES = ['nas', 'nas-objects', 'nas-games', 'nas-auxiliary', 'nas-archive', 'nas-settings', 'nas-admin', 'nas-catalog'];
+
+  // Состояние повторов: сколько раз подряд упал источник и когда пробовать снова.
+  function createState() {
+    return { items: {} };
+  }
+
+  function bucket(state) {
+    if (!state || typeof state !== 'object') return {};
+    if (!state.items || typeof state.items !== 'object') state.items = {};
+    return state.items;
+  }
+
+  // Задержка перед повтором: 1, 2, 4, 8, 16 секунд, дальше не чаще 30 секунд.
+  function backoffDelay(attempt, opts) {
+    const options = opts || {};
+    const base = Number(options.base) > 0 && Number.isFinite(Number(options.base)) ? Number(options.base) : 1000;
+    const max = Number(options.max) > 0 && Number.isFinite(Number(options.max)) ? Number(options.max) : 30000;
+    const number = Number(attempt);
+    if (!Number.isFinite(number) || number < 1) return base;
+    const steps = Math.min(Math.floor(number) - 1, 30);
+    return Math.min(base * Math.pow(2, steps), max);
+  }
+
+  // Очередная неудача: считаем попытки и назначаем время следующей.
+  function recordFailure(state, source, now) {
+    const items = bucket(state);
+    const previous = items[source] && typeof items[source].attempt === 'number' ? items[source].attempt : 0;
+    const attempt = previous + 1;
+    const at = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    items[source] = { attempt: attempt, nextAt: at + backoffDelay(attempt) };
+    return items[source];
+  }
+
+  // Успех полностью сбрасывает счётчик источника.
+  function recordSuccess(state, source) {
+    const items = bucket(state);
+    delete items[source];
+    return true;
+  }
+
+  // Пора ли пробовать снова: без записи — сразу, иначе не раньше nextAt.
+  function due(state, source, now) {
+    const items = bucket(state);
+    const item = items[source];
+    if (!item || typeof item.nextAt !== 'number' || !Number.isFinite(item.nextAt)) return true;
+    const at = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    return at >= item.nextAt;
+  }
+
+  // Полный сброс: используется после подтверждённого восстановления связи.
+  function reset(state) {
+    if (state && typeof state === 'object') state.items = {};
+    return true;
+  }
+
+  const api = {
+    SOURCES: SOURCES,
+    createState: createState,
+    backoffDelay: backoffDelay,
+    recordFailure: recordFailure,
+    recordSuccess: recordSuccess,
+    due: due,
+    reset: reset
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  Object.freeze(api);
+  root.WorkingTestNasResume = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+// Правила «активного обновления»: пока приложение на экране, данные читаются
+// сами — при возврате видимости, фокуса, сети и разблокировке экрана, а также
+// периодически. Здесь только чистые правила: их можно проверить без браузера.
+// Файл идемпотентен: повторная загрузка не ломает уже созданный объект.
+(function (root) {
+  'use strict';
+
+  if (root.WorkingTestNasActivity) return;
+
+  // Поводы разбудить приложение. 'resume' — возобновление после разблокировки
+  // экрана или выхода из фона (Page Lifecycle API и мобильные оболочки).
+  const REASONS = ['visibilitychange', 'focus', 'pageshow', 'online', 'resume', 'poll'];
+
+  // Приложение активно на экране: вкладка видима и сеть есть.
+  function isActive(env) {
+    const e = env || {};
+    if (e.hidden === true) return false;
+    if (e.visible === false) return false;
+    if (e.onLine === false) return false;
+    return true;
+  }
+
+  // Ограничитель частоты: не чаще одной серии обновлений за minGap.
+  function createGate(options) {
+    const opts = options || {};
+    const minGap = Number(opts.minGap) > 0 && Number.isFinite(Number(opts.minGap)) ? Number(opts.minGap) : 4000;
+    return { lastAt: 0, minGap: minGap, pending: false };
+  }
+
+  // Можно ли обновляться сейчас. force — возврат на экран, его не сдерживаем.
+  function allow(gate, now, force) {
+    if (!gate || typeof gate !== 'object') return true;
+    const at = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    if (force) { gate.lastAt = at; return true; }
+    const gap = Number(gate.minGap) > 0 ? Number(gate.minGap) : 4000;
+    if (gate.lastAt && at - gate.lastAt < gap) return false;
+    gate.lastAt = at;
+    return true;
+  }
+
+  function reset(gate) {
+    if (gate && typeof gate === 'object') { gate.lastAt = 0; gate.pending = false; }
+    return true;
+  }
+
+  const api = { REASONS: REASONS, isActive: isActive, createGate: createGate, allow: allow, reset: reset };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  Object.freeze(api);
+  root.WorkingTestNasActivity = api;
+})(typeof window !== 'undefined' ? window : globalThis);// Единый канал восстановления связи (1.7.10). Раньше каждый из 7 источников
+// NAS-рантайма независимо ждал свой таймаут и независимо повторял чтение:
+// при потере сети телефоном это давало шторм по 20-секундных таймаутов и
+// семь сообщений «Сервер недоступен». Теперь состояние связи одно на всё
+// приложение, повторы делает только этот супервизор с бэкоффом
+// 2/5/10/20/30/60 с, а после первой же успешной пробы все источники
+// перечитываются ровно один раз (линия первой — урок 1.6.0).
+// Здесь только чистые правила состояния: их можно проверить без браузера.
+// Файл идемпотентен: повторная загрузка не ломает уже созданный объект.
+(function (root) {
+  'use strict';
+
+  if (root.WorkingTestNasConnection) return root.WorkingTestNasConnection;
+
+  // Пауза между пробами после N-й неудачи, секунды. Максимум 60; после
+  // восстановления счётчик сбрасывается и первая проба идёт без задержки.
+  const BACKOFF_STEPS_S = [2, 5, 10, 20, 30, 60];
+  const PROBE_TIMEOUT_S = 15;
+
+  function delayFor(state, now) {
+    const attempt = Number(state.attempt) || 0;
+    const index = Math.min(attempt, BACKOFF_STEPS_S.length) - 1;
+    const seconds = attempt > 0 ? BACKOFF_STEPS_S[Math.max(0, index)] : 0;
+    // Отсчёт — от последней неудачи (для первой пробы задержки нет).
+    const base = attempt > 0 ? Number(state.lastFailAt) || Number(state.downSince) || now : now;
+    const nextAt = base + seconds * 1000;
+    return { seconds: seconds, nextAt: nextAt };
+  }
+
+  // Создать супервизора. env подставляют браузер или тест:
+  //   now() -> мс, probe() -> Promise (GET /api/v1/session с таймаутом 15 c),
+  //   emit(kind, detail) -> событие UI 'offline'/'online', log(...) -> консоль.
+  function create(env) {
+    const e = env || {};
+    const now = typeof e.now === 'function' ? e.now : () => Date.now();
+    const probe = typeof e.probe === 'function' ? e.probe : async () => {};
+    const emit = typeof e.emit === 'function' ? e.emit : () => {};
+    const log = typeof e.log === 'function' ? e.log : () => {};
+
+    const state = {
+      online: true,        // связь с сервером подтверждена последней пробой
+      attempt: 0,          // число неудачных проб с момента потери связи
+      downSince: 0,        // когда связь потеряна (для «восстановлено за Xс»)
+      probeCount: 0,       // всего проб (для диагностики и тестов)
+      probing: false,
+      timer: null
+    };
+
+    function message(kind, extra) {
+      if (kind === 'connecting') return '[связь] подключение…';
+      if (kind === 'timeout') return '[связь] таймаут (' + PROBE_TIMEOUT_S + 'с, ответных заголовков нет), повтор через ' + extra + 'с';
+      if (kind === 'retry') return '[связь] повтор №' + extra.attempt + ' через ' + extra.seconds + 'с';
+      if (kind === 'recovered') return '[связь] восстановлено за ' + extra + 'с, перечитываю данные';
+      if (kind === 'offline') return '[связь] оффлайн (браузер)';
+      return '[связь] ' + kind;
+    }
+
+    // Запустить пробу немедленно. true/false — успех/неудача, null — проба
+    // уже идёт (не считать повтором и не двигать бэкофф).
+    async function runProbe() {
+      if (state.probing) return null;
+      state.probing = true;
+      state.probeCount++;
+      let ok = false;
+      try { await probe(); ok = true; } catch (_) { ok = false; }
+      state.probing = false;
+      return ok;
+    }
+
+    // Центральный цикл: пока связи нет, раз в секунду смотрим, не пора ли
+    // пробовать. Одна неудача — один переход и одна запись в журнале.
+    function loop() {
+      if (state.online || state.timer) return;
+      const step = async () => {
+        if (state.online) return;
+        const t = now();
+        const wait = delayFor(state, t);
+        if (state.attempt > 0 && t < wait.nextAt) return;
+        if (state.attempt > 0) log(message('retry', { attempt: state.attempt + 1, seconds: wait.seconds }));
+        else if (state.probeCount === 0) log(message('connecting'));
+        const ok = await runProbe();
+        if (ok === null || state.online) return;
+        if (ok) {
+          recover();
+        } else {
+          state.attempt++;
+          state.lastFailAt = now();
+          log(message('timeout', BACKOFF_STEPS_S[Math.min(state.attempt, BACKOFF_STEPS_S.length) - 1]));
+          emit('offline', { attempt: state.attempt, downSince: state.downSince });
+        }
+      };
+      const interval = typeof e.setInterval === 'function'
+        ? e.setInterval
+        : (root.setInterval ? root.setInterval.bind(root) : null);
+      const clear = typeof e.clearInterval === 'function'
+        ? e.clearInterval
+        : (root.clearInterval ? root.clearInterval.bind(root) : null);
+      if (!interval || !clear) return;
+      state.timer = interval(() => { void step(); }, 1000);
+    }
+
+    function stopLoop() {
+      if (state.timer && typeof e.clearInterval === 'function') e.clearInterval(state.timer);
+      else if (state.timer && root.clearInterval) root.clearInterval(state.timer);
+      state.timer = null;
+    }
+
+    // Сообщить о неудаче любого канала. Первый переход в оффлайн — событие и
+    // сообщение; повторные неудачи других каналов уже ничего не добавляют.
+    function reportFailure(reason) {
+      if (!state.online) return false;
+      state.online = false;
+      state.attempt = 0;
+      state.downSince = now();
+      if (reason === 'browser-offline') log(message('offline'));
+      else log(message('connecting'));
+      emit('offline', { attempt: 0, downSince: state.downSince });
+      loop();
+      return true;
+    }
+
+    // Сообщить об успехе любого запроса («сердце» связи): если считались
+    // оффлайн — восстановление, одно событие и один общий перечитка.
+    function reportSuccess() {
+      if (state.online) return false;
+      const elapsedS = Math.round((now() - state.downSince) / 1000);
+      state.online = true;
+      state.attempt = 0;
+      state.downSince = 0;
+      stopLoop();
+      log(message('recovered', elapsedS));
+      emit('online', { elapsedS: elapsedS });
+      return true;
+    }
+
+    function recover() {
+      if (state.online) return false;
+      return reportSuccess();
+    }
+
+    function snapshot() {
+      const wait = delayFor(state, now());
+      return {
+        online: state.online,
+        attempt: state.attempt,
+        downSince: state.downSince,
+        probeCount: state.probeCount,
+        nextRetryInS: state.online ? 0 : Math.max(0, Math.ceil((wait.nextAt - now()) / 1000))
+      };
+    }
+
+    return Object.freeze({
+      reportFailure: reportFailure,
+      reportSuccess: reportSuccess,
+      runProbe: runProbe,
+      snapshot: snapshot,
+      stop: stopLoop,
+      BACKOFF_STEPS_S: BACKOFF_STEPS_S,
+      PROBE_TIMEOUT_S: PROBE_TIMEOUT_S
+    });
+  }
+
+  const api = { create: create, BACKOFF_STEPS_S: BACKOFF_STEPS_S, PROBE_TIMEOUT_S: PROBE_TIMEOUT_S };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  Object.freeze(api);
+  root.WorkingTestNasConnection = api;
+  return api;
+})(typeof window !== 'undefined' ? window : globalThis);
+/* Phone data is deliberately separate from cached line/catalog payloads. */
+let truckPhoneRows=new Map(),truckPhoneSequence=0,truckPhoneWrite=null,truckPhoneModalNode=null;
+function resetTruckPhones(){truckPhoneSequence++;truckPhoneRows.clear();truckPhoneWrite=null;}
+function truckPhoneEntry(id){const row=truckPhoneRows.get(id);return row?{phone:row.phone||'',driverName:row.driverName==null?null:row.driverName}:null;}
+function truckPhoneValidNumber(phone){return typeof phone==='string'&&/^\+[1-9][0-9]{7,14}$/.test(phone);}
+// Same input rules as the server: plus, digits, space, brackets and hyphen only.
+function truckPhoneNormalizeInput(value){
+ const raw=String(value==null?'':value).trim();
+ if(!/^[+0-9 ()-]{1,40}$/.test(raw))return '';
+ const phone=raw.replace(/[ ()-]/g,'');
+ return truckPhoneValidNumber(phone)?phone:'';
+}
+// null = no name, undefined = rejected name, string = cleaned name (same charset as the server).
+function truckPhoneCleanName(value){
+ const raw=String(value==null?'':value).trim().replace(/\s+/g,' ');
+ if(!raw)return null;
+ if(raw.length>80||/[\u0000-\u001F\u007F]/.test(raw)||!/^[\p{L}\p{N} .'-]+$/u.test(raw))return undefined;
+ return raw;
+}
+async function truckPhoneRequest(body){
+ const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+ if(!client||!hasPermission('view_truck_phone'))throw Error('Требуется вход и право просмотра');
+ // Reads wait for the current write; an older read may never erase its result.
+ if(!body&&truckPhoneWrite){await truckPhoneWrite;return;}
+ if(body&&truckPhoneWrite)throw Error('Сохранение уже выполняется');
+ const sequence=++truckPhoneSequence;
+ const patch=body?{truckId:body.truckId,phone:body.phone,driverName:body.driverName==null?null:body.driverName}:null;
+ const work=patch?client.submitTruckPhone(patch):client.readTruckPhones();
+ if(patch)truckPhoneWrite=work;
+ try{
+  const result=await work;
+  if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch||sequence!==truckPhoneSequence||!hasPermission('view_truck_phone'))throw Error('Сессия или права изменились');
+  truckPhoneRows=new Map(result.phones.map(row=>[row.truckId,{phone:row.phone,driverName:row.driverName==null?null:row.driverName}]));
+ }catch(error){if(client===nasRuntimeClient&&epoch===nasRuntimeEpoch&&sequence===truckPhoneSequence&&(error.code==='dataset-restored-reload'||error.code==='session-changed'||error.status===403))resetTruckPhones();throw error;}
+ finally{if(truckPhoneWrite===work)truckPhoneWrite=null;}
+}
+async function refreshTruckPhones(){
+ if(!hasPermission('view_truck_phone')){resetTruckPhones();return;}
+ try{await truckPhoneRequest();renderLine();renderGlobalTrucksManage();}catch(e){console.warn('Телефоны недоступны');}
+}
+// The line card only carries a small icon: the number lives in the dialog, never in a tel link.
+function truckPhoneIcon(t){
+ if(!hasPermission('view_truck_phone')||!t)return '';
+ const id=escapeHtml(String(t.id==null?'':t.id));
+ // tp-has-phone помечает карточки с сохранённым номером — иконка подсвечивается зелёным (style-04.css).
+ const entry=truckPhoneEntry(t.id);
+ const cls=entry&&entry.phone?'truck-phone-btn tp-has-phone':'truck-phone-btn';
+ return `<button class="${cls}" type="button" onclick="openTruckPhoneModal('${id}')" aria-label="Телефон самосвала" title="Телефон водителя"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7A2 2 0 0 1 22 16.9z"/></svg></button>`;
+}
+function truckPhoneModalMarkup(view){
+ const truck=view.truck||{},entry=truckPhoneEntry(truck.id),phone=entry?entry.phone:'',name=entry&&entry.driverName?entry.driverName:'';
+ const head=`<div class="tp-head"><div><div class="tp-title">Телефон водителя</div><div class="tp-sub">${escapeHtml(String(truck.brand||''))} ${escapeHtml(String(truck.number||''))}</div></div><button type="button" class="tp-close" data-tp="close" aria-label="Закрыть">×</button></div>`;
+ if(view.editing)return head+`<form class="tp-form" novalidate><label class="tp-label">Телефон<input class="form-control" data-tp="phone" type="tel" inputmode="tel" maxlength="40" placeholder="+7 999 123-45-67" value="${escapeHtml(phone)}"></label><label class="tp-label">Имя водителя<input class="form-control" data-tp="driver" type="text" maxlength="80" placeholder="Имя водителя" value="${escapeHtml(name)}"></label><p class="tp-error" data-tp="error" role="alert"></p><div class="tp-actions"><button type="submit" class="btn btn-quick" data-tp="save">Сохранить</button><button type="button" class="btn btn-secondary" data-tp="cancel">Отмена</button></div></form>`;
+ const rows=`<div class="tp-rows"><div class="tp-row"><span class="tp-row-label">Водитель</span><span class="tp-row-value" data-tp="name">${escapeHtml(name||'Имя не указано')}</span></div><div class="tp-row"><span class="tp-row-label">Телефон</span><span class="tp-row-value" data-tp="phone-value">${escapeHtml(phone||'Телефон не добавлен')}</span></div></div>`;
+ const call=hasPermission('call_truck_phone')&&truckPhoneValidNumber(phone)?`<a class="btn btn-quick tp-call" data-tp="call" href="tel:${escapeHtml(phone)}">📞 Позвонить</a>`:'';
+ const edit=hasPermission('add_truck_phone')?'<button type="button" class="btn btn-secondary" data-tp="edit">Изменить/добавить</button>':'';
+ return head+rows+`<div class="tp-actions">${call}${edit}</div>`;
+}
+function closeTruckPhoneModal(){
+ const node=truckPhoneModalNode;truckPhoneModalNode=null;
+ if(node&&node.remove)node.remove();
+}
+function openTruckPhoneModal(id,options){
+ if(!hasPermission('view_truck_phone'))return;
+ const truck=typeof findTruck==='function'?findTruck(id):null;
+ if(!truck)return;
+ closeTruckPhoneModal();
+ const overlay=document.createElement('div');
+ overlay.className='tp-overlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');
+ const card=document.createElement('div');card.className='tp-card';
+ overlay.appendChild(card);
+ const view={truck,editing:!!(options&&options.edit)&&hasPermission('add_truck_phone')};
+ const draw=focus=>{
+  card.innerHTML=truckPhoneModalMarkup(view);
+  const pick=selector=>card.querySelector(selector);
+  const close=pick('[data-tp=close]');if(close)close.onclick=closeTruckPhoneModal;
+  const cancel=pick('[data-tp=cancel]');if(cancel)cancel.onclick=closeTruckPhoneModal;
+  const edit=pick('[data-tp=edit]');
+  if(edit)edit.onclick=()=>{view.editing=true;draw(true);};
+  const form=pick('form');
+  if(form)form.onsubmit=async event=>{
+   event.preventDefault();
+   const phoneField=pick('[data-tp=phone]'),nameField=pick('[data-tp=driver]'),errorNode=pick('[data-tp=error]'),saveBtn=pick('[data-tp=save]');
+   const phone=truckPhoneNormalizeInput(phoneField?phoneField.value:'');
+   if(!phone){if(errorNode)errorNode.textContent='Введите номер: плюс и 8–15 цифр';return;}
+   const driverName=truckPhoneCleanName(nameField?nameField.value:'');
+   if(driverName===undefined){if(errorNode)errorNode.textContent='Имя: буквы, цифры, пробел, точка, дефис, апостроф — до 80 символов';return;}
+   if(saveBtn)saveBtn.disabled=true;
+   try{
+    await truckPhoneRequest({truckId:view.truck.id,phone,driverName});
+    view.editing=false;draw(false);
+    if(typeof renderLine==='function')renderLine();
+    if(typeof renderGlobalTrucksManage==='function')renderGlobalTrucksManage();
+   }catch(error){if(errorNode)errorNode.textContent=error&&error.message?error.message:'Не удалось сохранить номер';}
+   finally{if(saveBtn)saveBtn.disabled=false;}
+  };
+  if(focus){const first=pick('[data-tp=phone]');if(first&&first.focus)first.focus();}
+ };
+ overlay.addEventListener('click',event=>{if(event.target===overlay)closeTruckPhoneModal();});
+ document.body.appendChild(overlay);
+ truckPhoneModalNode=overlay;
+ draw(view.editing);
+}
+// Kept as the entry point for the "add a number" buttons of earlier releases.
+function addTruckPhone(id){
+ if(!hasPermission('view_truck_phone')||!hasPermission('add_truck_phone'))return;
+ openTruckPhoneModal(id,{edit:true});
+}
+  // Панель «Неподтверждённые изменения» (инструмент обновления, 2026-11).
+  // Владелец видел: «Установить» → «Обновление отложено: есть неподтверждённые
+  // изменения на сервере: 1», но инструмента разобраться не было. Панель
+  // собирает ВСЕ неподтверждённые операции по категориям (рейсы, команды
+  // сервера, табель), объясняет причину простым языком и позволяет повторить
+  // отправку или осознанно отбросить застрявшую команду. Ничего не удаляется
+  // без явного подтверждения пользователя.
+  function nasCommandsQueueKey(scope){return 'samosval_nas_commands_v1:'+scope;}
+  function nasToolReadQueue(key){try{const queue=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(queue)?queue:[];}catch(_){return [];}}
+  function nasToolWriteQueue(key,queue){localStorage.setItem(key,JSON.stringify(queue));}
+  function nasToolRemoveFromQueue(key,operationId){nasToolWriteQueue(key,nasToolReadQueue(key).filter(x=>!(x.operation&&x.operation.id===operationId)));}
+  // Сервер окончательно отказал (4xx, кроме «повторите позже» 408/429):
+  // команда никогда не пройдёт — её можно только осознанно отбросить в панели.
+  function nasToolPermanentReject(status){const code=Number(status)||0;return code>=400&&code<500&&![408,429].includes(code);}
+  // Ошибка отправки записывается в саму команду очереди: панель показывает
+  // оператору причину застревания, а не безликое «изменений: 1».
+  function markNasCommandFailed(key,operationId,error){
+    const queue=nasToolReadQueue(key),entry=queue.find(x=>x.operation&&x.operation.id===operationId);if(!entry)return;
+    entry.lastError={status:Number(error&&error.status)||0,message:String(error&&error.message||error||'').slice(0,200),at:Date.now()};
+    entry.failed=nasToolPermanentReject(entry.lastError.status);
+    nasToolWriteQueue(key,queue);
+  }
+  function markIdentityCommandFailed(key,operationId,error){markNasCommandFailed(key,operationId,error);}
+  const NAS_OPERATION_TITLES={
+    'shift.object':'Смена объекта','line.add':'Добавление самосвала на линию','line.remove':'Снятие самосвала с линии',
+    'truck.create':'Создание самосвала','truck.update':'Изменение самосвала','truck.delete':'Удаление самосвала',
+    'object.create':'Создание объекта','object.update':'Изменение объекта','object.delete':'Удаление объекта',
+    'report.update':'Изменение рейса','report.delete':'Удаление рейса',
+    'settings.patch':'Изменение настроек','settings.rewards':'Изменение наград',
+    'game.play':'Действие в мини-игре','game.grant':'Начисление монет',
+    'prepare':'Подготовка закрытия смены','finish':'Закрытие смены',
+    'auxiliary.save':'Изменение записи','auxiliary.delete':'Удаление записи'
+  };
+  const NAS_IDENTITY_TITLES={
+    'user.access':'Изменение доступа пользователя','user.nickname':'Изменение имени пользователя','user.role':'Смена роли пользователя',
+    'user.delete':'Удаление пользователя','permissions.replace':'Изменение прав роли',
+    'registration.approve':'Одобрение заявки','registration.reject':'Отклонение заявки'
+  };
+  function nasToolObjectLabel(id){
+    const row=(typeof state!=='undefined'&&Array.isArray(state.objects)?state.objects:[]).find(x=>x.id===id);
+    return row?(row.name||row.title||String(id)):'';
+  }
+  function nasToolTruckLabel(id,fallback){if(fallback)return fallback;if(typeof truckName==='function'&&id){try{return truckName(id);}catch(_){}}return '';}
+  function nasOperationTitle(operation){
+    const type=operation&&operation.type;
+    let title=NAS_OPERATION_TITLES[type]||'';
+    if(!title&&operation&&('objectId' in operation)&&!type)title='Открытие смены';
+    if(!title)title='Команда сервера';
+    const extras=[];
+    if(operation.objectId)extras.push(nasToolObjectLabel(operation.objectId)||'объект');
+    if(operation.truckId)extras.push(nasToolTruckLabel(operation.truckId));
+    if(operation.uid)extras.push('пользователь');
+    return extras.length?title+' · '+extras.join(', '):title;
+  }
+  function nasQueueStuckReason(entry){
+    const error=entry&&entry.lastError;
+    if(!error)return {text:entry&&entry.failed?'Команда не отправлена — повторите или отбросьте':'Ожидает отправки на сервер',stuck:!!(entry&&entry.failed)};
+    const status=Number(error.status)||0,short=String(error.message||'').slice(0,140);
+    if([400,409].includes(status))return {text:'Сервер отклонил навсегда (конфликт или неверные данные'+(short?': '+short:'')+'). Команда не будет применена — можно отбросить',stuck:true};
+    if(status===401||status===403)return {text:'Сервер отказал в доступе (нет прав или сеанс истёк'+(short?': '+short:'')+'), команда не будет применена',stuck:true};
+    if(status===408||status===429)return {text:'Сервер перегружен — повторите отправку позже',stuck:false};
+    if(status>=500)return {text:'Ошибка сервера (код '+status+') — повторите отправку позже',stuck:false};
+    if(!status)return {text:'Нет связи с сервером — отправится автоматически после восстановления связи',stuck:false};
+    return {text:'Сервер вернул ошибку (код '+status+(short?': '+short:'')+'). Команда, вероятно, не будет применена',stuck:true};
+  }
+  // Единый снимок всех неподтверждённых операций по категориям.
+  async function collectUnsyncedUpdates(){
+    const categories=[];
+    const noLink=(typeof offlineServerUnreachable!=='undefined'&&offlineServerUnreachable)||(typeof navigator!=='undefined'&&!navigator.onLine);
+    const ops=(typeof offlinePendingOps==='function'?offlinePendingOps():[]).filter(op=>op&&op.status!=='resolved');
+    if(ops.length){
+      categories.push({id:'trips',title:'Рейсы',count:ops.length,items:ops.map(op=>({
+        id:op.id,
+        title:({arrive:'Прибытие',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'})[op.type]+' · '+nasToolTruckLabel(op.truckId,op.truckName||''),
+        detail:(op.createdAt?new Date(op.createdAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})+' — ':'')+'не отправлено: '+(noLink?'нет связи':'ожидает отправки')
+      }))});
+    }
+    const commands=[];
+    const client=(typeof nasRuntimeClient!=='undefined')?nasRuntimeClient:null;
+    if(client&&client.scope){
+      const key=nasCommandsQueueKey(client.scope);
+      for(const entry of nasToolReadQueue(key))commands.push(nasCommandView(entry,key,false));
+    }
+    if(typeof nasIdentityJournalKey==='function'){
+      const key=nasIdentityJournalKey();
+      for(const entry of nasToolReadQueue(key))commands.push(nasCommandView(entry,key,true));
+    }
+    if(commands.length)categories.push({id:'server',title:'Команды сервера',count:commands.length,items:commands});
+    let tabel={pending:0,uploading:false};
+    if(typeof window!=='undefined'&&typeof window.__tabelPrepareUpdate==='function'){
+      try{const result=await window.__tabelPrepareUpdate();tabel={pending:Number(result&&result.pending)||0,uploading:!!(result&&result.uploading)};}catch(_){}
+    }
+    if(tabel.pending||tabel.uploading){
+      categories.push({id:'tabel',title:'Табель',count:tabel.pending,items:[{id:'tabel-main',
+        title:'Табель: '+tabel.pending+' неподтверждённ'+(tabel.pending%10===1&&tabel.pending%100!==11?'ая запись':'ых записей')+(tabel.uploading?' — идёт отправка':''),
+        detail:'Откройте табель и дождитесь сохранения или разрешения конфликта'}]});
+    }
+    return {categories};
+  }
+  function nasCommandView(entry,key,identity){
+    const operation=entry.operation||{};
+    const reason=nasQueueStuckReason(entry);
+    return {
+      key,identity,operationId:operation.id,
+      title:(identity?NAS_IDENTITY_TITLES[operation.type]||'Изменение доступа':nasOperationTitle(operation)),
+      createdAt:entry.createdAt||operation.createdAt||null,
+      detail:reason.text+(entry.createdAt?' · с '+new Date(entry.createdAt).toLocaleString('ru-RU'):''),
+      stuck:reason.stuck,canRetry:!identity||true
+    };
+  }
+  const NAS_SUBMIT_METHODS={control:'submitControl',start:'startShift',close:'closeShift',settings:'submitSettings',archive:'submitArchive',game:'submitGame',auxiliary:'submitAuxiliary',report:'submitReport',backup:'submitBackup',notification:'submitNotificationTest'};
+  // Повтор отправки одной команды из панели: тот же метод клиента, тот же ID.
+  async function retryNasQueueEntry(key,operationId){
+    const entry=nasToolReadQueue(key).find(x=>x.operation&&x.operation.id===operationId);
+    if(!entry)throw Error('Команда уже отсутствует в очереди');
+    const client=(typeof nasRuntimeClient!=='undefined')?nasRuntimeClient:null;
+    if(!client)throw Error('Сеанс сервера не загружен — повторите после входа');
+    if(typeof navigator!=='undefined'&&!navigator.onLine)throw Error('Нет соединения с сервером');
+    const identity=typeof entry.slot!=='string';
+    if(identity){
+      if(typeof client.submitAdministration!=='function')throw Error('Клиент не поддерживает повтор этой команды');
+    }else{
+      const channel=String(entry.slot||'').split(':')[0];
+      const method=NAS_SUBMIT_METHODS[channel];
+      if(!method||typeof client[method]!=='function')throw Error('Неизвестный тип команды: '+channel);
+    }
+    entry.failed=false;delete entry.lastError;entry.identity=identity;
+    nasToolWriteQueue(key,nasToolReadQueue(key).map(x=>x.operation&&x.operation.id===operationId?entry:x));
+    try{
+      const result=identity
+        ?await client.submitAdministration(entry.operation,{operationScope:entry.scope})
+        :await client[NAS_SUBMIT_METHODS[String(entry.slot||'').split(':')[0]]](entry.operation,{operationScope:entry.scope});
+      nasToolRemoveFromQueue(key,operationId);
+      return result;
+    }catch(error){
+      if([400,409].includes(error&&error.status))nasToolRemoveFromQueue(key,operationId);
+      else markNasCommandFailed(key,operationId,error);
+      throw error;
+    }
+  }
+  // Удаление ТОЛЬКО с явного подтверждения пользователя; текст объясняет,
+  // что именно будет отброшено. confirm — async (вопрос) => boolean.
+  async function discardNasQueueEntry(key,operationId,confirm){
+    const entry=nasToolReadQueue(key).find(x=>x.operation&&x.operation.id===operationId);
+    if(!entry)return false;
+    const view=nasCommandView(entry,key,!!entry.identity);
+    const question='Отбросить «'+view.title+'»?\n\n'+view.detail+'.\n\nИзменение НЕ применено на сервере и будет отброшено (на сервере ничего не изменится). Продолжить?';
+    const agreed=typeof confirm==='function'?await confirm(question):false;
+    if(!agreed)return false;
+    nasToolRemoveFromQueue(key,operationId);
+    return true;
+  }
+  function showUnsyncedChangesPanel(){
+    const overlay=document.createElement('div');
+    overlay.id='wt-unsynced-panel';
+    overlay.style.cssText='position:fixed;inset:0;z-index:12000;display:flex;align-items:center;justify-content:center;background:rgba(2,6,23,.75);padding:14px;';
+    const card=document.createElement('div');
+    card.style.cssText='width:min(560px,100%);max-height:86dvh;overflow:auto;background:var(--card,#122135);color:var(--text,#f1f5f9);border:1px solid var(--border,#334155);border-radius:18px;padding:18px 18px 14px;font-size:15px;line-height:1.5;box-shadow:0 24px 80px #0008;';
+    overlay.append(card);
+    const close=()=>overlay.remove();
+    overlay.addEventListener('click',event=>{if(event.target===overlay)close();});
+    const toast=(text,bad)=>{if(typeof showToastEl==='function')showToastEl(text,!!bad);};
+    async function runAction(button,work){button.disabled=true;try{await work();}catch(error){toast(error&&error.message||'Не удалось',true);if(typeof showError==='function')showError(error&&error.message||'Не удалось');}finally{render();}}
+    async function render(){
+      const report=await collectUnsyncedUpdates();
+      card.textContent='';
+      const title=document.createElement('h2');
+      title.style.cssText='margin:0 0 6px;font-size:19px;';
+      title.textContent='Неподтверждённые изменения';
+      card.append(title);
+      const intro=document.createElement('p');
+      intro.style.cssText='margin:0 0 12px;font-size:13px;color:var(--muted,#94a3b8);';
+      intro.textContent='Пока есть неподтверждённые изменения, обновление отложено. Разберитесь с ними — затем кнопка «Установить» сработает.';
+      card.append(intro);
+      if(!report.categories.length){
+        const ok=document.createElement('p');
+        ok.style.cssText='font-weight:700;color:#4ade80;margin:12px 0;';
+        ok.textContent='✅ Все изменения подтверждены сервером. Можно устанавливать обновление.';
+        card.append(ok);
+      }
+      for(const category of report.categories){
+        const head=document.createElement('h3');
+        head.style.cssText='margin:14px 0 6px;font-size:15px;';
+        head.textContent=category.title+(category.count?': '+category.count:'');
+        card.append(head);
+        for(const item of category.items){
+          const row=document.createElement('div');
+          row.style.cssText='border:1px solid var(--border,#334155);border-radius:12px;padding:10px;margin:8px 0;';
+          const name=document.createElement('div');
+          name.style.cssText='font-weight:700;';
+          name.textContent=item.title;
+          const detail=document.createElement('div');
+          detail.style.cssText='font-size:13px;color:var(--muted,#94a3b8);margin:4px 0 8px;';
+          detail.textContent=item.detail;
+          row.append(name,detail);
+          if(category.id==='server'){
+            const retry=document.createElement('button');
+            retry.type='button';retry.className='btn btn-quick btn-small';
+            retry.style.marginRight='6px';retry.textContent='Повторить отправку сейчас';
+            retry.onclick=()=>runAction(retry,async()=>{await retryNasQueueEntry(item.key,item.operationId);toast('Команда отправлена');});
+            const discard=document.createElement('button');
+            discard.type='button';discard.className='btn btn-secondary btn-small';
+            discard.textContent=item.stuck?'Удалить эту команду':'Отбросить';
+            discard.onclick=()=>runAction(discard,async()=>{
+              const removed=await discardNasQueueEntry(item.key,item.operationId,async question=>typeof appConfirm==='function'?appConfirm(question):window.confirm(question));
+              if(removed)toast('Команда отброшена — на сервере ничего не изменилось');
+            });
+            row.append(retry,discard);
+          }
+          card.append(row);
+        }
+        if(category.id==='trips'){
+          const retry=document.createElement('button');
+          retry.type='button';retry.className='btn btn-quick btn-small';
+          retry.textContent='Повторить отправку рейсов сейчас';
+          retry.onclick=()=>runAction(retry,async()=>{if(typeof offlineReplayJournal==='function'){void offlineReplayJournal();toast('Отправка рейсов запущена');}});
+          card.append(retry);
+        }
+        if(category.id==='tabel'){
+          const open=document.createElement('button');
+          open.type='button';open.className='btn btn-quick btn-small';
+          open.textContent='Открыть табель';
+          open.onclick=()=>{close();if(typeof openTabelV2==='function')void openTabelV2();else document.getElementById('nav-tabel-v2')?.click();};
+          card.append(open);
+        }
+      }
+      const done=document.createElement('button');
+      done.type='button';done.className='btn btn-primary';done.style.cssText='width:100%;margin-top:14px;padding:12px;font-size:16px;';
+      done.textContent='Закрыть';
+      done.onclick=close;
+      card.append(done);
+      document.body.append(overlay);
+    }
+    if(document.getElementById('wt-unsynced-panel'))document.getElementById('wt-unsynced-panel').remove();
+    void render();
+  }
+  if(typeof window!=='undefined')window.__wtShowUnsyncedPanel=showUnsyncedChangesPanel;
+  let lineCountAuditStop = null, lineCountAuditKey = '';
+  // 1.7.11: страховка проверки учётной записи (см. wtApplyAuthUser) и
+  // последняя ошибка обработчика сессии (кладётся в 05-authentication.js).
+  let wtAuthCheckTimer = null, wtAuthCheckLastError = null;
+  function syncLineCountAudit() {
+    if(isNasRuntime()){lineCountAuditStop?.();lineCountAuditStop=null;return;}
+    const shift = state.shift;
+    const key = shift ? currentUid + ':' + shift.startDate : '';
+    if (key === lineCountAuditKey) return;
+    lineCountAuditStop?.(); lineCountAuditStop = null; lineCountAuditKey = key;
+    state.lineAudit = [];
+    if (!shift) return;
+    const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(shift.startDate || '');
+    const day = match ? `${match[3]}-${match[2].padStart(2,'0')}-${match[1].padStart(2,'0')}` : shift.startDate;
+    const start = Date.parse(day + 'T00:00:00+03:00');
+    if (!Number.isFinite(start)) return;
+    lineCountAuditStop = refs.audit.where('timestamp','>=',start).where('timestamp','<',start+86400000)
+      .orderBy('timestamp').onSnapshot(snapshot => {
+        if (lineCountAuditKey !== key) return;
+        state.lineAudit = snapshot.docs.map(d => ({id:d.id,...d.data()}));
+        saveCache(); scheduleRender('renderHeaderStats');
+      }, error => console.warn('Техника: история дня', error));
+  }
+  function startSync(sessionGeneration = authSessionGeneration) {
+    stopSync();
+    if(isNasRuntime())return;
+    const currentSession = () => sessionGeneration === authSessionGeneration && currentUid;
+    unsubscribers.push(refs.trucks.onSnapshot({ includeMetadataChanges: true }, s => { if (!currentSession()) return; state.trucks = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('trucks', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalTrucksManage'); scheduleRenderForTab('line', 'renderLine'); scheduleRender('renderHeaderStats'); }, e=>{if(currentSession())reportSyncError('trucks', e)}));
+    unsubscribers.push(refs.objects.onSnapshot({ includeMetadataChanges: true }, s => { state.objects = s.docs.map(d => Object.assign({id:d.id}, d.data())); if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName); for(const a of state.archive||[])if(a.objectId)a.objectName=objectTitle(a.objectId,a.objectName); markSync('objects', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('trucks', 'renderGlobalObjectsManage'); scheduleRender('renderHeaderStats'); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('archive', 'renderArchive'); scheduleRenderForTab('analytics', 'renderAnalytics'); window.dispatchEvent(new Event('samosval-working-test-objects-changed')); }, e=>reportSyncError('objects', e)));
+    unsubscribers.push(refs.logs.onSnapshot({includeMetadataChanges:true},receiveLoadLogs,e=>reportSyncError('logs',e)));
+    unsubscribers.push(refs.truckStatus.onSnapshot({includeMetadataChanges:true},receiveTruckStatuses,e=>reportSyncError('status',e)));
+    unsubscribers.push(refs.shift.onSnapshot({ includeMetadataChanges: true }, doc => { state.shift = doc.exists ? Object.assign({id:doc.id}, doc.data()) : null; if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName); offlineProjectState();syncLineCountAudit();markSync('shift', doc.metadata.fromCache, doc.metadata.hasPendingWrites, doc.exists?1:0); if(!initialized) initialized=true; saveCache(); scheduleRender('renderAll'); }, e=>reportSyncError('shift', e)));
+    unsubscribers.push(refs.archive.onSnapshot({ includeMetadataChanges: true }, s => { state.archive = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('archive', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('archive', 'renderArchive'); scheduleRenderForTab('analytics', 'renderAnalytics'); scheduleRender('renderHeaderStats'); }, e=>reportSyncError('archive', e)));
+    unsubscribers.push(refs.trash.onSnapshot({ includeMetadataChanges: true }, s => { state.trash = s.docs.map(d => Object.assign({id:d.id}, d.data())); state.trash.sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0)); markSync('trash', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); scheduleRenderForTab('archive', 'renderTrash'); }, e=>reportSyncError('trash', e)));
+    unsubscribers.push(refs.audit.orderBy('timestamp','desc').limit(200).onSnapshot({includeMetadataChanges:true},s => { state.audit = s.docs.map(d => Object.assign({id:d.id}, d.data()));if(!s.metadata.hasPendingWrites)window.__historyAcceptAudit?.(state.audit); markSync('audit', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); scheduleRenderForTab('analytics', 'renderAnalytics'); }, e=>reportSyncError('audit', e)));
+    unsubscribers.push(refs.notifications.orderBy('timestamp','desc').limit(50).onSnapshot({ includeMetadataChanges: true }, s => { state.notifications = s.docs.map(d => Object.assign({id:d.id}, d.data())); offlineProjectTicker(); markSync('notifications', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); saveCache(); renderStatusTicker(); }, e=>reportSyncError('notifications', e)));
+    unsubscribers.push(refs.plugins.onSnapshot({ includeMetadataChanges: true }, s => { state.plugins = s.docs.map(d => Object.assign({id:d.id}, d.data())); markSync('plugins', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size); initPlugins(); if (canAdmin() && document.getElementById('tab-admin')?.classList.contains('active')) renderPluginsList(); }, e=>reportSyncError('plugins', e)));
+    if (canAdmin()) {
+      unsubscribers.push(refs.patches.onSnapshot(s => {
+        state.patches = s.docs.map(d => Object.assign({id:d.id}, d.data()));
+        state.patches.sort((a, b) => (a.order || 0) - (b.order || 0));
+        markSync('patches', s.metadata.fromCache, s.metadata.hasPendingWrites, s.size);
+        if (canAdmin() && document.getElementById('tab-admin')?.classList.contains('active')) renderPatchesList();
+      }, e=>reportSyncError('audit', e)));
+    }
+    if (!canAdmin()) usersUnsubscriber = usersRef.onSnapshot(s => { state.users = s.docs.map(d => Object.assign({id:d.id}, d.data())); scheduleRenderForTab('report', 'renderReport'); scheduleRenderForTab('analytics', 'renderAnalytics'); scheduleRenderForTab('line', 'renderLine'); }, e=>console.warn(e));
+    // === SECURITY: права и флаг готовности ===
+    unsubscribers.push(permsRef.onSnapshot({ includeMetadataChanges: true }, doc => {
+      if (!currentSession()) return;
+      markSync('permissions', doc.metadata.fromCache, doc.metadata.hasPendingWrites, doc.exists ? 1 : 0);
+      permissionsServerConfirmed = !doc.metadata.fromCache;
+      if (doc.exists) {
+        permissionsConfig = doc.data();
+      } else {
+        permsRef.set(DEFAULT_PERMISSIONS).catch(e=>console.warn(e));
+        permissionsConfig = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS));
+      }
+      permissionsLoaded = true;
+      document.body.setAttribute('data-perms-ready', '1');
+      // Do not read appConfig from a restored IndexedDB session.  The profile
+      // and permissions snapshots must first be confirmed by the server;
+      // otherwise a transient permission error is misclassified as offline.
+      if (!doc.metadata.fromCache && profileServerConfirmed) startAppConfigSync();
+      updateNavUI();
+      applyRoleUI();
+      renderAll();
+    }, e => {
+      reportSyncError('permissions', e);
+      permissionsLoaded = false;
+      permissionsConfig = {};
+      showError('Не удалось загрузить права доступа. Обновите страницу или проверьте подключение.');
+      document.body.removeAttribute('data-perms-ready');
+      updateNavUI();
+      applyRoleUI();
+      renderAll();
+    }));
+  }
+
+  function startAppConfigSync(sessionGeneration = authSessionGeneration) {
+    const sessionUid = currentUid;
+    if (isNasRuntime() || !sessionUid || currentUserStatus !== 'active' || !profileServerConfirmed || !permissionsServerConfirmed || appConfigSyncUid === sessionUid && appConfigSyncGeneration === sessionGeneration) return;
+    appConfigSyncUid = sessionUid;
+    appConfigSyncGeneration = sessionGeneration;
+    unsubscribers.push(appConfigRef.onSnapshot({includeMetadataChanges:true}, doc => {
+      if (sessionUid !== currentUid || sessionGeneration !== authSessionGeneration || currentUserStatus !== 'active') return;
+      if (doc.exists) {
+        const d = doc.data();
+        if(Number.isFinite(d.cycleMinutes)){
+          settings.cycleMinutes=Math.max(15,d.cycleMinutes);
+          localStorage.setItem('working-test-settings',JSON.stringify(settings));
+        }
+        appConfig = {
+          maxEnabled: !!d.maxEnabled, maxUrl: d.maxUrl || '', maxToken: d.maxToken || '', maxChatId: d.maxChatId || '',
+          notifyStart: d.notifyStart !== undefined ? !!d.notifyStart : true,
+          notifyArrive: d.notifyArrive !== undefined ? !!d.notifyArrive : true,
+          notifyLoad: d.notifyLoad !== undefined ? !!d.notifyLoad : true,
+          notifyTtn: d.notifyTtn !== undefined ? !!d.notifyTtn : true,
+          notifyLineStart: d.notifyLineStart !== undefined ? !!d.notifyLineStart : true,
+          notifyLineEnd: d.notifyLineEnd !== undefined ? !!d.notifyLineEnd : true,
+          testReviewFlags: d.testReviewFlags || {},
+          gameRewardSchedule: Array.isArray(d.gameRewardSchedule) ? d.gameRewardSchedule : []
+        };
+        renderAppSettingsIfActive();
+        if (appConfig.maxEnabled && appConfig.maxUrl) runMaxQueue();
+      }
+      markSync('appConfig', doc.metadata.fromCache, doc.metadata.hasPendingWrites, doc.exists ? 1 : 0);
+      window.__gameConfigChanged?.();
+    }, e => {
+      if (sessionUid !== currentUid || sessionGeneration !== authSessionGeneration) return;
+      reportSyncError('appConfig', e);
+    }));
+  }
+
+  // П4: перерисовка линии откладывается при активном удержании/касании карточек
+  // (window.__lineHoldActive из core/18). Отложенный долг выполняется после
+  // снятия флага через __lineFlushDeferred — действия другого оператора не
+  // теряются. Повторная проверка в rAF закрывает случай, когда удержание
+  // началось уже после того, как 50-мс таймер был запущен.
+  let renderLineDeferredByHold = false;
+  function scheduleRenderLine() {
+    if (typeof window.__lineHoldActive === 'function' && window.__lineHoldActive()) { renderLineDeferredByHold = true; return; }
+    if (renderLinePending) return; renderLinePending = true;
+    setTimeout(() => { requestAnimationFrame(() => {
+      if (typeof window.__lineHoldActive === 'function' && window.__lineHoldActive()) { renderLineDeferredByHold = true; renderLinePending = false; return; }
+      renderLine(); renderLinePending = false;
+    }); }, 50);
+  }
+  window.__lineFlushDeferred = function() {
+    if (!renderLineDeferredByHold) return;
+    renderLineDeferredByHold = false;
+    scheduleRenderLine();
+  }
+  function scheduleRenderForTab(tabName, funcName) { let el = document.getElementById('tab-' + tabName); if (el && el.classList.contains('active') && typeof window[funcName] === 'function') { if (funcName === 'renderLine') scheduleRenderLine(); else window[funcName](); } }
+  function scheduleRender(funcName) { if (typeof window[funcName] === 'function') window[funcName](); }
+
+  const requestSyncStatus = {requests:false,users:false,errors:{}};
+  // Выбранная админом роль заявки не должна сбрасываться фоновым снапшотом
+  // users/requests (acceptRegistrationSnapshot перестраивает блок через
+  // innerHTML, и select#req_role_* сбрасывался до viewer). Пока админ
+  // взаимодействует с блоком заявок (фокус/открытый select), перерисовка
+  // откладывается; при перестроении значения select переживают innerHTML —
+  // сохраняются и восстанавливаются по id заявки.
+  let registrationRoleHoldTimer=null;
+  function registrationRoleHoldActive() {
+    const container=document.getElementById('requestsListContainer');
+    const active=document.activeElement;
+    return !!(active && typeof active.matches==='function' && active.matches('select')
+      && container && typeof container.contains==='function' && container.contains(active));
+  }
+  function scheduleRenderRegistrationRequests() {
+    clearTimeout(registrationRoleHoldTimer);
+    registrationRoleHoldTimer=setTimeout(()=>{registrationRoleHoldTimer=null;renderRegistrationRequests();},1000);
+  }
+  function saveRoleSelections(list) {
+    const roles={};
+    list.forEach(r=>{const sel=document.getElementById('req_role_'+r.id);if(sel&&sel.value)roles[r.id]=sel.value;});
+    return roles;
+  }
+  function restoreRoleSelections(list,roles) {
+    list.forEach(r=>{const v=roles[r.id];if(!v||!Object.prototype.hasOwnProperty.call(ROLES,v))return;const sel=document.getElementById('req_role_'+r.id);if(sel)sel.value=v;});
+  }
+  function pendingRegistrationRequests() {
+    const result=[];
+    (state.requests||[]).forEach(r=>{
+      if(r.status && r.status!=='pending') return;
+      const user=(state.users||[]).find(u=>u.id===r.uid || (u.email&&u.email===r.email));
+      if(user && user.status!=='pending') return;
+      result.push({...r,uid:r.uid||user?.id||null});
+    });
+    (state.users||[]).filter(u=>u.status==='pending').forEach(u=>{
+      if(!result.some(r=>r.uid===u.id || (r.email&&r.email===u.email))) result.push({id:u.id,uid:u.id,email:u.email,nickname:u.nickname,createdAt:u.createdAt||0});
+    });
+    return result.sort((a,b)=>(Number(b.createdAt)||0)-(Number(a.createdAt)||0));
+  }
+  function renderRegistrationRequests() {
+    if(!canAdmin())return;
+    const container=document.getElementById('requestsListContainer');if(!container)return;
+    const list=pendingRegistrationRequests();
+    // Пока админ взаимодействует с блоком заявок, фоновая перерисовка
+    // откладывается (паттерн refreshIncoming из tabel-v2/workspace.mjs):
+    // открытый select не захлопывается, выбор не сбрасывается.
+    if(registrationRoleHoldActive()){scheduleRenderRegistrationRequests();return;}
+    const savedRoles=saveRoleSelections(list);
+    const count=document.getElementById('pendingCount');if(count)count.textContent=list.length;
+    const messages=Object.entries(requestSyncStatus.errors).map(([source,error])=>source+': '+error);
+    container.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px"><strong>Заявки на регистрацию · '+list.length+'</strong><button class="btn btn-secondary btn-small" id="refreshRegistrationRequestsBtn">Обновить заявки</button></div>'
+      +(messages.length?'<div style="padding:10px;margin-bottom:12px;color:var(--warning);font-size:12px">Не удалось полностью загрузить заявки: '+escapeHtml(messages.join('; '))+'</div>':'')
+      +(list.length?list.map(r=>`<div class="user-row"><div class="user-row-top"><div><strong>${escapeHtml(r.email)}</strong><div style="font-size:12px;color:var(--muted)">${escapeHtml(r.nickname||'')}</div></div><div class="pending-badge">Ожидает</div></div><div class="user-row-bottom"><select id="req_role_${escapeHtml(r.id)}" class="form-control" style="padding:6px;font-size:12px">${Object.keys(ROLES).map(role=>`<option value="${role}" ${role==='viewer'?'selected':''}>${escapeHtml(ROLES[role].label)}</option>`).join('')}</select><button class="btn btn-quick btn-small" data-approve-request="${escapeHtml(r.id)}">Подтвердить</button><button class="btn btn-secondary btn-small" data-reject-request="${escapeHtml(r.id)}">Отклонить</button></div></div>`).join(''):'<div class="empty-state">'+(requestSyncStatus.requests&&requestSyncStatus.users&&!messages.length?'Нет заявок':messages.length?'Проверьте доступ к базе и нажмите «Обновить заявки»':'Загружаем заявки и ожидающие учётки…')+'</div>');
+    restoreRoleSelections(list,savedRoles);
+    container.querySelector('#refreshRegistrationRequestsBtn').onclick=()=>refreshRegistrationRequests();
+    container.querySelectorAll('[data-approve-request]').forEach(b=>b.onclick=()=>approveRequest(b.dataset.approveRequest));
+    container.querySelectorAll('[data-reject-request]').forEach(b=>b.onclick=()=>rejectRequest(b.dataset.rejectRequest));
+    updateAdminBadge();
+  }
+  function acceptRegistrationSnapshot(source,snapshot) {
+    if(!canAdmin())return;
+    const records=snapshot.docs.map(d=>({...d.data(),id:d.id}));
+    if(source==='users'){state.users=records;}else state.requests=records;
+    markSync(source,!!snapshot.metadata?.fromCache,!!snapshot.metadata?.hasPendingWrites,records.length);
+    if(!snapshot.metadata?.fromCache)requestSyncStatus[source]=true;
+    delete requestSyncStatus.errors[source];
+    renderRegistrationRequests();
+    if(document.getElementById('tab-admin')?.classList.contains('active'))renderAdminPanel();
+  }
+  function registrationSyncError(source,error) {
+    requestSyncStatus.errors[source]=(error.code||'unknown')+' · '+(error.message||String(error));
+    reportSyncError(source,error);renderRegistrationRequests();
+  }
+  let refreshingRegistrationRequests=false;
+  async function refreshRegistrationRequests() {
+    if(isNasRuntime()){try{return await refreshNasAdministration();}catch(error){registrationSyncError('nas-admin',error);return;}}
+    if(!canAdmin()||refreshingRegistrationRequests)return;
+    refreshingRegistrationRequests=true;
+    try {
+      const sources=['requests','users'];
+      const results=await Promise.allSettled([requestsRef.get({source:'server'}),usersRef.get({source:'server'})]);
+      results.forEach((result,index)=>{if(result.status==='fulfilled')acceptRegistrationSnapshot(sources[index],result.value);else registrationSyncError(sources[index],result.reason);});
+    }finally{refreshingRegistrationRequests=false;}
+  }
+  function startAdminSync() {
+    if(isNasRuntime()){if(canAdmin())void refreshNasAdministration().catch(error=>reportSyncError('nas-admin',error));return;}
+    if(!canAdmin())return;
+    if(reqsUnsubscriber)reqsUnsubscriber();
+    if(usersUnsubscriber)usersUnsubscriber();
+    requestSyncStatus.requests=false;requestSyncStatus.users=false;requestSyncStatus.errors={};
+    // Sort on the client so legacy records without createdAt are also included.
+    reqsUnsubscriber=requestsRef.onSnapshot({includeMetadataChanges:true},snapshot=>acceptRegistrationSnapshot('requests',snapshot),error=>registrationSyncError('requests',error));
+    usersUnsubscriber=usersRef.onSnapshot({includeMetadataChanges:true},snapshot=>acceptRegistrationSnapshot('users',snapshot),error=>registrationSyncError('users',error));
+    renderRegistrationRequests();
+  }
+  function updateAdminBadge() {
+    const badge=document.getElementById('navAdminBadge');if(!badge)return;
+    const count=pendingRegistrationRequests().length;
+    badge.style.display=count?'block':'none';badge.textContent=count;
+  }
+
+  // === ПЛАГИНЫ ===
+  let pluginDisposers = [];
+  function retiredTabelPlugin(p){return p.id==='builtin-tabel'||(/табель/i.test(p.name||'')&&/1\.1\.0-test\.3/.test((p.version||'')+' '+(p.code||'')));}
+  function getPluginRecords() {
+    const bundled = firebaseConfig.projectId === 'samosval-working-test-offline' ? (window.SamosvalBundledPlugins || []) : [];
+    const ids = new Set(bundled.map(p => p.id));
+    return [...bundled.map(p => ({...p, ...(state.plugins.find(x => x.id === p.id) || {}), bundled: true})),
+      ...state.plugins.filter(p => !ids.has(p.id))].filter(p=>!retiredTabelPlugin(p));
+  }
+  function initPlugins() {
+    const activePlugin = Object.keys(pluginTabs).find(id => pluginTabs[id].container.classList.contains('active'));
+    pluginDisposers.splice(0).forEach(dispose => { try { Promise.resolve(dispose()).catch(console.error); } catch(e) { console.error(e); } });
+    document.getElementById('plugin-tabs-container').innerHTML = '';
+    document.querySelectorAll('.dynamic-nav-btn').forEach(el => el.remove());
+    pluginTabs = {}; pluginPdfButtons = [];
+    const enabled = getPluginRecords().filter(p => { if (p.removed || !p.enabled) return false; if (!p.allowedRoles || p.allowedRoles.length === 0) return true; return p.allowedRoles.includes(currentUserRole); });
+    enabled.forEach(p => {
+      try {
+        const ctx = {
+          onDispose: fn => { if (typeof fn === 'function') pluginDisposers.push(fn); },
+          ledgerHost: {
+            workspace: wsRef,
+            session: () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
+              uid: currentUid, name: getUserName(), role: currentUserRole, status: currentUserStatus,
+              tabAccess: permissionsLoaded && currentUserStatus === 'active' && hasTabAccess('timesheet')
+                && (!p.allowedRoles || !p.allowedRoles.length || p.allowedRoles.includes(currentUserRole)),
+              manage: hasPermission('timesheet_manage'),
+              permissions: {view: hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit')}}),
+            data: () => ({objects: state.objects, shift: state.shift, trucks: state.trucks,
+              statuses: state.truckStatus, logs: state.logs, audit: state.audit, archive: state.archive}),
+            transaction: fn => (window.__historyRawTransaction || (typeof db!=='undefined'&&db.runTransaction?db.runTransaction.bind(db):fn=>Promise.reject(new Error('Firebase SDK не загружен'))))(fn),
+            serverTimestamp: () => (FIREBASE_SDK_PRESENT && typeof firebase!=='undefined' ? firebase.firestore.FieldValue.serverTimestamp() : {__stubServerTimestamp:true}),
+            leave: () => switchTab('line', document.getElementById('nav-line'))
+          },
+          db: db, refs: refs, state: state, user: { email: currentEmail, role: currentUserRole, name: getUserName() },
+          showToast: showToastEl, addAudit: addAudit, escapeHtml: escapeHtml, renderRussianPlate: renderRussianPlate,
+          registerTab: (id, name, icon, renderFn) => {
+            const tabId = 'plugin-' + id;
+            const btn = document.createElement('button');
+            btn.className = 'nav-btn dynamic-nav-btn'; btn.id = 'nav-' + tabId;
+            btn.innerHTML = `<span class="nav-icon">${icon}</span><span class="nav-text">${name}</span>`;
+            btn.onclick = () => switchTab(tabId, btn);
+            const nav = document.getElementById('bottomNav'); const archiveBtn = document.getElementById('nav-archive');
+            nav.insertBefore(btn, archiveBtn);
+            const tabDiv = document.createElement('div'); tabDiv.className = 'tab-content'; tabDiv.id = 'tab-' + tabId;
+            document.getElementById('plugin-tabs-container').appendChild(tabDiv);
+            pluginTabs[tabId] = { render: renderFn, container: tabDiv };
+          },
+          registerPdfButton: (label, generateHtmlFn) => { pluginPdfButtons.push({ label, generateHtmlFn }); }
+        };
+        const run = new Function('ctx', p.code); run(ctx);
+      } catch (e) { console.error(`Ошибка в плагине "${p.name}":`, e); showToastEl(`⚠️ Ошибка в "${p.name}": ${e.message}`, true); }
+    });
+    renderPluginPdfButtons();
+    if (activePlugin) {
+      const next = pluginTabs[activePlugin] ? activePlugin : 'line';
+      switchTab(next, document.getElementById('nav-' + next));
+    }
+  }
+  function renderPluginPdfButtons() {
+    const c = document.getElementById('pluginPdfButtonsContainer'); if (!c) return;
+    c.innerHTML = '';
+    pluginPdfButtons.forEach((p, idx) => {
+      const btn = document.createElement('button'); btn.className = 'btn btn-secondary btn-small'; btn.style.flex = '1';
+      btn.textContent = `🖼 ${String(p.label).replace(/\bPDF\b/gi, 'PNG')}`;
+      btn.onclick = async () => {
+        try { showToastEl('⏳ Подготовка PNG...', false); const html = p.generateHtmlFn(); const blob = await generatePNGFromHTML(html); downloadReportPNG(blob, `plugin_${idx}_${Date.now()}.png`); showToastEl('✅ PNG готов', false); }
+        catch(e) { showError('Ошибка PNG: ' + e.message); }
+      };
+      c.appendChild(btn);
+    });
+  }
+  function renderPluginsList() {
+    const c = document.getElementById('pluginsListContainer'); if (!c) return;
+    const records = getPluginRecords().filter(p => !p.removed);
+    const restore = getPluginRecords().filter(p => p.bundled && p.removed).map(p => `<button class="btn btn-secondary" onclick="togglePluginStatus('${p.id}',true)">Восстановить ${escapeHtml(p.name)}</button>`).join('');
+    if (!records.length) { c.innerHTML = '<div class="empty-state">Нет добавленных расширений</div>'+restore; return; }
+    c.innerHTML = records.map(p => {
+      let rolesText = (p.allowedRoles || []).map(r => ROLES[r]?.label || r).join(', ') || 'Все роли';
+      return `<div class="user-row" style="border-color: ${p.enabled ? 'var(--success)' : 'var(--border)'};"><div class="user-row-top"><div style="font-size: 16px; font-weight: bold;">${escapeHtml(p.icon || '🧩')} ${escapeHtml(p.name)}${p.bundled ? ' · '+escapeHtml(p.version || '') : ''}</div><label class="toggle-switch" style="transform: scale(0.8); margin: 0;"><input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="togglePluginStatus('${p.id}', this.checked)"><span class="toggle-slider"></span></label></div><div style="font-size: 11px; color: var(--muted); margin-bottom: 8px;">Доступ: ${rolesText}</div><div class="user-row-bottom" style="justify-content: flex-end;"><button class="btn-edit" onclick="openPluginModal('${p.id}')">✏️ Код</button><button class="btn-del" onclick="deletePlugin('${p.id}')">Удалить</button></div></div>`;
+    }).join('')+restore;
+  }
+  function openPluginModal(id) {
+    if (!canAdmin()) return;
+    const p = id ? getPluginRecords().find(x => x.id === id) : null;
+    document.getElementById('editPluginId').value = id || '';
+    document.getElementById('pluginName').value = p ? p.name : '';
+    document.getElementById('pluginIcon').value = p ? p.icon : '🧩';
+    document.getElementById('pluginCode').value = p ? p.code : `// Пример кода плагина\nctx.registerTab('my-tab', 'Моя вкладка', '📌', (container) => {\n  container.innerHTML = '<h2>Привет!</h2>';\n});`;
+    document.getElementById('pluginModalTitle').textContent = p ? 'Редактировать расширение' : 'Новое расширение';
+    const roleCheckboxes = document.querySelectorAll('#pluginRolesContainer input[type="checkbox"]');
+    roleCheckboxes.forEach(chk => { if (p) chk.checked = (p.allowedRoles || []).includes(chk.value); else chk.checked = true; });
+    document.getElementById('pluginEditModal').classList.add('open');
+  }
+  function closePluginModal() { document.getElementById('pluginEditModal').classList.remove('open'); }
+  async function clearPluginCode() { const textarea = document.getElementById('pluginCode'); if (textarea && (await appConfirm('Очистить окно с кодом?'))) textarea.value = ''; }
+  async function pastePluginCode() {
+    const textarea = document.getElementById('pluginCode'); if (!textarea) return;
+    try { const text = await navigator.clipboard.readText(); textarea.value = text; showToastEl('📋 Код вставлен', false); }
+    catch (err) { showToastEl('⚠️ Браузер заблокировал вставку', true); }
+  }
+  async function savePlugin() {
+    if (!canAdmin()) return;
+    const id = document.getElementById('editPluginId').value;
+    const name = document.getElementById('pluginName').value.trim();
+    const icon = document.getElementById('pluginIcon').value.trim() || '🧩';
+    const code = document.getElementById('pluginCode').value;
+    const allowedRoles = Array.from(document.querySelectorAll('#pluginRolesContainer input:checked')).map(chk => chk.value);
+    if (!name) { showError('Введите название'); return; }
+    try { if (id) await tfAwait(refs.plugins.doc(id).set({ name, icon, code, allowedRoles }, {merge:true})); else await tfAwait(refs.plugins.add({ name, icon, code, allowedRoles, enabled: true, createdAt: Date.now() })); closePluginModal(); showToastEl('✅ Расширение сохранено', false); }
+    catch(e) { showError(e.message); }
+  }
+  async function togglePluginStatus(id, enabled) { if (!canAdmin()) return; try { await tfAwait(refs.plugins.doc(id).set({ enabled, removed:false }, {merge:true})); } catch(e) { showError(e.message); } }
+  async function deletePlugin(id) { if (!canAdmin() || !(await appConfirm('Удалить расширение?'))) return; try { if (getPluginRecords().find(p => p.id === id)?.bundled) await tfAwait(refs.plugins.doc(id).set({ enabled:false, removed:true }, {merge:true})); else await tfAwait(refs.plugins.doc(id).delete()); } catch(e) { showError(e.message); } }
+
+  // === АВТОРИЗАЦИЯ ===
+  // Сессией управляет локальный вход Ubuntu (core/05). Firebase Auth больше не
+  // решает, кто вошёл: обработчик вызывается с профилем сервера.
+  async function wtApplyAuthUser(user) {
+    const sessionGeneration = ++authSessionGeneration;
+    if (user) {
+      const sessionIsCurrent = () => sessionGeneration === authSessionGeneration && currentUid === user.uid;
+      stopSync();
+      profileServerConfirmed = false;
+      permissionsServerConfirmed = false;
+      appConfigSyncUid = '';
+      permissionsLoaded = false;
+      permissionsConfig = JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS));
+      document.body.removeAttribute('data-perms-ready');
+      currentEmail = user.email || ''; currentUid = user.uid || '';
+      currentUserRole = null; currentUserStatus = null; currentUserNickname = ''; activeProfileKey = '';
+      initialized = false; confirmedLoadIds.clear();
+      syncState = { fromCache:{}, everConnected:{}, docCount:{}, pendingWrites:{}, lastSuccessAt:0, errors:{} };
+      state = { trucks:[], objects:[], logs:[], truckStatus:{}, shift:null, archive:[], trash:[], audit:[], notifications:[], users:[], requests:[], plugins:[], patches:[] };
+      loadCache(); offlineRemoteStatuses={...state.truckStatus};offlineRemoteLogs=state.logs.slice();offlineProjectState(); renderAll();
+      document.getElementById('userBadgeLabel').textContent = '👤 Проверка учётной записи…';
+      // 1.7.11: страховка от вечного «Проверка учётной записи…». Если за 45
+      // секунд проверка не завершилась (роль не установлена и NAS-клиент не
+      // создан), показываем понятную ошибку вместо молчаливого спиннера.
+      if (wtAuthCheckTimer) { clearTimeout(wtAuthCheckTimer); }
+      wtAuthCheckTimer = setTimeout(() => {
+        wtAuthCheckTimer = null;
+        if (sessionGeneration !== authSessionGeneration) return; // сессия уже сменилась
+        if (currentUserRole || currentUserStatus || nasRuntimeClient) return; // проверка завершилась
+        const badge = document.getElementById('userBadgeLabel');
+        if (badge) badge.textContent = '👤 Не удалось проверить учётную запись';
+        const detail = wtAuthCheckLastError ? (wtAuthCheckLastError.message || String(wtAuthCheckLastError)) : 'нет данных';
+        console.error('working-test: проверка учётной записи не завершилась за 45 с; последняя ошибка:', wtAuthCheckLastError || detail);
+        try { showToastEl('👤 Не удалось проверить учётную запись. Обновите страницу или войдите заново', true); } catch (_) {}
+      }, 45000);
+      updateSyncUI();
+      document.getElementById('authOverlay').style.display = 'none';
+      // Общий режим данных хранится в документе Firebase. После перехода на
+      // локальный вход Firebase-сессии нет, поэтому документ не читаем: иначе
+      // пользователь увидел бы ложную ошибку доступа.
+      if (auth && auth.currentUser) {
+        await ensureWorkingAuthority();
+        try { watchWorkingAuthority(); } catch (_) {}
+      }
+      if(isNasRuntime()){if(userDocUnsubscriber){userDocUnsubscriber();userDocUnsubscriber=null;}await startNasRuntime(user);return;}
+      const forced = isForcedAdminEmail(currentEmail); const defaultNick = sanitizeName(currentEmail);
+      if (userDocUnsubscriber) userDocUnsubscriber();
+      userDocUnsubscriber = usersRef.doc(currentUid).onSnapshot({ includeMetadataChanges:true }, async snap => {
+        try {
+        if (!sessionIsCurrent()) return;
+        if (currentUid !== user.uid) return;
+        markSync('profile', snap.metadata.fromCache, snap.metadata.hasPendingWrites, snap.exists ? 1 : 0);
+        if (!snap.exists && snap.metadata.fromCache) { updateSyncUI(); return; }
+        if (!snap.exists) {
+          if (forced) { await usersRef.doc(currentUid).set({ email: currentEmail, nickname: defaultNick, role: 'admin', status: 'active', createdAt: Date.now(), bootstrap: true }); if (!sessionIsCurrent()) return; }
+          else { await ensurePendingAccount(user); if (!sessionIsCurrent()) return; return; }
+        }
+        const data = snap.exists ? snap.data() : {};
+        currentUserRole = data.role || (forced ? 'admin' : 'viewer');
+        currentUserStatus = data.status || (forced ? 'active' : 'pending');
+        currentUserNickname = data.nickname || defaultNick;
+        if (snap.exists && !data.nickname && defaultNick && !forced) { usersRef.doc(currentUid).set({ nickname: defaultNick }, { merge: true }).catch(()=>{}); currentUserNickname = defaultNick; }
+        if (forced && (currentUserRole !== 'admin' || currentUserStatus !== 'active')) { await usersRef.doc(currentUid).set({ role: 'admin', status: 'active', nickname: currentUserNickname || defaultNick }, { merge: true }); currentUserRole = 'admin'; currentUserStatus = 'active'; }
+        if (currentUserStatus === 'pending') {
+          try { await ensurePendingAccount(user); if (!sessionIsCurrent()) return; document.getElementById('registrationStatusText').textContent='Ваша заявка отправлена. Ожидайте решения администратора.'; }
+          catch(e) { if (!sessionIsCurrent()) return; document.getElementById('registrationStatusText').textContent='Заявка не отправлена: ' + (e.message || e.code) + '. Обратитесь к администратору.'; }
+          if (!sessionIsCurrent()) return;
+          activeProfileKey = ''; profileServerConfirmed = false; permissionsServerConfirmed = false; appConfigSyncUid = ''; stopSync(); document.getElementById('pendingScreen').style.display = 'flex'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = 'none'; document.querySelector('.container').style.display = 'none'; document.querySelector('nav').style.display = 'none'; return; }
+        if (currentUserStatus === 'disabled') {
+          permissionsLoaded=false; profileServerConfirmed = false; permissionsServerConfirmed = false; appConfigSyncUid = ''; document.body.removeAttribute('data-perms-ready');
+          cancelHold();document.querySelectorAll('dialog[open]').forEach(d=>d.close());document.querySelectorAll('.modal.open').forEach(d=>d.classList.remove('open'));
+          window.__gameAccessChanged?.();
+          document.getElementById('disabledStatusTitle').textContent=data.rejectionReason?'Заявка отклонена':'Доступ временно ограничен';
+          document.getElementById('disabledStatusText').textContent=data.rejectionReason||'Доступ ограничен администратором. Обратитесь к администратору, чтобы восстановить доступ, или попробуйте войти позже.';
+          activeProfileKey='';stopSync();document.getElementById('pendingScreen').style.display='none';document.getElementById('disabledScreen').style.display='flex';document.getElementById('mainHeader').style.display='none';document.querySelector('.container').style.display='none';document.querySelector('nav').style.display='none';return;
+        }
+        document.getElementById('pendingScreen').style.display = 'none'; document.getElementById('disabledScreen').style.display = 'none'; document.getElementById('mainHeader').style.display = ''; document.querySelector('.container').style.display = ''; document.querySelector('nav').style.display = 'flex';
+        updateUserBadge(); updateNavUI(); applyRoleUI(); updateSyncUI();
+        // A cached profile is useful for painting the shell, but it is not proof
+        // that the restored Firebase session may read appConfig or the workspace.
+        // Starting listeners here used to turn the cache-only permission error
+        // into a false offline state and left the queue pending.
+        if (!snap.metadata.fromCache && snap.exists && currentUserStatus === 'active') profileServerConfirmed = true;
+        if (snap.metadata.fromCache) {
+          updateSyncUI();
+          return;
+        }
+        const profileKey = currentUid + ':' + currentUserRole + ':' + currentUserStatus;
+        if (activeProfileKey === profileKey) return;
+        activeProfileKey = profileKey;
+        startSync(sessionGeneration); startAdminSync(); startAppConfigSync(sessionGeneration); setTimeout(() => { if (sessionIsCurrent()) runMaxQueue(); }, 1200);
+        loadAndApplyPatches().catch(e => { if (sessionIsCurrent()) reportSyncError('patches', e); });
+        } catch(e) { reportSyncError('profile', e); }
+      }, e => {
+        if (!sessionIsCurrent()) return;
+        stopSync(); permissionsLoaded = false; currentUserRole = null; activeProfileKey = '';
+        document.body.removeAttribute('data-perms-ready');
+        document.getElementById('userBadgeLabel').textContent = '👤 Учётная запись не загружена';
+        reportSyncError('profile', e);
+        renderAll();
+      });
+    } else {
+      currentEmail = ''; currentUid = ''; currentUserRole = null; currentUserStatus = null; currentUserNickname = '';
+      profileServerConfirmed = false; permissionsServerConfirmed = false; appConfigSyncUid = ''; appConfigSyncGeneration = 0;
+      permissionsLoaded = false;
+      document.body.removeAttribute('data-perms-ready');
+      if (userDocUnsubscriber) { userDocUnsubscriber(); userDocUnsubscriber = null; }
+      stopSync(); initialized = false; pendingOps = 0; confirmedLoadIds.clear();
+      syncState = { fromCache: {}, everConnected: {}, docCount: {}, pendingWrites: {}, lastSuccessAt: 0 };
+      state = { trucks:[], objects:[], logs:[], truckStatus:{}, shift:null, archive:[], trash:[], audit:[], notifications:[], users:[], requests:[], plugins:[], patches:[] };
+      // Единая точка показа экранов входа/ожидания/блокировки (core/05):
+      // порядок вызовов больше не может оставить рабочую шапку видимой.
+      wtShowAuthScreens('signed-out');
+      document.getElementById('userBadgeLabel').textContent = '👤 Войти'; updateSyncUI();
+      // Firebase Auth сам восстанавливает сессию; пароль в браузере не храним.
+      const savedEmail = localStorage.getItem('working-test-saved-email');
+      if (savedEmail) document.getElementById('authEmail').value = savedEmail;
+      document.getElementById('authPassword').value = '';
+    }
+  }
+
+  function updateUserBadge() { const badge = document.getElementById('userBadgeLabel'); if (!badge) return; const roleInfo = ROLES[currentUserRole] || ROLES.viewer; const chip = `<span class="role-chip ${roleInfo.color}">${roleInfo.icon} ${roleInfo.label}</span>`; badge.innerHTML = `👤 ${escapeHtml(getUserName())} ${chip}`; }
+  function applyRoleUI() {
+    startTabelBackground();
+    const versionAllowed = permissionsLoaded && canAdmin();
+    if (versionAllowed) document.body.setAttribute('data-release-admin', '1'); else document.body.removeAttribute('data-release-admin');
+    const historyAllowed=canViewReleaseHistory();document.body.toggleAttribute('data-release-history',historyAllowed);
+    const releaseButton=document.querySelector('#mainHeader .version-text');if(releaseButton){releaseButton.disabled=!historyAllowed;releaseButton.title=historyAllowed?'История изменений':'Номер сборки';}
+    if (!historyAllowed) document.getElementById('releaseHistoryDialog')?.close();
+    const viewBanner = document.getElementById('viewOnlyBanner'); const canDoAnything = hasPermission('start_shift') || hasPermission('edit_line') || hasPermission('action_load');
+    if (viewBanner) viewBanner.style.display = (!canDoAnything && state.shift) ? 'block' : 'none';
+    const requestBtn=document.getElementById('tabelCreateRequestBtn');if(requestBtn)requestBtn.style.display=hasTabAccess('timesheet')?'':'none';
+    const startBtn = document.getElementById('startShiftBtn'); if (startBtn) startBtn.style.display = hasPermission('start_shift') ? '' : 'none';
+    const truckForm = document.getElementById('truckFormCard'); if (truckForm) truckForm.style.display = hasPermission('manage_trucks') ? '' : 'none';
+    const objectForm = document.getElementById('objectFormCard'); if (objectForm) objectForm.style.display = hasPermission('manage_objects') ? '' : 'none';
+    const changeObjBtn = document.getElementById('changeObjBtn'); if (changeObjBtn) changeObjBtn.style.display = hasPermission('edit_line') ? 'inline-block' : 'none';
+    const headerExtra = document.getElementById('headerExtraContent'); if (headerExtra) headerExtra.style.display = hasPermission('view_header') ? '' : 'none';
+    const gaiToggleContainer = document.getElementById('gaiReportToggleContainer');
+    if (gaiToggleContainer) { const canGai = hasPermission('view_gai_report'); gaiToggleContainer.style.display = canGai ? 'flex' : 'none'; if (!canGai) showGAITable = false; }
+  }
+  // === ВХОД ЧЕРЕЗ UBUNTU API ===
+  // Пароль, сессии и заявки проверяет сервер Ubuntu. Firebase SDK остаётся
+  // подключённым для данных, но не используется для входа, ролей и заявок.
+  const WT_AUTH_ACCESS_KEY = 'wt_access_token';
+  const WT_AUTH_REFRESH_KEY = 'wt_refresh_token';
+  const WT_AUTH_PROFILE_KEY = 'wt_user_profile';
+  const WT_AUTH_EMAIL_KEY = 'working-test-saved-email';
+  const WT_AUTH_REFRESH_MARGIN_MS = 120000;
+  const WT_AUTH_ERRORS = {
+    'invalid-credentials': 'Неверная почта или пароль.',
+    'identity-email-required': 'Проверьте адрес почты.',
+    'invalid-email': 'Проверьте адрес почты.',
+    'invalid-password': 'Пароль должен быть от 8 до 512 символов, без пробелов по краям.',
+    'email-already-exists': 'Этот e-mail уже зарегистрирован. Нажмите «Войти».',
+    'invalid-nickname': 'Проверьте имя пользователя.',
+    'account-disabled': 'Доступ ограничен администратором. Обратитесь к администратору.',
+    'account-deleted': 'Учётная запись удалена. Обратитесь к администратору.',
+    'pending-approval': 'Заявка ожидает подтверждения администратора.',
+    'invalid-session': 'Сеанс истёк. Войдите снова.',
+    'invalid-reset-token': 'Код восстановления недействителен или устарел. Запросите новый.',
+    'identity-not-ready': 'Сервер ещё не готов принимать вход. Попробуйте позже.',
+    'server-error': 'Сервер временно недоступен. Попробуйте позже.',
+    'origin-not-allowed': 'Этот адрес сайта не разрешён сервером.',
+    'unsupported-media-type': 'Сервер не принял формат запроса.',
+    'invalid-json': 'Сервер не разобрал запрос.',
+    'body-too-large': 'Слишком большой запрос.'
+  };
+  let wtSession = null, wtSessionUser = null, wtRefreshTimer = null, wtRefreshFlight = null;
+  let wtSessionHandler = null, wtAuthBusy = false, wtResumeStarted = false;
+  let registrationInFlight = false;
+  function wtAuthBase() {
+    try {
+      if (typeof nasApiBase === 'function') {
+        const base = nasApiBase();
+        if (typeof base === 'string' && base) return base.replace(/\/+$/, '');
+      }
+    } catch (_) {}
+    try {
+      const fallback = WORKING_TEST_UBUNTU_API_BASE;
+      if (typeof fallback === 'string' && fallback) return fallback.replace(/\/+$/, '');
+    } catch (_) {}
+    return '';
+  }
+  function wtAuthMessage(code) {
+    return WT_AUTH_ERRORS[code] || 'Не удалось выполнить действие. Проверьте соединение и повторите.';
+  }
+  // В журнал устройств уходят только признаки устройства: без адресов и токенов.
+  function wtDeviceInfo() {
+    const info = {};
+    try { if (navigator.userAgent) info.userAgent = String(navigator.userAgent).slice(0, 200); } catch (_) {}
+    try { if (navigator.platform) info.platform = String(navigator.platform).slice(0, 200); } catch (_) {}
+    return info;
+  }
+  async function wtAuthRequest(path, body, options) {
+    const base = wtAuthBase();
+    if (!base) throw Object.assign(Error('Не настроен адрес сервера Ubuntu.'), { code: 'no-api-base' });
+    const headers = {};
+    let payload;
+    if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
+    const token = options && options.accessToken;
+    if (token) headers.Authorization = 'Bearer ' + token;
+    let response;
+    try {
+      response = await fetch(base + path, Object.assign({ method: 'POST', headers, credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer' }, payload !== undefined ? { body: payload } : {}));
+    } catch (_) {
+      throw Object.assign(Error('Нет связи с сервером Ubuntu. Проверьте интернет и повторите.'), { code: 'network' });
+    }
+    let data = null;
+    try { data = await response.json(); } catch (_) {}
+    if (!response.ok) {
+      const code = data && typeof data.error === 'string' ? data.error : 'http-' + response.status;
+      throw Object.assign(Error(wtAuthMessage(code)), { code, status: response.status });
+    }
+    if (!data || typeof data !== 'object') throw Object.assign(Error('Сервер ответил неожиданно. Повторите действие.'), { code: 'invalid-response' });
+    return data;
+  }
+  function wtValidProfile(profile) {
+    return !!profile && typeof profile === 'object' && typeof profile.uid === 'string' && profile.uid.length > 0 && profile.uid.length <= 128;
+  }
+  function wtCacheProfile(profile) {
+    if (!wtValidProfile(profile)) return null;
+    try { localStorage.setItem(WT_AUTH_PROFILE_KEY, JSON.stringify(profile)); } catch (_) {}
+    return profile;
+  }
+  function wtStoredProfile() {
+    try {
+      const raw = localStorage.getItem(WT_AUTH_PROFILE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return wtValidProfile(parsed) ? parsed : null;
+    } catch (_) { return null; }
+  }
+  function wtStoredRefreshToken() {
+    try { const value = localStorage.getItem(WT_AUTH_REFRESH_KEY); return typeof value === 'string' ? value : ''; } catch (_) { return ''; }
+  }
+  function wtAccessToken() { return wtSession ? wtSession.accessToken : ''; }
+  // Тот же объект-владелец нужен клиенту данных Ubuntu: подпись сессии одна.
+  function wtAuthUser() {
+    if (!wtSession || !wtValidProfile(wtSession.profile)) return null;
+    const profile = wtSession.profile;
+    if (wtSessionUser && wtSessionUser.uid === profile.uid) return wtSessionUser;
+    wtSessionUser = {
+      uid: profile.uid,
+      email: profile.email || '',
+      displayName: profile.nickname || '',
+      localSession: true,
+      getIdToken: async force => {
+        if (!wtSession || wtSession.profile.uid !== profile.uid) return '';
+        if (force === true || wtTokenExpiring()) { try { await wtRefreshSession(); } catch (_) {} }
+        return wtSession && wtSession.profile.uid === profile.uid ? wtSession.accessToken : '';
+      }
+    };
+    return wtSessionUser;
+  }
+  function wtTokenExpiring() {
+    const expiresAt = wtSession ? Number(wtSession.expiresAt) || 0 : 0;
+    return !expiresAt || expiresAt - Date.now() <= WT_AUTH_REFRESH_MARGIN_MS;
+  }
+  function wtStoreSession(data) {
+    const profile = wtValidProfile(data && data.profile) ? data.profile : null;
+    if (!profile) throw Object.assign(Error('Сервер не вернул профиль пользователя.'), { code: 'invalid-profile' });
+    const accessToken = data && typeof data.accessToken === 'string' ? data.accessToken : '';
+    const refreshToken = data && typeof data.refreshToken === 'string' ? data.refreshToken : '';
+    if (!accessToken || !refreshToken) throw Object.assign(Error('Сервер не выдал токены сеанса.'), { code: 'invalid-session' });
+    const session = { profile, accessToken, refreshToken, expiresAt: Number(data.expiresAt) || 0 };
+    // Объект-владелец живёт, пока жив uid: продление сеанса (refresh) не должно
+    // пересоздавать его, иначе клиент данных увидит «смену сессии» после простоя.
+    if (!wtSessionUser || wtSessionUser.uid !== profile.uid) wtSessionUser = null;
+    wtSession = session;
+    try {
+      localStorage.setItem(WT_AUTH_ACCESS_KEY, accessToken);
+      localStorage.setItem(WT_AUTH_REFRESH_KEY, refreshToken);
+      localStorage.setItem(WT_AUTH_PROFILE_KEY, JSON.stringify(profile));
+    } catch (_) {}
+    wtScheduleRefresh();
+    return wtSession;
+  }
+  function wtClearSession() {
+    wtSession = null; wtSessionUser = null;
+    if (wtRefreshTimer) { try { clearTimeout(wtRefreshTimer); } catch (_) {} wtRefreshTimer = null; }
+    try {
+      localStorage.removeItem(WT_AUTH_ACCESS_KEY);
+      localStorage.removeItem(WT_AUTH_REFRESH_KEY);
+      localStorage.removeItem(WT_AUTH_PROFILE_KEY);
+    } catch (_) {}
+  }
+  function wtScheduleRefresh() {
+    if (wtRefreshTimer) { try { clearTimeout(wtRefreshTimer); } catch (_) {} wtRefreshTimer = null; }
+    const expiresAt = wtSession ? Number(wtSession.expiresAt) || 0 : 0;
+    if (!expiresAt || typeof setTimeout !== 'function') return;
+    const delay = Math.max(5000, expiresAt - Date.now() - WT_AUTH_REFRESH_MARGIN_MS);
+    wtRefreshTimer = setTimeout(() => { wtRefreshSession().catch(() => {}); }, delay);
+  }
+  // Продление сеанса. Ошибка означает конец сеанса: токены очищаются, экран
+  // входа показывается заново. Молча продолжать работу нельзя.
+  async function wtRefreshSession() {
+    if (wtRefreshFlight) return wtRefreshFlight;
+    const refreshToken = wtSession ? wtSession.refreshToken : wtStoredRefreshToken();
+    if (!refreshToken) throw Object.assign(Error(wtAuthMessage('invalid-session')), { code: 'invalid-session' });
+    const work = (async () => {
+      const data = await wtAuthRequest('/api/v1/auth/refresh', { refreshToken, device: wtDeviceInfo() });
+      if (!data || data.pending === true || !data.accessToken) throw Object.assign(Error(wtAuthMessage('invalid-session')), { code: 'invalid-session' });
+      const session = wtStoreSession(data);
+      return session;
+    })();
+    wtRefreshFlight = work;
+    try { return await work; } finally { if (wtRefreshFlight === work) wtRefreshFlight = null; }
+  }
+  function wtProfileStatus(profile) {
+    if (!wtValidProfile(profile)) return 'signed-out';
+    if (profile.deleted === true) return 'deleted';
+    if (profile.status === 'pending') return 'pending';
+    if (profile.status === 'active') return 'active';
+    return 'disabled';
+  }
+  // Статус берётся только из профиля сервера: pending — ожидание, disabled и
+  // deleted — блокировка, active — рабочий интерфейс.
+  function wtShowAuthScreens(status, profile) {
+    const overlay = document.getElementById('authOverlay');
+    const pending = document.getElementById('pendingScreen');
+    const disabled = document.getElementById('disabledScreen');
+    const header = document.getElementById('mainHeader');
+    const container = document.querySelector('.container');
+    const nav = document.querySelector('nav');
+    const isActive = status === 'active';
+    if (overlay) overlay.style.display = status === 'signed-out' ? 'flex' : 'none';
+    if (pending) pending.style.display = status === 'pending' ? 'flex' : 'none';
+    if (disabled) disabled.style.display = status === 'disabled' || status === 'deleted' ? 'flex' : 'none';
+    if (header) header.style.display = isActive ? '' : 'none';
+    if (container) container.style.display = isActive ? '' : 'none';
+    if (nav) nav.style.display = isActive ? 'flex' : 'none';
+    if (status === 'pending') {
+      const text = document.getElementById('registrationStatusText');
+      if (text) text.textContent = 'Учётная запись ожидает подтверждения администратора.';
+    }
+    if (status === 'disabled' || status === 'deleted') {
+      const title = document.getElementById('disabledStatusTitle');
+      const text = document.getElementById('disabledStatusText');
+      const reason = profile && typeof profile.rejectionReason === 'string' && profile.rejectionReason ? profile.rejectionReason : '';
+      if (title) title.textContent = status === 'deleted' ? 'Учётная запись удалена' : 'Доступ временно ограничен';
+      if (text) text.textContent = reason || (status === 'deleted'
+        ? 'Учётная запись удалена администратором. Обратитесь к администратору.'
+        : 'Доступ ограничен администратором. Обратитесь к администратору, чтобы восстановить доступ.');
+    }
+    if (status === 'signed-out') {
+      wtEnsureRecoveryUI();
+      try {
+        const saved = localStorage.getItem(WT_AUTH_EMAIL_KEY);
+        const field = document.getElementById('authEmail');
+        if (saved && field && !field.value) field.value = saved;
+      } catch (_) {}
+    }
+  }
+  function wtNotifySession(user) {
+    // Событие для модулей, которые раньше реагировали на вход Firebase
+    // (например, сброс стека отмены/восстановления).
+    try { window.dispatchEvent(new CustomEvent('wt-auth-session-changed', { detail: { uid: user && user.uid ? user.uid : null } })); } catch (_) {}
+    if (typeof wtSessionHandler !== 'function') return;
+    try { wtSessionHandler(user); } catch (error) {
+      // 1.7.11: ошибка обработчика сессии роняла wtApplyAuthUser до запуска
+      // NAS-рантайма — UI навсегда оставался на «Проверка учётной записи…».
+      // Выводим её в консоль и сохраняем для страховочного таймера (04-subscriptions).
+      console.error('working-test: ошибка обработчика сессии (wtSessionHandler):', error);
+      if (typeof wtAuthCheckLastError !== 'undefined') { try { wtAuthCheckLastError = error; } catch (_) {} }
+      if (typeof reportSyncError === 'function') reportSyncError('auth', error);
+    }
+  }
+  function wtApplyLocalSession(profile) {
+    const status = wtProfileStatus(profile);
+    if (status === 'active') {
+      wtShowAuthScreens('active', profile);
+      wtNotifySession(wtAuthUser());
+      return;
+    }
+    // Сначала сбрасываем состояние прошлого пользователя, затем показываем экран
+    // ожидания или блокировки: рабочие данные остаются недоступны.
+    wtNotifySession(null);
+    wtShowAuthScreens(status, profile);
+  }
+  function wtSetSessionHandler(handler) {
+    wtSessionHandler = typeof handler === 'function' ? handler : null;
+    wtResumeStoredSession();
+  }
+  // Автовход: продлеваем сохранённый сеанс. Любая ошибка очищает токены и
+  // возвращает экран входа — приложение не остаётся в подвешенном состоянии.
+  function wtResumeStoredSession() {
+    if (wtResumeStarted) return; wtResumeStarted = true;
+    const refreshToken = wtStoredRefreshToken();
+    const stored = wtStoredProfile();
+    if (!refreshToken) { wtShowAuthScreens('signed-out'); wtNotifySession(null); return; }
+    if (stored) wtShowAuthScreens(wtProfileStatus(stored), stored);
+    wtRefreshSession().then(session => {
+      wtApplyLocalSession(session.profile);
+    }).catch(() => {
+      wtClearSession();
+      wtShowAuthScreens('signed-out');
+      wtNotifySession(null);
+    });
+  }
+  function wtAuthError(element, text, isError) {
+    if (!element) return;
+    element.style.color = isError ? 'var(--danger)' : 'var(--text)';
+    element.textContent = text || '';
+  }
+  async function handleLogin() {
+    if (wtAuthBusy) return;
+    const emailField = document.getElementById('authEmail');
+    const passwordField = document.getElementById('authPassword');
+    const error = document.getElementById('authError');
+    const email = emailField ? emailField.value.trim() : '';
+    const password = passwordField ? passwordField.value : '';
+    if (!email || !password) { wtAuthError(error, 'Укажите почту и пароль.', true); return; }
+    wtAuthBusy = true;
+    wtAuthError(error, '⏳ Вход...', false);
+    try {
+      const data = await wtAuthRequest('/api/v1/auth/login', { email, password, device: wtDeviceInfo() });
+      if (passwordField) passwordField.value = '';
+      try { localStorage.setItem(WT_AUTH_EMAIL_KEY, email); } catch (_) {}
+      if (data && data.pending === true) {
+        const profile = wtCacheProfile(data.profile);
+        wtAuthError(error, '', false);
+        wtApplyLocalSession(profile);
+        return;
+      }
+      const session = wtStoreSession(data);
+      wtAuthError(error, '', false);
+      wtApplyLocalSession(session.profile);
+    } catch (failure) {
+      wtAuthError(error, failure.message || wtAuthMessage(failure.code), true);
+    } finally { wtAuthBusy = false; }
+  }
+  // Заявку создаёт сервер при регистрации: повторная запись в Firebase не нужна.
+  async function ensurePendingAccount() { return null; }
+  async function handleRegister() {
+    if (registrationInFlight) return;
+    const emailField = document.getElementById('authEmail');
+    const passwordField = document.getElementById('authPassword');
+    const error = document.getElementById('authError');
+    const email = emailField ? emailField.value.trim() : '';
+    const password = passwordField ? passwordField.value : '';
+    if (!email || !password) { wtAuthError(error, 'Введите e-mail и пароль.', true); return; }
+    if (password.length < 8) { wtAuthError(error, 'Пароль должен быть не короче 8 символов.', true); return; }
+    registrationInFlight = true;
+    const button = document.getElementById('registerBtn');
+    if (button) button.disabled = true;
+    wtAuthError(error, 'Создаём заявку…', false);
+    try {
+      const data = await wtAuthRequest('/api/v1/auth/register', { email, password, device: wtDeviceInfo() });
+      if (passwordField) passwordField.value = '';
+      if (data && (data.pending === true || !data.accessToken)) {
+        const text = 'Заявка отправлена. Ожидайте подтверждения администратора.';
+        wtAuthError(error, text, false);
+        const status = document.getElementById('registrationStatusText');
+        if (status) status.textContent = text;
+        wtApplyLocalSession(wtCacheProfile(data.profile));
+        return;
+      }
+      const session = wtStoreSession(data);
+      wtAuthError(error, '', false);
+      wtApplyLocalSession(session.profile);
+    } catch (failure) {
+      wtAuthError(error, failure.message || wtAuthMessage(failure.code), true);
+    } finally {
+      if (passwordField) passwordField.value = '';
+      registrationInFlight = false;
+      if (button) button.disabled = false;
+    }
+  }
+  async function handleLogout() {
+    if (!(await appConfirm('Выйти?'))) return;
+    const refreshToken = wtSession ? wtSession.refreshToken : wtStoredRefreshToken();
+    try { if (typeof isNasRuntime === 'function' && isNasRuntime()) await leaveNasPresence(); } catch (_) {}
+    // Сессию на сервере отзываем, но локальный выход выполняем в любом случае.
+    if (refreshToken) { try { await wtAuthRequest('/api/v1/auth/logout', { refreshToken }); } catch (_) {} }
+    wtClearSession();
+    try { localStorage.removeItem(WT_AUTH_EMAIL_KEY); } catch (_) {}
+    wtNotifySession(null);
+    wtShowAuthScreens('signed-out');
+    // Перезагрузка только после очистки токенов и экранов: если она не
+    // выполнится, приложение всё равно останется на экране входа, а не
+    // вернётся в прежнюю сессию.
+    location.reload();
+  }
+  // === ВОССТАНОВЛЕНИЕ ПАРОЛЯ ===
+  // Экран входа не переписывается: блок восстановления создаётся рядом с полями
+  // и показывается только по кнопке «Забыли пароль?».
+  function wtEnsureRecoveryUI() {
+    const card = document.querySelector('#authOverlay .auth-card');
+    if (!card || document.getElementById('wtRecoveryBlock')) return;
+    const block = document.createElement('div');
+    block.id = 'wtRecoveryBlock';
+    block.style.display = 'none';
+    block.innerHTML = '<div id="wtRecoveryStep1"><button type="button" class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="handleForgotPassword()">Забыли пароль?</button></div>'
+      + '<div id="wtRecoveryStep2" style="display:none;margin-top:10px;">'
+      + '<div class="form-group"><label>Код восстановления</label><input type="text" id="wtResetToken" class="form-control" autocomplete="one-time-code" placeholder="Код от администратора"></div>'
+      + '<div class="form-group"><label>Новый пароль</label><input type="password" id="wtResetPassword" class="form-control" autocomplete="new-password" placeholder="Не короче 8 символов"></div>'
+      + '<div style="display:flex;gap:8px;"><button type="button" class="btn btn-quick" style="flex:1;" onclick="handleResetPassword()">Сменить пароль</button>'
+      + '<button type="button" class="btn btn-secondary" style="flex:1;" onclick="wtHidePasswordRecovery()">Отмена</button></div></div>';
+    card.append(block);
+  }
+  function wtShowPasswordRecovery() {
+    wtEnsureRecoveryUI();
+    const block = document.getElementById('wtRecoveryBlock');
+    const step2 = document.getElementById('wtRecoveryStep2');
+    if (block) block.style.display = '';
+    if (step2) step2.style.display = '';
+  }
+  function wtHidePasswordRecovery() {
+    const block = document.getElementById('wtRecoveryBlock');
+    const step2 = document.getElementById('wtRecoveryStep2');
+    const token = document.getElementById('wtResetToken');
+    const password = document.getElementById('wtResetPassword');
+    if (step2) step2.style.display = 'none';
+    if (token) token.value = '';
+    if (password) password.value = '';
+    wtAuthError(document.getElementById('authError'), '', false);
+    if (block) block.style.display = 'none';
+  }
+  async function handleForgotPassword() {
+    const emailField = document.getElementById('authEmail');
+    const error = document.getElementById('authError');
+    const email = emailField ? emailField.value.trim() : '';
+    if (!email) { wtAuthError(error, 'Сначала укажите почту в поле Email.', true); return; }
+    try {
+      const data = await wtAuthRequest('/api/v1/auth/forgot', { email });
+      wtAuthError(error, (data && typeof data.message === 'string' && data.message) ? data.message : 'Если учётная запись с такой почтой существует, восстановление подготовлено.', false);
+      wtShowPasswordRecovery();
+    } catch (failure) {
+      wtAuthError(error, failure.message || wtAuthMessage(failure.code), true);
+    }
+  }
+  async function handleResetPassword() {
+    const tokenField = document.getElementById('wtResetToken');
+    const passwordField = document.getElementById('wtResetPassword');
+    const error = document.getElementById('authError');
+    const token = tokenField ? tokenField.value.trim() : '';
+    const newPassword = passwordField ? passwordField.value : '';
+    if (!token) { wtAuthError(error, 'Введите код восстановления.', true); return; }
+    if (!newPassword || newPassword.length < 8) { wtAuthError(error, 'Новый пароль должен быть не короче 8 символов.', true); return; }
+    try {
+      await wtAuthRequest('/api/v1/auth/reset', { token, newPassword });
+      wtAuthError(error, 'Пароль изменён. Войдите с новым паролем.', false);
+      wtHidePasswordRecovery();
+      const loginPassword = document.getElementById('authPassword');
+      if (loginPassword) loginPassword.value = '';
+    } catch (failure) {
+      wtAuthError(error, failure.message || wtAuthMessage(failure.code), true);
+    }
+  }
+
+  // === АДМИН ===
+  function switchAdminTab(tab, btn) {
+    document.querySelectorAll('.admin-tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+    document.getElementById('admin-sub-' + tab).classList.add('active');
+    if (tab === 'server') openServerControl();
+    if (tab === 'permissions') renderPermissionsMatrix();
+    if (tab === 'requests' || tab === 'users') renderAdminPanel();
+    if (tab === 'requests') refreshRegistrationRequests();
+    if (tab === 'plugins') renderPluginsList();
+    if (tab === 'console') renderConsole();
+    if (tab === 'appsettings') renderAppSettingsIfActive();
+  }
+
+  // Регистрация обработчика откладывается до конца загрузки документа:
+  // переменные последующих модулей (например, core/15) к этому моменту
+  // инициализированы, и восстановление сеанса не попадает в их TDZ.
+  function wtRegisterSessionHandler() { wtSetSessionHandler(wtApplyAuthUser); }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wtRegisterSessionHandler, { once: true });
+  } else {
+    setTimeout(wtRegisterSessionHandler, 0);
+  }
+  function renderAppSettingsIfActive() {
+    renderTestBackendControls();
+    if (!document.getElementById('tab-admin')?.classList.contains('active')) return;
+    if (!document.getElementById('admin-sub-appsettings')?.classList.contains('active')) return;
+    const cycle=document.getElementById('adminCycleMinutes');if(cycle&&!cycle.disabled&&document.activeElement!==cycle)cycle.value=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES);
+    ['MaxEnabled','NotifyStart','NotifyArrive','NotifyLoad','NotifyTtn','NotifyLineStart','NotifyLineEnd'].forEach(k => { let el = document.getElementById('appConfig' + k); if (el) { let configKey = k.charAt(0).toLowerCase() + k.slice(1); el.checked = !!appConfig[configKey]; } });
+    if (document.getElementById('appConfigMaxUrl')) document.getElementById('appConfigMaxUrl').value = appConfig.maxUrl;
+    if (document.getElementById('appConfigMaxToken')) document.getElementById('appConfigMaxToken').value = appConfig.maxToken;
+    if (document.getElementById('appConfigMaxChatId')) document.getElementById('appConfigMaxChatId').value = appConfig.maxChatId;
+  }
+  async function saveAdminCycleMinutes(input) {
+    if(!canAdmin())return;
+    input.disabled=true;
+    try{await updateCycleMinutes(input.value);}finally{input.disabled=false;input.value=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES);}
+  }
+  async function saveAppConfig() {
+    if (!canAdmin()) return;
+    let data = {
+      maxEnabled: !!document.getElementById('appConfigMaxEnabled')?.checked,
+      maxUrl: (document.getElementById('appConfigMaxUrl')?.value || '').trim(),
+      maxToken: (document.getElementById('appConfigMaxToken')?.value || '').trim(),
+      maxChatId: (document.getElementById('appConfigMaxChatId')?.value || '').trim(),
+      notifyStart: !!document.getElementById('appConfigNotifyStart')?.checked,
+      notifyArrive: !!document.getElementById('appConfigNotifyArrive')?.checked,
+      notifyLoad: !!document.getElementById('appConfigNotifyLoad')?.checked,
+      notifyTtn: !!document.getElementById('appConfigNotifyTtn')?.checked,
+      notifyLineStart: !!document.getElementById('appConfigNotifyLineStart')?.checked,
+      notifyLineEnd: !!document.getElementById('appConfigNotifyLineEnd')?.checked
+    };
+    try { await saveLineEvent(()=>nasSaveSettings(data)); showToastEl('Настройки сохранены на Ubuntu',false); } catch(e) { showError(e.message); }
+  }
+
+  // === MAX QUEUE ===
+  const MAX_QUEUE_KEY = 'wt_max_queue_test347'; const MAX_QUEUE_MAX = 100; const MAX_TRIES = 5;
+  let maxQueue = []; let maxSenderRunning = false; let maxSeq = 0; let maxLastError = '';
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function loadMaxQueue() {
+    try { maxQueue=JSON.parse(localStorage.getItem(MAX_QUEUE_KEY)||'[]'); } catch(e) { maxQueue=[]; }
+    maxQueue=(Array.isArray(maxQueue)?maxQueue:[]).filter(item=>item&&item.type==='text'&&typeof item.text==='string');
+    saveMaxQueue();
+  }
+  function saveMaxQueue() { try { localStorage.setItem(MAX_QUEUE_KEY, JSON.stringify(maxQueue)); } catch(e) { if (e.name === 'QuotaExceededError' || e.code === 22) { while (maxQueue.length > 0) { const idx = maxQueue.findIndex(q => q.type === 'document'); if (idx === -1) maxQueue.shift(); else maxQueue.splice(idx, 1); try { localStorage.setItem(MAX_QUEUE_KEY, JSON.stringify(maxQueue)); return; } catch(e2) {} } } } }
+  function enqueueMax(text, meta, notBefore) { if(isNasRuntime())return; if (!appConfig.maxEnabled || !appConfig.maxUrl) return; maxQueue.push({ id: 'q_' + Date.now() + '_' + (++maxSeq), type: 'text', text, tries: 0, createdAt: Date.now(), notBefore: notBefore || 0, meta: meta || null }); while (maxQueue.length > MAX_QUEUE_MAX) maxQueue.shift(); saveMaxQueue(); runMaxQueue(); }
+  async function sendMaxOnce(item) {
+    if (!item || item.type !== 'text') return 'drop';
+    if (!appConfig.maxEnabled || !appConfig.maxUrl) return 'drop';
+    let headers = { 'Content-Type': 'application/json' };
+    if (appConfig.maxToken) { let tk = String(appConfig.maxToken).trim(); headers['Authorization'] = tk.startsWith('Bearer ') ? tk : 'Bearer ' + tk; }
+    let body = { chat_id: appConfig.maxChatId || '', text: item.text };
+    let ctrl = new AbortController(); let timer = setTimeout(() => ctrl.abort(), 30000);
+    try { let resp = await fetch(appConfig.maxUrl, { method: 'POST', headers, body: JSON.stringify(body), signal: ctrl.signal, keepalive: true }); clearTimeout(timer); if (resp.ok) return 'ok'; if (resp.status === 413) return 'too_large'; if (resp.status === 429) return 'retry'; if (resp.status >= 500) return 'retry'; if (resp.status === 401 || resp.status === 403) return 'auth'; return 'http_' + resp.status; }
+    catch (e) { clearTimeout(timer); return 'network'; }
+  }
+  async function runMaxQueue() {
+    if(isNasRuntime())return;
+    if (currentUserStatus!=='active'||maxSenderRunning || !appConfig.maxEnabled || !appConfig.maxUrl) return;
+    maxSenderRunning = true;
+    try {
+      while (maxQueue.length&&currentUserStatus==='active') {
+        const idx = maxQueue.findIndex(q => !q.notBefore || q.notBefore <= Date.now());
+        if (idx === -1) break;
+        const item = maxQueue[idx];
+        if(!item||item.type!=='text'){maxQueue.splice(idx,1);saveMaxQueue();continue;}
+        const res = await sendMaxOnce(item);
+        if (res === 'ok') { maxQueue.splice(idx, 1); saveMaxQueue(); await sleep(1200 + Math.floor(Math.random() * 600)); continue; }
+        if (res === 'retry' && item.tries < MAX_TRIES) { item.tries++; saveMaxQueue(); await sleep(Math.min(30000, 2000 * Math.pow(2, item.tries))); continue; }
+        maxQueue.splice(idx, 1); saveMaxQueue();
+        let reason = res === 'auth' ? 'токен (401)' : res === 'too_large' ? 'размер (413)' : res === 'network' ? 'нет связи' : res === 'retry' ? 'лимит (429)' : 'код ' + res;
+        maxLastError = reason; showToastEl('⚠️ MAX: не отправлено — ' + reason, true);
+      }
+    } finally { maxSenderRunning = false; if (maxQueue.length) { const pending = maxQueue.filter(q => q.notBefore && q.notBefore > Date.now()); if (pending.length > 0) setTimeout(runMaxQueue, Math.max(5000, Math.min(...pending.map(q => q.notBefore)) - Date.now())); } }
+  }
+  async function showMaxQueueStatus() { if(isNasRuntime()){try{const r=await nasRuntimeClient.readNotifications();appNotice('── ОЧЕРЕДЬ MAX · Ubuntu ──\n'+Object.entries(r.counts).map(([k,v])=>k+': '+v).join('\n'));}catch(e){showError(e.message);}return;} let lines = ['── ОЧЕРЕДЬ MAX ──', `Отправка: ${appConfig.maxEnabled ? 'вкл' : 'выкл'}`, `В очереди: ${maxQueue.length}`]; if (maxLastError) lines.push(`Ошибка: ${maxLastError}`); appNotice(lines.join('\n')); }
+  async function testMaxMessage() {
+    if (!canAdmin()) return;
+    if(isNasRuntime()){try{await nasBusinessCommand('notification','test',{type:'notification.test'});showToastEl('✅ Тест поставлен в очередь Ubuntu',false);}catch(e){showError(e.message);}return;}
+    if (!appConfig.maxEnabled || !appConfig.maxUrl || !appConfig.maxChatId) { showError('Заполните URL, токен и Chat ID'); return; }
+    showToastEl('⏳ Отправка теста...', false);
+    let res = await sendMaxOnce({ type: 'text', text: '🧪 Тест\nПриложение «Учет самосвалов» подключено к Max.' });
+    if (res === 'ok') showToastEl('✅ Сообщение отправлено', false); else showError('Ошибка: ' + res);
+  }
+
+  // === ОТЧЁТЫ PNG ===
+  function blobToBase64(blob) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(blob); }); }
+  async function generatePNGFromHTML(innerHtml) {
+    const deadline = (task, ms, message) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), ms);
+      Promise.resolve(task).then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+    });
+    try { if (document.fonts && document.fonts.load) await deadline(Promise.all([document.fonts.load('700 18px Caveat'), document.fonts.load('400 18px Caveat'), document.fonts.ready]), 2000, 'Шрифт недоступен'); } catch(e) {}
+    const wrapper = document.createElement('div'); wrapper.style.cssText = 'position:fixed;left:-99999px;top:0;width:1400px;background:#fdfdfd;padding:10px;z-index:-1;';
+    const inner = document.createElement('div'); inner.className = 'paper-report-container'; inner.style.cssText = 'zoom:1;background:#fdfdfd;width:1400px;'; inner.innerHTML = innerHtml;
+    wrapper.appendChild(inner); document.body.appendChild(wrapper);
+    let worker;
+    try {
+      const width = Math.max(1400, inner.scrollWidth), height = Math.max(1, inner.scrollHeight);
+      const scale = Math.min(2, Math.sqrt(16000000 / (width * height)), 16384 / Math.max(width, height));
+      // Reuse the bundled rasterizer only: no PDF pages, A4 clipping or JPEG conversion.
+      worker = html2pdf().set({ margin: 0, pagebreak: { mode: [], before: [], after: [], avoid: [] }, html2canvas: { scale, useCORS: true, logging: false, backgroundColor: '#fdfdfd', imageTimeout: 10000 } }).from(inner).toContainer().then(function () {
+        this.prop.container.style.width = width + 'px';
+        this.prop.container.style.height = 'auto';
+        this.prop.container.style.margin = '0';
+      });
+      const canvas = await deadline(worker.toCanvas().get('canvas'), 45000, 'Не удалось подготовить PNG. Повторите выгрузку отчёта.');
+      if (!canvas || !canvas.width || !canvas.height) throw new Error('Получено пустое изображение отчёта');
+      return await deadline(new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Не удалось сохранить изображение отчёта')), 'image/png')), 15000, 'Сохранение PNG заняло слишком много времени');
+    } finally {
+      if (worker?.prop?.overlay?.parentNode) worker.prop.overlay.parentNode.removeChild(worker.prop.overlay);
+      if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
+    }
+  }
+  function downloadReportPNG(blob, filename) {
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // === STYLUS ===
+  // Ручное рисование отключено; маркер раздела сохранён для проверки PNG.
+  // === ОТЧЕТ HTML ===
+  function buildReportHTML({ objectName, date, logs, activeLineIds, type, checkTTN, isClosed = false, reportTtnStatus = null }) {
+    const filteredLogs = type === 'gai' ? logs.filter(l => l.isGAI) : logs.filter(l => !l.isGAI);
+    const activeIds = (activeLineIds || []).filter(id => { const t = findTruck(id); if (!t) return false; return type === 'gai' ? !!t.isGAI : !t.isGAI; });
+    const truckIds = new Set(activeIds); filteredLogs.forEach(l => truckIds.add(l.truckId));
+    const trucks = Array.from(truckIds).map(id => { const t = findTruck(id); if (t) return t; const ref = filteredLogs.find(l => l.truckId === id); return { id, brand: (ref && ref.truckName) || 'Машина', number: '', defaultVol: 0 }; });
+    const firstTime = {}; filteredLogs.forEach(l => { if (firstTime[l.truckId] === undefined || l.timestamp < firstTime[l.truckId]) firstTime[l.truckId] = l.timestamp; });
+    trucks.sort((a, b) => ((firstTime[a.id] === undefined) - (firstTime[b.id] === undefined)) || ((firstTime[a.id] || 0) - (firstTime[b.id] || 0)) || String(a.id).localeCompare(String(b.id)));
+    let maxTrips = 8; trucks.forEach(t => { const c = filteredLogs.filter(l => l.truckId === t.id).length; if (c > maxTrips) maxTrips = c; });
+    const totalVol = filteredLogs.reduce((s, l) => s + l.volume, 0);
+    let html = `<div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectName || '—')}${type === 'gai' ? ' (ГАИ)' : ''}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(date || '')}</div><div class="paper-total-info">${type === 'gai' ? `Всего рейсов ГАИ: <b>${filteredLogs.length}</b>` : `Общий объем: <b>${totalVol} м³</b>`}</div></div></div><table class="paper-table"><thead><tr><th>№</th><th style="text-align:left;">Самосвал</th>`;
+    for (let i = 1; i <= maxTrips; i++) html += `<th>Рейс ${i}</th>`;
+    html += `</tr></thead><tbody>`;
+    trucks.forEach((t, idx) => {
+      const tLogs = filteredLogs.filter(l => l.truckId === t.id).slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) || String(a.id||'').localeCompare(String(b.id||'')));
+      const sum = tLogs.reduce((s, l) => s + l.volume, 0);
+      let st = state.truckStatus[t.id] || {};
+      let savedTtn = reportTtnStatus ? reportTtnStatus[t.id] : st.ttnStatus;
+      let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (isClosed && tLogs.length > 0 && savedTtn !== true && savedTtn !== 'pending') : (tLogs.length > 0 && st.ttnStatus !== true);
+      let dupHtml = isDup ? ' <span style="color:red; font-size:10px; font-weight:bold;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
+      const brandCell = type === 'gai' ? `${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tLogs.length}</span>${dupHtml}` : `${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³ / ${tLogs.length} р</span>${dupHtml}`;
+      html += `<tr><td style="font-weight:bold;">${idx + 1}</td><td class="truck-cell"><div class="paper-truck-brand">${brandCell}</div>${t.number ? renderRussianPlate(t.number) : ''}</td>`;
+      for (let i = 0; i < maxTrips; i++) {
+        const l = tLogs[i];
+        if (l) {
+          const isLast = (i === tLogs.length - 1);
+          const cH = (checkTTN && checkTTN(t.id, l.id, isLast)) ? '<div class="hand-drawn-circle"></div>' : '';
+          let commHtml = l.comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l.comment)}</div>` : '';
+          html += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(l.timeStr)}</div><div class="paper-trip-num">${i + 1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l.createdByEmail, l.createdBy))}</div>${commHtml}</div></td>`;
+        } else if (type !== 'gai' && i === tLogs.length && st.ttnStatus === 'pending') {
+          let dotHtml = st.arriveStatus ? `<div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div>` : '';
+          html += `<td><div class="cell-content"><div class="hand-drawn-circle"></div>${dotHtml}</div></td>`;
+        } else if (type !== 'gai' && i === tLogs.length && st.arriveStatus) {
+          html += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div></div></td>`;
+        } else html += '<td></td>';
+      }
+      html += '</tr>';
+    });
+    html += `</tbody></table>`;
+    return html;
+  }
+
+  async function exportCurrentReportPNG(type) {
+    if (!state.shift) { showError('Смена не начата'); return; }
+    if (type === 'gai' && !hasPermission('view_gai_report')) { showError('Нет прав'); return; }
+    const logs = getLogs().filter(l => type === 'gai' ? l.isGAI : !l.isGAI);
+    if (!logs.length) { showError('Нет данных'); return; }
+    try {
+      showToastEl('⏳ Подготовка PNG...', false);
+      const html = buildReportHTML({ objectName: objectTitle(state.shift.objectId,state.shift.objectName), date: state.shift.startDate, logs, activeLineIds: getActiveLineIds(), type, checkTTN: type === 'regular' ? (id, logId) => state.truckStatus[id] && state.truckStatus[id].ttnStatus === true && state.truckStatus[id].ttnLogId === logId : null });
+      const blob = await generatePNGFromHTML(html); downloadReportPNG(blob, `report_${type}_${Date.now()}.png`); showToastEl('✅ PNG готов', false);
+    } catch(e) { showError('Ошибка PNG: ' + e.message); }
+  }
+  async function exportArchivePNG() {
+    // Export the archive sheet that is currently displayed, not a re-sorted/rebuilt report.
+    if (!hasTabAccess('archive') || !viewingArchiveId) return;
+    const archiveId = viewingArchiveId;
+    const isGAI = viewingArchiveGAITable;
+    const archive = state.archive.find(s => s.id === archiveId);
+    const modal = document.getElementById('archiveModal');
+    const liveWrapper = modal?.querySelector('#modalArchiveBody #archive-paper-wrapper');
+    const livePaper = liveWrapper?.querySelector('.paper-report-container');
+    const button = modal?.querySelector('#archiveSavePngBtn, button[onclick="exportArchivePNG()"]');
+    if (!archive || !livePaper || typeof window.html2pdf !== 'function') {
+      showError('Экспорт изображения недоступен');
+      return;
+    }
+
+    // Snapshot before any await: the user may switch dates or report types while PNG renders.
+    const snapshot = liveWrapper.cloneNode(true);
+    const sheet = snapshot.querySelector('.paper-report-container');
+    const scroller = snapshot.querySelector('.paper-scroll-wrapper');
+    snapshot.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+    snapshot.style.width = 'max-content';
+    snapshot.style.maxWidth = 'none';
+    snapshot.style.height = 'auto';
+    if (scroller) {
+      scroller.style.width = 'max-content';
+      scroller.style.maxWidth = 'none';
+      scroller.style.overflow = 'visible';
+      scroller.style.height = 'auto';
+      scroller.style.margin = '0';
+    }
+    sheet.style.zoom = '1';
+    sheet.style.transform = 'none';
+    sheet.style.transition = 'none';
+    sheet.style.width = 'max-content';
+    sheet.style.maxWidth = 'none';
+
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-100000px;top:0;width:max-content;background:#fdfdfd;pointer-events:none;z-index:-1';
+    holder.appendChild(snapshot);
+    document.body.appendChild(holder);
+    if (button) button.disabled = true;
+    let worker;
+    try {
+      if (document.fonts?.ready) await Promise.race([
+        document.fonts.ready, new Promise(resolve => setTimeout(resolve, 2500))
+      ]);
+      const table = snapshot.querySelector('.paper-table');
+      const rootBounds = snapshot.getBoundingClientRect();
+      const width = Math.ceil(Math.max(
+        1, snapshot.scrollWidth, rootBounds.width, sheet.scrollWidth,
+        table ? table.getBoundingClientRect().right - rootBounds.left + 12 : 0
+      ));
+      const height = Math.ceil(Math.max(1, snapshot.scrollHeight, rootBounds.height));
+      // Fit very wide/long reports inside browser canvas limits without dropping trips.
+      const scale = Math.min(2, Math.sqrt(16000000 / (width * height)), 8192 / width, 8192 / height);
+      worker = window.html2pdf().set({
+        margin: 0,
+        pagebreak: { mode: [], before: [], after: [], avoid: [] },
+        html2canvas: {
+          scale, width, height, windowWidth: Math.max(window.innerWidth, width),
+          windowHeight: Math.max(window.innerHeight, height),
+          scrollX: 0, scrollY: 0, useCORS: true, logging: false, backgroundColor: '#fdfdfd'
+        },
+        jsPDF: { unit: 'px', format: 'a4' }
+      }).from(snapshot).toContainer().then(function () {
+        // html2pdf normally constrains its intermediate container to A4 width.
+        // The PNG must instead cover the full rendered archive table.
+        this.prop.container.style.width = width + 'px';
+        this.prop.container.style.maxWidth = 'none';
+        this.prop.container.style.height = 'auto';
+        this.prop.container.style.overflow = 'visible';
+      });
+      const canvas = await worker.toCanvas().get('canvas');
+      if (!canvas || canvas.width < width * scale * 0.97 ||
+          canvas.height < height * scale * 0.97) {
+        throw new Error('PNG получился обрезанным');
+      }
+      const blob = await new Promise((resolve, reject) =>
+        canvas.toBlob(result => result ? resolve(result) : reject(new Error('Браузер не смог создать PNG')), 'image/png')
+      );
+      const safeName = String(archive.objectName || 'Объект').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 70);
+      const safeDate = String(archive.date || '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_');
+      const url = URL.createObjectURL(blob), link = document.createElement('a');
+      link.href = url;
+      link.download = safeName + '_' + safeDate + (isGAI ? '_ГАИ' : '') + '.png';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      showToastEl('Отчёт PNG сохранён', false);
+    } catch (e) {
+      console.warn('Archive PNG', e);
+      showError('Не удалось сохранить PNG: ' + e.message);
+    } finally {
+      if (worker?.prop?.overlay?.parentNode) worker.prop.overlay.remove();
+      holder.remove();
+      if (button) button.disabled = false;
+    }
+  }
+  // === ОТЧЕТЫ РЕНДЕР ===
+  function renderReport() {
+    if (!hasTabAccess('report')) return; // === SECURITY ===
+    if (!hasPermission('view_gai_report')) showGAITable = false;
+    let pO = document.getElementById('paperObjectName'), pD = document.getElementById('paperDateTitle'), pV = document.getElementById('paperTotalVolume');
+    let mB = document.getElementById('matrixTableBody'), mH = document.getElementById('matrixTableHeadRow'), lC = document.getElementById('logsContainer');
+    let gaiO = document.getElementById('gaiObjectName'), gaiD = document.getElementById('gaiDateTitle'), gaiV = document.getElementById('gaiTotalTrips');
+    let gaiB = document.getElementById('gaiTableBody'), gaiH = document.getElementById('gaiTableHeadRow');
+    document.getElementById('paperReportWrapper').style.display = showGAITable ? 'none' : 'block';
+    document.getElementById('gaiReportWrapper').style.display = showGAITable ? 'block' : 'none';
+    document.getElementById('toggleReportBtn').textContent = '📄';
+    pO.textContent = 'Объект: ' + (state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : '—'); pD.textContent = state.shift ? state.shift.startDate : '';
+    gaiO.textContent = 'Объект: ' + (state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : '—'); gaiD.textContent = state.shift ? state.shift.startDate : '';
+    if (!state.shift) { mB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>'; gaiB.innerHTML = '<tr><td colspan="11" style="text-align:center;">Нет смены</td></tr>';
+      // Линия закрыта, но восстановленная смена остаётся: её рейсы редактируются.
+      const restOnly=(state.restoredShifts||[]).flatMap(r=>r.logs||[]);let canEditR=hasPermission('edit_logs');
+      lC.innerHTML = restOnly.length ? restOnly.map(l=>{
+        let a = resolveUserDisplayName(l.createdByEmail, l.createdBy); let au = a ? ` · 👤 ${escapeHtml(a)}` : '';
+        let volHtml = l.isGAI ? '<span style="color:#94a3b8;">(Рейс)</span>' : `<span style="color:var(--success);">+${l.volume} м³</span>`;
+        let commHtml = l.comment ? `<div class="log-comment">💬 ${escapeHtml(l.comment)}</div>` : '';
+        return `<div class="log-item"><div><div class="log-info">${truckLabelHtml(l.truckId, l.truckName)} — ${volHtml}</div><div class="log-meta">${escapeHtml(l.timeStr)}${au}</div>${commHtml}</div>${canEditR?`<div style="display:flex;gap:6px;"><button class="btn-edit" onclick="openEditLog('${l.id}')">✏️</button><button class="btn-del" onclick="deleteLog('${l.id}')">X</button></div>`:''}</div>`;
+      }).join('') : '<div class="empty-state">Нет рейсов</div>';
+      pV.textContent='0 м³'; gaiV.textContent='0'; renderRestoredShifts(); return; }
+    let logs = getLogs(); let stdLogs = logs.filter(l=>!l.isGAI); let gaiLogs = logs.filter(l=>l.isGAI);
+    let totV = stdLogs.reduce((s,l)=>s+l.volume,0); pV.textContent = totV + ' м³';
+    let aIds = getActiveLineIds().filter(id => { let t = findTruck(id); return t && !t.isGAI; });
+    let tIds = new Set(aIds); stdLogs.forEach(l=>tIds.add(l.truckId));
+    let rTrucks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?f:{id, brand:'Машина', number:'', defaultVol:0}; });
+    let fTime = {}; stdLogs.forEach(l=>{ if(fTime[l.truckId]===undefined || l.timestamp<fTime[l.truckId]) fTime[l.truckId]=l.timestamp; });
+    // Эталон «Сводка»: первым идёт самосвал с самой ранней погрузкой; машины без рейсов — внизу.
+    rTrucks.sort((a,b)=> ((fTime[a.id] === undefined) - (fTime[b.id] === undefined)) || ((fTime[a.id]||0) - (fTime[b.id]||0)) || String(a.id).localeCompare(String(b.id)));
+    let maxT = 8; rTrucks.forEach(t=>{ let c=stdLogs.filter(l=>l.truckId===t.id).length; if(c>maxT) maxT=c; });
+    let hHtml = '<th>№</th><th style="text-align:left;">Самосвал</th>'; for(let i=1; i<=maxT; i++) hHtml += `<th>Рейс ${i}</th>`; mH.innerHTML = hHtml;
+    mB.innerHTML = rTrucks.map((t, idx)=>{
+      let tL = stdLogs.filter(l=>l.truckId===t.id).slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) || String(a.id||'').localeCompare(String(b.id||''))), st = state.truckStatus[t.id]||{}, sum = tL.reduce((s,l)=>s+l.volume,0);
+      let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
+      let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
+      let cells = '';
+      for(let i=0; i<maxT; i++) {
+        if(tL[i]) {
+          let cH = (st.ttnStatus === true && st.ttnLogId === tL[i].id) ? '<div class="hand-drawn-circle"></div>' : '';
+          let commHtml = tL[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(tL[i].comment)}</div>` : '';
+          cells += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(tL[i].timeStr)}${tL[i].offlinePending?` <span title="Рейс сохранён на устройстве" style="color:#d97706;font-size:10px">☁</span>`:''} </div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(tL[i].createdByEmail, tL[i].createdBy))}</div>${commHtml}</div></td>`;
+        }
+        else if(i===tL.length && st.ttnStatus === 'pending') {
+          let dotHtml = st.arriveStatus ? `<div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div>` : '';
+          cells += `<td><div class="cell-content"><div class="hand-drawn-circle"></div>${dotHtml}</div></td>`;
+        }
+        else if(i===tL.length && st.arriveStatus) cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div></div></td>`;
+        else cells += '<td></td>';
+      }
+      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³ / ${tL.length} р</span>${dupHtml}</div>${t.number?renderRussianPlate(t.number):''}</td>${cells}</tr>`;
+    }).join('');
+    gaiV.textContent = gaiLogs.length;
+    let gaiLineIds = getActiveLineIds().filter(id => { let t = findTruck(id); return t && t.isGAI; });
+    let gaiTIds = new Set(gaiLineIds); gaiLogs.forEach(l=>gaiTIds.add(l.truckId));
+    let gaiTrucks = Array.from(gaiTIds).map(id=>{ let f=findTruck(id); return f?f:{id, brand:'Машина', number:'', defaultVol:0}; });
+    let gaiFirstTime = {}; gaiLogs.forEach(l=>{ if(gaiFirstTime[l.truckId]===undefined || l.timestamp<gaiFirstTime[l.truckId]) gaiFirstTime[l.truckId]=l.timestamp; });
+    gaiTrucks.sort((a,b)=> ((gaiFirstTime[a.id] === undefined) - (gaiFirstTime[b.id] === undefined)) || ((gaiFirstTime[a.id]||0) - (gaiFirstTime[b.id]||0)) || String(a.id).localeCompare(String(b.id)));
+    let gaiMaxT = 8; gaiTrucks.forEach(t=>{ let c=gaiLogs.filter(l=>l.truckId===t.id).length; if(c>gaiMaxT) gaiMaxT=c; });
+    let gaiHHtml = '<th>№</th><th style="text-align:left;">Самосвал</th>'; for(let i=1; i<=gaiMaxT; i++) gaiHHtml += `<th>Рейс ${i}</th>`; gaiH.innerHTML = gaiHHtml;
+    gaiB.innerHTML = gaiTrucks.map((t, idx)=>{
+      let tL = gaiLogs.filter(l=>l.truckId===t.id).slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) || String(a.id||'').localeCompare(String(b.id||'')));
+      let st = state.truckStatus[t.id] || {};
+      let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
+      let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
+      let cells = '';
+      for(let i=0; i<gaiMaxT; i++) {
+        if(tL[i]) {
+          let commHtml = tL[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(tL[i].comment)}</div>` : '';
+          cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(tL[i].timeStr)}${tL[i].offlinePending?` <span title="Рейс сохранён на устройстве" style="color:#d97706;font-size:10px">☁</span>`:''} </div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(tL[i].createdByEmail, tL[i].createdBy))}</div>${commHtml}</div></td>`;
+        }
+        else cells += '<td></td>';
+      }
+      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tL.length}</span>${dupHtml}</div>${t.number?renderRussianPlate(t.number):''}</td>${cells}</tr>`;
+    }).join('');
+    let canEditL = hasPermission('edit_logs');
+    // Журнал показывает и рейсы восстановленных архивных смен: они редактируются
+    // здесь же (report.*), при этом сводки активной смены их не учитывают.
+    const restoredLogs=(state.restoredShifts||[]).flatMap(r=>r.logs||[]);
+    const allLogs=[...logs,...restoredLogs.filter(l=>!logs.some(x=>x.id===l.id))];
+    lC.innerHTML = allLogs.length === 0 ? '<div class="empty-state">Нет рейсов</div>' : allLogs.map(l=>{
+      let a = resolveUserDisplayName(l.createdByEmail, l.createdBy); let au = a ? ` · 👤 ${escapeHtml(a)}` : '';
+      let volHtml = l.isGAI ? '<span style="color:#94a3b8;">(Рейс)</span>' : `<span style="color:var(--success);">+${l.volume} м³</span>`;
+      let commHtml = l.comment ? `<div class="log-comment">💬 ${escapeHtml(l.comment)}</div>` : '';
+      return `<div class="log-item"><div><div class="log-info">${truckLabelHtml(l.truckId, l.truckName)} — ${volHtml}</div><div class="log-meta">${escapeHtml(l.timeStr)}${au}${l.offlinePending?' · ☁️ офлайн':''}</div>${commHtml}</div>${canEditL&&!l.offlinePending?`<div style="display:flex;gap:6px;"><button class="btn-edit" onclick="openEditLog('${l.id}')">✏️</button><button class="btn-del" onclick="deleteLog('${l.id}')">X</button></div>`:''}</div>`;
+    }).join('');
+    renderRestoredShifts();
+  }
+  function toggleReportType() { if (!hasPermission('view_gai_report')) { showError('Нет прав'); return; } showGAITable = !showGAITable; renderReport(); }
+  function openEditLog(id) { if(!requireEdit('edit_logs')) return; let l=state.logs.find(x=>x.id===id); if(!l) return; editingLogId=id; document.getElementById('editLogTruckInfo').innerHTML=`<b>${escapeHtml(l.truckName)}</b>`; document.getElementById('editLogVolume').value=l.volume; document.getElementById('editLogTime').value=l.timeStr; document.getElementById('editLogComment').value=l.comment || ''; document.getElementById('editLogModal').classList.add('open'); }
+  function closeEditLogModal() { document.getElementById('editLogModal').classList.remove('open'); editingLogId=null; }
+  async function saveLogEdit() {
+    if(!requireEdit('edit_logs') || !editingLogId) return;
+    let l=state.logs.find(x=>x.id===editingLogId); if(!l) return closeEditLogModal();
+    let v=parseFloat(document.getElementById('editLogVolume').value); let t=document.getElementById('editLogTime').value; let comm=document.getElementById('editLogComment').value.trim();
+    if(isNaN(v)||v<0 || !/^\d{2}:\d{2}$/.test(t)) { appNotice('Проверьте правильность ввода объема и времени (ЧЧ:ММ)'); return; }
+    if(isNasRuntime()){try{await nasReportAction('report.update',l,{volume:v,timeStr:t,comment:comm});closeEditLogModal();renderReport();showToastEl('✅ Рейс обновлен',false);}catch(e){showError(e.message);}return;}
+    let ts=l.timestamp; if(ts){ let d=new Date(ts), p=t.split(':'); d.setHours(p[0],p[1],0,0); ts=d.getTime(); }
+    const logIdToSave = editingLogId;
+    Object.assign(l, {volume:v, timeStr:t, timestamp:ts, comment:comm}); saveCache(); renderReport(); closeEditLogModal();
+    tf((async()=>{ await refs.logs.doc(logIdToSave).update({volume:v, timeStr:t, timestamp:ts, comment:comm}); await addAudit('✏️ Изменён рейс: ' + l.truckName + ' · ' + v + ' м³ · ' + t, {eventType:'log_edit',logId:logIdToSave,truckId:l.truckId}); })());
+    showToastEl('✅ Рейс обновлен', false);
+  }
+  async function deleteLog(id) { if(!requireEdit('edit_logs') || !(await appConfirm('Удалить?'))) return; if(isNasRuntime()){try{const log=state.logs.find(x=>x.id===id);if(log)await nasReportAction('report.delete',log);renderReport();}catch(e){showError(e.message);}return;} state.logs=state.logs.filter(x=>x.id!==id); saveCache(); renderReport(); tf(refs.logs.doc(id).delete()); }
+
+  // === ВОССТАНОВЛЕННЫЕ АРХИВНЫЕ СМЕНЫ (правки параллельно с активной линией) ===
+  // Решение владельца 23.11.2026: восстановленная из архива смена редактируется
+  // параллельно с активной. Рейсы правятся обычным журналом (report.*); блок
+  // ниже показывает сводку и возвращает смену в архив закрытием. Активная
+  // смена линии при этом не затрагивается (сервер разделяет их по shiftId).
+  function renderRestoredShifts() {
+    const box = document.getElementById('restoredShiftsContainer'); if (!box) return;
+    const restored = state.restoredShifts || [];
+    if (!restored.length) { box.hidden = true; box.innerHTML = ''; return; }
+    const canEdit = hasPermission('close_shift');
+    box.hidden = false;
+    box.innerHTML = restored.map(r => {
+      const s = r.shift, stdLogs = (r.logs||[]).filter(l=>!l.isGAI), gaiLogs=(r.logs||[]).filter(l=>l.isGAI);
+      const volume = stdLogs.reduce((sum,l)=>sum+Number(l.volume||0),0);
+      const title = escapeHtml(objectTitle(s.objectId, s.objectName)) + ' · ' + escapeHtml(s.startDate||'');
+      return `<div class="restored-shift-card" data-restored-shift="${escapeHtml(s.id)}">
+        <div class="restored-shift-head">
+          <div><b>♻️ Восстановленная смена: ${title}</b><div class="restored-shift-note">Редактируется параллельно с активной сменой. Правки рейсов — в журнале ниже.</div></div>
+          ${canEdit?`<button class="btn btn-secondary btn-small" onclick="closeRestoredShift('${escapeHtml(s.id)}')">📥 Вернуть в архив</button>`:''}
+        </div>
+        <div class="restored-shift-stats">Объём: <b>${volume} м³</b> · Рейсов: <b>${stdLogs.length}</b>${gaiLogs.length?` · ГАИ: <b>${gaiLogs.length}</b>`:''}</div>
+      </div>`;
+    }).join('');
+  }
+  async function closeRestoredShift(shiftId) {
+    if(!requireEdit('close_shift')) return;
+    const r=(state.restoredShifts||[]).find(x=>x.shift.id===shiftId); if(!r){showError('Смена уже изменена. Обновите страницу.');return;}
+    if(!(await appConfirm(`Вернуть восстановленную смену «${objectTitle(r.shift.objectId,r.shift.objectName)}» от ${r.shift.startDate} в архив?\n\nАктивная смена линии продолжит работать без изменений.`)))return;
+    if(!isNasRuntime()){showError('Возврат в архив доступен в режиме сервера Ubuntu');return;}
+    try{
+      // Материал уже переносился при исходном закрытии: повторного переноса нет,
+      // сервер не требует подтверждения табеля для restored-смены.
+      await nasCloseCurrentShift(shiftId);
+      showToastEl('✅ Восстановленная смена возвращена в архив. Активная смена не менялась.', false);
+    }catch(e){showError('Ошибка возврата в архив: '+e.message);}
+  }
+
+  function exportCSV() {
+    if (!state.shift) return;
+    let logs = getLogs(); if(!logs.length) return;
+    let targetLogs = showGAITable ? logs.filter(l=>l.isGAI) : logs.filter(l=>!l.isGAI);
+    let a = getActiveLineIds().filter(id => { let t = findTruck(id); return t && (showGAITable ? t.isGAI : !t.isGAI); });
+    let rT = a.map(id=>findTruck(id)).filter(Boolean);
+    let fT = {}; targetLogs.forEach(l=>{ if(fT[l.truckId]===undefined || l.timestamp<fT[l.truckId]) fT[l.truckId]=l.timestamp; });
+    rT.sort((a,b)=>(fT[a.id]||0)-(fT[b.id]||0));
+    let mT = 8; rT.forEach(t=>{ let c=targetLogs.filter(l=>l.truckId===t.id).length; if(c>mT) mT=c; });
+    let csv = '\uFEFFsep=;\n';
+    if (showGAITable) {
+      csv += '№;Самосвал;Всего рейсов;'; for(let i=1; i<=mT; i++) csv+=`Рейс ${i};`; csv+='\n';
+      rT.forEach((t, i)=>{ let tL = targetLogs.filter(l=>l.truckId===t.id).slice().reverse(); csv += `${i+1};"${t.brand} ${t.number}";${tL.length};`; for(let j=0; j<mT; j++) csv += tL[j] ? `${tL[j].timeStr}/${j+1}${tL[j].comment?'('+tL[j].comment+')':''};` : '-;'; csv += '\n'; });
+    } else {
+      csv += '№;Самосвал;Всего рейсов;Всего м3;'; for(let i=1; i<=mT; i++) csv+=`Рейс ${i};`; csv+='\n';
+      rT.forEach((t, i)=>{ let tL = targetLogs.filter(l=>l.truckId===t.id).slice().reverse(), s = tL.reduce((x,l)=>x+l.volume,0); csv += `${i+1};"${t.brand} ${t.number}";${tL.length};${s};`; for(let j=0; j<mT; j++) csv += tL[j] ? `${tL[j].timeStr}/${j+1}${tL[j].comment?'('+tL[j].comment+')':''};` : '-;'; csv += '\n'; });
+    }
+    let b = new Blob([csv], {type:'text/csv;charset=utf-8;'}), u=URL.createObjectURL(b), aE=document.createElement('a');
+    aE.href=u; aE.download= showGAITable ? 'report_gai.csv' : 'report.csv'; aE.click(); URL.revokeObjectURL(u);
+    showToastEl('Скачан Excel', false);
+  }
+
+  // === АРХИВ ===
+  const archiveExpandedObjects = new Set();
+  function renderArchive() {
+    if (!hasTabAccess('archive')) return;
+    const container=document.getElementById('archiveContainer');
+    if (!container.__archiveToggleBound) {
+      container.addEventListener('click',event=>{
+        const toggle=event.target.closest?.('.archive-group-toggle');
+        if (!toggle || !container.contains(toggle)) return;
+        const key=toggle.getAttribute('data-archive-key');
+        const expanded=toggle.getAttribute('aria-expanded')!=='true';
+        if (expanded) archiveExpandedObjects.add(key);
+        else archiveExpandedObjects.delete(key);
+        toggle.setAttribute('aria-expanded',String(expanded));
+        const arrow=toggle.querySelector('.archive-group-arrow');
+        if (arrow) arrow.textContent=expanded?'▾':'▸';
+        const list=toggle.nextElementSibling;
+        if (list?.classList.contains('archive-shifts-list')) list.hidden=!expanded;
+      });
+      container.__archiveToggleBound=true;
+    }
+    const q=(document.getElementById('archiveSearchInput').value||'').toLowerCase();
+    // Фоновые снапшоты пересобирают список через innerHTML — без сохранения
+    // прокрутки список «подпрыгивает» к началу при каждом обновлении.
+    const keepScrollY=window.scrollY||document.documentElement.scrollTop||document.body?.scrollTop||0;
+    const keepContainerTop=container.scrollTop||0;
+    const filtered=state.archive.filter(s=>s.date?.toLowerCase().includes(q)||objectTitle(s.objectId,s.objectName).toLowerCase().includes(q));
+    if (!filtered.length){
+      container.innerHTML='<div class="empty-state">Пусто</div>';
+      container.scrollTop=keepContainerTop;
+      if (keepScrollY&&typeof window.scrollTo==='function') window.scrollTo(0,keepScrollY);
+      renderTrash();return;
+    }
+    const groups=Object.create(null);
+    filtered.forEach(shift=>{
+      const name=objectTitle(shift.objectId,shift.objectName);
+      if (!groups[name]) groups[name]=[];
+      groups[name].push(shift);
+    });
+    container.innerHTML=Object.keys(groups).map((name,index)=>{
+      const shifts=groups[name].sort((a,b)=>(b.closedAt||0)-(a.closedAt||0));
+      const expanded=archiveExpandedObjects.has(name)||!!q;
+      return `<div class="archive-group"><button type="button" class="archive-group-header archive-group-toggle" data-archive-key="${escapeHtml(name)}" aria-expanded="${expanded}" aria-controls="archive-shifts-${index}" style="width:100%;border:0;text-align:left;font-family:inherit;gap:10px;"><span class="archive-group-arrow" aria-hidden="true" style="min-width:14px;">${expanded?'▾':'▸'}</span><span style="min-width:0;flex:1;overflow-wrap:anywhere;">${escapeHtml(name)}</span></button><div class="archive-shifts-list" id="archive-shifts-${index}" ${expanded?'':'hidden'}>${shifts.map(s=>{
+        const stdLogs=(s.logs||[]).filter(log=>!log.isGAI);
+        return `<div class="archive-shift-item" onclick="openArchiveModal('${s.id}')"><div>${escapeHtml(s.date)}</div><div>${stdLogs.length} рейсов | <b>${stdLogs.reduce((sum,log)=>sum+log.volume,0)} м³</b></div></div>`;
+      }).join('')}</div></div>`;
+    }).join('');
+    container.scrollTop=keepContainerTop;
+    if (keepScrollY&&typeof window.scrollTo==='function') window.scrollTo(0,keepScrollY);
+    renderTrash();
+    if (viewingArchiveId){
+      const shift=state.archive.find(item=>item.id===viewingArchiveId);
+      if (shift) openArchiveModal(viewingArchiveId); else closeArchiveModal();
+    }
+  }
+  function renderTrash() { let c = document.getElementById('trashContainer'); if(!state.trash.length) { c.innerHTML=''; return; } let e = hasPermission('archive_edit'); c.innerHTML = `<div class="trash-group"><div class="trash-header">Корзина</div><div class="trash-list">${state.trash.map(i=>`<div class="trash-item"><div class="info"><b>${escapeHtml(objectTitle(i.shift.objectId,i.shift.objectName))}</b> · ${escapeHtml(i.shift.date)}</div>${e?`<button class="btn-del" onclick="purgeFromTrash('${i.id}')">X</button>`:''}</div>`).join('')}</div></div>`; }
+  async function purgeFromTrash(id) { if(!requireEdit('archive_delete') || !(await appConfirm('Удалить навсегда?'))) return; try{if(isNasRuntime()){await nasArchiveAction('trash.purge',id);return;}await tfAwait(refs.trash.doc(id).delete());}catch(e){showError(e.message);} }
+  function openArchiveModal(id) { let s = state.archive.find(x=>x.id===id); if(!s) return; viewingArchiveId=id; viewingArchiveGAITable = false; renderArchiveModalContent(s); document.getElementById('archiveModal').classList.add('open'); }
+  function toggleArchiveReportType() { viewingArchiveGAITable = !viewingArchiveGAITable; let s = state.archive.find(x=>x.id===viewingArchiveId); if (s) renderArchiveModalContent(s); }
+  function renderArchiveModalContent(s) {
+    if (!hasTabAccess('archive')) return; // === SECURITY ===
+    // Ф3: фоновые снапшоты вызывают renderArchive → openArchiveModal →
+    // этот рендер, и innerHTML сбрасывает горизонтальную прокрутку отчёта
+    // («схлопывался к самосвалам»). scrollLeft читается до перестроения
+    // и восстанавливается после — как вертикаль списка в renderArchive.
+    const bodyEl=document.getElementById('modalArchiveBody');
+    const keepScrollLeft=bodyEl?.querySelector('.paper-scroll-wrapper')?.scrollLeft||0;
+    let logs = s.logs || []; let stdLogs = logs.filter(l=>!l.isGAI); let gaiLogs = logs.filter(l=>l.isGAI);
+    let tV = stdLogs.reduce((x,y)=>x+y.volume,0);
+    document.getElementById('modalArchiveTitle').textContent = s.date;
+    let e = hasPermission('archive_edit');
+    document.getElementById('archiveRestoreBtn').style.display = e?'':'none';
+    // На пустом (уже удалённом) листе ГАИ удалять нечего — кнопка скрыта.
+    const canDeleteArchive = hasPermission('archive_delete') && !(viewingArchiveGAITable && !gaiLogs.length);
+    document.getElementById('archiveDeleteBtn').style.display = canDeleteArchive?'':'none';
+    // Подпись кнопки объясняет, что именно удалится: весь архив или только лист ГАИ.
+    const delBtn = document.getElementById('archiveDeleteBtn');
+    if (delBtn) delBtn.textContent = viewingArchiveGAITable ? '🗑 Удалить лист ГАИ' : '🗑 Удалить архив';
+    let toggleBtnHtml = `<div class="archive-view-switch"><button type="button" class="archive-toggle-icon" aria-label="${viewingArchiveGAITable ? 'Обычный лист' : 'Лист ГАИ'}" title="${viewingArchiveGAITable ? 'Обычный лист' : 'Лист ГАИ'}" onclick="toggleArchiveReportType()">📄</button></div>`;
+    let activeLineIds = s.activeLineIds || []; let ttnStatus = s.ttnStatus || {}; let html = '';
+    if (!viewingArchiveGAITable) {
+      let aIds = activeLineIds.filter(id => { let t = findTruck(id); return t && !t.isGAI; });
+      let tIds = new Set(aIds); stdLogs.forEach(l=>tIds.add(l.truckId));
+      let tks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?{id, name:f.brand+' '+f.number}:{id, name:(stdLogs.find(l=>l.truckId===id)?.truckName||'—')}; });
+      let mT=8; tks.forEach(t=>{ let c=stdLogs.filter(l=>l.truckId===t.id).length; if(c>mT) mT=c; });
+      let hC = ''; for(let i=1; i<=mT; i++) hC+=`<th>Рейс ${i}</th>`;
+      let mH = tks.map(t=>{ let l = stdLogs.filter(x=>x.truckId===t.id).slice().reverse(), sm = l.reduce((x,y)=>x+y.volume,0), cells=''; let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (l.length > 0 && ttnStatus[t.id] !== true && ttnStatus[t.id] !== 'pending') : (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
+        for(let i=0; i<mT; i++) { if(l[i]) { let isL=(i===l.length-1), cH = ttnStatus[t.id] && isL ? '<div class="hand-drawn-circle"></div>':''; let commHtml = l[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l[i].comment)}</div>` : ''; cells += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(l[i].timeStr)}</div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l[i].createdByEmail, l[i].createdBy))}</div>${commHtml}</div></td>`; }
+          else if (i === l.length && ttnStatus[t.id] === 'pending') { cells += `<td><div class="cell-content"><div class="hand-drawn-circle"></div></div></td>`; }
+          else cells += '<td></td>';
+        } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">${sm} м³</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectTitle(s.objectId,s.objectName))}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Объем: <b>${tV} м³</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
+    } else if (!gaiLogs.length) {
+      // Лист ГАИ удалён: остаётся пустой листик — без пометки «ГАИ» и без
+      // списка самосвалов, которые были только на этом листе.
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectTitle(s.objectId,s.objectName))}</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th></tr></thead><tbody></tbody></table></div></div></div>`;
+    } else {
+      let aIds = activeLineIds.filter(id => { let t = findTruck(id); return t && t.isGAI; });
+      let tIds = new Set(aIds); gaiLogs.forEach(l=>tIds.add(l.truckId));
+      let tks = Array.from(tIds).map(id=>{ let f=findTruck(id); return f?{id, name:f.brand+' '+f.number}:{id, name:(gaiLogs.find(l=>l.truckId===id)?.truckName||'—')}; });
+      let mT=8; tks.forEach(t=>{ let c=gaiLogs.filter(l=>l.truckId===t.id).length; if(c>mT) mT=c; });
+      let hC = ''; for(let i=1; i<=mT; i++) hC+=`<th>Рейс ${i}</th>`;
+      let mH = tks.map(t=>{ let l = gaiLogs.filter(x=>x.truckId===t.id).slice().reverse(), cells=''; let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? (l.length > 0 && ttnStatus[t.id] !== true && ttnStatus[t.id] !== 'pending') : (l.length > 0 && !ttnStatus[t.id]); let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
+        for(let i=0; i<mT; i++) { if(l[i]) { let commHtml = l[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l[i].comment)}</div>` : ''; cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(l[i].timeStr)}</div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l[i].createdByEmail, l[i].createdBy))}</div>${commHtml}</div></td>`; }
+          else cells += '<td></td>';
+        } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">Рейсов: ${l.length}</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
+      html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectTitle(s.objectId,s.objectName))} (ГАИ)</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Рейсов ГАИ: <b>${gaiLogs.length}</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
+    }
+    document.getElementById('modalArchiveBody').innerHTML = toggleBtnHtml + html;
+    const keepWrapper=document.getElementById('modalArchiveBody').querySelector('.paper-scroll-wrapper');
+    if (keepWrapper && keepScrollLeft) keepWrapper.scrollLeft = keepScrollLeft;
+  }
+  function closeArchiveModal() { document.getElementById('archiveModal').classList.remove('open'); viewingArchiveId=null; }
+  async function restoreArchiveToShift() {
+    if(state.shift?.closing){showError('Сначала завершите закрытие текущей смены');return;}
+    if (!requireEdit('archive_edit') || !viewingArchiveId) return;
+    const s = state.archive.find(x => x.id === viewingArchiveId); if (!s) return;
+    if(isNasRuntime()){
+      // Решение владельца 23.11.2026: архивная смена восстанавливается для
+      // правок параллельно с активной сменой линии — закрывать её не нужно.
+      const hasActive = state.shift && state.shift.isActive;
+      const msg = hasActive
+        ? `Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date} для правок?\n\nАктивная смена «${objectTitle(state.shift.objectId,state.shift.objectName)}» продолжит работать — восстановленная смена редактируется параллельно.`
+        : `Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date}?`;
+      if(!(await appConfirm(msg)))return;
+      try{await nasArchiveAction('archive.restore',viewingArchiveId);closeArchiveModal();showToastEl(hasActive?'✅ Архивная смена восстановлена для правок — параллельно с активной':'Смена восстановлена на Ubuntu',false);}catch(error){showError('Ошибка восстановления: '+error.message);}return;
+    }
+    // Firebase-путь восстановления архива удалён (очистка 2026-11-23):
+    // Ubuntu — единственный сервер данных, Firebase-режим недостижим.
+    showError('Восстановление недоступно: нет связи с сервером Ubuntu.');
+  }
+  // «Удалить» зависит от открытого листочка: обычный лист — весь архив в корзину,
+  // лист ГАИ — только рейсы ГАИ этого архива, остальные данные не меняются.
+  async function deleteArchiveShift() {
+    if(!requireEdit('archive_delete') || !viewingArchiveId) return;
+    const s = state.archive.find(x=>x.id===viewingArchiveId); if(!s) return;
+    const gaiMode = viewingArchiveGAITable === true;
+    const dateText = s.date || '';
+    const gaiTrips = (s.logs||[]).filter(l=>l.isGAI).length;
+    try {
+      if (gaiMode) {
+        if (!gaiTrips) { showError('В этом архиве нет рейсов ГАИ.'); return; }
+        if (!(await appConfirm(`Вы действительно хотите удалить листочек ГАИ за ${dateText}? Обычный лист и остальные данные архива останутся без изменений.`))) return;
+        if (isNasRuntime()) {
+          await nasArchiveAction('archive.gai.delete', viewingArchiveId);
+        } else {
+          const logs = (s.logs||[]).filter(l=>!l.isGAI);
+          await tfAwait(refs.archive.doc(viewingArchiveId).update({
+            logs,
+            totalVolume: logs.reduce((total,l)=>total+Number(l.volume||0),0),
+            totalTrips: logs.length,
+            gaiDeletedAt: Date.now(),
+            gaiDeletedBy: getUserName(),
+          }));
+        }
+        addAudit(`🗑 Удалён листочек ГАИ за ${dateText}`).catch(()=>{});
+        showToastEl('Листочек ГАИ удалён. Остальной архив сохранён.', false);
+        viewingArchiveGAITable = false;
+        const fresh = state.archive.find(x=>x.id===viewingArchiveId);
+        if (fresh) renderArchiveModalContent(fresh); else closeArchiveModal();
+        return;
+      }
+      if (!(await appConfirm(`Удалить весь архив за ${dateText}? Смена уйдёт в корзину, обычный лист и лист ГАИ.`))) return;
+      if (isNasRuntime()) { await nasArchiveAction('archive.trash', viewingArchiveId); closeArchiveModal(); return; }
+      await tfAwait(refs.trash.doc().set({ shift: s, deletedAt: Date.now(), deletedBy: getUserName() }));
+      await tfAwait(refs.archive.doc(viewingArchiveId).delete());
+      closeArchiveModal();
+    } catch(e){ showError(e.message); }
+  }
+
+  // === СЕЛЕКТОР ===
+  function renderSelectorList() {
+    let q = (document.getElementById('truckSearchInput').value||'').toLowerCase();
+    let c = document.getElementById('selectorListContainer');
+    let f = state.trucks.filter(t=>(t.brand+' '+t.number).toLowerCase().includes(q));
+    let on = new Set(getActiveLineIds());
+    let html = '';
+    if(!f.length) {
+      html += `<div class="empty-state">Ничего не найдено</div>`;
+      if(q.length > 1) { html += `<div class="form-card" style="margin-top: 10px; border-color: var(--primary);"><div style="font-size: 14px; font-weight: 700; margin-bottom: 10px; color: var(--primary);">Добавить в базу и на линию:</div><div class="form-group"><input type="text" id="quickAddBrand" class="form-control" placeholder="Марка авто (напр. КАМАЗ)"></div><div class="form-group"><input type="text" id="quickAddNumber" class="form-control" placeholder="Госномер" value="${escapeHtml(q)}"></div><div class="form-group"><select id="quickAddType" class="form-control"><option value="regular">🚛 Обычный</option><option value="gai">🛣 ГАИ</option></select></div><div class="form-group" id="quickAddVolGroup"><input type="number" step="0.5" id="quickAddVol" class="form-control" placeholder="Объем кузова" value="20"></div><button class="btn btn-quick" style="width: 100%;" onclick="quickAddTruckToLine()">➕ Создать и выбрать</button></div>`; }
+    } else {
+      html += f.map(t=>{ let isO = on.has(t.id); let gaiTag = t.isGAI ? '<span style="font-size:10px;background:rgba(148,163,184,0.2);color:#cbd5e1;padding:1px 4px;border-radius:4px;margin-left:4px;">ГАИ</span>' : ''; let btn = hasPermission('edit_line') ? `<button class="btn btn-small ${isO?'btn-danger':'btn-quick'}" onclick="toggleLineTruck('${t.id}')">${isO?'Убрать':'Добавить'}</button>` : (isO?'✓':''); return `<div class="selector-item"><div><b>${escapeHtml(t.brand)}</b> ${renderRussianPlate(t.number)} ${gaiTag}</div>${btn}</div>`; }).join('');
+    }
+    c.innerHTML = html;
+    let typeSelect = document.getElementById('quickAddType'); if(typeSelect) { typeSelect.addEventListener('change', (e) => { document.getElementById('quickAddVolGroup').style.display = e.target.value === 'gai' ? 'none' : 'block'; }); }
+  }
+  async function quickAddTruckToLine() {
+    if(!requireEdit('manage_trucks') || !requireEdit('edit_line')) return;
+    let brand = document.getElementById('quickAddBrand').value.trim();
+    let num = document.getElementById('quickAddNumber').value.trim();
+    let type = document.getElementById('quickAddType').value;
+    let vol = parseFloat(document.getElementById('quickAddVol').value) || 0;
+    let isGAI = type === 'gai';
+    if(!brand || !num) { showError('Заполните марку и номер'); return; }
+    try { if(isNasRuntime()){const result=await nasSaveRecord('truck','',{brand,number:num,defaultVol:isGAI?0:vol,isGAI},0);document.getElementById('truckSearchInput').value='';await nasChangeMembership(result.result.id,true);renderSelectorList();return;}let r = refs.trucks.doc(); await tfAwait(r.set({ brand, number: num, defaultVol: isGAI ? 0 : vol, isGAI, createdAt: Date.now(), createdBy: getUserName() })); await addTruckToLine(r.id); document.getElementById('truckSearchInput').value = ''; renderSelectorList(); }
+    catch(e) { showError(e.message); }
+  }
+  function openSelectorModal() { if(!requireEdit('edit_line') || !state.shift) return; const search=document.getElementById('truckSearchInput');if(search)search.value=''; document.getElementById('selectorModal').classList.add('open'); renderSelectorList(); }
+  function closeSelectorModal() { document.getElementById('selectorModal').classList.remove('open'); }
+  async function toggleLineTruck(id) { if(!requireEdit('edit_line')) return; if(getActiveLineIds().includes(id)) await removeTruckFromLine(id); else await addTruckToLine(id); renderSelectorList(); }
+
+  function renderGlobalTrucksManage() {
+    if (!hasTabAccess('trucks')) return; // === SECURITY ===
+    let c = document.getElementById('globalTrucksManageList'); if(!c) return; let e = hasPermission('manage_trucks');
+    c.innerHTML = state.trucks.map(t=>{ let gaiTag = t.isGAI ? '<span style="font-size:10px;background:rgba(148,163,184,0.2);color:#cbd5e1;padding:2px 4px;border-radius:4px;margin-left:8px;">ГАИ</span>' : ''; let volText = t.isGAI ? '' : `(${t.defaultVol}м³)`; return `<div class="log-item"><div><b>${escapeHtml(t.brand)}</b> ${renderRussianPlate(t.number)} ${volText} ${gaiTag}</div>${e?`<div style="display:flex;gap:6px;"><button class="btn-edit" onclick="editGlobalTruck('${t.id}')">✏️</button><button class="btn-del" onclick="deleteGlobalTruck('${t.id}')">X</button></div>`:''}</div>`; }).join('');
+  }
+  function renderGlobalObjectsManage() {
+    if (!hasTabAccess('trucks')) return; // === SECURITY ===
+    let c = document.getElementById('globalObjectsManageList'); if(!c) return; let e = hasPermission('manage_objects');
+    c.innerHTML = state.objects.map(o=>`<div class="log-item"><div>${escapeHtml(o.name)}</div>${e?`<div style="display:flex;gap:6px;"><button class="btn-edit" onclick="editGlobalObject('${o.id}')">✏️</button><button class="btn-del" onclick="deleteGlobalObject('${o.id}')">X</button></div>`:''}</div>`).join('');
+  }
+  function switchBaseSubTab(n) {
+    document.getElementById('subBtnTrucks').style.background = n==='trucks'?'var(--primary)':'var(--border)';
+    document.getElementById('subBtnObjects').style.background = n==='objects'?'var(--primary)':'var(--border)';
+    document.getElementById('subtab-trucks').style.display = n==='trucks'?'block':'none';
+    document.getElementById('subtab-objects').style.display = n==='objects'?'block':'none';
+  }
+
+  function renderAnalytics() {
+    if (!hasTabAccess('analytics')) return; // === SECURITY ===
+    let c = document.getElementById('auditLogContainer'); if(!c) return;
+    c.innerHTML = renderAuditEntries();
+  }
+  function exportBackupFile() {
+    if (!hasPermission('import_backup') && !canAdmin()) return;
+    try { let data = { exportedAt: Date.now(), version: 2.88, trucks: state.trucks, objects: state.objects, archive: state.archive }; let blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); let url = URL.createObjectURL(blob); let a = document.createElement('a'); a.href = url; a.download = 'trucks_backup_' + new Date().toISOString().slice(0,10) + '.json'; a.click(); URL.revokeObjectURL(url); showToastEl('Бэкап скачан', false); }
+    catch(e) { showError(e.message); }
+  }
+  async function importBackupFile(ev) {
+    if (!hasPermission('import_backup') && !canAdmin()) return;
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const sections = [['trucks', refs.trucks], ['objects', refs.objects], ['archive', refs.archive]];
+      if (!data || typeof data !== 'object' || !sections.some(([name]) => Array.isArray(data[name]))) {
+        throw new Error('Файл не похож на резервную копию программы');
+      }
+      for (const [name] of sections) {
+        if (data[name] !== undefined && !Array.isArray(data[name])) throw new Error('Неверный раздел: ' + name);
+      }
+      const counts = sections.map(([name]) => name + ': ' + (data[name] || []).length).join('\\n');
+      if (!(await appConfirm('Импорт добавит или обновит записи по ID, но не удалит существующие.\\n' + counts + '\\nПродолжить?'))) return;
+      if(isNasRuntime()){
+        await Promise.all([refreshNasObjects(),refreshNasArchive()]);const items=[];
+        for(const [collection] of sections)for(const raw of data[collection]||[]){
+          if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Некорректная запись: '+collection);
+          const id=raw.id?String(raw.id):'import_'+crypto.randomUUID().replaceAll('-','');const {id:_,revision,...payload}=raw;
+          const existing=(collection==='archive'?state.archive:collection==='trucks'?state.trucks:state.objects).find(r=>r.id===id);
+          items.push({collection,recordId:id,expectedRevision:existing?.revision||0,data:payload});
+        }
+        if(!items.length)throw Error('Резервная копия пуста');const result=await nasBusinessCommand('auxiliary','backup',{type:'backup.import',items});await Promise.all([refreshNasObjects(),refreshNasArchive(),nasRefreshLine()]);showToastEl('Импорт завершён. Записей обработано: '+result.result.written,false);return;
+      }
+      let batch = db.batch(), pending = 0, written = 0;
+      for (const [name, ref] of sections) {
+        for (const item of (data[name] || [])) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Некорректная запись: ' + name);
+          const id = item.id ? String(item.id) : ref.doc().id;
+          const copy = Object.assign({}, item);
+          delete copy.id;
+          batch.set(ref.doc(id), copy, { merge: true });
+          pending++;
+          if (pending >= 400) { await tfAwait(batch.commit()); written += pending; batch = db.batch(); pending = 0; }
+        }
+      }
+      if (pending) { await tfAwait(batch.commit()); written += pending; }
+      showToastEl('Импорт завершён. Записей обработано: ' + written, false);
+    } catch(e) { showError('Ошибка импорта: ' + e.message); }
+    finally { ev.target.value = ''; }
+  }
+
+  // === СМЕНЫ ===
+  let startShiftInFlight=false;
+  async function exportBackupFile() {
+    if (!hasPermission('import_backup') && !canAdmin()) return;
+    try {
+      if (!window.SamosvalBackup) throw new Error('Модуль полной резервной копии ещё не готов');
+      const data = await window.SamosvalBackup.exportFileData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url;
+      a.download = 'samosval_working_test_backup_' + new Date().toISOString().slice(0,10) + '.json';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToastEl('Бэкап скачан: база, табель и полный аудит. Фото и локальные очереди НЕ включены.', false);
+    } catch(e) { showError('Экспорт не выполнен: ' + e.message); }
+  }
+  async function importBackupFile(ev) {
+    if (!hasPermission('import_backup') && !canAdmin()) return;
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    try {
+      if (!window.SamosvalBackup) throw new Error('Модуль безопасного импорта ещё не готов');
+      const result = await window.SamosvalBackup.importRows(JSON.parse(await file.text()));
+      if (result) showToastEl('Импорт базы/архива завершён. Записей: ' + result.written + '. Защитная копия: ' + result.safetyId, false);
+    } catch(e) { showError('Ошибка импорта: ' + e.message); }
+    finally { ev.target.value = ''; }
+  }
+  async function startShiftWithObject(objName, objId, workShift) {
+    if (startShiftInFlight || !requireEdit('start_shift')) return;
+    if(!workShift){appNotice('Выберите тип смены: дневная или ночная');return;}
+    if(state.shift?.closing){showError('Сначала завершите закрытие предыдущей смены');return;}
+    if(offlinePendingCount()){showError('Сначала синхронизируйте действия предыдущей смены');return;}
+    if(state.shift?.isActive)return;
+    startShiftInFlight=true;
+    try {
+      if(isNasRuntime()){await nasBusinessCommand('start','current',{objectId:objId,workShift});await nasRefreshLine();closeStartShiftModal();showToastEl('Смена начата',false);openTabelShiftForLine(objName,objId);return;}
+      await cleanupOldShiftData(); await clearAllNotifications();
+      let sid = 'shift_' + Date.now();
+      await tfAwait(refs.shift.set({ id: sid, objectName: objName, objectId: objId||'', startDate: nowDateStr(), startedAt: Date.now(), startedBy: getUserName(), isActive: true }));
+      if (appConfig.maxEnabled && appConfig.notifyStart) enqueueMax(`🚀 Смена начата\n🏢 ${objName}\n📅 ${nowDateStr()}\n👤 ${getUserName()}`);
+      addAudit(`🚀 Начата смена на объекте: ${objName}`).catch(()=>{});
+      closeStartShiftModal(); showToastEl('Смена начата', false);
+      openTabelShiftForLine(objName, objId);
+    } catch(e){ showError(e.message); }
+    finally{startShiftInFlight=false;}
+  }
+  // Смена на линии открыта → та же смена открывается в табеле (та же дата, тот же
+  // объект). Табель сам подставит технику прошлого рабочего дня и не создаст
+  // дубликат, если смена за эту дату уже есть. Ошибка табеля не отменяет
+  // открытие смены на линии — только сообщает о ней.
+  async function openTabelShiftForLine(objName, objId){
+    if(!objId||!permissionsLoaded||currentUserStatus!=='active'||!hasTabAccess('timesheet'))return;
+    try{
+      const module=await import(new URL('./working-test/tabel-v2/entry.mjs',document.baseURI).href);
+      const result=await module.ensureDay(tabelV2Host(),{objectId:objId,date:lineDateIso(state.shift?.startDate||nowDateStr()),kind:state.shift?.workShift||'day'});
+      if(result?.created)showToastEl('Смена открыта и в табеле · ' + objName,false);
+    }catch(error){console.warn('[tabel] Автооткрытие смены:',error.message);}
+  }
+  // Линия хранит дату как ДД.ММ.ГГГГ, табель — как ГГГГ-ММ-ДД.
+  function lineDateIso(value){
+    const ru=/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value||'').trim());
+    return ru?`${ru[3]}-${ru[2].padStart(2,'0')}-${ru[1].padStart(2,'0')}`:String(value||'');
+  }
+  async function cleanupOldShiftData(shiftId){
+    const chunkSize=currentUserRole==='admin'?20:4;
+    for(const collection of [refs.logs,refs.truckStatus]){
+      const snap=await collection.get({source:'server'});
+      const docs=snap.docs.filter(d=>!shiftId||d.data().shiftId===shiftId);
+      for(let i=0;i<docs.length;i+=chunkSize){
+        const batch=db.batch();docs.slice(i,i+chunkSize).forEach(d=>batch.delete(d.ref));
+        await tfAwait(batch.commit());
+      }
+    }
+  }
+  let closeShiftInFlight=false;
+  async function closeShift() {
+    if (closeShiftInFlight || !requireEdit('close_shift')) return;
+    if (!state.shift || (!state.shift.isActive && !state.shift.closing)) { appNotice('Смена не начата'); return; }
+    if(offlinePendingCount()){showError('Сначала синхронизируйте действия перед закрытием смены');return;}
+    const shiftId=state.shift.id;
+    closeShiftInFlight=true;
+    const button=document.getElementById('closeShiftBtn'),oldLabel=button?.textContent;
+    let phase='подтверждение';
+    try {
+      if (!(await appConfirm(state.shift.closing?'Завершить закрытие смены?':'Закрыть смену?'))) return;
+      if(button){button.disabled=true;button.textContent='⏳ Сохраняем и закрываем смену…';}
+      if(isNasRuntime()){
+        await nasCloseCurrentShift(shiftId);showToastEl('Смена закрыта',false);return;
+      }
+      // Firebase-путь закрытия смены удалён (очистка 2026-11-23): Ubuntu —
+      // единственный сервер данных, Firebase-режим недостижим.
+    } catch(e){ console.error('[closeShift:'+phase+']',e);showError('Не удалось завершить закрытие ('+phase+'): '+(e.message||e.code||e)+'. Сохранённый архив не удалён; можно повторить закрытие.'); }
+    finally {closeShiftInFlight=false;if(button){button.disabled=false;button.textContent=oldLabel||'🔄 Закрыть смену';}}
+  }
+  function openStartShiftModal() {
+    if (!requireEdit('start_shift')) return;
+    let c = document.getElementById('existingObjectsList');
+    let objs = state.objects.slice().sort((a,b)=>a.name.localeCompare(b.name));
+    c.innerHTML = objs.length === 0 ? '<div style="color:var(--muted);font-size:12px;">Нет объектов</div>' : objs.map(o=>`<div style="background:var(--bg);padding:10px;border-radius:8px;margin-bottom:6px;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;"><span>🏢 <b>${escapeHtml(o.name)}</b></span><button class="btn btn-quick btn-small" onclick="startShiftFromBase('${o.id}')">Выбрать</button></div>`).join('');
+    document.getElementById('newObjectNameInput').value = '';
+    selectWorkShift(null);
+    document.getElementById('startShiftModal').classList.add('open');
+  }
+  function closeStartShiftModal() { document.getElementById('startShiftModal').classList.remove('open'); }
+  // Тип смены выбирается явно при открытии и фиксируется вместе с датой: время
+  // закрытия (01:00–03:00, через 2 дня) больше не влияет на тип и дату смены.
+  function selectWorkShift(kind) {
+    window.__startShiftWorkShift = kind || null;
+    document.querySelectorAll('#startShiftModal [data-work-shift]').forEach(b=>{const on=b.dataset.workShift===kind;b.classList.toggle('ws-selected',on);b.classList.toggle('btn-quick',on);b.setAttribute('aria-pressed',on?'true':'false');});
+  }
+  function requireWorkShiftChoice() {
+    if (window.__startShiftWorkShift) return window.__startShiftWorkShift;
+    appNotice('Дневная смена или ночная? Выберите тип смены'); return null;
+  }
+  async function startShiftFromBase(id) { let o=state.objects.find(x=>x.id===id); if(o) await startShiftWithObject(o.name, o.id, requireWorkShiftChoice()); }
+  async function confirmStartShift() {
+    if (!requireEdit('start_shift')) return; let n = document.getElementById('newObjectNameInput').value.trim(); if (!n) { appNotice('Введите имя'); return; }
+    const workShift = requireWorkShiftChoice(); if (!workShift) return;
+    let ex = state.objects.find(o=>o.name.toLowerCase()===n.toLowerCase());
+    if (ex) await startShiftWithObject(ex.name, ex.id, workShift);
+    else { try { if(isNasRuntime()){const result=await nasSaveRecord('object','',{name:n},0);await startShiftWithObject(n,result.result.id,workShift);return;}let r=refs.objects.doc(); await tfAwait(r.set({name:n, createdAt:Date.now(), createdBy:getUserName()})); await startShiftWithObject(n, r.id, workShift); } catch(e){ showError(e.message); } }
+  }
+  function openChangeObjectModal() {
+    if (!requireEdit('edit_line') || !state.shift) return;
+    let c = document.getElementById('changeObjList');
+    c.innerHTML = state.objects.map(o=>{ let isC = state.shift.objectId === o.id || state.shift.objectName === o.name; return `<div style="background:var(--bg);padding:10px;border-radius:8px;margin-bottom:6px;border:1px solid ${isC?'var(--success)':'var(--border)'};display:flex;justify-content:space-between;align-items:center;"><span>🏢 <b>${escapeHtml(o.name)}</b> ${isC?'(текущий)':''}</span><button class="btn btn-quick btn-small" onclick="applyChangeObject('${o.id}')">Выбрать</button></div>`; }).join('');
+    document.getElementById('changeObjCustomInput').value = ''; document.getElementById('changeObjectModal').classList.add('open');
+  }
+  function closeChangeObjectModal() { document.getElementById('changeObjectModal').classList.remove('open'); }
+  async function applyChangeObject(id) { let o = state.objects.find(x=>x.id===id); if(!o || !state.shift) return; if (state.shift.objectId === id) { closeChangeObjectModal(); return; } try { if(isNasRuntime()){await nasBusinessCommand('control','shift-object:'+state.shift.id,{type:'shift.object',shiftId:state.shift.id,objectId:o.id,expectedObjectId:state.shift.objectId||''});await nasRefreshLine();closeChangeObjectModal();return;}await tfAwait(refs.shift.update({objectId:o.id, objectName:o.name})); addAudit(`🏢 Изменен объект: ${o.name}`).catch(()=>{}); closeChangeObjectModal(); showToastEl('Объект изменен', false); } catch(e){ showError(e.message); } }
+  async function confirmChangeObject() {
+    let n = document.getElementById('changeObjCustomInput').value.trim();
+    if (n) { let ex = state.objects.find(o=>o.name.toLowerCase()===n.toLowerCase()); if(ex) await applyChangeObject(ex.id); else { try { if(isNasRuntime()){const result=await nasSaveRecord('object','',{name:n},0);await applyChangeObject(result.result.id);return;}let r=refs.objects.doc(); await tfAwait(r.set({name:n, createdAt:Date.now(), createdBy:getUserName()})); await applyChangeObject(r.id); } catch(e){ showError(e.message); } } } else appNotice('Выберите объект');
+  }
+
+  // === ЛИНИЯ ===
+  async function addTruckToLine(id) {
+    if (!requireEdit('edit_line') || !state.shift) return;
+    if(isNasRuntime()){try{await nasChangeMembership(id,true);}catch(error){showError(error.message);}return;}
+    let ex = state.truckStatus[id];
+    let d = { id, shiftId: state.shift.id, onLine: true, addedBy: getUserName(), addedAt: Date.now(), arriveStatus: null, arriveTimestamp: null, arriveBy: null, ttnStatus: null, ttnBy: null, ttnLogId: null, lastLoadTimestamp: null, lastLoadBy: null, lastLoadLogId:null, cycleRevision:0, loadedAfterArrive: false };
+    state.truckStatus[id] = d; offlineRemoteStatuses[id]={...d};saveCache(); renderLine(); renderHeaderStats();
+    tf((async ()=>{ if(ex) await refs.truckStatus.doc(id).update(d); else await refs.truckStatus.doc(id).set(d); })());
+    if (appConfig.maxEnabled && appConfig.notifyLineStart) { let t = findTruck(id); if (t) enqueueMax(`🟢 На линию добавлен\n🚛 ${t.number}\n👤 ${getUserName()}`); }
+    addAudit(`🚛 На линию добавлен: ${truckName(id)}`).catch(()=>{});
+  }
+  async function removeTruckFromLine(id) {
+    if (!requireEdit('edit_line')) return;
+    if(offlinePendingForTruck(id)){showError('Сначала синхронизируйте действия этого самосвала');return;}
+    if(isNasRuntime()){try{await nasChangeMembership(id,false);}catch(error){showError(error.message);}return;}
+    let tName = truckName(id);
+    delete state.truckStatus[id];delete offlineRemoteStatuses[id];saveCache(); renderLine(); renderHeaderStats(); tf(refs.truckStatus.doc(id).delete());
+    if (appConfig.maxEnabled && appConfig.notifyLineEnd) enqueueMax(`🔴 С линии убран\n🚛 ${tName}\n👤 ${getUserName()}`);
+    addAudit(`🚛 С линии убран: ${tName}`).catch(()=>{});
+  }
+  const truckStatusWrites = Object.create(null);
+  function robustTruckStatusUpdate(id, upd) {
+    const previous = truckStatusWrites[id] || Promise.resolve();
+    const task = previous.catch(() => {}).then(() => persistTruckStatusUpdate(id, upd));
+    truckStatusWrites[id] = task;
+    task.then(() => { if (truckStatusWrites[id] === task) delete truckStatusWrites[id]; },
+      () => { if (truckStatusWrites[id] === task) delete truckStatusWrites[id]; });
+    return task;
+  }
+  async function persistTruckStatusUpdate(id, upd) {
+    pendingStart();
+    try { if (!navigator.onLine) { try { await refs.truckStatus.doc(id).update(upd); } catch(e){ if(e.code!=='not-found') throw e; let st=state.truckStatus[id]||{}; await refs.truckStatus.doc(id).set(Object.assign({id, onLine:true, shiftId:state.shift?.id}, st, upd)); } return; }
+      let lastE; for(let i=0; i<3; i++) { try { await refs.truckStatus.doc(id).update(upd); return; } catch(e){ lastE=e; if(e.code==='not-found'){ let st=state.truckStatus[id]||{}; try{ await refs.truckStatus.doc(id).set(Object.assign({id, onLine:true, shiftId:state.shift?.id}, st, upd)); return; }catch(e2){lastE=e2;} } if(i<2) await new Promise(r=>setTimeout(r,400)); } }
+      throw lastE;
+    } finally { pendingEnd(); }
+  }
+  // All line actions use the server state; failed writes never restore stale local copies.
+  const lineActionInFlight = Object.create(null);
+  const truckServerRevisions = Object.create(null);
+  let logServerRevision = 0;
+  function captureLineIntent(id) {
+    const status=state.truckStatus[id];
+    return status&&state.shift?{shiftId:state.shift.id,status:{...status},revision:truckServerRevisions[id]||0,logRevision:logServerRevision}:null;
+  }
+  function signalLineTransition(id,before,after) {
+    if(!before||!after||!after.onLine||!state.shift||after.shiftId!==state.shift.id)return;
+    if(after.lastLoadTimestamp && after.lastLoadTimestamp!==before.lastLoadTimestamp && !after.arriveStatus){
+      window.__cardJustLoaded={id,time:Date.now()};window.__cardJustArrived=null;
+    }else if(after.arriveTimestamp && after.arriveTimestamp!==before.arriveTimestamp){
+      window.__cardJustArrived={id,wasFaded:before.ttnStatus===true&&!before.arriveStatus,time:Date.now()};window.__cardJustLoaded=null;
+    }
+  }
+  function refreshLineViews(){
+    saveCache();renderLine();renderHeaderStats();renderStatusTicker();
+    scheduleRenderForTab('report','renderReport');scheduleRenderForTab('analytics','renderAnalytics');
+  }
+  function acceptLineResult(id,result,intent) {
+    if(!state.shift||state.shift.id!==intent.shiftId)return;
+    if(result.status && (truckServerRevisions[id]||0)===intent.revision){
+      signalLineTransition(id,state.truckStatus[id],result.status);
+      state.truckStatus[id]={id,...result.status};offlineRemoteStatuses[id]={id,...result.status};
+      truckServerRevisions[id]=(truckServerRevisions[id]||0)+1;
+    }
+    if(result.log && logServerRevision===intent.logRevision){
+      state.logs=state.logs.filter(l=>l.id!==result.log.id);state.logs.unshift(result.log);
+      state.logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));confirmedLoadIds.add(result.log.id);
+      offlineRemoteLogs=offlineRemoteLogs.filter(l=>l.id!==result.log.id);offlineRemoteLogs.push(result.log);
+    }
+    if(syncState.errors)delete syncState.errors[result.type];
+    refreshLineViews();updateSyncUI();
+  }
+  function receiveTruckStatuses(snapshot){
+    markSync('status',snapshot.metadata.fromCache,snapshot.metadata.hasPendingWrites,snapshot.size);
+    if(snapshot.metadata.hasPendingWrites)return;
+    const next={};snapshot.forEach(doc=>{next[doc.id]={id:doc.id,...doc.data()};});
+    if(snapshot.metadata.fromCache)Object.keys(next).forEach(id=>{
+      const recent=offlineRemoteStatuses[id];
+      if(recent&&recent.shiftId===next[id].shiftId&&Number(recent.cycleRevision||0)>Number(next[id].cycleRevision||0))next[id]=recent;
+    });
+    const old=state.truckStatus;offlineRemoteStatuses=next;offlineProjectState();
+    Object.keys(state.truckStatus).forEach(id=>{
+      if(JSON.stringify(old[id])!==JSON.stringify(state.truckStatus[id])){
+        signalLineTransition(id,old[id],state.truckStatus[id]);
+        truckServerRevisions[id]=(truckServerRevisions[id]||0)+1;
+      }
+    });
+    Object.keys(old).filter(id=>!state.truckStatus[id]).forEach(id=>truckServerRevisions[id]=(truckServerRevisions[id]||0)+1);
+    refreshLineViews();
+  }
+  function receiveLoadLogs(snapshot){
+    markSync('logs',snapshot.metadata.fromCache,snapshot.metadata.hasPendingWrites,snapshot.size);
+    if(snapshot.metadata.hasPendingWrites)return;
+    logServerRevision++;
+    const next=snapshot.docs.map(doc=>({id:doc.id,...doc.data()})).sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+    if(snapshot.metadata.fromCache){
+      const included=new Set(next.map(l=>l.id));
+      for(const log of offlineRemoteLogs)if(!included.has(log.id))next.push(log);
+    }
+    offlineRemoteLogs=next;confirmedLoadIds=new Set(offlineRemoteLogs.map(l=>l.id));
+    offlineProjectState();refreshLineViews();
+  }
+  async function readLineState(tx,id,shiftId){
+    const shift=await tx.get(refs.shift),status=await tx.get(refs.truckStatus.doc(id));
+    if(!shift.exists||shift.data().id!==shiftId||shift.data().isActive===false)throw {code:'shift-changed',message:'Смена изменилась. Данные обновляются; повторите действие в текущей смене'};
+    if(!status.exists||status.data().shiftId!==shiftId||!status.data().onLine)throw {code:'not-on-line',message:'Самосвал уже снят с этой линии'};
+    return status.data();
+  }
+  function previousLoadSnapshot(s){return {wasArrived:!!s.arriveStatus,prevArriveStatus:s.arriveStatus||null,prevArriveTs:s.arriveTimestamp||null,prevArriveBy:s.arriveBy||null,prevLoadTs:s.lastLoadTimestamp||null,prevLoadBy:s.lastLoadBy||null,prevLoadLogId:s.lastLoadLogId||null,prevTtn:s.ttnStatus??null,prevTtnBy:s.ttnBy||null,prevTtnLogId:s.ttnLogId||null};}
+  async function findWinningLoad(tx,id,shiftId,status){
+    if(!status.lastLoadTimestamp)return null;
+    const candidates=[status.lastLoadLogId,...state.logs.filter(l=>l.truckId===id&&l.shiftId===shiftId&&Number(l.timestamp)===Number(status.lastLoadTimestamp)).map(l=>l.id),`load_${id}_${shiftId}_${status.lastLoadTimestamp}`].filter(Boolean);
+    for(const logId of [...new Set(candidates)].slice(0,3)){
+      const log=await tx.get(refs.logs.doc(logId));
+      if(log.exists&&log.data().truckId===id&&log.data().shiftId===shiftId&&Number(log.data().timestamp)===Number(status.lastLoadTimestamp))return {id:log.id,...log.data()};
+    }
+    return null;
+  }
+  async function recoverLineState(id,intent){
+    try{
+      const snap=await refs.truckStatus.doc(id).get({source:'server'});
+      if(snap.exists)acceptLineResult(id,{status:snap.data(),type:'load'},intent);
+    }catch(_){}
+  }
+  // Persistent, optimistic offline actions; server remains authoritative.
+  const offlineJournalKey=()=> isNasRuntime()?'samosval_working_test_offline_nas_v1:'+nasStorageScope():'samosval_working_test_offline_v1_'+firebaseConfig.projectId+'_'+WORKSPACE_ID+'_'+currentUid;
+  let offlineReplayRunning=false,offlineRemoteStatuses={},offlineRemoteLogs=[];
+  function offlineJournalRead(){
+    if(!currentUid)return [];
+    try{const a=JSON.parse(localStorage.getItem(offlineJournalKey())||'[]');return Array.isArray(a)?a.filter(x=>x&&x.id&&x.shiftId&&x.truckId):[];}catch(e){console.error(e);return [];}
+  }
+  // Журнал — транспорт догона сервера, а не история. Старые версии не удаляли
+  // подтверждённые записи: за месяцы работы localStorage переполнялся (~5 МБ),
+  // setItem падал и погрузка не сохранялась даже в онлайне (инцидент 23.11.2026).
+  // Подтверждённое сервером удаляется после доставки уведомления/аудита;
+  // отменённое — после проведения игрового штрафа; отказ сервера держим только
+  // непросмотренным разбором и не старше 50 последних.
+  const OFFLINE_JOURNAL_MAX_REJECTED=50;
+  function offlineJournalCompact(items){
+    const dependencies=new Set(items.filter(x=>x&&x.status==='pending'&&x.dependencyId).map(x=>x.dependencyId));
+    let unreviewed=0;
+    const keep=[];
+    for(let i=items.length-1;i>=0;i--){
+      const x=items[i];if(!x||!x.id)continue;
+      let keepIt;
+      if(x.status==='pending')keepIt=true;
+      else if(x.status==='confirmed')keepIt=!x.effectsDelivered;
+      else if(x.status==='cancelled')keepIt=!x.penaltyDelivered;
+      else if(x.status==='rejected')keepIt=!x.reviewed&&unreviewed++<OFFLINE_JOURNAL_MAX_REJECTED;
+      else keepIt=false;
+      if(keepIt||dependencies.has(x.id))keep.push(x);
+    }
+    return keep.reverse();
+  }
+  function offlineQuotaError(e){return !!(e&&(e.name==='QuotaExceededError'||e.code===22||/quota/i.test(String(e.message||''))));}
+  function offlineJournalWrite(items){
+    const pruned=offlineJournalCompact(items),key=offlineJournalKey();
+    try{localStorage.setItem(key,JSON.stringify(pruned));}
+    catch(e){
+      if(!offlineQuotaError(e))throw e;
+      // Память телефона переполнена. Пошаговая аварийная чистка: сначала
+      // старые отказы и строки без незавершённых эффектов, затем — всё, кроме
+      // неотправленных действий и их зависимостей (их терять нельзя).
+      const dependencies=new Set(pruned.filter(x=>x.status==='pending'&&x.dependencyId).map(x=>x.dependencyId));
+      const emergency=[
+        pruned.filter(x=>x.status==='pending'||dependencies.has(x.id)||(x.status==='confirmed'&&!x.effectsDelivered)||(x.status==='cancelled'&&!x.penaltyDelivered)),
+        pruned.filter(x=>x.status==='pending'||dependencies.has(x.id))
+      ];
+      for(const level of emergency){
+        try{localStorage.setItem(key,JSON.stringify(level));console.warn('[offline journal] память переполнена — выполнена аварийная чистка старых записей');updateSyncUI();return;}
+        catch(_){}
+      }
+      const failure=Error('Память устройства переполнена старыми записями: действие не удалось сохранить даже после автоматической чистки');
+      failure.storageQuota=true;throw failure;
+    }
+    updateSyncUI();
+  }
+  // Одноразовая (идемпотентная) чистка раздутых ключей при старте. Старые
+  // версии не удаляли подтверждённые записи журнала и писали полный аудит
+  // (тысячи записей) в кеш сессии — устройство должно разблокироваться при
+  // первом же открытии новой версии.
+  const OFFLINE_JOURNAL_KEY_PREFIX='samosval_working_test_offline_';
+  const SESSION_CACHE_KEY_PREFIX='samosval-working-test-cache-';
+  const STORAGE_AUDIT_LIMIT=200;
+  function storageShrinkAudit(value){
+    if(Array.isArray(value.audit))value.audit=value.audit.slice(0,STORAGE_AUDIT_LIMIT);
+    if(Array.isArray(value.lineAudit))value.lineAudit=value.lineAudit.slice(0,STORAGE_AUDIT_LIMIT);
+    return value;
+  }
+  function offlineStorageQuotaMigrate(){
+    try{
+      const keys=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k)keys.push(k);}
+      for(const key of keys){
+        if(key.startsWith(OFFLINE_JOURNAL_KEY_PREFIX)){
+          try{
+            const items=JSON.parse(localStorage.getItem(key)||'[]');
+            if(!Array.isArray(items))continue;
+            const pruned=offlineJournalCompact(items);
+            if(JSON.stringify(pruned)!==JSON.stringify(items)){
+              if(pruned.length)localStorage.setItem(key,JSON.stringify(pruned));
+              else localStorage.removeItem(key);
+            }
+          }catch(_){console.warn('[storage migrate] журнал не читается',key);}
+        }else if(key.startsWith(SESSION_CACHE_KEY_PREFIX)){
+          try{
+            const raw=localStorage.getItem(key);if(!raw)continue;
+            const value=storageShrinkAudit(JSON.parse(raw));
+            const packed=JSON.stringify(value);
+            if(packed!==raw)localStorage.setItem(key,packed);
+          }catch(_){console.warn('[storage migrate] кеш не читается',key);}
+        }
+      }
+    }catch(e){console.warn('[storage migrate]',e);}
+  }
+  offlineStorageQuotaMigrate();
+  function offlinePendingOps(){return offlineJournalRead().filter(x=>x.status==='pending');}
+  function offlinePendingForTruck(id){return offlinePendingOps().some(x=>x.truckId===id&&state.shift&&x.shiftId===state.shift.id);}
+  function offlinePendingCount(){return offlinePendingOps().length;}
+  // navigator.onLine is only a browser hint. Firestore may be unreachable even
+  // while it remains true (Wi-Fi without internet, DNS failure, captive portal).
+  let offlineServerRetryAt=0,offlineServerRetryDelay=0,offlineServerUnreachable=false;
+  // Показывать «Работа локально» только если перебой длится дольше 3 секунд.
+  // После смены сети (VPN, Wi-Fi <-> мобильная) связь обычно восстанавливается
+  // сама, и мигающая надпись только пугает. Флаг недоступности и бэкофф повтора
+  // при этом работают сразу — отложен только показ.
+  const OFFLINE_UI_GRACE_MS=3000;
+  let offlineStatusSince=0;
+  function offlineTransportError(e){
+    const code=String(e?.code||'').toLowerCase(),message=String(e?.message||'').toLowerCase();
+    return ['unavailable','deadline-exceeded','network-request-failed','resource-exhausted'].includes(code)
+      || /connection failed|failed to fetch|network error|network request failed/.test(message);
+  }
+  function offlineTransportFailed(error){
+    offlineServerUnreachable=true;
+    offlineServerRetryDelay=Math.min(60000,offlineServerRetryDelay?offlineServerRetryDelay*2:4000);
+    offlineServerRetryAt=Date.now()+offlineServerRetryDelay;
+    offlineStatusSince=Date.now();
+    console.warn('[offline] Сервер недоступен, локальная очередь сохранена:',error?.code||error?.message||error);
+    updateSyncUI();
+  }
+  function offlineTransportRecovered(){
+    if(!offlineServerUnreachable&&!offlineServerRetryAt)return;
+    offlineServerUnreachable=false;offlineServerRetryAt=0;offlineServerRetryDelay=0;
+    offlineStatusSince=0;
+    updateSyncUI();
+  }
+  function offlineUnreviewedFailures(){return offlineJournalRead().filter(x=>x.status==='rejected'&&!x.reviewed);}
+  function offlineReasonLabel(reason){
+    const reasons={
+      'arrival-changed':'Прибытие уже изменено другим оператором',
+      'duplicate-or-arrival-changed':'Погрузка уже учтена или прибытие изменилось. Лишний рейс не добавлен',
+      'previous-action-rejected':'Предыдущее действие не подтверждено сервером',
+      'cycle-time':'Не истекло установленное время ходки',
+      'ttn-changed':'Статус ТТН изменён другим оператором',
+      'duplicate':'Повторный рейс не добавлен',
+      'already-exists':'Рейс с таким номером уже существует',
+      'shift-changed':'Смена завершена или изменена',
+      'not-on-line':'Самосвал снят с линии'
+    };
+    return reasons[reason]||('Ошибка: '+String(reason||'неизвестная'));
+  }
+  function offlineLocalTicker(){
+    if(!state.shift)return null;
+    const op=offlinePendingOps().filter(x=>x.shiftId===state.shift.id).slice(-1)[0];if(!op)return null;
+    const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived===false?'↩️ Снял прибытие':'🚛 Приехал');
+    return {id:op.id,type:'offline',offlinePending:true,createdByEmail:op.email,timestamp:op.createdAt,
+      html:label+' · '+truckLabelHtml(op.truckId)+' <span style="color:#f59e0b;font-size:10px">☁️ ОФЛАЙН</span>'};
+  }
+  function offlineProjectTicker(){
+    // ticker-v9 reads state.notifications: present a temporary local entry.
+    state.notifications=(state.notifications||[]).filter(x=>!x.offlinePending);
+    const local=offlineLocalTicker();
+    if(local)state.notifications.unshift({...local,userName:getUserName(),createdBy:getUserName()});
+  }
+  function offlineProjection(before,op){
+    if(!before||!before.onLine||before.shiftId!==op.shiftId)return {status:before};
+    const st={...before},t=Number(op.createdAt);
+    if(op.type==='reset'){Object.assign(st,{lastLoadTimestamp:null,lastLoadBy:null,arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:Number(st.cycleRevision||0)+1});
+    }else if(op.type==='arrive'){
+      if(op.wantArrived!==false){
+        const ts=Math.max(t,Number(st.lastLoadTimestamp||0)+1);
+        st.arriveStatus=new Date(ts).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+        st.arriveTimestamp=ts;st.arriveBy=op.actor;st.loadedAfterArrive=false;
+      }else{st.arriveStatus=null;st.arriveTimestamp=null;st.arriveBy=null;st.loadedAfterArrive=false;}
+      st.cycleRevision=Number(st.cycleRevision||0)+1;
+    }else if(op.type==='load'){
+      const timestamp=Math.max(t,Number(st.arriveTimestamp||0)+1,Number(st.lastLoadTimestamp||0)+1);
+      const logId=op.logId||('load_'+op.truckId+'_'+op.shiftId+'_cycle_'+op.expectedRevision+'_'+op.arrivalTimestamp);
+      const log={id:'pending_'+op.id,offlinePending:true,shiftId:op.shiftId,truckId:op.truckId,
+        truckName:op.truckName||truckName(op.truckId),volume:op.volume||0,isGAI:!!op.isGAI,
+        timeStr:new Date(timestamp).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
+        timestamp,arrivalTimestamp:Number(st.arriveTimestamp)||null,createdBy:op.actor,createdByEmail:op.email,comment:''};
+      st.lastLoadTimestamp=timestamp;st.lastLoadBy=op.actor;st.lastLoadLogId=logId;
+      st.cycleRevision=Number(st.cycleRevision||0)+1;st.arriveStatus=null;st.arriveTimestamp=null;st.arriveBy=null;st.loadedAfterArrive=true;
+      if(st.ttnStatus==='pending'){st.ttnStatus=true;st.ttnLogId=logId;}
+      return {status:st,log};
+    }else if(op.type==='ttn'){
+      st.ttnStatus=op.collect?(st.loadedAfterArrive&&st.lastLoadLogId?true:'pending'):null;
+      st.ttnBy=op.collect?op.actor:null;st.ttnLogId=op.collect&&st.loadedAfterArrive?st.lastLoadLogId:null;
+      st.ttnRevision=Number(st.ttnRevision||0)+1;
+    }
+    return {status:st};
+  }
+  // Start from the remote snapshot every time: never apply the same pending load twice.
+  function offlineProjectState(){
+    const statuses={...offlineRemoteStatuses},logs=offlineRemoteLogs.slice();
+    for(const op of offlinePendingOps()){
+      if(!state.shift||op.shiftId!==state.shift.id||!statuses[op.truckId])continue;
+      if(op.type==='reset'&&statuses[op.truckId].lastResetOperationId===op.id)continue;
+      if(op.type==='load'&&(statuses[op.truckId].lastLoadLogId===op.logId||logs.some(l=>l.id===op.logId)))continue;
+      if(op.type==='arrive'&&op.wantArrived!==false&&Number(statuses[op.truckId].arriveTimestamp||0)===Math.max(Number(op.createdAt),Number(op.lastLoadTimestamp||0)+1)&&statuses[op.truckId].arriveBy===op.actor)continue;
+      const p=offlineProjection(statuses[op.truckId],op);statuses[op.truckId]=p.status;
+      if(p.log&&!logs.some(l=>l.id===op.logId))logs.push(p.log);
+    }
+    state.truckStatus=statuses;state.logs=logs.sort((x,y)=>(y.timestamp||0)-(x.timestamp||0));offlineProjectTicker();
+  }
+  function offlineQueueAction(type,id,intent){
+    if(!currentUid||!intent||!intent.status||!state.shift||state.shift.id!==intent.shiftId)return false;
+    if(type==='reset'&&!canAdmin()){showError('Только для администратора');return false;}
+    const before=intent.status,now=Date.now(),gap=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES)*60000;
+    if(type==='load'&&!before.arriveStatus){showError('Сначала отметьте прибытие');return false;}
+    if((type==='load'||(type==='arrive'&&!before.arriveStatus))&&before.lastLoadTimestamp&&now-before.lastLoadTimestamp<gap){
+      showError('Ещё не истекло время ходки');return false;
+    }
+    const truck=findTruck(id);if(!truck){showError('Самосвал не найден');return false;}
+    try{
+      const items=offlineJournalRead(),previous=items.filter(x=>x.truckId===id&&x.shiftId===intent.shiftId&&x.status==='pending').slice(-1)[0];
+      const op={id:'op_'+now+'_'+Math.random().toString(36).slice(2),type,truckId:id,shiftId:intent.shiftId,objectId:state.shift?.objectId||'',objectName:state.shift?.objectName||'',
+        beforeStatus:{...before},createdAt:now,actor:getUserName(),email:currentEmail,expectedRevision:Number(before.cycleRevision||0),
+        expectedTtnRevision:Number(before.ttnRevision||0),arrivalTimestamp:Number(before.arriveTimestamp||0),
+        lastLoadTimestamp:Number(before.lastLoadTimestamp||0),wantArrived:!before.arriveStatus,collect:!before.ttnStatus,
+        dependencyId:previous?.id||null,cycleMinutes:Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES),
+        truckName:truck.brand+' '+truck.number,volume:truck.isGAI?0:truck.defaultVol,isGAI:!!truck.isGAI,status:'pending'};
+      if(type==='load')op.logId='load_'+id+'_'+op.shiftId+'_cycle_'+op.expectedRevision+'_'+op.arrivalTimestamp;
+      if(isNasRuntime())op.operationScope=nasStorageScope();
+      items.push(op);offlineJournalWrite(items); // Commit locally first; never silently lose an action.
+      try{window.__gameCoinQueued?.(op);}catch(e){console.warn('[game animation]',e);}
+      const old=state.truckStatus[id];offlineProjectState();signalLineTransition(id,old,state.truckStatus[id]);refreshLineViews();
+      const label=type==='reset'?'🔄 Сброс таймера':type==='load'?'⚡ Погрузка':type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
+      showToastEl(label+' · '+truckLabelHtml(id),false);
+      if(navigator.onLine)offlineReplayJournal();
+      return true;
+    }catch(e){
+      if((e&&e.storageQuota)||offlineQuotaError(e))offlineShowQuotaPanel(e);
+      else showError('Действие не сохранено на устройстве: '+(e.message||e));
+      return false;
+    }
+  }
+  function offlineResolve(id,status,reason){
+    const all=offlineJournalRead(),op=all.find(x=>x.id===id);
+    if(op&&op.status==='pending'){
+      op.status=status;op.result=reason;op.resolvedAt=Date.now();offlineJournalWrite(all);
+      // Подтверждённая запись удаляется из журнала компакцией в offlineJournalWrite,
+      // как только уведомление/аудит доставлены (effectsDelivered) — сервер уже
+      // владеет данными, а вечный рост журнала переполнял память телефона.
+    }
+  }
+  // Квота localStorage: панель по центру экрана с человеческим текстом;
+  // техническая причина — мелким текстом внутри панели (класс error-panel-tech),
+  // а не в заголовке. Флаг storageQuota ставит offlineJournalWrite после
+  // неудачной аварийной чистки (её текст не содержит слова «quota»).
+  function offlineShowQuotaPanel(e){
+    showErrorPanel('Не удалось сохранить погрузку. Память телефона переполнена старыми записями — попробуйте ещё раз, приложение почистит их автоматически.'
+      +'<div class="error-panel-tech">'+escapeHtml((e&&e.message)||String(e))+'</div>');
+  }
+  function offlineAdoptResult(op,result){
+    if(result.status){
+      const old=offlineRemoteStatuses[op.truckId];
+      if(!old||old.shiftId!==op.shiftId||Number(old.cycleRevision||0)<=Number(result.status.cycleRevision||0))
+        offlineRemoteStatuses[op.truckId]={id:op.truckId,...result.status};
+    }
+    if(result.log&&!offlineRemoteLogs.some(l=>l.id===result.log.id)){
+      offlineRemoteLogs.push(result.log);confirmedLoadIds.add(result.log.id);
+    }
+    offlineProjectState();refreshLineViews();
+  }
+  function undoLastOfflineAction(){
+    if(!hasPermission('undo_action')&&!hasPermission('undo_any')){showError('Нет права отменять действия');return;}
+    if(offlineReplayRunning){showToastEl('Действие отправляется на сервер',false);return;}
+    const all=offlineJournalRead();let i=-1;
+    for(let n=all.length-1;n>=0;n--)if(all[n].status==='pending'&&state.shift&&all[n].shiftId===state.shift.id){i=n;break;}
+    if(i<0)return;all[i].status='cancelled';all[i].cancelledAt=Date.now();offlineJournalWrite(all);offlineProjectState();refreshLineViews();showToastEl('↩️ Ошибочное действие отменено. Штраф −3 🪙 будет учтён после связи с сервером.',true);window.__gameFlushPenalties?.();
+  }
+  async function offlineNotifyAccepted(op,result){
+    let delivered=true;
+    try{
+      const ref=refs.notifications.doc('offline_'+op.id),snap=await ref.get({source:'server'});
+      if(!snap.exists){
+        const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
+        await ref.set({...offlineUndoFields(op,result.beforeStatus||op.beforeStatus),gamePenaltyKey:window.__gamePenaltyKey(op.type,op.truckId,result.status||{},result.log?.id,op.id),type:op.type,truckId:op.truckId,logId:result.log?.id||null,
+          createdBy:op.actor,createdByEmail:op.email||'',timestamp:op.createdAt,shiftId:op.shiftId,objectId:op.objectId||'',objectName:op.objectName||'',
+          html:label+' · '+truckLabelHtml(op.truckId)});
+      }
+    }catch(e){delivered=false;console.warn('Не удалось отправить уведомление офлайн-действия',e);}
+    try{
+      const ref=refs.audit.doc('offline_'+op.id),snap=await ref.get({source:'server'});
+      if(!snap.exists){
+        const names={reset:'🔄 Сброс таймера',arrive:op.wantArrived?'🚛 Прибытие на линию':'↩️ Снято прибытие на линию',
+          load:'⚡ Погрузка самосвала',ttn:op.collect?'📄 Забрана ТТН':'↩️ Снята отметка ТТН'};
+        await ref.set({text:(names[op.type]||op.type)+': '+op.truckName,
+          timeStr:new Date(op.createdAt).toLocaleString('ru-RU'),
+          objectName:state.shift?.objectName||'—',objectId:state.shift?.objectId||'',
+          shiftId:op.shiftId,truckId:op.truckId,truckName:op.truckName,
+          userEmail:op.email||'',userName:op.actor,createdByEmail:op.email||'',
+          timestamp:op.createdAt,eventType:op.type,offlineOperationId:op.id});
+      }
+    }catch(e){delivered=false;console.warn('Не удалось отправить аудит офлайн-действия',e);}
+      if(delivered){const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);if(saved){saved.effectsDelivered=true;offlineJournalWrite(all);}}
+  }
+  function offlineUndoFields(op,b){
+    if(!b)return {};
+    if(op.type==='load')return previousLoadSnapshot(b);
+    if(op.type==='arrive')return {wasArrived:!!b.arriveStatus,prevTime:b.arriveStatus||null,prevTs:b.arriveTimestamp||null,prevArriveBy:b.arriveBy||null};
+    return {prevTtn:b.ttnStatus??null,prevTtnBy:b.ttnBy||null,prevTtnLogId:b.ttnLogId||null};
+  }
+  async function offlineReplayJournal(){
+    if(isNasRuntime())return replayNasOfflineJournal();
+    const sessionGeneration = authSessionGeneration;
+    const sessionIsCurrent = () => sessionGeneration === authSessionGeneration;
+    if(offlineReplayRunning||!navigator.onLine||!currentUid||!permissionsLoaded||currentUserStatus!=='active'||!profileServerConfirmed||!permissionsServerConfirmed||Date.now()<offlineServerRetryAt||syncState.pendingWrites.status||syncState.pendingWrites.shift)return;
+    offlineReplayRunning=true;
+    try{
+      for(const op of offlineJournalRead().filter(x=>x.status==='confirmed'&&!x.effectsDelivered)) {
+        // A confirmed operation from a closed/replaced shift must never emit
+        // notifications or audit into the newly restored shift.
+        if (state.shift?.id && op.shiftId !== state.shift.id) continue;
+        offlineNotifyAccepted(op,op.savedResult||{}).catch(e=>console.warn('[offline effects]',e));
+      }
+      // Re-read the durable journal after each operation. A user can enqueue a
+      // dependent action while this replay is already running; iterating a
+      // one-time snapshot would leave that new action pending until another
+      // online event or reload.
+      while(true){
+        const op=offlinePendingOps()[0];
+        if(!op)break;
+        if(!sessionIsCurrent()||!navigator.onLine||currentUserStatus!=='active')break;
+        if(!offlineJournalRead().some(x=>x.id===op.id&&x.status==='pending'))continue;
+        if(op.dependencyId){
+          const previous=offlineJournalRead().find(x=>x.id===op.dependencyId);
+          if(previous?.status==='pending')break;
+          if(previous?.status==='rejected'){
+            offlineResolve(op.id,'rejected','previous-action-rejected');offlineProjectState();refreshLineViews();continue;
+          }
+        }
+        try{
+          if(!sessionIsCurrent())break;
+          const result=await db.runTransaction(async tx=>{
+          if(!sessionIsCurrent()||currentUserStatus!=='active'||!profileServerConfirmed||!permissionsServerConfirmed){
+            throw {code:'auth-session-stale',message:'Сессия изменилась до чтения настроек'};
+          }
+          const policy=await tx.get(appConfigRef);
+          if(!sessionIsCurrent()||currentUserStatus!=='active'||!profileServerConfirmed||!permissionsServerConfirmed){
+            throw {code:'auth-session-stale',message:'Сессия изменилась при чтении настроек'};
+          }
+            const sharedCycle=policy.exists?Number(policy.data().cycleMinutes)||15:15;
+            const before=await readLineState(tx,op.truckId,op.shiftId);
+            const truck=findTruck(op.truckId);if(!truck)throw {code:'truck-missing',message:'Самосвал не найден'};
+            const revision=Number(before.cycleRevision||0),gap=Math.max(MIN_CYCLE_MINUTES,sharedCycle,op.cycleMinutes||MIN_CYCLE_MINUTES)*60000;
+            if(op.type==='reset'){
+              if(!canAdmin())throw {code:'permission-denied',message:'Сброс доступен администратору'};
+              if(before.lastResetOperationId===op.id)return {outcome:'confirmed',status:before};
+              if(revision!==op.expectedRevision||Number(before.lastLoadTimestamp||0)!==Number(op.lastLoadTimestamp||0))return {outcome:'rejected',reason:'arrival-changed',status:before};
+              const update={lastLoadTimestamp:null,lastLoadBy:null,arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:revision+1,lastResetOperationId:op.id};
+              tx.update(refs.truckStatus.doc(op.truckId),update);
+              return {outcome:'confirmed',status:{...before,...update},beforeStatus:before,didCommit:true,gameRewardAction:{id:op.id,type:op.type,at:Number(op.createdAt)}};
+            }
+            if(op.type==='arrive'){
+              const want=op.wantArrived!==false;
+              if(want&&before.arriveStatus&&Number(before.arriveTimestamp||0)===Math.max(Number(op.createdAt),Number(op.lastLoadTimestamp||0)+1)&&before.arriveBy===op.actor)
+                return {outcome:'confirmed',status:before};
+              if(!want&&revision===Number(op.expectedRevision||0)+1&&!before.arriveStatus&&!before.arriveTimestamp&&before.loadedAfterArrive===false&&Number(before.lastLoadTimestamp||0)===Number(op.lastLoadTimestamp||0))return {outcome:'confirmed',status:before};
+              if(revision!==Number(op.expectedRevision||0)||Number(before.arriveTimestamp||0)!==Number(op.arrivalTimestamp||0)||!!before.arriveStatus===want)
+                return {outcome:'rejected',reason:'arrival-changed',status:before};
+              if(want&&before.lastLoadTimestamp&&op.createdAt-before.lastLoadTimestamp<gap)
+                return {outcome:'rejected',reason:'cycle-time',status:before};
+              const ts=Math.max(Number(op.createdAt),Number(before.lastLoadTimestamp||0)+1);
+              const update=want?{arriveStatus:new Date(ts).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),arriveTimestamp:ts,arriveBy:op.actor,loadedAfterArrive:false,cycleRevision:revision+1}:
+                {arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:revision+1};
+              tx.update(refs.truckStatus.doc(op.truckId),update);
+              return {outcome:'confirmed',status:{...before,...update},beforeStatus:before,didCommit:true,gameRewardAction:{id:op.id,type:op.type,at:Number(op.createdAt)}};
+            }
+            if(op.type==='load'){
+              const logId=op.logId||('load_'+op.truckId+'_'+op.shiftId+'_cycle_'+op.expectedRevision+'_'+op.arrivalTimestamp);
+              // The deterministic log ID is an idempotency key. Check it
+              // *before* rejecting a changed status: the first commit may
+              // have succeeded while its acknowledgement was lost.
+              const ref=refs.logs.doc(logId),existing=await tx.get(ref);
+              if(existing.exists){
+                const record=existing.data();
+                if(record.clientOperationId===op.id)return {outcome:'confirmed',status:before,log:{id:logId,...record}};
+                return {outcome:'rejected',reason:'duplicate',status:before};
+              }
+              if(!before.arriveStatus||revision!==Number(op.expectedRevision||0)||Number(before.arriveTimestamp||0)!==Number(op.arrivalTimestamp||0))
+                return {outcome:'rejected',reason:'duplicate-or-arrival-changed',status:before};
+              if(before.lastLoadTimestamp&&op.createdAt-before.lastLoadTimestamp<gap)
+                return {outcome:'rejected',reason:'cycle-time',status:before};
+              const ts=Math.max(Number(op.createdAt),Number(before.arriveTimestamp||0)+1,Number(before.lastLoadTimestamp||0)+1);
+              const log={shiftId:op.shiftId,truckId:op.truckId,truckName:truck.brand+' '+truck.number,
+                volume:truck.isGAI?0:truck.defaultVol,timeStr:new Date(ts).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
+                timestamp:ts,arrivalTimestamp:Number(before.arriveTimestamp)||null,createdBy:op.actor,createdByEmail:op.email||'',
+                isGAI:!!truck.isGAI,comment:'',clientOperationId:op.id};
+              const update={lastLoadTimestamp:ts,lastLoadBy:op.actor,lastLoadLogId:logId,cycleRevision:revision+1,
+                arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:true};
+              if(before.ttnStatus==='pending'){update.ttnStatus=true;update.ttnLogId=logId;}
+              tx.set(ref,log);tx.update(refs.truckStatus.doc(op.truckId),update);
+              return {outcome:'confirmed',status:{...before,...update},log:{id:logId,...log},beforeStatus:before,didCommit:true,gameRewardAction:{id:op.id,type:op.type,at:Number(op.createdAt)}};
+            }
+            if(op.type==='ttn'){
+              if(Number(before.ttnRevision||0)===Number(op.expectedTtnRevision||0)+1&&before.ttnBy=== (op.collect?op.actor:null)&&
+                 (!!before.ttnStatus===!!op.collect))return {outcome:'confirmed',status:before};
+              if(Number(before.ttnRevision||0)!==Number(op.expectedTtnRevision||0)||!!before.ttnStatus===!!op.collect)
+                return {outcome:'rejected',reason:'ttn-changed',status:before};
+              const logId=before.lastLoadLogId||null;
+              const update=op.collect?{ttnStatus:before.loadedAfterArrive&&logId?true:'pending',ttnBy:op.actor,
+                ttnLogId:before.loadedAfterArrive?logId:null,ttnRevision:Number(before.ttnRevision||0)+1}:
+                {ttnStatus:null,ttnBy:null,ttnLogId:null,ttnRevision:Number(before.ttnRevision||0)+1};
+              tx.update(refs.truckStatus.doc(op.truckId),update);
+              return {outcome:'confirmed',status:{...before,...update},beforeStatus:before,didCommit:true,gameRewardAction:{id:op.id,type:op.type,at:Number(op.createdAt)}};
+            }
+            return {outcome:'rejected',reason:'unsupported'};
+          });
+          if(!sessionIsCurrent())break;
+          offlineTransportRecovered();offlineAdoptResult(op,result);
+          {const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);if(saved){saved.savedResult={status:result.status||null,beforeStatus:result.beforeStatus||op.beforeStatus,log:result.log||null};offlineJournalWrite(all);}}
+          offlineResolve(op.id,result.outcome,result.reason||result.outcome);
+          offlineProjectState();refreshLineViews();
+          if(result.outcome==='confirmed'){
+            if(result.didCommit){
+              try{/* History is saved with the durable audit entry. */}catch(e){console.warn('[offline history]',e);}
+              if(appConfig.maxEnabled){
+                const actor=op.actor,name=op.truckName||truckName(op.truckId);
+                if(op.type==='load'&&appConfig.notifyLoad)enqueueMax('⚡ Погрузка\n🚛 '+name+'\n👤 '+actor,{truckId:op.truckId,logId:result.log?.id||'',reis:getLogs().filter(l=>l.truckId===op.truckId).length});
+                if(op.type==='arrive'&&op.wantArrived&&appConfig.notifyArrive)enqueueMax('🚛 Приехал на объект\n🚛 '+name+'\n👤 '+actor);
+                if(op.type==='ttn'&&op.collect&&appConfig.notifyTtn)enqueueMax('📄 Забрал ТТН\n🚛 '+name+'\n👤 '+actor);
+              }
+            }
+            offlineNotifyAccepted(op,result).catch(e=>console.warn('[offline effects]',e));
+          }else showErrorPanel('⚠️ '+escapeHtml(offlineReasonLabel(result.reason)));
+        }catch(e){
+          if(e.code==='auth-session-stale')break;
+          if(offlineTransportError(e)){offlineTransportFailed(e);break;}
+          if(!navigator.onLine||['aborted','cancelled'].includes(e.code)){offlineServerRetryAt=Date.now()+1500;break;}
+          offlineResolve(op.id,'rejected',e.code||e.message||'error');offlineProjectState();refreshLineViews();
+          showToastEl('⚠️ Офлайн-действие отклонено: '+escapeHtml(e.message||e.code||'ошибка'),true);
+          showErrorPanel('⚠️ Офлайн-действие отклонено: '+escapeHtml(e.message||e.code||'ошибка'));
+        }
+      }
+    }finally{
+      offlineReplayRunning=false;updateSyncUI();
+      // A second action can be queued while this replay is in flight. The
+      // enqueue call coalesces while the lock is held, so drain the durable
+      // journal once the lock is released instead of waiting for reload/reconnect.
+      if (navigator.onLine && offlinePendingCount() > 0) queueMicrotask(() => offlineReplayJournal());
+    }
+  }
+  // Offline-first operations. The UI moves immediately; the journal replays
+  // through server transactions even when navigator.onLine incorrectly says true.
+  async function performLoad(id,capturedIntent){
+    if(!requireEdit('action_load')||loadInFlight[id]||lineActionInFlight[id])return {outcome:'ignored'};
+    const intent=capturedIntent||captureLineIntent(id);
+    if(!intent)return {outcome:'ignored'};
+    return {outcome:offlineQueueAction('load',id,intent)?'queued':'failed'};
+  }
+  async function toggleArrive(id,capturedIntent){
+    if(!requireEdit('action_arrive')||lineActionInFlight[id])return {outcome:'ignored'};
+    const intent=capturedIntent||captureLineIntent(id);
+    if(!intent)return {outcome:'ignored'};
+    return {outcome:offlineQueueAction('arrive',id,intent)?'queued':'failed'};
+  }
+  async function toggleTtn(id,capturedIntent){
+    if(!requireEdit('action_ttn')||lineActionInFlight[id])return {outcome:'ignored'};
+    const intent=capturedIntent||captureLineIntent(id);
+    if(!intent)return {outcome:'ignored'};
+    return {outcome:offlineQueueAction('ttn',id,intent)?'queued':'failed'};
+  }
+
+  // === УДЕРЖАНИЕ ===
+  let holdTimer = null, vibInt = null;
+  document.addEventListener('touchstart', e=>{ if(e.touches?.length) { touchStartY = e.touches[0].clientY; touchStartX = e.touches[0].clientX; isScrolling = false; } }, {passive:true});
+  document.addEventListener('touchmove', e=>{ if(e.touches?.length) { if(Math.abs(e.touches[0].clientY - touchStartY) > 10 || Math.abs(e.touches[0].clientX - touchStartX) > 10) { isScrolling = true; let b=document.querySelector('.holding'); if(b) cancelHold(b); } } }, {passive:true});
+  function cancelHold(b) { if(holdTimer) clearTimeout(holdTimer); if(vibInt) clearInterval(vibInt); if(b) b.classList.remove('holding'); }
+  function startHold(e, type, id) {
+    let action = type === 'load' ? 'action_load' : (type === 'arrive' ? 'action_arrive' : 'action_ttn');
+    if (!requireEdit(action) || !state.shift || isScrolling) return;
+    let b = e.currentTarget, hs = 0.5; if(type==='load') hs = settings.holdLoad??0.5; else if(type==='arrive') hs = settings.holdArrive??0.5; else hs = settings.holdTtn??0.5;
+    let st = state.truckStatus[id]; if(!st) return;
+    let lastL = st.lastLoadTimestamp||0, gap = (settings.cycleMinutes||15)*60000;
+    if(type==='load' && st.loadedAfterArrive && !st.arriveStatus) { showToastEl('Погрузка уже отмечена: '+escapeHtml(st.lastLoadBy||'другой пользователь'),false); return; }
+    if(type==='load' && lastL && (Date.now()-lastL)<gap) { appNotice('Не истекло время'); return; }
+    if(type==='load' && !st.arriveStatus) { appNotice('Сначала Приехал'); return; }
+    if(type==='arrive' && lastL && (Date.now()-lastL)<gap) { appNotice('Не истекло время'); return; }
+    if(hs<=0) { executeAction(type, id); return; }
+    b.style.setProperty('--hold-duration', hs+'s'); b.classList.add('holding');
+    let haptic = type==='load'?settings.hapticLoad:(type==='arrive'?settings.hapticArrive:settings.hapticTtn);
+    if(haptic) { vibrate(20); vibInt = setInterval(()=>vibrate(25), 120); }
+    holdTimer = setTimeout(()=>{ if(!isScrolling) { cancelHold(b); executeAction(type, id); } else cancelHold(b); }, hs*1000);
+  }
+  function executeAction(type, id) { if(type==='arrive') { vibArrive(); toggleArrive(id); } else if(type==='load') { vibLoad(); performLoad(id); } else { vibTtn(); toggleTtn(id); } }
+  function startArriveHold(e, id) { startHold(e, 'arrive', id); }
+  function startQuickLoadHold(e, id) { startHold(e, 'load', id); }
+  function startTtnHold(e, id) { startHold(e, 'ttn', id); }
+
+  // Явный реестр хуков Линии вместо подмен window.renderLine из фич.
+  // Все модули канала выполняются в общем глобальном скоупе, поэтому фичи
+  // вызывают registerLineHook напрямую. Хук оборачивает ТЕКУЩИЙ
+  // window.renderLine (включая анимационную версию из anim-speeds), так что
+  // порядок эффектов задаётся порядком регистрации и совпадает с прежними
+  // вложенными обёртками: line-motion-test → offline-feedback → anim-speeds.
+  // before и after одной регистрации делят общий объект ctx: before может
+  // положить туда состояние, after — прочитать (в т.ч. ctx.error).
+  const registeredLineHooks = [];
+  function registerLineHook(phaseOrSpec, maybeFn) {
+    const spec = (typeof phaseOrSpec === 'object' && phaseOrSpec !== null)
+      ? phaseOrSpec
+      : { [phaseOrSpec]: maybeFn };
+    if (typeof spec.before !== 'function' && typeof spec.after !== 'function') return () => {};
+    const original = window.renderLine;
+    const entry = { spec, original, wrapped: null };
+    entry.wrapped = function () {
+      const ctx = {};
+      if (typeof spec.before === 'function') {
+        try { spec.before(ctx); } catch (e) { console.error('[line-hook:before]', e); }
+      }
+      let result, failed = false;
+      try { result = original.apply(this, arguments); }
+      catch (e) { ctx.error = e; failed = true; }
+      ctx.result = result;
+      if (typeof spec.after === 'function') {
+        try { spec.after(ctx); } catch (e) { console.error('[line-hook:after]', e); }
+      }
+      if (failed) throw ctx.error;
+      return result;
+    };
+    registeredLineHooks.push(entry);
+    window.renderLine = entry.wrapped;
+    return () => {
+      const i = registeredLineHooks.indexOf(entry);
+      if (i < 0) return;
+      registeredLineHooks.splice(i, 1);
+      if (window.renderLine === entry.wrapped) window.renderLine = entry.original;
+    };
+  }
+  // === П4: заморозка пересборки линии при удержании/касании ===
+  // Карточки линии пересобираются через innerHTML; событие другого оператора
+  // могло уничтожить кнопку прямо во время удержания (holdTimer из core/17
+  // применяется к верному id, но кнопка «уезжала» из-под пальца). Пока идёт
+  // удержание (кнопка .holding) или касание контейнера линии (pointerdown до
+  // pointerup/cancel + грейс ~400 мс), перерисовка откладывается: расписание
+  // renderLine (scheduleRenderLine в core/04) при активном флаге только
+  // запоминает долг, а после снятия флага вызывает __lineFlushDeferred —
+  // ни одно чужое действие не теряется, перерисовка выполняется позже.
+  const LINE_HOLD_GRACE_MS = 400;
+  let linePointerDown = false, linePointerGraceTimer = null;
+  function lineHoldActive() {
+    const holding = (typeof document.querySelector === 'function') ? !!document.querySelector('.holding') : false;
+    return holding || linePointerDown || linePointerGraceTimer !== null;
+  }
+  window.__lineHoldActive = lineHoldActive;
+  function linePointerEnd() {
+    if (!linePointerDown) return;
+    linePointerDown = false;
+    clearTimeout(linePointerGraceTimer);
+    linePointerGraceTimer = setTimeout(() => {
+      linePointerGraceTimer = null;
+      if (!lineHoldActive() && typeof window.__lineFlushDeferred === 'function') window.__lineFlushDeferred();
+    }, LINE_HOLD_GRACE_MS);
+  }
+  // Регистрация слушателей вынесена за пределы vm-моков юнит-тестов
+  // (truck-phone-line.test.mjs исполняет этот файл без document.addEventListener).
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('pointerdown', e => {
+      const t = e.target;
+      if (t && typeof t.closest === 'function' && t.closest('#trucksLineList')) {
+        linePointerDown = true;
+        clearTimeout(linePointerGraceTimer);
+        linePointerGraceTimer = null;
+      }
+    }, true);
+    document.addEventListener('pointerup', linePointerEnd, true);
+    document.addEventListener('pointercancel', linePointerEnd, true);
+  }
+
+  // Ключ последнего отрисованного порядка карточек: FLIP-анимация сдвига
+  // нужна только когда порядок реально изменился.
+  let renderLineOrderKey = null;
+  // Ключ значимых данных последней отрисовки линии (страховка от лишних
+  // пересборок карточек при неизменном снапшоте).
+  let renderLineDataKey = null;
+  function renderLine() {
+    let sc = document.getElementById('startShiftContainer'), ac = document.getElementById('activeShiftContainer'), cb = document.getElementById('changeObjBtn');
+    if (!state.shift) { sc.style.display = (hasPermission('start_shift') || hasTabAccess('timesheet')) ? 'block' : 'none'; ac.style.display = 'none'; cb.style.display = 'none'; return; }
+    sc.style.display = 'none'; ac.style.display = 'block'; cb.style.display = hasPermission('edit_line') ? 'inline-block' : 'none';
+    let c = document.getElementById('trucksLineList'), oldP = {};
+    c.querySelectorAll('.truck-card[data-truck-id]').forEach(x => oldP[x.dataset.truckId] = x.getBoundingClientRect().top);
+    let ids = getActiveLineIds(); if (!ids.length) { c.innerHTML = '<div class="form-card" style="text-align:center;color:var(--muted);">Нет машин</div>'; return; }
+    let logs = getLogs(), lastTs = {}; logs.forEach(l => { if (lastTs[l.truckId] === undefined) lastTs[l.truckId] = l.timestamp||0; });
+    let trucks = ids.map(id => findTruck(id)).filter(Boolean);
+    trucks.sort((a,b)=>{ let sA=state.truckStatus[a.id], sB=state.truckStatus[b.id]; let tA=sA.ttnStatus===true?1:0, tB=sB.ttnStatus===true?1:0; if(tA!==tB) return tA-tB; let aA=sA.arriveStatus?1:0, aB=sB.arriveStatus?1:0; if(aA!==aB) return aB-aA; let lA=lastTs[a.id]||0, lB=lastTs[b.id]||0; if(lA===0&&lB===0) return 0; if(lA===0) return -1; if(lB===0) return 1; return lA-lB; });
+    let now = Date.now(), cyc = (settings.cycleMinutes||15)*60000;
+    let canEditArrive = hasPermission('action_arrive'), canEditLoad = hasPermission('action_load'), canEditTtn = hasPermission('action_ttn'); let showStats = hasPermission('view_card_stats');
+    // Страховка: если значимые для разметки данные не изменились, карточки не
+    // пересобираются вообще. Таймеры внутри карточек обновляет tickTimers.
+    let stats = {}; logs.forEach(l => { stats[l.truckId] = stats[l.truckId] || { n: 0, v: 0, ts: 0 }; stats[l.truckId].n++; stats[l.truckId].v += l.volume; if ((l.timestamp||0) > stats[l.truckId].ts) stats[l.truckId].ts = l.timestamp||0; });
+    let renderKey = JSON.stringify([trucks.map(t => { let st = state.truckStatus[t.id]||{}; let lastL = st.lastLoadTimestamp||0; let s = stats[t.id]||{n:0,v:0,ts:0};
+      return [t.id, t.brand, t.number, t.defaultVol, !!t.isGAI, !!st.arriveStatus, st.arriveTimestamp||0, st.arriveBy||'', lastL, lastL > 0 && (now-lastL) < cyc, st.ttnStatus===true, s.n, s.v, s.ts, offlinePendingForTruck(t.id)]; }),
+      canEditArrive, canEditLoad, canEditTtn, showStats, typeof truckPhoneEntry==='function' ? trucks.map(t=>truckPhoneEntry(t.id)) : null]);
+    if (renderKey === renderLineDataKey) return;
+    renderLineDataKey = renderKey;
+    // Порядок карточек не изменился — пересортировка FLIP не нужна: таймеры
+    // ходки пересортировывают список каждый рендер, и анимация сдвига
+    // запускалась даже когда карточки остались на своих местах.
+    const orderKey = trucks.map(t => t.id).join('|');
+    const flipNeeded = renderLineOrderKey === null || renderLineOrderKey !== orderKey;
+    renderLineOrderKey = orderKey;
+    c.innerHTML = trucks.map(t => {
+      let st = state.truckStatus[t.id]||{}; let offlineFlag=offlinePendingForTruck(t.id); let tLogs = logs.filter(l=>l.truckId===t.id), sum = tLogs.reduce((s,l)=>s+l.volume,0);
+      let isA = !!st.arriveStatus, lastL = st.lastLoadTimestamp||0, inC = lastL > 0 && (now-lastL)<cyc; let ttn = st.ttnStatus, faded = ttn===true; let lTs = tLogs.length ? tLogs[0].timestamp||0 : 0; let isGAI = !!t.isGAI;
+      let arrBtn;
+      if (inC) arrBtn = `<button class="btn btn-arrive" disabled><span style="display:flex;flex-direction:column;align-items:center;line-height:1.1;"><span class="idle-label">Ходка</span><span class="cooldown-timer" style="font-size:15px;" data-load-ts="${lastL}">${formatIdleDuration(cyc-(now-lastL))}</span></span></button>`;
+      else if (isA) arrBtn = `<button class="btn btn-arrive active-arrive" ${canEditArrive?`onpointerdown="startArriveHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''} ${!canEditArrive?'disabled':''}><span style="display:flex;flex-direction:column;align-items:center;line-height:1.1;"><span class="idle-label">Простой</span><span class="idle-timer" data-since="${st.arriveTimestamp||now}">${formatIdleDuration(now-(st.arriveTimestamp||now))}</span></span></button>`;
+      else arrBtn = `<button class="btn btn-arrive" ${canEditArrive?`onpointerdown="startArriveHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''} ${!canEditArrive?'disabled':''}>🚛 Приехал</button>`;
+      let ttnTxt = ttn ? '📄 Забрал ТТН ✓' : '📄 Забрать ТТН';
+      let statsHtml = showStats ? (isGAI ? `<div class="truck-summary">Рейсов: <b>${tLogs.length}</b></div>` : `<div class="truck-summary">Рейсов: <b>${tLogs.length}</b> | <b>${sum} м³</b></div>`) : '';
+      let loadBtnTxt = isGAI ? '⚡ Погрузка' : '⚡ Погрузка (+' + t.defaultVol + 'м³)';
+      return `<div class="truck-card ${isA?'arrived':''} ${faded?'faded':''}" data-truck-id="${t.id}"><div class="truck-header"><div class="truck-name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>${escapeHtml(t.brand)}</b>${renderRussianPlate(t.number)}<span style="font-size:13px;color:var(--muted);">${isGAI?'': '('+t.defaultVol+' м³)'}</span>${isA?`<span style="color:#f59e0b;font-size:12px;">(${escapeHtml(st.arriveBy||'')})</span>`:''}${offlineFlag?`<span style="font-size:10px;font-weight:700;color:#f59e0b;">☁️ ОФЛАЙН</span>`:''}</div>${truckPhoneIcon(t)}${statsHtml}</div><div class="last-load-info">⏱ Последняя: <b class="time-ago-card" data-timestamp="${lTs}">${lTs>0?formatTimeAgo(lTs):'—'}</b></div><div class="action-row">${arrBtn}<button class="btn btn-quick" ${!canEditLoad||!isA?'disabled':''} ${canEditLoad&&isA?`onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${loadBtnTxt}</button><button class="btn btn-ttn ${ttn?'active-ttn':''}" ${!canEditTtn?'disabled':''} ${canEditTtn?`onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"`:''}>${ttnTxt}</button></div></div>`;
+    }).join('');
+    if (flipNeeded && Object.keys(oldP).length) {
+      c.querySelectorAll('.truck-card').forEach(card => { let old = oldP[card.dataset.truckId]; if(old === undefined) return; let delta = old - card.getBoundingClientRect().top;
+        if(Math.abs(delta) > 2) { card.style.transform=`translateY(${delta}px)`; card.style.transition='none'; void card.offsetWidth; setTimeout(()=>{ requestAnimationFrame(()=>{ card.style.transition='transform 2.4s cubic-bezier(0.4,0,0.2,1)'; card.style.transform=''; setTimeout(()=>card.style.transition='', 2450); }); }, 1000); }
+      });
+    }
+  }
+
+  window.addEventListener('working-test-tabel-v2-records-change', () => scheduleRender('renderHeaderStats'));
+  function renderHeaderStats() {
+    window.dispatchEvent(new Event('line-equipment-change'));
+    let d = state.shift ? `Смена от ${state.shift.startDate}` : 'Смена не начата'; let o = state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : 'Не выбран';
+    let act = state.shift ? getActiveLineIds().filter(id => { let t = findTruck(id); if (!t || t.isGAI) return false; return !state.truckStatus[id] || state.truckStatus[id].ttnStatus !== true; }).length : 0;
+    let logs = getLogs(); let stdLogs = logs.filter(l => !l.isGAI); let v = stdLogs.reduce((s,l)=>s+l.volume,0);
+    document.getElementById('shiftDate').textContent = d; document.getElementById('headerObject').textContent = 'Объект: ' + o;
+    document.getElementById('activeLineCount').textContent = act + ' маш.'; document.getElementById('totalTrips').textContent = stdLogs.length; document.getElementById('totalVolume').textContent = v + ' м³';
+    const tabelCounts=document.getElementById('tabelV2Counts');if(tabelCounts&&permissionsLoaded&&hasTabAccess('timesheet'))import(new URL('./working-test/tabel-v2/summary.mjs',document.baseURI).href).then(m=>m.updateHeader(isNasRuntime()?nasTabelHost():{session:()=>({projectId:firebaseConfig.projectId,workspaceId:WORKSPACE_ID,uid:currentUid,role:currentUserRole,active:currentUserStatus==='active',view:hasTabAccess('timesheet')}),snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive})},tabelCounts)).catch(()=>{tabelCounts.hidden=true;});else if(tabelCounts)tabelCounts.hidden=true;
+  }
+
+  function tickTimers() {
+    let now = Date.now(), cyc = (settings.cycleMinutes||15)*60000;
+    document.querySelectorAll('.idle-timer').forEach(e=>{ let s=parseInt(e.getAttribute('data-since')); if(s) e.textContent=formatIdleDuration(now-s); });
+    document.querySelectorAll('.load-age-card').forEach(el=>{el.textContent=formatLoadAge(el.dataset.timestamp);});
+    document.querySelectorAll('.time-ago-card').forEach(e=>{ let t=parseInt(e.getAttribute('data-timestamp')); if(t) e.textContent=formatTimeAgo(t); });
+    document.querySelectorAll('.cooldown-timer').forEach(e=>{ let l=parseInt(e.getAttribute('data-load-ts')); if(l) { let r=cyc-(now-l); if(r<=0) scheduleRenderLine(); else e.textContent=formatIdleDuration(r); } });
+    let ticker = document.getElementById('tickerTimeAgo'); if(ticker) { let t=parseInt(ticker.getAttribute('data-timestamp')); if(t) ticker.textContent=formatTimeAgo(t); }
+  }
+  setInterval(tickTimers, 1000);
+
+  // === БАЗА САМОСВАЛОВ И ОБЪЕКТОВ ===
+  // Единая точка ветвления транспорта сохранения: в рабочей версии все
+  // записи идут через сервер Ubuntu (nasProvider всегда 'ubuntu'), поэтому
+  // firebase-ветки из функций сохранения удалены — ветвление живёт здесь.
+  async function saveLineEvent(nasWork) {
+    if (!isNasRuntime()) throw Error('Сохранение доступно только через сервер Ubuntu');
+    return nasWork();
+  }
+  async function saveTruckToGlobalBase() {
+    if (!requireEdit('manage_trucks')) return;
+    let id = document.getElementById('editTruckId').value;
+    let brand = document.getElementById('newTruckBrand').value.trim();
+    let num = document.getElementById('newTruckNumber').value.trim();
+    let vol = parseFloat(document.getElementById('newTruckVol').value);
+    let type = document.getElementById('newTruckType').value;
+    let isGAI = type === 'gai';
+    if (!brand || !num) { appNotice('Заполните марку и госномер'); return; }
+    if (!isGAI && (isNaN(vol) || vol <= 0)) { appNotice('Укажите объем'); return; }
+    try {
+      const editedId = id;
+      await saveLineEvent(()=>nasSaveRecord('truck',id,{brand,number:num,defaultVol:isGAI?0:vol,isGAI},Number(document.getElementById('editTruckId').dataset.nasRevision)));
+      await saveTruckPhoneFromBase(editedId);
+      cancelEditTruck();
+    } catch(e) { showError(e.message); }
+  }
+  // Телефон и имя водителя сохраняются отдельной записью: сбой телефона не отменяет
+  // сохранение самого самосвала. Пустое поле телефона = «телефон не менять».
+  async function saveTruckPhoneFromBase(id) {
+    if(!id || !hasPermission('view_truck_phone') || !hasPermission('add_truck_phone')) return;
+    // Телефон живёт только на Ubuntu-бэкенде: в firebase-режиме поля не сохраняем.
+    if(typeof isNasRuntime === 'function' && !isNasRuntime()) return;
+    const field = document.getElementById('newTruckPhone'); if(!field) return;
+    if(!String(field.value||'').trim()) return;
+    const phone = truckPhoneNormalizeInput(field.value);
+    if(!phone) { appNotice('Телефон не сохранён: нужен номер с плюсом и 8–15 цифрами'); return; }
+    const nameField = document.getElementById('newTruckDriver');
+    const driverName = truckPhoneCleanName(nameField ? nameField.value : '');
+    if(driverName === undefined) { appNotice('Телефон не сохранён: в имени допустимы буквы, цифры, пробел, точка, дефис, апостроф (до 80)'); return; }
+    try { await truckPhoneRequest({ truckId:id, phone, driverName }); }
+    catch(e) { showError('Телефон не сохранён: ' + (e && e.message ? e.message : 'ошибка')); }
+  }
+  function fillTruckPhoneFields(id) {
+    const phoneGroup = document.getElementById('truckPhoneGroup'), driverGroup = document.getElementById('truckDriverGroup');
+    const phoneField = document.getElementById('newTruckPhone'), driverField = document.getElementById('newTruckDriver');
+    if(!phoneGroup || !driverGroup || !phoneField || !driverField) return;
+    const canView = hasPermission('view_truck_phone'), canEdit = canView && hasPermission('add_truck_phone');
+    const entry = canView ? truckPhoneEntry(id) : null;
+    phoneGroup.style.display = canView ? 'block' : 'none';
+    driverGroup.style.display = canView ? 'block' : 'none';
+    phoneField.value = entry && entry.phone ? entry.phone : '';
+    driverField.value = entry && entry.driverName ? entry.driverName : '';
+    phoneField.disabled = !canEdit; phoneField.readOnly = !canEdit;
+    driverField.disabled = !canEdit; driverField.readOnly = !canEdit;
+  }
+  function editGlobalTruck(id) {
+    if(!requireEdit('manage_trucks')) return; let t=findTruck(id); if(!t) return;
+    document.getElementById('editTruckId').dataset.nasRevision=String(nasRecordRevision('truck',id)||'');document.getElementById('editTruckId').value=t.id; document.getElementById('newTruckType').value=t.isGAI?'gai':'regular';
+    document.getElementById('newTruckBrand').value=t.brand; document.getElementById('newTruckNumber').value=t.number; document.getElementById('newTruckVol').value=t.defaultVol||'';
+    document.getElementById('formCardTitle').textContent='Редактировать'; document.getElementById('saveTruckBtn').textContent='💾 Сохранить'; document.getElementById('cancelEditBtn').style.display='block'; window.scrollTo(0,0); toggleVolInput();
+    fillTruckPhoneFields(t.id);
+    if(hasPermission('view_truck_phone')&&!truckPhoneEntry(t.id))truckPhoneRequest().then(()=>{if(document.getElementById('editTruckId').value===t.id)fillTruckPhoneFields(t.id);}).catch(()=>{});
+  }
+  function cancelEditTruck() {
+    document.getElementById('editTruckId').value=''; document.getElementById('newTruckType').value='regular'; document.getElementById('newTruckBrand').value=''; document.getElementById('newTruckNumber').value=''; document.getElementById('newTruckVol').value='';
+    const phoneGroup=document.getElementById('truckPhoneGroup'),driverGroup=document.getElementById('truckDriverGroup'),phoneField=document.getElementById('newTruckPhone'),driverField=document.getElementById('newTruckDriver');
+    if(phoneGroup)phoneGroup.style.display='none'; if(driverGroup)driverGroup.style.display='none';
+    if(phoneField){phoneField.value='';phoneField.disabled=true;phoneField.readOnly=true;} if(driverField){driverField.value='';driverField.disabled=true;driverField.readOnly=true;}
+    document.getElementById('formCardTitle').textContent='Добавить самосвал'; document.getElementById('saveTruckBtn').textContent='➕ Добавить'; document.getElementById('cancelEditBtn').style.display='none'; toggleVolInput();
+  }
+  function toggleVolInput() { document.getElementById('volumeGroup').style.display = document.getElementById('newTruckType').value === 'gai' ? 'none' : 'block'; }
+  async function deleteGlobalTruck(id) {
+    if(!requireEdit('manage_trucks')) return; let t=findTruck(id); if(!t || !(await appConfirm('Удалить?'))) return;
+    try { await saveLineEvent(()=>nasDeleteRecord('truck',id,nasRecordRevision('truck',id))); } catch(e){ showError(e.message); }
+  }
+  async function saveObjectToBase() {
+    if (!requireEdit('manage_objects')) return;
+    let id = document.getElementById('editObjectId').value, name = document.getElementById('newObjectNameBase').value.trim();
+    if (!name) { appNotice('Введите имя'); return; }
+    try { await saveLineEvent(()=>nasSaveRecord('object',id,{name},Number(document.getElementById('editObjectId').dataset.nasRevision)));cancelEditObject(); } catch(e){ showError(e.message); }
+  }
+  function editGlobalObject(id) { if(!requireEdit('manage_objects')) return; let o=state.objects.find(x=>x.id===id); if(!o) return; document.getElementById('editObjectId').dataset.nasRevision=String(nasRecordRevision('object',id)||'');document.getElementById('editObjectId').value=o.id; document.getElementById('newObjectNameBase').value=o.name; document.getElementById('formObjectCardTitle').textContent='Редактировать'; document.getElementById('saveObjectBtn').textContent='💾 Сохранить'; document.getElementById('cancelEditObjectBtn').style.display='block'; window.scrollTo(0,0); }
+  function cancelEditObject() { document.getElementById('editObjectId').value=''; document.getElementById('newObjectNameBase').value=''; document.getElementById('formObjectCardTitle').textContent='Добавить объект'; document.getElementById('saveObjectBtn').textContent='➕ Добавить'; document.getElementById('cancelEditObjectBtn').style.display='none'; }
+  async function deleteGlobalObject(id) {
+    if(!requireEdit('manage_objects')) return; let o=state.objects.find(x=>x.id===id); if(!o || !(await appConfirm('Удалить?'))) return;
+    try { await saveLineEvent(()=>nasDeleteRecord('object',id,nasRecordRevision('object',id))); } catch(e){ showError(e.message); }
+  }
+
+  // === АДМИН ПАНЕЛЬ ===
+  const userAccessWrites=new Set();
+  // Черновик ника: ввод живёт в поле до явного «Сохранить». Фоновые
+  // перестроения списка (nasActiveRefresh ~15 с, снапшоты users/requests)
+  // не должны уничтожать напечатанный текст: пока поле в фокусе,
+  // перерисовка откладывается (паттерн refreshIncoming из
+  // tabel-v2/workspace.mjs), а при перестроении значения и фокус полей
+  // переживают innerHTML (сохранение/восстановление по data-nickname-uid).
+  // Ф1 (1.8.1): то же удержание действует для select роли — открытый
+  // список ролей не должен закрываться фоновой перерисовкой; выбор роли
+  // по-прежнему отправляется мгновенно по onchange.
+  // Ф2 (1.8.1): кнопки «Сохранить/Отмена» скрыты, пока не начат ввод ника.
+  const nicknameDrafts=new Set();
+  let adminDraftHoldTimer=null;
+  function adminDraftFieldActive() {
+    const active=document.activeElement, container=document.getElementById('usersListContainer');
+    if (!active || typeof active.matches!=='function' || !container || typeof container.contains!=='function' || !container.contains(active)) return false;
+    return active.matches('input:not([readonly]),textarea,select[data-role-uid]');
+  }
+  function adminDraftHoldActive() { return adminDraftFieldActive(); }
+  function scheduleRenderAdminPanel() {
+    clearTimeout(adminDraftHoldTimer);
+    adminDraftHoldTimer=setTimeout(()=>{adminDraftHoldTimer=null;renderAdminPanel();},1000);
+  }
+  function collectDraftFields(container) {
+    const drafts={};
+    container.querySelectorAll('[data-nickname-uid]').forEach(f=>drafts[f.dataset.nicknameUid]={value:f.value,focused:f===document.activeElement});
+    return drafts;
+  }
+  function restoreDraftFields(container,drafts) {
+    container.querySelectorAll('[data-nickname-uid]').forEach(f=>{const d=drafts[f.dataset.nicknameUid];if(!d)return;f.value=d.value;if(d.focused)f.focus();});
+  }
+  // Ф2: кнопки «Сохранить/Отмена» видны только у полей с несохранённым
+  // вводом. Признак «идёт ввод» — nicknameDrafts (uid), переживает
+  // фоновые перерисовки, очищается сохранением/отменой.
+  function setNicknameActionsVisible(container) {
+    container.querySelectorAll('[data-nickname-uid]').forEach(f=>{
+      const actions=f.parentElement?.querySelector('[data-nickname-actions]');
+      if (actions) actions.style.display=nicknameDrafts.has(f.dataset.nicknameUid)?'inline-flex':'none';
+    });
+  }
+  function onNicknameInput() {
+    const uid=this.dataset.nicknameUid;
+    const original=state.users.find(u=>u.id===uid)?.nickname||'';
+    if (this.value!==original) nicknameDrafts.add(uid); else nicknameDrafts.delete(uid);
+    const actions=this.parentElement?.querySelector('[data-nickname-actions]');
+    if (actions) actions.style.display=nicknameDrafts.has(uid)?'inline-flex':'none';
+  }
+  function cancelUserNicknameDraft(uid) {
+    const field=document.querySelector('[data-nickname-uid="'+uid+'"]');
+    const original=state.users.find(u=>u.id===uid)?.nickname||'';
+    if (field) field.value=original;
+    nicknameDrafts.delete(uid);
+    const actions=field?.parentElement?.querySelector('[data-nickname-actions]');
+    if (actions) actions.style.display='none';
+  }
+  function renderAdminPanel() {
+    if (!canAdmin()) return;
+    renderRegistrationRequests();
+    if (adminDraftHoldActive()) { scheduleRenderAdminPanel(); return; }
+    const active = state.users.filter(u => u.status !== 'pending');
+    const container=document.getElementById('usersListContainer');
+    const drafts=collectDraftFields(container);
+    container.innerHTML = active.map(u => { const isMe = u.id === currentUid; const isLocked = isNasRuntime()?u.protected===true:isForcedAdminEmail(u.email); const accessible=u.status!=='disabled'; return `<div class="user-row ${accessible?'':'user-access-limited'}"> <div class="user-row-top"><div class="user-email">${escapeHtml(u.email)}</div><div style="display:flex;gap:4px;align-items:center;"><input type="text" class="form-control" style="width:100px; padding:4px; font-size:12px;" data-nickname-uid="${escapeHtml(u.id)}" value="${escapeHtml(u.nickname||'')}" aria-label="Ник: ${escapeHtml(u.email)}"><span data-nickname-actions style="display:none;gap:4px;align-items:center;"><button type="button" class="btn btn-secondary btn-small" style="padding:4px 10px; font-size:12px; min-height:0;" data-nickname-cancel="${escapeHtml(u.id)}">Отмена</button><button type="button" class="btn btn-secondary btn-small" style="padding:4px 10px; font-size:12px; min-height:0;" data-nickname-save="${escapeHtml(u.id)}">Сохранить</button></span></div></div><div class="user-row-bottom"><select class="form-control" data-role-uid="${escapeHtml(u.id)}" onchange="changeUserRole('${u.id}', this.value)">${Object.keys(ROLES).map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${ROLES[r].label}</option>`).join('')}</select>${!isMe&&!isLocked?`<button class="btn-del" onclick="deleteUser('${u.id}')">Удалить</button>`:''}</div><div class="user-access-row"><span>${accessible?'Доступ разрешён':'Доступ ограничен'}${isMe?'<small>Ваша учётная запись</small>':isLocked?'<small>Владелец приложения</small>':''}</span><label class="toggle-switch" title="${isMe?'Нельзя ограничить собственный доступ':isLocked?'Доступ владельца защищён':'Временно разрешить или ограничить доступ'}"><input type="checkbox" role="switch" data-user-access="${escapeHtml(u.id)}" aria-label="Доступ: ${escapeHtml(u.nickname||u.email)}" ${accessible?'checked':''} ${isMe||isLocked||userAccessWrites.has(u.id)?'disabled':''}><span class="toggle-slider"></span></label></div></div>`; }).join('');
+    restoreDraftFields(container,drafts);
+    container.querySelectorAll('[data-nickname-uid]').forEach(f=>f.oninput=onNicknameInput);
+    setNicknameActionsVisible(container);
+    container.querySelectorAll('[data-nickname-save]').forEach(b=>b.onclick=()=>saveUserNicknameDraft(b.dataset.nicknameSave));
+    container.querySelectorAll('[data-nickname-cancel]').forEach(b=>b.onclick=()=>cancelUserNicknameDraft(b.dataset.nicknameCancel));
+    document.querySelectorAll('[data-user-access]').forEach(input=>input.onchange=()=>setUserAccess(input.dataset.userAccess,input.checked));
+  }
+  async function setUserAccess(uid, enabled) {
+    return saveLineEvent(()=>runNasAdminAction('user.access',{uid,enabled}));
+  }
+  async function saveUserNicknameDraft(uid) {
+    if (!canAdmin()) return;
+    const field=document.querySelector('[data-nickname-uid="'+uid+'"]');
+    if (!field) return;
+    // Ошибку показывает runNasAdminAction (21-nas-runtime); поле не
+    // очищается — черновик защищён восстановлением после перерисовки,
+    // кнопки остаются, чтобы повторить или отменить.
+    const ok=await updateUserNickname(uid, field.value);
+    if (ok) cancelUserNicknameDraft(uid);
+  }
+  async function updateUserNickname(uid, nickname) { if (!canAdmin()) return; return saveLineEvent(()=>runNasAdminAction('user.nickname',{uid,nickname:nickname.trim()})); }
+  async function changeUserRole(uid, newRole) { if (!canAdmin()) return; return saveLineEvent(()=>runNasAdminAction('user.role',{uid,role:newRole})); }
+  async function deleteUser(uid) { if (!canAdmin() || !(await appConfirm('Удалить доступ?'))) return; return saveLineEvent(()=>runNasAdminAction('user.delete',{uid})); }
+  const registrationDecisions = new Set();
+  async function decideRegistration(reqId, approve) {
+    if (!canAdmin() || registrationDecisions.has(reqId)) return;
+    const role=document.getElementById('req_role_'+reqId)?.value || 'viewer';
+    if (approve && !Object.prototype.hasOwnProperty.call(ROLES,role)) {showError('Выберите роль');return;}
+    if (!approve && !(await appConfirm('Отклонить заявку и закрыть доступ пользователю?'))) return;
+    return saveLineEvent(()=>runNasAdminAction(approve?'registration.approve':'registration.reject',approve?{uid:reqId,role}:{uid:reqId}));
+  }
+  async function approveRequest(reqId) { return decideRegistration(reqId,true); }
+  async function rejectRequest(reqId) { return decideRegistration(reqId,false); }
+  async function addNewUser() {
+    if (!canAdmin()) return;
+    const email = document.getElementById('newUserEmail').value.trim(); const pass = document.getElementById('newUserPassword').value; const role = document.getElementById('newUserRole').value;
+    if (!email || !pass) { showError('Заполните поля'); return; }
+    // Учётную запись создаёт сервер Ubuntu. Пароль уходит только в запросе
+    // регистрации, в интерфейсе и журналах не сохраняется.
+    try{
+      const base=(typeof nasApiBase==='function'?nasApiBase():'').replace(/\/+$/,'');
+      if(!base)throw Error('Не настроен адрес сервера Ubuntu');
+      const response=await fetch(base+'/api/v1/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass,device:wtDeviceInfo()}),credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer'});
+      let payload=null;try{payload=await response.json();}catch(_){}
+      if(!response.ok)throw Error(wtAuthMessage(payload&&typeof payload.error==='string'?payload.error:'http-'+response.status));
+      const uid=payload&&payload.profile&&typeof payload.profile.uid==='string'?payload.profile.uid:'';
+      if(!uid)throw Error('Сервер не вернул учётную запись');
+      await refreshNasAdministration();
+      await nasAdminAction('registration.approve',{uid,role});
+      showToastEl('Пользователь создан на Ubuntu',false);
+    }
+    catch(error){showError('Создание доступа не завершено: '+error.message);}
+    finally{document.getElementById('newUserPassword').value='';}
+  }
+  function renderPermissionsMatrix(){
+    const role=document.getElementById('permRoleSelect').value,config=permissionsConfig[role]||{tabs:[],actions:[]},cont=document.getElementById('permissionsMatrixContainer');
+    const groups=[['Смена и линия',['start_shift','close_shift','edit_line']],['Работа самосвалов',['action_arrive','action_load','action_ttn','line_timer_reset']],['Последнее действие в статусе',['undo_action','undo_any']],['Журнал отмены и восстановления',['history_view','history_undo_own','history_undo_any','history_redo_own','history_redo_any']],['Данные и архив',['edit_logs','manage_trucks','manage_objects','archive_edit','archive_delete','import_backup']],['Отображение',['view_card_stats','view_header','view_gai_report','view_reis_in_ticker']]];
+    const known=new Set(groups.flatMap(g=>g[1])),extra=[...new Set([...ALL_ACTIONS,...(config.actions||[])])].filter(x=>!known.has(x)&&!x.startsWith('tabel_tab_'));if(extra.length)groups.push(['Другие возможности',extra]);
+    cont.innerHTML='<input id="permissionSearch" class="form-control" type="search" placeholder="Найти право…" aria-label="Поиск прав" style="margin-bottom:12px"><p style="color:var(--muted);font-size:12px">Администратор имеет полный доступ. Новые права журнала у остальных ролей выключены, пока вы их не включите. Изменения применяются кнопкой сохранения.</p>';
+    function section(title,ids,type,labels,selected){const block=document.createElement('section');block.className='perm-group';const h=document.createElement('div');h.className='perm-group-header';h.textContent=title;block.append(h);const list=document.createElement('div');list.className='perm-list';for(const id of ids){const label=document.createElement('label');label.className='perm-item';label.dataset.search=(title+' '+(labels[id]||id)).toLowerCase();const input=document.createElement('input');input.type='checkbox';input.dataset.type=type;input.value=id;input.checked=selected.includes(id);label.append(input,document.createTextNode(' '+(labels[id]||id)));list.append(label);}block.append(list);cont.append(block);}
+    section('Доступные вкладки',ALL_TABS.filter(t=>t!=='admin'),'tab',TAB_LABELS,config.tabs||[]);for(const [title,ids] of groups)section(title,ids,'action',ACTION_LABELS,config.actions||[]);
+    // Табель: гранулярные вкладки. Пока роли не выдано ни одного права tabel_tab_*,
+    // показываем состояние «по умолчанию: все вкладки» и ничего не сохраняем,
+    // пока администратор не включит выборочный набор.
+    if(role!=='admin'){
+      const tabelIds=['tabel_tab_request','tabel_tab_shift','tabel_tab_table','tabel_tab_catalog','tabel_tab_history'];
+      const configured=(config.actions||[]).filter(x=>tabelIds.includes(x));
+      const customized=configured.length>0;
+      const block=document.createElement('section');block.className='perm-group';
+      const h=document.createElement('div');h.className='perm-group-header';h.textContent='Табель';block.append(h);
+      const note=document.createElement('p');note.style='color:var(--muted);font-size:12px;margin:0 0 8px';
+      note.textContent=customized?'Отмечены только вкладки табеля, доступные этой роли.':'По умолчанию: все вкладки. Снимите галочки, чтобы ограничить вкладки табеля для этой роли (полный сброс галочек вернёт все вкладки).';
+      block.append(note);
+      const list=document.createElement('div');list.className='perm-list';
+      for(const id of tabelIds){
+        const label=document.createElement('label');label.className='perm-item';label.dataset.search=('Табель '+(ACTION_LABELS[id]||id)).toLowerCase();
+        const input=document.createElement('input');input.type='checkbox';input.dataset.type='action';input.value=id;
+        input.checked=customized?configured.includes(id):true;
+        label.append(input,document.createTextNode(' '+(ACTION_LABELS[id]||id).replace('Табель: ','')));
+        list.append(label);
+      }
+      block.append(list);cont.append(block);
+    }
+    document.getElementById('permissionSearch').oninput=e=>{const q=e.target.value.trim().toLowerCase();cont.querySelectorAll('.perm-item').forEach(x=>x.hidden=!x.dataset.search.includes(q));cont.querySelectorAll('.perm-group').forEach(x=>x.hidden=![...x.querySelectorAll('.perm-item')].some(l=>!l.hidden));};
+  }
+
+  async function savePermissions() {
+    if (!canAdmin()) return;
+    const role = document.getElementById('permRoleSelect').value;
+    const cont = document.getElementById('permissionsMatrixContainer');
+    const tabs = Array.from(cont.querySelectorAll('input[data-type="tab"]:checked')).map(i => i.value);
+    let actions = Array.from(cont.querySelectorAll('input[data-type="action"]:checked')).map(i => i.value);
+    // Полный набор вкладок табеля == состояние по умолчанию: не записываем
+    // tabel_tab_* в роль, чтобы старые конфигурации не менялись без причины.
+    const tabelAll = ['tabel_tab_request','tabel_tab_shift','tabel_tab_table','tabel_tab_catalog','tabel_tab_history'];
+    if (tabelAll.every(id => actions.includes(id))) actions = actions.filter(id => !tabelAll.includes(id));
+    return saveLineEvent(()=>runNasAdminAction('permissions.replace',{role,permissions:{tabs,actions}}));
+  }
+
+  // Панель длинных ошибок: одна на всё приложение, по центру экрана,
+  // закрывается только кнопкой «Понятно» (без таймера и закрытия по клику
+  // мимо панели).
+  function showErrorPanel(html) {
+    let panel = document.getElementById('errorPanel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'errorPanel';
+      panel.className = 'error-panel';
+      panel.setAttribute('role', 'alert');
+      panel.innerHTML = '<div class="error-panel-text"></div><button type="button" class="btn btn-secondary error-panel-close">Понятно</button>';
+      panel.querySelector('.error-panel-close').addEventListener('click', () => panel.classList.remove('open'));
+      document.body.appendChild(panel);
+    }
+    panel.querySelector('.error-panel-text').innerHTML = html;
+    panel.classList.add('open');
+  }
+  function showError(msg) {
+    console.error(msg);
+    if (!navigator.onLine) { showToastEl(`📴 Нет сети`, true); return; }
+    if (String(msg).length > 60) { showErrorPanel(`⚠️ ${escapeHtml(msg)}`); return; }
+    showToastEl(`⚠️ ${escapeHtml(msg)}`, true);
+  }
+  function resetToast(t) { t.className = 'toast'; t.innerHTML = ''; }
+  function showToastEl(html, isError, isUndo) {
+    if(window.__gameDeferToast?.(html,isError,isUndo))return;
+    let t = document.getElementById('toast'); if (!t) return;
+    clearTimeout(toastTimer1); clearTimeout(toastTimer2);
+    t.className = 'toast' + (isError ? ' error' : '') + (isUndo ? ' slide-right-to-left' : '');
+    t.innerHTML = html; void t.offsetWidth; t.classList.add('show');
+    toastTimer1 = setTimeout(() => { t.classList.remove('show'); t.classList.add('hide'); toastTimer2 = setTimeout(() => resetToast(t), 700); }, 2500);
+  }
+  function showToast(msgHtml, tickerHtml, actionObj) { if (actionObj) pushNotification(actionObj, tickerHtml || msgHtml); else showToastEl(msgHtml, false); }
+  async function pushNotification(actionObj, htmlText) {
+    pendingStart();
+    try { await refs.notifications.add(Object.assign({}, actionObj, { html: htmlText, timestamp: Date.now(), createdBy: getUserName(), createdByEmail: currentEmail || '' })); cleanupNotifications().catch(()=>{}); }
+    catch(e) { console.warn(e); } finally { pendingEnd(); }
+  }
+  let notifCleanupPending = false;
+  async function cleanupNotifications() {
+    if (notifCleanupPending) return; notifCleanupPending = true;
+    try { let snap = await refs.notifications.orderBy('timestamp', 'desc').limit(100).get(); if (snap.size < 100) return; let oldTs = snap.docs[snap.docs.length - 1].data().timestamp; let oldSnap = await refs.notifications.where('timestamp', '<', oldTs).get(); let batch = db.batch(); let cnt=0; oldSnap.forEach(d=>{batch.delete(d.ref);cnt++;}); if(cnt>0) await tfAwait(batch.commit()); }
+    catch(e) {} finally { notifCleanupPending = false; }
+  }
+  async function clearAllNotifications() { try { let snap = await refs.notifications.get(); if(!snap.size) return; let b=db.batch(); snap.forEach(d=>b.delete(d.ref)); await tfAwait(b.commit()); } catch(e){} }
+  function canUndoCurrent(last) { if (!hasPermission('undo_action') && !hasPermission('undo_any')) return false; if (hasPermission('undo_any')) return true; return last.createdByEmail === currentEmail; }
+
+  function renderStatusTicker() {
+    let t = document.getElementById('statusTicker'); if (!t) return;
+    let last = offlineLocalTicker() || lastValidNotification();
+    if (!last) { t.style.display = 'none'; t.innerHTML = ''; lastTickerTs = 0; lastTickerId = null; return; }
+    let isNew = (last.timestamp || 0) !== lastTickerTs; let isNewId = last.id !== lastTickerId;
+    if (t.style.display === 'none' || !t.querySelector('.ticker-text-wrapper')) {
+      t.style.display = 'flex';
+      t.innerHTML = `<div class="ticker-row-top"><span>ПОСЛЕДНЕЕ ДЕЙСТВИЕ</span><span id="tickerTimeAgo" class="ticker-time" data-timestamp="${last.timestamp||Date.now()}">${formatTimeAgo(last.timestamp)}</span></div><div class="ticker-row-bottom"><div class="ticker-text-wrapper"><div class="ticker-left active">${last.html||''}</div></div>${canUndoCurrent(last) ? `<button class="btn-undo" onclick="${last.offlinePending?'undoLastOfflineAction()':'undoLastAction()'}" title="Отменить">↩</button>` : ''}</div>`;
+      lastTickerTs = last.timestamp || 0; lastTickerId = last.id; t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); return;
+    }
+    if (isNew && isNewId) {
+      let wrapper = t.querySelector('.ticker-text-wrapper'); let oldText = wrapper.querySelector('.ticker-left.active');
+      if (oldText) { let newText = document.createElement('div'); newText.className = 'ticker-left enter'; newText.innerHTML = last.html || ''; wrapper.appendChild(newText); void newText.offsetWidth; oldText.classList.remove('active'); oldText.classList.add('leave'); newText.classList.remove('enter'); newText.classList.add('active'); setTimeout(() => { if (oldText.parentNode) oldText.remove(); }, 800); }
+      let undoBtn = t.querySelector('.btn-undo'); let canUndo = canUndoCurrent(last);
+      if (canUndo && !undoBtn) { let btn = document.createElement('button'); btn.className = 'btn-undo'; btn.innerHTML = '↩'; btn.onclick = last.offlinePending?undoLastOfflineAction:undoLastAction; t.querySelector('.ticker-row-bottom').appendChild(btn); } else if (!canUndo && undoBtn) { undoBtn.remove(); }
+      if(undoBtn&&canUndo)undoBtn.onclick=last.offlinePending?undoLastOfflineAction:undoLastAction;
+      let timeEl = document.getElementById('tickerTimeAgo'); if(timeEl) { timeEl.textContent = formatTimeAgo(last.timestamp); timeEl.setAttribute('data-timestamp', last.timestamp); }
+      t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); lastTickerTs = last.timestamp || 0; lastTickerId = last.id;
+    }
+  }
+  let undoActionInFlight = false;
+  async function undoLastAction() {
+    if (undoActionInFlight) return;
+    if (!hasPermission('undo_action') && !hasPermission('undo_any')) { showError('Нет права отменять действия'); return; }
+    const last = lastValidNotification(); if (!last) return;
+    if (!hasPermission('undo_any') && last.createdByEmail !== currentEmail) { showError('Можно отменить только своё действие'); return; }
+    if (!['arrive','load','ttn'].includes(last.type)) { showError('Это действие отменяется через историю администратора'); return; }
+    if (!(await appConfirm('Отменить действие?'))) return;
+    undoActionInFlight = true; pendingStart();
+    try {
+      if (truckStatusWrites[last.truckId]) await truckStatusWrites[last.truckId];
+      const localStatus = state.truckStatus[last.truckId];
+      if (!localStatus) throw {code:'status-missing',message:'Статус машины не загружен. Обновите страницу'};
+      const before = {...localStatus};
+      const observedRevision=truckServerRevisions[last.truckId]||0;
+      const notificationRef = refs.notifications.doc(last.id), statusRef = refs.truckStatus.doc(last.truckId);
+      let update = null;
+      await db.runTransaction(async tx => {
+        const notification = await tx.get(notificationRef);
+        const status = await tx.get(statusRef);
+        const logRef = last.type === 'load' && last.logId ? refs.logs.doc(last.logId) : null;
+        const log = logRef ? await tx.get(logRef) : null;
+        // A notification is a presentation record, not the source of truth for
+        // the current TTN state. It may be absent after cleanup or a delayed
+        // listener update; the status transaction still proves whether this
+        // exact TTN can be undone. Arrive/load keep the stricter notification
+        // requirement because they also need their durable history/log.
+        if (!notification.exists && last.type !== 'ttn') throw {code:'already-undone',message:'Действие уже отменено'};
+        if (notification.exists && !hasPermission('undo_any') && notification.data().createdByEmail !== currentEmail) throw {code:'not-owner',message:'Можно отменить только своё действие'};
+        if (!status.exists) throw {code:'status-missing',message:'Самосвал отсутствует на линии'};
+        const current = status.data();
+        const keys=['shiftId','onLine','arriveStatus','arriveTimestamp','arriveBy','lastLoadTimestamp','lastLoadBy','loadedAfterArrive','ttnStatus','ttnBy','ttnLogId','cycleRevision','lastLoadLogId','ttnRevision'];
+        if (keys.some(key => JSON.stringify(current[key] ?? null) !== JSON.stringify(before[key] ?? null))) throw {code:'action-conflict',message:'Данные машины изменились. Обновите страницу перед отменой'};
+        if (last.type === 'arrive') {
+          update = last.wasArrived ? {arriveStatus:last.prevTime||null,arriveTimestamp:last.prevTs||null,arriveBy:last.prevArriveBy||null} : {arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false};
+        } else if (last.type === 'load') {
+          if (!log || !log.exists) throw {code:'log-missing',message:'Рейс уже удалён или не был сохранён'};
+          if (!hasPermission('undo_any') && log.data().createdByEmail !== currentEmail) throw {code:'not-owner',message:'Нельзя отменить чужую погрузку'};
+          if (Number(current.lastLoadTimestamp) !== Number(log.data().timestamp)) throw {code:'action-conflict',message:'У самосвала уже есть более новая погрузка'};
+          update={loadedAfterArrive:false,lastLoadTimestamp:last.prevLoadTs??null,lastLoadBy:last.prevLoadBy??null};
+          if (last.wasArrived) Object.assign(update,{arriveStatus:last.prevArriveStatus||null,arriveTimestamp:last.prevArriveTs||null,arriveBy:last.prevArriveBy||null});
+          update.lastLoadLogId=last.prevLoadLogId||null;
+          if (last.prevTtn !== undefined) update.ttnStatus=last.prevTtn;
+          if (last.prevTtnBy !== undefined) update.ttnBy=last.prevTtnBy||null;
+          if (last.prevTtnLogId !== undefined) update.ttnLogId=last.prevTtnLogId;
+        } else {
+          update={ttnStatus:last.prevTtn??null,ttnBy:last.prevTtnBy??null,ttnLogId:last.prevTtnLogId??null};
+        }
+        if(last.type==='arrive'||last.type==='load')update.cycleRevision=Number(current.cycleRevision||0)+1;
+        if(last.type==='ttn'||last.type==='load')update.ttnRevision=Number(current.ttnRevision||0)+1;
+        // TTN can be confirmed by truckStatus even when its presentation
+        // notification has not arrived (or was cleaned up). Build the penalty
+        // scope from the durable action in that case instead of dereferencing
+        // an absent notification snapshot.
+        const original=notification.exists ? notification.data() : {
+          ...last,
+          createdByEmail:last.createdByEmail||last.email||currentEmail,
+          createdBy:last.createdBy||last.actor||getUserName(),
+          type:last.type,
+          truckId:last.truckId,
+          logId:last.logId||current.ttnLogId||null
+        };
+        const penaltyKey=original.gamePenaltyKey||window.__gamePenaltyKey(last.type,last.truckId,current,last.logId,last.id);
+        const savePenalty=await window.__gameStagePenalty(tx,penaltyKey,{user:original.createdByEmail,name:original.createdBy,description:({load:'Погрузка',arrive:'Прибытие',ttn:'Отметка ТТН'}[last.type])+' · '+truckName(last.truckId),...window.__gamePenaltyScope(penaltyKey,original,current)});
+        tx.update(statusRef,update);
+        if (logRef) tx.delete(logRef);
+        savePenalty();
+        tx.delete(notificationRef);
+      });
+      if (state.truckStatus[last.truckId] && (truckServerRevisions[last.truckId]||0)===observedRevision) {const next={...state.truckStatus[last.truckId],...update};signalLineTransition(last.truckId,state.truckStatus[last.truckId],next);state.truckStatus[last.truckId]=next;truckServerRevisions[last.truckId]=observedRevision+1;}
+      if (last.type === 'load') { state.logs=state.logs.filter(l=>l.id!==last.logId); confirmedLoadIds.delete(last.logId); }
+      state.notifications=state.notifications.filter(n=>n.id!==last.id);
+      if (syncState.errors) delete syncState.errors.undo;
+      saveCache(); renderAll();
+      await addAudit('↶ Отмена: ' + ({load:'погрузка самосвала',arrive:last.wasArrived?'снятие прибытия':'прибытие на линию',ttn:'отметка ТТН'}[last.type]) + ': ' + truckName(last.truckId),{eventType:'undo',originalType:last.type,truckId:last.truckId,originalUserEmail:last.createdByEmail||''});
+      showToastEl('↩️ Отменено',false,true);
+    } catch(e) {
+      reportSyncError('undo',e);
+      showErrorPanel('Действие не отменено: ' + escapeHtml(e.message || 'Ошибка Firebase') + ' [' + escapeHtml(e.code || 'unknown') + ']');
+    } finally { pendingEnd(); undoActionInFlight=false; }
+  }
+  async function addAudit(text, details = {}) {
+    const timestamp = Date.now();
+    const entry = { text, timeStr: new Date(timestamp).toLocaleString('ru-RU'), objectName: state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : '—', objectId: state.shift?.objectId || '', shiftId: state.shift?.id || '', userEmail: currentEmail || '', userName: getUserName(), createdByEmail: currentEmail || '', timestamp, ...details };
+    pendingStart();
+    try { await refs.audit.add(entry); }
+    catch(e) { console.warn('Audit error:', e); showError('Не удалось записать событие в аудит: ' + e.message); }
+    finally { pendingEnd(); }
+  }
+  function auditTruckAction(type, id, extra = {}) {
+    const labels = { arrive: '🚛 Прибытие на линию', arrive_cancel: '↩️ Снято прибытие на линию', load: '⚡ Погрузка самосвала', ttn: '📄 Забрана ТТН', ttn_cancel: '↩️ Снята отметка ТТН' };
+    const name = truckName(id);
+    return addAudit((labels[type] || type) + ': ' + name + (type === 'load' ? ' · ' + (extra.volume || 0) + ' м³' : ''), {eventType:type,truckId:id,truckName:name,...extra});
+  }
+  function renderAuditEntries() {
+    return '<div style="font-size:11px;color:var(--muted);margin:8px 0">Последние ' + state.audit.length + ' событий всех пользователей (до 200). Новые события сверху.</div>' + state.audit.map(a => {
+      const name = resolveUserDisplayName(a.userEmail || a.createdByEmail, a.userName);
+      return `<div class="audit-item"><div class="audit-time">${escapeHtml(a.timeStr)} · ${escapeHtml(name)}</div><div>${escapeHtml(a.text)}</div><div class="audit-time" style="margin-top:5px">${escapeHtml(objectTitle(a.objectId,a.objectName))}</div></div>`;
+    }).join('');
+  }
+
+  // === НАСТРОЙКИ ===
+  function openSettingsModal() {
+    document.getElementById('settingHoldLoad').value = settings.holdLoad;
+    document.getElementById('settingHoldArrive').value = settings.holdArrive;
+    document.getElementById('settingHoldTtn').value = settings.holdTtn;
+    document.getElementById('settingCycleMinutes').disabled=!canAdmin();
+    document.getElementById('settingCycleMinutes').value = Math.max(MIN_CYCLE_MINUTES, settings.cycleMinutes || MIN_CYCLE_MINUTES);
+    for(const name of ['hapticArrive','hapticLoad','hapticTtn'])document.getElementById(name).checked=!!settings[name];
+    document.getElementById('settingsModal').classList.add('open');
+  }
+  function closeSettingsModal() { document.getElementById('settingsModal').classList.remove('open'); }
+  function updateHoldSetting(t,v) { let f=parseFloat(v); f = isNaN(f)?0.5:Math.max(0,Math.min(5,f)); if(t==='load') settings.holdLoad=f; else if(t==='arrive') settings.holdArrive=f; else settings.holdTtn=f; localStorage.setItem('working-test-settings', JSON.stringify(settings)); }
+  async function updateCycleMinutes(v) {
+    if(!canAdmin()){showError('Время ходки задаёт администратор');return;}
+    if(!navigator.onLine){showError('Для изменения общего времени ходки требуется связь');return;}
+    const n=Math.max(15,parseInt(v)||15);
+    try{await saveLineEvent(()=>nasSaveSettings({cycleMinutes:n}));settings.cycleMinutes=n;localStorage.setItem('working-test-settings',JSON.stringify(settings));renderAll();}
+    catch(e){showError('Время ходки не сохранено: '+e.message);}
+  }
+  function toggleSetting(k,v) { settings[k]=v; localStorage.setItem('working-test-settings', JSON.stringify(settings)); }
+
+  function renderAll() {
+    renderHeaderStats();
+    // П4: перерисовка линии идёт через расписание, чтобы уважать удержания.
+    if (hasTabAccess('line')) scheduleRenderLine();
+    if (hasTabAccess('report')) renderReport();
+    if (hasTabAccess('archive')) renderArchive();
+    if (hasTabAccess('trucks')) { renderGlobalTrucksManage(); renderGlobalObjectsManage(); }
+    if (hasTabAccess('analytics')) renderAnalytics();
+    if (canAdmin()) renderAdminPanel();
+    renderStatusTicker();
+    updateSyncUI();
+  }
+
+  // === SWITCH TAB (с жёсткой проверкой безопасности) ===
+  function switchTab(name, btn) {
+    if (name === 'admin' && !canAdmin()) { showError('Только админ'); return; }
+    if (!name.startsWith('plugin-') && name !== 'admin' && !hasTabAccess(name)) { showError('Нет доступа'); return; }
+    // === SECURITY: до загрузки прав разрешена только вкладка line ===
+    if (!permissionsLoaded && name !== 'line' && name !== 'admin') {
+      showError('Подождите, идёт загрузка прав...'); return;
+    }
+    document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(e=>e.classList.remove('active'));
+    // Табель — обычная вкладка: при уходе на другую кнопку панели он закрывается.
+    if (name !== 'tabel-v2' && globalThis.__tabelV2Instance) { try { globalThis.__tabelV2Instance.hide(); } catch(e){} }
+    let t = document.getElementById('tab-'+name); if(t) t.classList.add('active');
+    if(btn) btn.classList.add('active');
+    window.scrollTo(0,0);
+    // Always open Summary on the regular truck sheet; GAI is opt-in per visit.
+    if (name === 'report') showGAITable = false;
+    if (pluginTabs[name]) pluginTabs[name].render(pluginTabs[name].container); else renderAll();
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    loadMaxQueue(); renderAll(); updateSyncUI();
+    window.addEventListener('online', () => { offlineTransportRecovered(); updateSyncUI(); runMaxQueue(); offlineReplayJournal(); });
+    window.addEventListener('offline', updateSyncUI);
+    let e = localStorage.getItem('working-test-saved-email_test347'); if(e) document.getElementById('userBadgeLabel').textContent = '👤 ' + sanitizeName(e);
+    document.getElementById('newTruckType').addEventListener('change', toggleVolInput);
+    setTimeout(runMaxQueue, 2000);
+    preloadTabelV2Modules();
+  });
+  setInterval(updateSyncUI, 3000);
+  setInterval(offlineReplayJournal, 8000);
+  setInterval(() => { if (maxQueue.length && !maxSenderRunning) runMaxQueue(); }, 20000);
+
+  // Built-in test module. No plugin installation or production writes.
+  let tabelV2Opening = false;
+  // Индикатор «Открываю табель…» — показывается в момент нажатия кнопки,
+  // пока грузятся модули tabel-v2 и справочник объектов (раньше до 8+ секунд
+  // кнопка молчала и экран оставался пустым).
+  function showTabelOpeningIndicator() {
+    let overlay = document.getElementById('tabel-v2-opening');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'tabel-v2-opening';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.6);color:#fff;font:600 16px/1.4 system-ui,sans-serif;text-align:center;';
+      overlay.textContent = 'Открываю табель…';
+      document.body.append(overlay);
+    }
+    overlay.hidden = false;
+  }
+  function hideTabelOpeningIndicator() {
+    const overlay = document.getElementById('tabel-v2-opening');
+    if (overlay) overlay.remove();
+  }
+  async function openTabelV2(settingsOnly, requestFirst = false) {
+    if (tabelV2Opening) return;
+    tabelV2Opening = true;
+    showTabelOpeningIndicator();
+    try {
+      // В режиме Ubuntu табель строится по справочнику объектов. Если справочник
+      // ещё не пришёл, таблица открывается пустой — поэтому сначала дожидаемся его.
+      if (isNasRuntime() && !(state.objects && state.objects.length)) {
+        try {
+          await Promise.race([
+            refreshNasObjects(),
+            new Promise(resolve => setTimeout(resolve, 8000))
+          ]);
+        } catch (e) { console.warn('Табель: справочник объектов', e.message); }
+      }
+      if (isNasRuntime() && !(state.objects && state.objects.length)) {
+        showError('Справочник объектов ещё не загружен. Проверьте связь с сервером Ubuntu и откройте табель снова.');
+        return;
+      }
+      const module = await import(new URL('./working-test/tabel-v2/entry.mjs', document.baseURI).href);
+      await module.open(tabelV2Host(), settingsOnly, {requestFirst});
+      // Табель — отдельный экран поверх приложения: активные вкладки (включая
+      // «Админ → Сервер» с его внутренними кнопками) должны быть погашены,
+      // иначе под табелем остаются чужие навигационные панели.
+      document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
+      // Табель подсвечивается в нижней панели, остальные вкладки гаснут.
+      document.querySelectorAll('.nav-btn').forEach(e=>e.classList.remove('active'));
+      const nb = document.getElementById('nav-tabel-v2'); if (nb) nb.classList.add('active');
+    } catch (error) { showError(error.message || 'Табель не открылся'); } finally { hideTabelOpeningIndicator(); tabelV2Opening = false; }
+  }
+
+  // Фоновая предзагрузка модулей табеля: после старта приложения, в свободное
+  // время (requestIdleCallback / setTimeout), грузим entry.mjs и workspace.css,
+  // чтобы первый клик по «Табель» не ждал сети на медленном соединении.
+  let tabelModulesPreloaded = false;
+  function preloadTabelV2Modules() {
+    if (tabelModulesPreloaded) return;
+    tabelModulesPreloaded = true;
+    const preload = () => {
+      import(new URL('./working-test/tabel-v2/entry.mjs', document.baseURI).href)
+        .catch(e => { tabelModulesPreloaded = false; console.warn('Табель: предзагрузка', e.message); });
+      if (!document.querySelector('[data-tabel-v2-css]')) {
+        const l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = new URL('./working-test/tabel-v2/workspace.css', document.baseURI);
+        l.dataset.tabelV2Css = '';
+        document.head.append(l);
+      }
+    };
+    const ric = globalThis.requestIdleCallback;
+    if (typeof ric === 'function') ric(preload, { timeout: 4000 }); else setTimeout(preload, 3000);
+  }
+
+
+  function tabelV2Host(){
+      if(isNasRuntime())return nasTabelHost();
+      const session = () => ({projectId: firebaseConfig.projectId, workspaceId: WORKSPACE_ID,
+        uid: currentUid, name: getUserName(), role: currentUserRole, active: currentUserStatus === 'active',
+        view: permissionsLoaded && hasTabAccess('timesheet'), edit: hasPermission('timesheet_edit'),
+        tabelTabs: tabelTabViews(),
+        objectId: state.shift && state.shift.objectId});
+      return {session, workspace: wsRef, refs,
+        users:async()=>state.users.length?state.users:(await usersRef.get()).docs.map(d=>({...d.data(),id:d.id})),
+        transaction:fn=>db.runTransaction(fn),
+        documentId:()=>(FIREBASE_SDK_PRESENT && typeof firebase!=='undefined' ? firebase.firestore.FieldPath.documentId() : 'firebase-unavailable'),
+        get shift(){return state.shift;}, get objects(){return state.objects;},
+        snapshot:()=>({shift:state.shift,trucks:state.trucks,statuses:state.truckStatus,logs:state.logs,audit:state.audit,lineAudit:state.lineAudit,archive:state.archive}),
+        createObject:async(name,startDate)=>{
+          if(!hasPermission('manage_objects')||currentUserStatus!=='active')throw Error('Нет права создавать объекты');
+          name=String(name||'').trim();if(!name||name.length>180)throw Error('Введите название объекта');
+          const existing=state.objects.find(o=>o.name.toLowerCase()===name.toLowerCase());if(existing)return {...existing};
+          const ref=refs.objects.doc(),data={name,startDate,createdAt:Date.now(),createdBy:getUserName()};
+          await tfAwait(ref.set(data));return {id:ref.id,...data};
+        }
+
+      };
+  }
+  let tabelBackgroundStarting=false;
+  function startTabelBackground(){
+    if(tabelBackgroundStarting||tabelV2Opening||!permissionsLoaded||currentUserStatus!=='active'||!hasTabAccess('timesheet'))return;
+    tabelBackgroundStarting=true;
+    import(new URL('./working-test/tabel-v2/entry.mjs',document.baseURI).href).then(m=>m.background(tabelV2Host())).catch(e=>console.warn('Табель: фоновая очередь',e.message)).finally(()=>{tabelBackgroundStarting=false;});
+  }
+// Чистые правила переключения сервера данных. Вынесены отдельно, чтобы их
+// можно было проверить без браузера и без обращения к базам.
+(function (root) {
+  'use strict';
+
+  // Что нужно, чтобы вообще начать переключение. Возвращает либо запрет с
+  // понятной причиной, либо подтверждённое поколение для серверной команды.
+  function decideSwitchPlan(input) {
+    const state = input || {};
+    const target = state.target;
+    if (target !== 'firebase' && target !== 'ubuntu') return { ok: false, error: 'Неизвестный режим сервера.' };
+    if (!state.authenticated) return { ok: false, error: 'Нужен вход в приложение.' };
+    if (!state.permissionsLoaded || !state.isAdmin) return { ok: false, error: 'Режим сервера может менять только активный администратор.' };
+    if (Number(state.pending) > 0) return { ok: false, error: 'Переключение запрещено: есть неотправленные действия.' };
+    if (state.currentProvider === target) return { ok: true, noop: true, expectedGeneration: state.generation };
+    if (!Number.isInteger(state.generation) || state.generation < 0) {
+      return { ok: false, error: 'Общий режим сервера ещё не подтверждён сервером.' };
+    }
+    return { ok: true, noop: false, expectedGeneration: state.generation };
+  }
+
+  // Отказ сервера переводим в понятный текст. Неизвестный отказ возвращаем
+  // как есть, чтобы не скрывать настоящую причину.
+  function describeSwitchFailure(status, code, message) {
+    if (code === 'authority-generation-conflict') return 'Режим уже изменил другой администратор. Откройте админку заново.';
+    if (code === 'authority-generation-mismatch') return 'Телефон отстал от общего режима. Обновите страницу и повторите.';
+    if (code === 'not-authoritative') return 'Сервер ещё не объявлен владельцем записи. Переключение не выполнено.';
+    if (status === 403) return 'Резерв пока не содержит вашу учётную запись. Дождитесь репликации или проверьте права.';
+    if (status === 401) return 'Сеанс входа истёк. Войдите заново.';
+    return message || null;
+  }
+
+  // Право записи принадлежит ровно одному серверу: резерв не принимает
+  // зеркало, когда владельцем объявлен он сам, и наоборот.
+  function isMirrorAllowed(authorityProvider) {
+    return authorityProvider === 'firebase';
+  }
+
+  const api = { decideSwitchPlan, describeSwitchFailure, isMirrorAllowed };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  root.WorkingTestSwitchPolicy = api;
+})(typeof window !== 'undefined' ? window : globalThis);  // TEST only. Firestore remains the sole data writer until the complete NAS
+  // interface is connected. A reachable health endpoint is not a data adapter.
+  const TEST_BACKEND_MODE_LABELS = Object.freeze({ firebase: 'Firebase — сервер данных', ubuntu: 'Ubuntu — сервер данных' });
+  const WORKING_AUTHORITY_PATH = 'workspaces/main_workspace/settings/backendAuthority';
+  window.WorkingTestAuthority = window.WorkingTestAuthority || { runtimeProvider: 'firebase', generation: null, stop: null };
+
+  // Единственный владелец записи объявлен сервером Ubuntu (таблица
+  // server_authority). Firebase-документ — только зеркало для тех клиентов,
+  // которые не могут прочитать сервер. Поэтому переключение всегда идёт
+  // через серверную процедуру, а не через локальную настройку браузера.
+  const WORKING_AUTHORITY_API = WORKING_TEST_UBUNTU_API_BASE + '/api/v1/authority';
+
+  async function workingAuthorityRequest(method, body) {
+    if (!wtAuthUser()) throw Error('Нужен вход в приложение');
+    const token = await wtAuthUser().getIdToken();
+    const headers = { Authorization: 'Bearer ' + token };
+    if (body) headers['Content-Type'] = 'application/json';
+    const response = await fetch(WORKING_AUTHORITY_API, {
+      method,
+      headers,
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
+    let payload = null;
+    try { payload = await response.json(); } catch (_) {}
+    if (!response.ok) {
+      const error = Error((payload && (payload.error || payload.message)) || ('HTTP ' + response.status));
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  }
+
+  async function mirrorAuthorityToFirestore(authority) {
+    try {
+      await db.doc(WORKING_AUTHORITY_PATH).set({
+        provider: authority.provider,
+        generation: authority.generation,
+        updatedAt: Date.now(),
+        updatedBy: currentUid || null
+      });
+    } catch (_) { /* зеркало необязательно: истина на сервере */ }
+  }
+
+  async function readWorkingAuthority() {
+    if (wtAuthUser()) {
+      try {
+        const state = await workingAuthorityRequest('GET');
+        const a = state && state.authority;
+        if (a && ['firebase', 'ubuntu'].includes(a.provider) && Number.isInteger(a.generation) && a.generation > 0) {
+          void mirrorAuthorityToFirestore(a);
+          return { provider: a.provider, generation: a.generation };
+        }
+      } catch (_) { /* сервер недоступен — читаем зеркало */ }
+    }
+    const ref = db.doc(WORKING_AUTHORITY_PATH);
+    try {
+      const snap = await ref.get({ source: 'server' });
+      if (!snap.exists) return { provider: 'firebase', generation: 0 };
+      const data = snap.data() || {};
+      if (!['firebase', 'ubuntu'].includes(data.provider) || !Number.isInteger(data.generation) || data.generation < 0) throw Error('Режим сервера повреждён');
+      return { provider: data.provider, generation: data.generation };
+    } catch (error) {
+      if (error.code === 'permission-denied') throw error;
+      throw Error('Не удалось подтвердить общий режим данных');
+    }
+  }
+  function watchWorkingAuthority() {
+    if (window.WorkingTestAuthority.stop) window.WorkingTestAuthority.stop();
+    // До входа общий документ недоступен по правилам: не подписываемся и не
+    // пугаем пользователя отказом доступа на экране входа.
+    if (!wtAuthUser()) return;
+    window.WorkingTestAuthority.stop = db.doc(WORKING_AUTHORITY_PATH).onSnapshot({includeMetadataChanges:false}, snap => {
+      const data=snap.exists?snap.data():{};
+      if (!snap.exists) { window.WorkingTestAuthority.runtimeProvider='firebase'; window.WorkingTestAuthority.generation=0; return; }
+      if (!['firebase','ubuntu'].includes(data.provider) || !Number.isInteger(data.generation)) return;
+      const changed=window.WorkingTestAuthority.generation!==null && window.WorkingTestAuthority.generation!==data.generation;
+      window.WorkingTestAuthority.runtimeProvider=data.provider; window.WorkingTestAuthority.generation=data.generation; renderTestBackendControls();
+      if (changed && location.reload) location.reload();
+    }, error => { if (error.code==='permission-denied' && currentUid) showError('Нет доступа к общему режиму сервера. Переключение остановлено.'); });
+  }
+  window.addEventListener('online', () => { readWorkingAuthority().then(a => { window.WorkingTestAuthority.runtimeProvider=a.provider; window.WorkingTestAuthority.generation=a.generation; }).catch(()=>{}); });
+
+  function testBackendPreferenceKey() {
+    return currentUid ? 'wt_backend_mode:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID + ':' + currentUid : null;
+  }
+
+  function getTestBackendMode() {
+    const key = testBackendPreferenceKey();
+    if (!key) return 'firebase';
+    try {
+      const mode = localStorage.getItem(key);
+      // Never activate an unsupported provider from an old or edited preference.
+      return mode === 'ubuntu' || mode === 'firebase' ? mode : 'firebase';
+    } catch (_) { return 'firebase'; }
+  }
+
+  // The device preference is only a request. The single shared decision lives in
+  // one Firestore document and is written transactionally by an administrator —
+  // for BOTH directions. Existing rules already allow an active user to read and
+  // an admin to write workspaces/main_workspace/settings/*, so no rule or schema
+  // change to the working database is required.
+  async function writeAuthority(mode, expectedGeneration) {
+    // Одна транзакция на сервере: проверка поколения + смена владельца записи.
+    // Локальная настройка браузера владельцем не является.
+    const result = await workingAuthorityRequest('POST', {
+      provider: mode,
+      expectedGeneration,
+      reason: 'Ручное переключение администратором'
+    });
+    const authority = result && result.authority;
+    if (!authority) throw Error('Сервер не подтвердил переключение');
+    await mirrorAuthorityToFirestore(authority);
+    return authority;
+  }
+
+  // Перед передачей права записи резерву проверяем, что резерв действительно
+  // готов: в нём есть наша учётная запись и рабочие данные. Иначе телефон
+  // переключился бы в пустую базу и потерял доступ.
+  async function checkReserveReadiness() {
+    const token = await wtAuthUser().getIdToken();
+    const session = await fetch(WORKING_TEST_UBUNTU_API_BASE + '/api/v1/session', {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (!session.ok) {
+      if (session.status === 403) throw Error('Резерв пока не содержит вашу учётную запись. Дождитесь репликации или проверьте права.');
+      throw Error('Резерв не ответил на проверку сеанса: HTTP ' + session.status);
+    }
+    const line = await fetch(WORKING_TEST_UBUNTU_API_BASE + '/api/v1/line/snapshot', {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (!line.ok) throw Error('Резерв не отдал данные линии: HTTP ' + line.status);
+    const snapshot = await line.json().catch(() => null);
+    const trucks = Array.isArray(snapshot?.trucks) ? snapshot.trucks.length : 0;
+    if (!trucks) throw Error('В резерве ещё нет данных линии. Дождитесь репликации, затем повторите.');
+    return trucks;
+  }
+
+  async function pushAuthorityToServer(mode) {
+    if (mode !== 'ubuntu' && mode !== 'firebase') return null;
+    try {
+      const current = await readWorkingAuthority();
+      if (current.provider === mode) return current;
+      if (mode === 'ubuntu') await checkReserveReadiness();
+      const next = await writeAuthority(mode, current.generation);
+      window.WorkingTestAuthority.runtimeProvider = next.provider;
+      window.WorkingTestAuthority.generation = next.generation;
+      showToastEl('Сервер данных: ' + TEST_BACKEND_MODE_LABELS[mode], false);
+      return next;
+    } catch (error) {
+      showError(error.code === 'authority-generation-conflict'
+        ? error.message
+        : 'Сервер не подтвердил переключение: ' + (error.message || error.code || 'ошибка'));
+      return null;
+    }
+  }
+
+  // The provider has to be known BEFORE the authenticated runtime starts,
+  // otherwise the app boots into Firebase and the switch looks like it "jumps
+  // back". Called from the auth flow before isNasRuntime() is evaluated.
+  let workingAuthorityReady = null;
+  function ensureWorkingAuthority() {
+    if (window.WorkingTestAuthority.ready) return Promise.resolve(window.WorkingTestAuthority);
+    if (!workingAuthorityReady) {
+      workingAuthorityReady = readWorkingAuthority().then(a => {
+        window.WorkingTestAuthority.runtimeProvider = a.provider;
+        window.WorkingTestAuthority.generation = a.generation;
+        window.WorkingTestAuthority.ready = true;
+        return window.WorkingTestAuthority;
+      }).catch(error => {
+        workingAuthorityReady = null; // retry on the next login/reconnect
+        if (error && error.code === 'permission-denied') {
+          showError('Нет доступа к общему режиму сервера. Работаем на Firebase.');
+        }
+        return window.WorkingTestAuthority;
+      });
+    }
+    return workingAuthorityReady;
+  }
+
+  function setTestBackendMode(mode) {
+    // Единственный сервер данных — Ubuntu. Переключения отключены намеренно:
+    // вторая база больше не принимает записи и не может разойтись с первой.
+    renderTestBackendControls();
+    showToastEl('Сервер данных один — Ubuntu. Firebase используется только для входа.', false);
+    return Promise.resolve(false);
+  }
+  function setTestBackendModeLegacy(mode) {
+    const policy = window.WorkingTestSwitchPolicy;
+    return (async () => {
+    // Перед решением обязательно читаем общий режим: иначе поколение ещё
+    // неизвестно и переключение ошибочно объявляется неподтверждённым.
+    await ensureWorkingAuthority();
+    const key = testBackendPreferenceKey();
+    const pending = typeof offlinePendingOps === 'function' ? offlinePendingOps().length : 0;
+    const plan = policy.decideSwitchPlan({
+      target: mode,
+      authenticated: !!currentUid,
+      isAdmin: canAdmin(),
+      permissionsLoaded: permissionsLoaded,
+      pending: pending,
+      currentProvider: window.WorkingTestAuthority.runtimeProvider,
+      generation: window.WorkingTestAuthority.generation
+    });
+    if (!plan.ok) {
+      renderTestBackendControls();
+      showError(plan.error);
+      return false;
+    }
+    if (plan.noop) {
+      renderTestBackendControls();
+      showToastEl('Сервер данных уже ' + TEST_BACKEND_MODE_LABELS[mode], false);
+      return true;
+    }
+    if (!key) {
+      renderTestBackendControls();
+      showError('Не удалось определить устройство для сохранения режима.');
+      return false;
+    }
+    // Локальная отметка — только для показа на этом устройстве. Владельца
+    // записи меняет сервер, поэтому перезагрузка идёт лишь после подтверждения.
+    try { localStorage.setItem(key, mode); } catch (_) {}
+    updateSyncUI();
+    showToastEl('Переключаем сервер данных…', false);
+    const switching = pushAuthorityToServer(mode);
+    if (typeof location !== 'undefined' && typeof location.reload === 'function') {
+      Promise.resolve(switching).then(next => {
+        if (!next) { renderTestBackendControls(); return; }
+        setTimeout(() => location.reload(), 500);
+      });
+    }
+    return true;
+    })();
+  }
+  watchWorkingAuthority();
+
+  function getTestBackendIndicator(status) {
+    if(isNasRuntime()){
+      // Сервер данных всегда Ubuntu; localStorage здесь ни при чём. Раньше
+      // при переполнении хранилища диагностика падала до reading() и
+      // показывала «Firebase — сервер данных», вводя в заблуждение.
+      if(status.state==='offline')return {letter:'О',label:'Ubuntu — локальная очередь',provider:'ubuntu'};
+      if(status.state==='ok')return {letter:'S',label:'Ubuntu — сервер данных',provider:'ubuntu'};
+      return {letter:'!',label:'Ubuntu — '+status.text,provider:'ubuntu'};
+    }
+    try{localStorage.getItem('samosval-working-test-backend-mode');}catch(e){return {letter:'!',label:'Ubuntu — память телефона переполнена',provider:'ubuntu'};}
+    if (status.state === 'offline') return {letter:'О', label:'Офлайн', provider:'firebase'};
+    if (!currentUid || status.state === 'init') return {letter:'…', label:'Firebase — подключение ещё не подтверждено', provider:'firebase'};
+    if (status.state === 'error') return {letter:'!', label:'Firebase — требуется проверка синхронизации', provider:'firebase'};
+    return {letter:'F', label:'Firebase — сервер данных', provider:'firebase'};
+  }
+
+  let testUbuntuCheckPending = false;
+  let testUbuntuCheckSession = null;
+  let testUbuntuCheckEpoch = 0;
+
+  function loadTestUbuntuChecker() {
+    return import(new URL('./working-test/synology/connection-check.mjs', document.baseURI).href);
+  }
+
+  async function checkTestUbuntuConnection() {
+    const allowed = !!currentUid && permissionsLoaded && canAdmin();
+    if (!allowed || testUbuntuCheckPending || !navigator.onLine) return;
+    const result = document.getElementById('testUbuntuCheckResult');
+    if (!result) return;
+    renderTestBackendControls();
+    const uid = currentUid, epoch = testUbuntuCheckEpoch;
+    const guard = () => {
+      if (uid !== currentUid || epoch !== testUbuntuCheckEpoch || !permissionsLoaded || !canAdmin()) throw Error('Сеанс изменился');
+    };
+    testUbuntuCheckPending = true;
+    result.textContent = 'Проверка линии и табеля Ubuntu…';
+    renderTestBackendControls();
+    try {
+      const {checkSynology} = await loadTestUbuntuChecker();
+      guard();
+      const counts = await checkSynology({getIdToken: force => wtAuthUser()?.getIdToken(force), guard});
+      guard();
+      result.textContent = `Линия и табель доступны. Машин: ${counts.trucks}; обычных рейсов: ${counts.normal}; объём: ${counts.volume} м³. Это проверка Ubuntu API; данные программы остаются в Ubuntu.`;    } catch (error) {
+      if (uid === currentUid && epoch === testUbuntuCheckEpoch && permissionsLoaded && canAdmin()) {
+        result.textContent = error.status === 404
+          ? 'По внешнему адресу Ubuntu API недоступен. Нужно проверить HTTPS-маршрут на Ubuntu.'
+          : error.name === 'AbortError' ? 'Ubuntu не ответил вовремя.' : error.message;
+      }
+    } finally {
+      testUbuntuCheckPending = false;
+      renderTestBackendControls();
+    }
+  }
+
+  function renderTestBackendControls(status) {
+    const section = document.getElementById('admin-backend-settings');
+    if (!section) return;
+    const allowed = !!currentUid && permissionsLoaded && canAdmin();
+    section.hidden = !allowed;
+    const session = allowed ? currentUid : null;
+    const probeResult = document.getElementById('testUbuntuCheckResult');
+    if (session !== testUbuntuCheckSession) {
+      testUbuntuCheckSession = session;
+      testUbuntuCheckEpoch++;
+      if (probeResult) probeResult.textContent = '';
+    }
+    const probeButton = document.getElementById('testUbuntuCheck');
+    if (probeButton) probeButton.disabled = !allowed || !navigator.onLine || testUbuntuCheckPending;
+    const select = document.getElementById('testBackendMode');
+    if (select) {
+      // Данные обслуживает только Ubuntu; переключение режимов отключено.
+      select.disabled = true;
+      select.value = 'ubuntu';
+    }
+    const actual = document.getElementById('testBackendActual');
+    if (actual) actual.textContent = getTestBackendIndicator(status || getSyncStatus()).label;
+    const note = document.getElementById('testBackendModeNote');
+    const shared = window.WorkingTestAuthority;
+    const sharedText = shared.generation === 0
+      ? ' Общий режим ещё не переключался: действует Firebase, его можно сменить.'
+      : shared.generation
+        ? ' Общий владелец записи: ' + (shared.runtimeProvider === 'ubuntu' ? 'Ubuntu' : 'Firebase')
+          + ' (поколение ' + shared.generation + ') — действует для всех устройств.'
+        : ' Общий владелец записи ещё не подтверждён сервером.';
+    if (note) note.textContent = 'Данные обслуживает Ubuntu — единственный сервер. Firebase используется только для входа пользователей. Переключение режимов отключено.';
+  }
+// TEST-only control center. Server authorizes every read and mutation independently.
+let serverControlSnapshot=null,serverControlSection='overview',serverControlFlight=null,serverControlBusy=false,serverControlError='',serverControlScope='';
+const serverControlLabels={queued:'В очереди',running:'Выполняется',succeeded:'Завершено',failed:'Ошибка',check:'Проверка обновлений',backup:'Резервная копия БД',update:'Обновление API',restart:'Перезапуск API',rollback:'Возврат предыдущего API',downloading:'Скачивание',verifying:'Проверка',backing_up:'Копирование и проверка восстановления',switching:'Установка',validating:'Проверка запуска',rolling_back:'Возврат прежнего API',interrupted:'Прервано',ready:'Готово',unavailable:'Недоступно'};
+const scText=x=>escapeHtml(String(x??'—'));
+function scBytes(n){n=Number(n);if(!Number.isFinite(n)||n<0)return 'Нет данных';if(n<1024)return n+' Б';const units=['КБ','МБ','ГБ','ТБ'];let i=-1;do{n/=1024;i++;}while(n>=1024&&i<units.length-1);return n.toLocaleString('ru-RU',{maximumFractionDigits:1})+' '+units[i];}
+const scDate=x=>x?new Date(x).toLocaleString('ru-RU'):'Нет данных';
+function scCard(label,value,note=''){return '<article class="sc-card"><span>'+scText(label)+'</span><strong>'+scText(value)+'</strong>'+(note?'<small>'+scText(note)+'</small>':'')+'</article>';}
+function scButton(action,text,disabled=false){return '<button type="button" class="btn btn-secondary btn-small" data-sc-action="'+action+'"'+(disabled?' disabled':'')+'>'+scText(text)+'</button>';}
+function scAllowed(){return isNasRuntime()&&canAdmin()&&!!nasRuntimeClient;}
+function scVisible(){return document.getElementById('tab-admin')?.classList.contains('active')&&document.getElementById('admin-sub-server')?.classList.contains('active')&&!document.hidden;}
+function renderServerControl(){
+ const root=document.getElementById('server-control-root');if(!root)return;
+ if(!scAllowed()){serverControlSnapshot=null;root.textContent=isNasRuntime()?'Требуется активный администратор.':'Центр управления доступен в тестовой версии Ubuntu.';return;}
+ const s=serverControlSnapshot,a=s?.agent,fresh=!!s&&!serverControlError&&Date.now()-s.readAt<30000,available=fresh&&a?.available&&!serverControlBusy,job=s?.jobs.find(j=>['queued','running'].includes(j.status)),disabled=!available||!!job;
+ let html='<div class="sc-heading"><div><h3>Центр управления</h3><span class="sc-channel">TEST · Ubuntu</span></div>'+scButton('refresh','Обновить',!!serverControlFlight)+'</div>';
+ html+='<p class="sc-status" role="status">'+scText(serverControlError||(!s?'Загружаю состояние…':!fresh?'Показаны последние полученные данные':a?.available?'Служба управления на связи':'Служба управления не подключена. Серверные действия недоступны.'))+'</p>';
+ html+='<nav class="sc-nav" aria-label="Разделы центра управления">'+[['overview','Обзор'],['resources','Ресурсы'],['updates','Обновления'],['backups','Копии'],['objects','Объекты'],['journal','Журнал']].map(([key,label])=>'<button type="button" data-sc-section="'+key+'" aria-pressed="'+(key===serverControlSection)+'">'+label+'</button>').join('')+'</nav>';
+ if(job)html+='<p class="sc-progress" role="status">'+scText(serverControlLabels[job.type])+' · '+scText(serverControlLabels[job.stage]||job.stage)+'. Задание продолжится на NAS после закрытия приложения.</p>';
+ if(s){
+  const host=a.host||{},disk=host.disk||{};
+  if(serverControlSection==='overview'){
+   html+='<div class="sc-grid">'+scCard('API',s.api.version,'Работает '+Math.floor(s.api.uptimeSeconds/60)+' мин')+scCard('База данных',s.database.status==='connected'?'Подключена':'Недоступна',scBytes(s.database.bytes))+scCard('Свободное место NAS',scBytes(disk.availableBytes),disk.totalBytes?'Всего '+scBytes(disk.totalBytes):'Появится после подключения службы')+scCard('Пользователи',s.users.registered,'Допущены: '+s.users.active+' · заявки: '+s.users.pending)+scCard('Объекты',s.objects.length,'Открытых смен: '+s.objects.reduce((n,o)=>n+o.active_shifts,0))+scCard('Последняя копия БД',a.backups?.[0]?scDate(a.backups[0].createdAt):'Нет подтверждения',a.backups?.[0]?.restored?'Проверено восстановлением':'Полная серверная копия')+'</div>';
+   html+='<div class="sc-actions">'+scButton('check','Проверить обновления',disabled)+scButton('backup','Создать копию БД',disabled)+scButton('restart','Перезапустить API',disabled)+'</div>';
+   html+='<p class="sc-note">Несинхронизированных рейсов на этом устройстве: '+scText(typeof offlinePendingCount==='function'?offlinePendingCount():'Нет данных')+'. Очереди остальных устройств доступны только на самих устройствах.</p>';
+  }
+  if(serverControlSection==='resources'){
+   html+='<div class="sc-grid">'+scCard('Диск NAS',scBytes(disk.availableBytes)+' свободно',disk.totalBytes?'Использовано '+scBytes(disk.totalBytes-disk.availableBytes):'Нет измерений')+scCard('Оперативная память NAS',host.memory?scBytes(host.memory.usedBytes)+' / '+scBytes(host.memory.totalBytes):'Нет данных')+scCard('Нагрузка NAS',host.load?.join(' / ')||'Нет данных','Средняя нагрузка за 1, 5 и 15 минут')+scCard('Запросы API',s.api.requests,'С момента запуска API')+scCard('Ответ API, p95',s.api.p95Ms===null?'Нет измерений':s.api.p95Ms+' мс','Последние 500 запросов')+scCard('Ошибки API',s.api.errors,'Ответы 5xx с момента запуска')+scCard('Память процесса API',scBytes(s.api.memoryBytes))+scCard('Измерение NAS',scDate(a.heartbeat),a.available?'Свежие данные':'Данные устарели')+'</div><p class="sc-note">Показатели NAS получаем со службы управления. SMART, температура и состояние RAID пока не подключены: панель не подменяет их показателями контейнера.</p>';
+  }
+  if(serverControlSection==='updates'){
+   html+='<div class="sc-grid">'+scCard('Приложение',window.TEST_APP_RELEASE?.version||'—','Номер виден всем ролям')+scCard('Сервер API',s.api.version)+scCard('Доступный серверный релиз',a.release?.version||'Нет проверенного релиза',a.release?.verified?'Проверки GitHub пройдены':'Проверка кнопкой ниже')+'</div>';
+   if(a.release?.notes)html+='<p>'+scText(a.release.notes)+'</p>';
+   html+='<div class="sc-actions">'+scButton('check','Проверить GitHub',disabled)+scButton('update','Обновить сервер',disabled||!a.release?.verified||a.release.version===s.api.version)+scButton('rollback','Вернуть предыдущий API',disabled||!a.rollbackAvailable)+scButton('app-update','Проверить приложение')+'</div><p class="sc-note">Перед обновлением API служба создаёт полную копию PostgreSQL и проверяет восстановление. При неудачном запуске возвращает прежний API. Рабочий контур отделён; эта панель управляет TEST.</p>';
+  }
+  if(serverControlSection==='backups'){
+   html+='<div class="sc-actions">'+scButton('backup','Создать полную копию БД',disabled)+'</div><h4>Полные серверные копии</h4>';
+   html+=(a.backups||[]).length?'<ul class="sc-list">'+a.backups.map(b=>'<li><b>'+scText(scDate(b.createdAt))+'</b><span>'+scText(scBytes(b.bytes))+' · '+(b.restored?'Восстановление проверено':'Требует проверки')+'</span></li>').join('')+'</ul>':'<p>Подтверждённых копий от службы ещё нет.</p>';
+   html+='<h4>Копии данных приложения</h4><ul class="sc-list">'+s.backups.map(b=>'<li><b>'+scText(b.description||b.type)+'</b><span>'+scText(scDate(b.createdAt))+' · '+scText(scBytes(b.sizeBytes))+'</span></li>').join('')+'</ul><p class="sc-note">Выборочное восстановление данных доступно в существующем разделе резервных копий. Возврат API не откатывает рейсы и табель.</p>';
+  }
+  if(serverControlSection==='objects')html+='<div class="sc-actions">'+scButton('users','Пользователи и права')+'</div><ul class="sc-list">'+s.objects.map(o=>'<li><b>'+scText(o.name||o.id)+'</b><span>Открытых смен: '+scText(o.active_shifts)+'</span></li>').join('')+'</ul>';
+  if(serverControlSection==='journal'){
+   html+='<h4>Задания сервера</h4><ul class="sc-list">'+s.jobs.map(j=>'<li><b>'+scText(serverControlLabels[j.type])+' · '+scText(serverControlLabels[j.status])+'</b><span>'+scText(scDate(j.updated_at))+' · '+scText(serverControlLabels[j.stage]||j.stage)+(j.detail?.error?' · '+scText(j.detail.error):'')+'</span></li>').join('')+'</ul><h4>Этапы установки</h4><ul class="sc-list">'+s.events.map(e=>'<li>'+scText(scDate(e.created_at))+' · '+scText(serverControlLabels[e.stage]||e.stage)+'</li>').join('')+'</ul><h4>Последние ошибки API</h4><ul class="sc-list">'+s.api.recentErrors.map(e=>'<li>'+scText(scDate(e.at))+' · '+scText(e.method)+' '+scText(e.path)+' · '+scText(e.status)+'</li>').join('')+'</ul>';
+  }
+  html+='<p class="sc-note">Получено: '+scText(scDate(s.readAt))+'. Обновление показателей каждые 15 секунд, пока открыт этот раздел.</p>';
+ }
+ root.innerHTML=html;
+ root.querySelectorAll('[data-sc-section]').forEach(b=>b.onclick=()=>{serverControlSection=b.dataset.scSection;renderServerControl();});
+ root.querySelectorAll('[data-sc-action]').forEach(b=>b.onclick=()=>void serverControlAction(b.dataset.scAction));
+}
+async function openServerControl(){
+ if(!scAllowed()){renderServerControl();return;}
+ const client=nasRuntimeClient,epoch=nasRuntimeEpoch;
+ if(serverControlScope!==client.scope){serverControlScope=client.scope;serverControlSnapshot=null;serverControlError='';serverControlFlight=null;}
+ if(serverControlFlight)return serverControlFlight;
+ const work=(async()=>{try{const snapshot=await client.readServerControl();if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch||!scAllowed())return;serverControlSnapshot=snapshot;serverControlError='';}
+ catch(e){if(client===nasRuntimeClient&&epoch===nasRuntimeEpoch)serverControlError=e.status===404?'Сервер ещё не обновлён для центра управления.':e.status===403?'Нет доступа к управлению сервером.':'Не удалось получить свежие данные. Серверные действия заблокированы.';}
+ finally{if(client===nasRuntimeClient&&epoch===nasRuntimeEpoch){serverControlFlight=null;renderServerControl();}}})();
+ serverControlFlight=work;renderServerControl();return work;
+}
+async function serverControlAction(type){
+ if(type==='refresh')return openServerControl();
+ if(type==='users'){switchAdminTab('users',document.querySelector('[onclick="switchAdminTab(\'users\', this)"]'));return;}
+ if(type==='app-update'){await window.TestPWA?.checkForUpdates();return;}
+ if(!scAllowed()||serverControlBusy||!serverControlSnapshot?.agent.available)return;
+ const client=nasRuntimeClient,epoch=nasRuntimeEpoch,a=serverControlSnapshot.agent,key='samosval_working_test_server_command:'+client.scope;
+ const questions={update:'Создать проверенную копию БД и обновить сервер TEST? Во время перезапуска устройства сохраняют действия локально. При неудаче служба вернёт прежний API.',restart:'Перезапустить API TEST? Связь с сервером кратковременно прервётся.',rollback:'Вернуть предыдущий API TEST? Рейсы и табель в базе останутся текущими.'};
+ if(questions[type]&&!(await appConfirm(questions[type])))return;
+ if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch||!scAllowed())return;
+ serverControlBusy=true;renderServerControl();
+ try{
+  let op=JSON.parse(localStorage.getItem(key)||'null');
+  const requested={type,channel:'test',...(['update','rollback'].includes(type)?{expectedImage:a.imageId}:{}),...(type==='update'?{releaseId:a.release.version}:{})};
+  if(op&&(op.type!==type||op.channel!=='test'))throw Error('Предыдущее задание ещё не подтверждено. Повторите «'+(serverControlLabels[op.type]||op.type)+'», чтобы проверить его результат.');
+  if(!op){op={id:'server_'+crypto.randomUUID().replaceAll('-',''),...requested};localStorage.setItem(key,JSON.stringify(op));}
+  await client.submitServerCommand(op,{operationScope:client.scope});
+  if(client!==nasRuntimeClient||epoch!==nasRuntimeEpoch)return;
+  localStorage.removeItem(key);showToastEl('Задание принято службой NAS',false);
+ }catch(e){if([400,403,409].includes(e.status))localStorage.removeItem(key);showError(e.message||'Результат пока не подтверждён. Повторная попытка использует тот же номер задания.');}
+ finally{serverControlBusy=false;if(client===nasRuntimeClient&&epoch===nasRuntimeEpoch)await openServerControl();}
+}
+window.addEventListener('DOMContentLoaded',()=>{
+ const style=document.createElement('style');
+ // Внутренняя навигация центра управления: полоса закреплена над основной нижней
+ // панелью (56px) и повторяет оформление вкладок табеля, чтобы кнопки не
+ // накладывались друг на друга и на панель приложения.
+ style.textContent=`.sc-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.sc-heading h3{margin:0 0 5px}.sc-channel{color:#f59e0b;font-size:11px;font-weight:800}
+ .sc-nav{display:flex;gap:4px;overflow-x:auto;margin:12px 0 0;padding:4px 6px;position:fixed;left:6px;right:6px;bottom:60px;z-index:10059;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 14px #0006;scrollbar-width:none;flex-shrink:0}
+ .sc-nav::-webkit-scrollbar{display:none}
+ .sc-nav button{font:inherit;white-space:nowrap;flex:0 0 auto;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);padding:6px 10px;font-size:11px;font-weight:600;line-height:1.2}
+ .sc-nav button:active{transform:scale(.96)}
+ .sc-nav [aria-pressed=true]{border-color:var(--primary);color:var(--primary);font-weight:800}
+ .sc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.sc-card{display:flex;flex-direction:column;gap:7px;padding:13px;border:1px solid var(--border);background:var(--card);border-radius:12px;min-width:0}.sc-card>span,.sc-note,.sc-card small{font-size:11px;color:var(--muted);line-height:1.5}.sc-card strong{font-size:17px;overflow-wrap:anywhere}.sc-actions{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0}.sc-list{list-style:none;padding:0}.sc-list li{display:flex;flex-direction:column;gap:5px;padding:11px 0;border-bottom:1px solid var(--border);font-size:12px;overflow-wrap:anywhere}.sc-list span{color:var(--muted)}.sc-status,.sc-progress{font-size:12px;line-height:1.5}.sc-progress{padding:12px;border:1px solid #f59e0b;border-radius:10px}
+ #server-control-root{padding-bottom:58px}
+ @media(min-width:800px){.sc-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}`;
+ document.head.append(style);
+ setInterval(()=>{if(!scAllowed()){serverControlSnapshot=null;serverControlFlight=null;if(scVisible())renderServerControl();}else if(scVisible())void openServerControl();},15000);
+});

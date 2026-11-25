@@ -61,6 +61,9 @@
     .sync-dot.syncing { background: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.3); animation: dotPulse 0.9s infinite; }
     .sync-dot.offline { background: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.35), 0 0 6px rgba(239,68,68,0.6); }
     .sync-dot.error   { background: #ef4444; }
+    /* degraded — фоновый сбой источника при уже загруженных данных: точка
+       жёлтая, но без пульсации, чтобы не мельтешить на рабочем экране. */
+    .sync-dot.degraded { background: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.3); }
     @keyframes dotPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
     .sync-badge {
       position: absolute; top: -5px; right: -8px; min-width: 13px; height: 13px;
@@ -74,6 +77,7 @@
     .user-badge { font-size: 10px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; padding: 2px 6px; border-radius: 4px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .role-chip { font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 700; margin-left: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
     .role-chip.admin { background: rgba(139, 92, 246, 0.25); color: #c4b5fd; }
+    .role-chip.senior_foreman { background: rgba(234, 179, 8, 0.28); color: #fde68a; }
     .role-chip.foreman { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
     .role-chip.master { background: rgba(245, 158, 11, 0.25); color: #fcd34d; }
     .role-chip.lopater { background: rgba(16, 185, 129, 0.25); color: #6ee7b7; }
@@ -303,6 +307,29 @@
     .toast.slide-right-to-left.show { transform: translate(-50%, 0); opacity: 1; }
     .toast.slide-right-to-left.hide { transform: translate(-150%, 0); opacity: 0; }
 
+    .error-panel {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(.97);
+      opacity: 0;
+      background: var(--card); color: var(--text);
+      border: 1px solid var(--danger);
+      border-radius: 16px;
+      padding: 14px 16px;
+      font-size: 13px; line-height: 1.5; word-break: break-word;
+      /* Выше фиксированного нижнего меню (z-index 10060): кнопка «Понятно»
+         не уходит под навигацию, панель — по центру экрана. */
+      z-index: 10100; width: min(92vw, 480px); max-width: 92vw;
+      max-height: 70vh; overflow-y: auto;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.55);
+      display: flex; flex-direction: column; gap: 12px;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+      pointer-events: none;
+    }
+    .error-panel.open { transform: translate(-50%, -50%) scale(1); opacity: 1; pointer-events: auto; }
+    .error-panel-text { white-space: pre-wrap; }
+    .error-panel-tech { font-size: 11px; opacity: .7; margin-top: 6px; word-break: break-all; }
+    .error-panel .error-panel-close { flex-shrink: 0; }
+
     .ru-plate { background: #ffffff; color: #000000; border: 2px solid #1e293b; border-radius: 6px; display: inline-flex; align-items: stretch; font-family: 'Courier New', Courier, monospace, sans-serif; font-weight: 900; box-shadow: inset 0 0 0 1px #000, 0 2px 5px rgba(0,0,0,0.3); overflow: hidden; text-transform: none; vertical-align: middle; margin: 0 2px; transform: scale(0.85); transform-origin: left center; }
     .ru-plate-main { padding: 2px 6px; display: flex; align-items: center; gap: 2px; font-size: 15px; letter-spacing: 1px; }
     .ru-plate-main .plate-digit { font-size: 17px; }
@@ -409,24 +436,228 @@
     .tp-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     .tp-actions > * { flex: 1 1 auto; text-align: center; }
     .tp-call { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+
+    /* === Вынос inline-стилей из shell.html (классы применяются точечно) === */
+    #authVersionText { text-align:center;font-size:12px;color:var(--muted);margin-bottom:10px; }
+    .auth-actions { display:flex;gap:8px;margin-top:20px; }
+    .pending-title-warning { font-size:20px;font-weight:700;margin-bottom:12px;color:var(--warning); }
+    .pending-title-danger { font-size:20px;font-weight:700;margin-bottom:12px;color:var(--danger); }
+    .status-note { font-size:14px;color:var(--muted);margin-bottom:24px;line-height:1.5; }
+    .pending-card-danger { border-color:var(--danger); }
+    .pending-icon-static { animation:none; }
+    .header-main-row-top { margin-top:4px; }
+    .btn-change-object { padding:2px 6px;font-size:10px;min-height:22px; }
+    .start-shift-intro { text-align:center;padding:40px 20px; }
+    .start-shift-title { font-size:18px;font-weight:700;margin-bottom:16px;color:var(--text); }
+    .start-shift-note { color:var(--muted);font-size:13px;margin-bottom:24px; }
+    .btn-start-shift { width:100%;font-size:16px;padding:16px; }
+    .btn-create-request { width:100%;margin-top:8px; }
+    .line-toolbar { display:flex;gap:10px;margin-bottom:14px; }
+    .tabel-counts { font-size:12px;padding:4px 0; }
+    .gai-toggle-container { display:flex;justify-content:flex-end;margin:-8px 0 0; }
+    .btn-report-toggle { display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:0;border-radius:0;background:none;box-shadow:none;color:inherit;font-size:20px;cursor:pointer;-webkit-tap-highlight-color:transparent; }
+    .action-row-pair { margin-bottom:12px;grid-template-columns:1fr 1fr; }
+    .action-row-plugins { margin-bottom:12px;flex-wrap:wrap; }
+    .btn-close-shift { width:100%;margin-top:24px;margin-bottom:20px; }
+    .subtab-toolbar { margin-bottom:14px; }
+    .base-subtabs { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px; }
+    .base-subtab-active { background:var(--primary);color:#fff; }
+    .section-title-first { margin-top:0; }
+    .flex-gap-8 { display:flex;gap:8px; }
+    .stats-heading { font-size:15px;font-weight:700;margin-bottom:10px;color:var(--warning); }
+    .stats-note { font-size:13px;color:var(--muted);line-height:1.6; }
+    .stat-accent-text { color:var(--text); }
+    .stat-accent-success { color:var(--success); }
+    .permissions-matrix { margin-top:16px; }
+    .btn-save-permissions { width:100%;margin-top:16px; }
+    .plugins-note { font-size:12px;color:var(--muted);margin-bottom:12px; }
+    .btn-add-plugin { width:100%;margin-bottom:16px; }
+    .console-note { font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.4; }
+    .console-actions { display:flex;gap:8px;margin-bottom:10px; }
+    .console-filters { display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap; }
+    .console-filter-btn { flex:1;min-width:60px; }
+    .console-view { background:#000;border-radius:8px;padding:10px;font-family:'Courier New',monospace;font-size:11px;line-height:1.4;max-height:55vh;overflow-y:auto;color:#94a3b8; }
+    .form-group-top-12 { margin-top:12px; }
+    .form-group-top-14 { margin-top:14px; }
+    .section-title-offset { margin-top:16px; }
+    .btn-test-max { width:100%;margin-top:16px;margin-bottom:8px; }
+    .btn-export-backup { width:100%;margin-bottom:10px; }
+    .modal-head-row { display:flex;justify-content:space-between;align-items:center; }
+    .modal-content-wide { max-width:900px; }
+    .flex-2 { flex:2; }
+    .flex-1 { flex:1; }
+    .full-width { width:100%; }
+    .section-title-small { margin-top:12px;font-size:14px; }
+    .plugin-roles { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px; }
+    .plugin-code-actions { display:flex;gap:8px;margin-top:8px; }
+    .modal-footer-row { display:flex;gap:10px;margin-top:10px; }
+    .objects-list { margin-bottom:14px;max-height:200px;overflow-y:auto; }
+    .form-group-margin { margin-bottom:10px; }
+    .shift-question { font-size:13px;margin-bottom:6px; }
+    .edit-log-info { margin-bottom:12px;font-size:14px; }
+    .selector-search { margin-top:10px; }
+    .archive-actions { display:flex;gap:8px;margin-top:10px;flex-wrap:wrap; }
+    .flex-gap-10 { display:flex;gap:10px; }
+
+    /* === Сброс таймера ходки (перенесено из features/reset-hold.js) === */
+    /* Кнопка Ходка в кулдауне для админа — выглядит как у лопатёров */
+    .btn-arrive.admin-can-hold {
+      background: #475569 !important;
+      color: #94a3b8 !important;
+      opacity: 0.6 !important;
+      cursor: pointer !important;
+      pointer-events: auto !important;
+      touch-action: none !important;
+      position: relative !important;
+      overflow: hidden !important;
+      user-select: none !important;
+      -webkit-user-select: none !important;
+    }
+    /* Прогресс-бар удержания — фиолетовый */
+    .btn-arrive.admin-can-hold::after {
+      content: "" !important;
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      bottom: 0 !important;
+      background: rgba(139, 92, 246, 0.6) !important;
+      width: 0% !important;
+      z-index: 0 !important;
+      pointer-events: none !important;
+    }
+    .btn-arrive.admin-can-hold.admin-holding::after {
+      width: 100% !important;
+      transition: width var(--hold-duration, 0.5s) linear !important;
+    }
+    .btn-arrive.admin-can-hold > span {
+      position: relative !important;
+      z-index: 1 !important;
+    }
+    /* Лёгкое сжатие при нажатии, без изменения цвета */
+    .btn-arrive.admin-can-hold:active {
+      transform: scale(0.98) !important;
+    }
+
+    /* === Хаб настроек (перенесено из features/settings-hub.js) === */
+    
+    #settingsModal.settings-hub .settings-source {display:none!important}
+    #settingsModal .settings-hub-intro {margin:12px 0;font-size:12px;line-height:1.5;color:var(--muted)}
+    #settingsModal .settings-tiles {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:10px 0}
+    #settingsModal .settings-tile {display:flex;flex-direction:column;min-width:0;min-height:103px;gap:7px;align-items:flex-start;
+    text-align:left;border-radius:14px;border:1px solid var(--border);background:var(--bg);color:var(--text);padding:12px;cursor:pointer}
+    #settingsModal .settings-tile:hover {border-color:var(--primary)}
+    #settingsModal .settings-tile:active {transform:scale(.98)}
+    #settingsModal .settings-tile:focus-visible,#settingsCategoryModal button:focus-visible {outline:2px solid #60a5fa;outline-offset:2px}
+    #settingsModal .settings-tile[hidden] {display:none!important}
+    #settingsModal .settings-tile-icon {font-size:21px}
+    #settingsModal .settings-tile-label {font-weight:750;font-size:14px;line-height:1.2}
+    #settingsModal .settings-tile-note {font-size:11px;line-height:1.35;color:var(--muted)}
+    #settingsCategoryModal .modal-content {max-width:540px;max-height:90dvh;border-radius:18px}
+    #settingsCategoryModal .settings-subhead {display:flex;align-items:center;gap:10px}
+    #settingsCategoryModal .settings-subhead h3 {flex:1;font-size:16px;line-height:1.25}
+    #settingsCategoryModal .settings-subhead button {min-width:40px;min-height:40px;border-radius:10px;
+    border:1px solid var(--border);color:var(--text);background:var(--bg);cursor:pointer;font-size:16px}
+    #settingsCategoryModal .settings-description {font-size:12px;color:var(--muted);margin:10px 0}
+    #settingsCategoryModal .modal-body {overflow-y:auto;max-height:calc(90dvh - 180px)}
+    #settingsCategoryModal .settings-pane[hidden] {display:none!important}
+    #settingsCategoryModal .settings-pane>.settings-row {gap:8px}
+    #settingsCategoryModal .settings-pane>.settings-row>div:first-child {font-size:13px}
+    #settingsCategoryModal .settings-pane>.form-group {margin:0 0 13px}
+    #settingsCategoryModal .settings-back-bottom {width:100%;min-height:44px}
+    #settingsModal.settings-hub .modal-content,#settingsCategoryModal .modal-content{
+     background:var(--card,#1e293b);border:1px solid rgba(148,163,184,.3);
+     border-radius:20px;box-shadow:0 22px 54px rgba(0,0,0,.48);width:min(540px,100%)}
+    /* Главная шестерёнка: выраженная рамка и безопасные поля вокруг всех плашек и кнопки. */
+    #settingsModal.settings-hub{padding:14px!important}
+    #settingsModal.settings-hub .modal-content{
+     padding:0!important;max-height:90dvh;overflow:hidden;border-color:rgba(148,163,184,.55)!important}
+    #settingsModal.settings-hub .modal-content>div:first-child{
+     padding:18px 20px!important;border-bottom:1px solid var(--border,#334155);flex-shrink:0}
+    #settingsModal.settings-hub .settings-hub-intro{
+     margin:16px 18px 0!important;padding:0!important}
+    #settingsModal.settings-hub .settings-tiles{
+     margin:12px 16px 14px!important;padding:2px;min-height:0;overflow-y:auto;overflow-x:hidden}
+    #settingsModal.settings-hub .modal-content>button{
+     width:calc(100% - 36px)!important;margin:0 18px 18px!important;min-height:44px;flex-shrink:0}
+    @media(max-width:380px){
+     #settingsModal.settings-hub{padding:12px!important}
+     #settingsModal.settings-hub .modal-content>div:first-child{padding:16px!important}
+     #settingsModal.settings-hub .settings-hub-intro{margin:14px 14px 0!important}
+     #settingsModal.settings-hub .settings-tiles{margin:10px 12px 12px!important}
+     #settingsModal.settings-hub .modal-content>button{
+      width:calc(100% - 28px)!important;margin:0 14px 14px!important}
+    }
+    #settingsModal .settings-tile{background:linear-gradient(145deg,var(--bg,#0f172a),rgba(51,65,85,.65));
+     border:1px solid rgba(148,163,184,.24);border-radius:15px;min-height:107px}
+    #settingsModal .settings-tile-icon{display:grid;place-items:center;width:34px;height:34px;
+     background:rgba(59,130,246,.15);border-radius:10px}
+    #settingsCategoryModal .settings-subhead{padding-bottom:12px;border-bottom:1px solid var(--border)}
+    #settingsCategoryModal .modal-content{padding:16px 18px}
+    #settingsCategoryModal .settings-pane>.form-group,#settingsCategoryModal .settings-pane>.settings-row,
+    #settingsCategoryModal .settings-pane>.soft-section{background:var(--bg,#0f172a);
+     border:1px solid var(--border,#334155);border-radius:12px;padding:12px;margin:0 0 10px}
+    #settingsCategoryModal .soft-section[hidden],#settingsCategoryModal .settings-pane>[hidden]{display:none!important}
+    #settingsCategoryModal .soft-original-haptic{display:none!important}
+    #settingsCategoryModal .soft-range-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
+    #settingsCategoryModal .soft-value{font-size:13px;color:#93c5fd;font-weight:750;white-space:nowrap}
+    #settingsCategoryModal .soft-ends{display:flex;justify-content:space-between;gap:10px;font-size:10px;color:var(--muted)}
+    #settingsCategoryModal input.soft-range{height:34px!important;background:transparent!important;border:0!important;padding:0!important}
+    #settingsCategoryModal .soft-preview{display:flex;gap:8px;justify-content:center;padding:16px;
+     background:var(--bg,#0f172a);border:1px solid var(--border);border-radius:12px;margin:12px 0;overflow:hidden}
+    #settingsCategoryModal .soft-preview span{display:block;width:46px;height:28px;border-radius:6px;background:#334155;border:1px solid #64748b}
+    #settingsCategoryModal .soft-preview span:first-child{background:#155e75;border-color:#38bdf8}
+    #settingsCategoryModal .soft-preview-button{width:100%;min-height:42px;background:var(--bg,#0f172a);
+     color:var(--text);border:1px solid var(--border);border-radius:12px;cursor:pointer}
+    
+    #settingsCategoryModal .settings-pane input[type=range]{width:100%;accent-color:var(--primary)}
+    #settingsCategoryModal #speed-settings-block{border:0!important;margin:0!important;padding:0!important}
+    #settingsCategoryModal #speed-settings-block .speed-slider-row{background:var(--bg,#0f172a);
+     border:1px solid var(--border);border-radius:12px;padding:12px;margin:0 0 9px}
+    #settingsCategoryModal #test-pwa-settings{margin:0!important;padding:0!important;border:0!important}
+    #settingsCategoryModal #test-pwa-state{padding:12px;border:1px solid var(--border);
+     border-radius:12px;background:var(--bg);line-height:1.5}
+    #settingsCategoryModal #test-pwa-settings>button{display:flex;width:100%;min-height:44px;
+     border-radius:12px;margin:0 0 9px!important;align-items:center;justify-content:center}
+    #settingsCategoryModal #test-pwa-install{background:var(--primary,#3b82f6);color:#fff}
+    #settingsCategoryModal #test-pwa-install[hidden]{display:none!important}
+    #settingsCategoryModal #test-pwa-recovery-link{display:block;padding:11px 12px!important;
+     border:1px solid rgba(59,130,246,.4);border-radius:12px;background:rgba(59,130,246,.1);
+     color:#93c5fd!important;text-decoration:none;font-size:12px!important;line-height:1.5}
+    #settingsCategoryModal #test-pwa-update-message:not(:empty){padding:10px 11px;
+     border:1px solid var(--border);border-radius:10px;background:var(--bg)}
+    #settingsCategoryModal #test-pwa-settings>p:last-child{border-top:1px solid var(--border);
+     padding-top:12px;margin-top:14px;font-size:12px;line-height:1.6;color:var(--muted)}
+    #settingsCategoryModal .settings-back-bottom{margin-top:10px;border-radius:12px}
+    @media(max-width:380px){#settingsCategoryModal .modal-content{padding:12px}
+    #settingsModal .settings-tile{min-height:100px;padding:10px}}
+    @media(max-width:360px){#settingsModal .settings-tile{padding:10px;min-height:110px}}
+    @media(prefers-reduced-motion:reduce){#settingsModal .settings-tile {transition:none}}
+    
 </style>
-  <style>.version-text { color: #e11d48 !important; }</style>
+  <style>.version-text { color: #22c55e !important; }
+/* Восстановленная архивная смена: карточка в журнале рейсов (правки параллельно с активной линией) */
+#restoredShiftsContainer { margin: 12px 0; display: grid; gap: 8px; }
+.restored-shift-card { background: var(--card); border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; }
+.restored-shift-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.restored-shift-note { font-size: 12px; color: var(--muted, #64748b); margin-top: 2px; }
+.restored-shift-stats { font-size: 13px; margin-top: 6px; }
+</style>
   <meta name="test-data-provider" content="firebase">
-  <meta name="working-test-version" content="1.7.22">
-  <meta name="working-test-build" content="40510c7559ed572c">
+  <meta name="working-test-version" content="1.8.6">
+  <meta name="working-test-build" content="6aa61d8adc88128c">
 </head>
 <body>
 
 <div id="authOverlay" style="display:none;">
   <div class="auth-card">
     <div class="auth-title">🚛 Учет самосвалов</div>
-    <div class="version-text auth-version" id="authVersionText" style="text-align:center;font-size:12px;color:var(--muted);margin-bottom:10px;">Версия: 1.7.22</div>
+    <div class="version-text auth-version" id="authVersionText">Версия: 1.8.6</div>
     <div id="authError" class="auth-error"></div>
     <div class="form-group"><label>Email</label><input type="email" id="authEmail" class="form-control" placeholder="you@example.com" autocomplete="username"></div>
     <div class="form-group"><label>Пароль</label><input type="password" id="authPassword" class="form-control" placeholder="••••••••" autocomplete="current-password"></div>
-    <div style="display: flex; gap: 8px; margin-top: 20px;">
-      <button class="btn btn-quick" style="flex:1;" onclick="handleLogin()">Войти</button>
-      <button id="registerBtn" class="btn btn-secondary" style="flex:1;" onclick="handleRegister()">Регистрация</button>
+    <div class="auth-actions">
+      <button class="btn btn-quick flex-1" onclick="handleLogin()">Войти</button>
+      <button id="registerBtn" class="btn btn-secondary flex-1" onclick="handleRegister()">Регистрация</button>
     </div>
   </div>
 </div>
@@ -434,18 +665,18 @@
 <div id="pendingScreen" class="pending-screen">
   <div class="pending-card">
     <div class="pending-icon">⏳</div>
-    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--warning);">Ожидание подтверждения</div>
-    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;"><span id="registrationStatusText">Ваша заявка отправлена. Ожидайте решения администратора.</span></div>
-    <button class="btn btn-secondary" style="width: 100%;" onclick="handleLogout()">Выйти</button>
+    <div class="pending-title-warning">Ожидание подтверждения</div>
+    <div class="status-note"><span id="registrationStatusText">Ваша заявка отправлена. Ожидайте решения администратора.</span></div>
+    <button class="btn btn-secondary full-width" onclick="handleLogout()">Выйти</button>
   </div>
 </div>
 
 <div id="disabledScreen" class="pending-screen">
-  <div class="pending-card" style="border-color: var(--danger);">
-    <div class="pending-icon" style="animation: none;">⛔</div>
-    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--danger);"><span id="disabledStatusTitle">Доступ временно ограничен</span></div>
-    <div style="font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5;"><span id="disabledStatusText">Доступ ограничен администратором. Обратитесь к администратору, чтобы восстановить доступ, или попробуйте войти позже.</span></div>
-    <button class="btn btn-secondary" style="width: 100%;" onclick="handleLogout()">Выйти</button>
+  <div class="pending-card pending-card-danger">
+    <div class="pending-icon pending-icon-static">⛔</div>
+    <div class="pending-title-danger"><span id="disabledStatusTitle">Доступ временно ограничен</span></div>
+    <div class="status-note"><span id="disabledStatusText">Доступ ограничен администратором. Обратитесь к администратору, чтобы восстановить доступ, или попробуйте войти позже.</span></div>
+    <button class="btn btn-secondary full-width" onclick="handleLogout()">Выйти</button>
   </div>
 </div>
 
@@ -457,18 +688,18 @@
         <span id="syncBadge" class="sync-badge"></span>
       </button>
       <div class="user-stack">
-        <span class="version-text" title="История изменений">Версия: 1.7.22</span>
+        <span class="version-text" title="История изменений">Версия: 1.8.6</span>
         <div class="user-badge" id="userBadgeLabel" title="Нажмите, чтобы выйти" onclick="handleLogout()">👤 Не в сети</div>
       </div>
       <button class="gear-btn" onclick="openSettingsModal()" title="Настройки">⚙️</button>
     </div>
 
     <div id="headerExtraContent">
-      <div class="header-main-row" style="margin-top: 4px;">
+      <div class="header-main-row header-main-row-top">
         <div class="object-banner-compact">
           <span id="headerObject">Объект: Не выбран</span>
           <button class="tabel-object-gear" onclick="openTabelV2(true)" title="Настройки объекта нового табеля">⚙</button>
-          <button class="btn btn-secondary btn-small" id="changeObjBtn" style="padding: 2px 6px; font-size: 10px; min-height: 22px; display:none;" onclick="openChangeObjectModal()">Изменить</button>
+          <button class="btn btn-secondary btn-small btn-change-object" id="changeObjBtn" style="display:none;" onclick="openChangeObjectModal()">Изменить</button>
         </div>
         <div class="shift-title-compact" id="shiftDate">Смена не начата</div>
       </div>
@@ -485,17 +716,17 @@
 <div class="container">
   <div id="tab-line" class="tab-content active">
     <div id="viewOnlyBanner" class="view-only-banner" style="display:none;">👁 Режим просмотра — действия недоступны</div>
-    <div id="startShiftContainer" style="text-align: center; padding: 40px 20px; display: none;">
-      <div style="font-size: 18px; font-weight: 700; margin-bottom: 16px; color: var(--text);">Смена еще не начата</div>
-      <p style="color: var(--muted); font-size: 13px; margin-bottom: 24px;">Нажмите кнопку ниже, чтобы выбрать или создать объект и начать новую смену.</p>
-      <button class="btn btn-quick" id="startShiftBtn" style="width: 100%; font-size: 16px; padding: 16px;" onclick="openStartShiftModal()">🚀 Начать смену</button>
-      <button class="btn btn-secondary" id="tabelCreateRequestBtn" style="width:100%;margin-top:8px" onclick="openTabelV2(false,true)">＋ Создать заявку</button>
+    <div id="startShiftContainer" class="start-shift-intro" style="display: none;">
+      <div class="start-shift-title">Смена еще не начата</div>
+      <p class="start-shift-note">Нажмите кнопку ниже, чтобы выбрать или создать объект и начать новую смену.</p>
+      <button class="btn btn-quick btn-start-shift" id="startShiftBtn" onclick="openStartShiftModal()">🚀 Начать смену</button>
+      <button class="btn btn-secondary btn-create-request" id="tabelCreateRequestBtn" onclick="openTabelV2(false,true)">＋ Создать заявку</button>
     </div>
     <div id="activeShiftContainer" style="display: none;">
-      <div style="display: flex; gap: 10px; margin-bottom: 14px;">
-        <button class="btn btn-secondary btn-small" id="selectTrucksBtn" style="flex:1;" onclick="openSelectorModal()">🔍 Выбрать машины из базы на смену</button>
+      <div class="line-toolbar">
+        <button class="btn btn-secondary btn-small flex-1" id="selectTrucksBtn" onclick="openSelectorModal()">🔍 Выбрать машины из базы на смену</button>
       </div>
-      <div id="tabelV2Counts" hidden style="font-size:12px;padding:4px 0"></div>
+      <div id="tabelV2Counts" hidden class="tabel-counts"></div>
       <div id="trucksLineList"></div>
     </div>
   </div>
@@ -536,27 +767,28 @@
         </div>
       </div>
     </div>
-    <div id="gaiReportToggleContainer" style="display:flex; justify-content:flex-end; margin:-8px 0 0;">
-      <button type="button" style="display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px; padding:0; border:0; border-radius:0; background:none; box-shadow:none; color:inherit; font-size:20px; cursor:pointer; -webkit-tap-highlight-color:transparent;" id="toggleReportBtn" aria-label="Дополнительный отчёт">📄</button>
+    <div id="gaiReportToggleContainer" class="gai-toggle-container">
+      <button type="button" class="btn-report-toggle" id="toggleReportBtn" aria-label="Дополнительный отчёт">📄</button>
     </div>
     
-    <div class="action-row" style="margin-bottom: 12px; grid-template-columns: 1fr 1fr;">
+    <div class="action-row action-row-pair">
       <button class="btn btn-quick btn-small" onclick="exportCSV()">📥 Скачать Excel</button>
     </div>
-    <div class="action-row" style="margin-bottom: 12px; grid-template-columns: 1fr 1fr;">
+    <div class="action-row action-row-pair">
       <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPNG('regular')">🖼 PNG (обычные)</button>
       <button class="btn btn-secondary btn-small" onclick="exportCurrentReportPNG('gai')">🖼 PNG (ГАИ)</button>
     </div>
-    <div id="pluginPdfButtonsContainer" class="action-row" style="margin-bottom: 12px; flex-wrap: wrap;"></div>
+    <div id="pluginPdfButtonsContainer" class="action-row action-row-plugins"></div>
 
     <div class="section-title">Хронология (Журнал рейсов)</div>
     <div id="logsContainer"></div>
-    <button class="btn btn-danger" id="closeShiftBtn" style="width:100%; margin-top: 24px; margin-bottom: 20px;" onclick="closeShift()">🔄 Закрыть смену</button>
+    <div id="restoredShiftsContainer" hidden></div>
+    <button class="btn btn-danger btn-close-shift" id="closeShiftBtn" onclick="closeShift()">🔄 Закрыть смену</button>
   </div>
 
   <div id="tab-archive" class="tab-content">
     <div class="section-title">Архив закрытых смен</div>
-    <div style="margin-bottom: 14px;">
+    <div class="subtab-toolbar">
       <input type="text" id="archiveSearchInput" class="form-control" placeholder="🔍 Поиск по дате или объекту..." oninput="renderArchive()">
     </div>
     <div id="archiveContainer"></div>
@@ -564,14 +796,14 @@
   </div>
 
   <div id="tab-trucks" class="tab-content">
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px;">
-      <button class="btn btn-secondary btn-small" id="subBtnTrucks" onclick="switchBaseSubTab('trucks')" style="background: var(--primary); color: #fff;">🚛 Самосвалы</button>
+    <div class="base-subtabs">
+      <button class="btn btn-secondary btn-small base-subtab-active" id="subBtnTrucks" onclick="switchBaseSubTab('trucks')">🚛 Самосвалы</button>
       <button class="btn btn-secondary btn-small" id="subBtnObjects" onclick="switchBaseSubTab('objects')">🏢 Объекты</button>
     </div>
 
     <div id="subtab-trucks" class="base-subtab" style="display: block;">
       <div class="form-card" id="truckFormCard">
-        <div class="section-title" id="formCardTitle" style="margin-top:0;">Добавить самосвал</div>
+        <div class="section-title section-title-first" id="formCardTitle">Добавить самосвал</div>
         <input type="hidden" id="editTruckId" value="">
         <div class="form-group">
           <select id="newTruckType" class="form-control"><option value="regular">🚛 Обычный</option><option value="gai">🛣 ГАИ</option></select>
@@ -581,8 +813,8 @@
         <div class="form-group" id="volumeGroup"><input type="number" step="0.5" id="newTruckVol" class="form-control" placeholder="Объем м³"></div>
         <div class="form-group" id="truckPhoneGroup" style="display:none;"><input type="tel" inputmode="tel" id="newTruckPhone" class="form-control" maxlength="40" placeholder="Телефон водителя (+7 999 123-45-67)" disabled readonly></div>
         <div class="form-group" id="truckDriverGroup" style="display:none;"><input type="text" id="newTruckDriver" class="form-control" maxlength="80" placeholder="Имя водителя" disabled readonly></div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-quick" style="flex:1;" id="saveTruckBtn" onclick="saveTruckToGlobalBase()">➕ Добавить</button>
+        <div class="flex-gap-8">
+          <button class="btn btn-quick flex-1" id="saveTruckBtn" onclick="saveTruckToGlobalBase()">➕ Добавить</button>
           <button class="btn btn-secondary" id="cancelEditBtn" style="display:none;" onclick="cancelEditTruck()">Отмена</button>
         </div>
       </div>
@@ -591,11 +823,11 @@
 
     <div id="subtab-objects" class="base-subtab" style="display: none;">
       <div class="form-card" id="objectFormCard">
-        <div class="section-title" id="formObjectCardTitle" style="margin-top:0;">Добавить объект</div>
+        <div class="section-title section-title-first" id="formObjectCardTitle">Добавить объект</div>
         <input type="hidden" id="editObjectId" value="">
         <div class="form-group"><input type="text" id="newObjectNameBase" class="form-control" placeholder="Название"></div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-quick" style="flex:1;" id="saveObjectBtn" onclick="saveObjectToBase()">➕ Добавить</button>
+        <div class="flex-gap-8">
+          <button class="btn btn-quick flex-1" id="saveObjectBtn" onclick="saveObjectToBase()">➕ Добавить</button>
           <button class="btn btn-secondary" id="cancelEditObjectBtn" style="display:none;" onclick="cancelEditObject()">Отмена</button>
         </div>
       </div>
@@ -606,11 +838,11 @@
   <div id="tab-analytics" class="tab-content">
     <div class="section-title">📊 Аналитика</div>
     <div class="form-card">
-      <div style="font-size: 15px; font-weight: 700; margin-bottom: 10px; color: var(--warning);">По текущей смене:</div>
-      <div style="font-size: 13px; color: var(--muted); line-height: 1.6;">
-        <div>Объект: <b id="statCurObject" style="color:var(--text)">—</b></div>
-        <div>Всего рейсов: <b id="statCurTrips" style="color:var(--text)">0</b></div>
-        <div>Общий объем: <b id="statCurVol" style="color:var(--success)">0 м³</b></div>
+      <div class="stats-heading">По текущей смене:</div>
+      <div class="stats-note">
+        <div>Объект: <b id="statCurObject" class="stat-accent-text">—</b></div>
+        <div>Всего рейсов: <b id="statCurTrips" class="stat-accent-text">0</b></div>
+        <div>Общий объем: <b id="statCurVol" class="stat-accent-success">0 м³</b></div>
       </div>
     </div>
     <div class="section-title">📝 Журнал действий (Аудит)</div>
@@ -634,44 +866,44 @@
     
     <div id="admin-sub-users" class="admin-section">
       <div class="form-card">
-        <div class="section-title" style="margin-top:0;">➕ Добавить</div>
+        <div class="section-title section-title-first">➕ Добавить</div>
         <div class="form-group"><input type="email" id="newUserEmail" class="form-control" placeholder="Email"></div>
         <div class="form-group"><input type="password" id="newUserPassword" class="form-control" placeholder="Пароль"></div>
-        <div class="form-group"><select id="newUserRole" class="form-control"><option value="foreman">🔧 Прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option><option value="admin">👑 Админ</option></select></div>
-        <button class="btn btn-quick" style="width:100%;" id="addUserBtn" onclick="addNewUser()">➕ Создать</button>
+        <div class="form-group"><select id="newUserRole" class="form-control"><option value="foreman">🔧 Прораб</option><option value="senior_foreman">👑 Старший прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option><option value="admin">👑 Админ</option></select></div>
+        <button class="btn btn-quick full-width" id="addUserBtn" onclick="addNewUser()">➕ Создать</button>
       </div>
       <div id="usersListContainer"></div>
     </div>
     
     <div id="admin-sub-permissions" class="admin-section">
-      <div class="form-group"><select id="permRoleSelect" class="form-control" onchange="renderPermissionsMatrix()"><option value="foreman">🔧 Прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option></select></div>
-      <div id="permissionsMatrixContainer" style="margin-top: 16px;"></div>
-      <button class="btn btn-quick" style="width: 100%; margin-top: 16px;" onclick="savePermissions()">💾 Сохранить</button>
+      <div class="form-group"><select id="permRoleSelect" class="form-control" onchange="renderPermissionsMatrix()"><option value="foreman">🔧 Прораб</option><option value="senior_foreman">👑 Старший прораб</option><option value="master">🛠 Мастер</option><option value="lopater">🪏 Лопатер</option><option value="viewer">👁 Наблюдатель</option></select></div>
+      <div id="permissionsMatrixContainer" class="permissions-matrix"></div>
+      <button class="btn btn-quick btn-save-permissions" onclick="savePermissions()">💾 Сохранить</button>
     </div>
 
     <div id="admin-sub-plugins" class="admin-section">
-      <div class="section-title" style="margin-top:0;">🧩 Менеджер расширений</div>
-      <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">Добавляйте сюда код новых функций. Они появятся в меню автоматически.</div>
-      <button class="btn btn-quick" style="width:100%; margin-bottom:16px;" onclick="openPluginModal()">➕ Добавить новое расширение</button>
+      <div class="section-title section-title-first">🧩 Менеджер расширений</div>
+      <div class="plugins-note">Добавляйте сюда код новых функций. Они появятся в меню автоматически.</div>
+      <button class="btn btn-quick btn-add-plugin" onclick="openPluginModal()">➕ Добавить новое расширение</button>
       <div id="pluginsListContainer"></div>
     </div>
 
     <div id="admin-sub-console" class="admin-section">
-      <div class="section-title" style="margin-top:0;">🖥 Консоль отладки</div>
-      <div style="font-size:11px; color:var(--muted); margin-bottom:10px; line-height:1.4;">
+      <div class="section-title section-title-first">🖥 Консоль отладки</div>
+      <div class="console-note">
         Показывает ошибки JavaScript, предупреждения, логи и ошибки из патчей. Скопируйте всё и пришлите для анализа.
       </div>
-      <div style="display:flex; gap:8px; margin-bottom:10px;">
-        <button class="btn btn-secondary btn-small" style="flex:1;" onclick="consoleClear()">🗑 Очистить</button>
-        <button class="btn btn-quick btn-small" style="flex:1;" onclick="consoleCopy()">📋 Копировать всё</button>
+      <div class="console-actions">
+        <button class="btn btn-secondary btn-small flex-1" onclick="consoleClear()">🗑 Очистить</button>
+        <button class="btn btn-quick btn-small flex-1" onclick="consoleCopy()">📋 Копировать всё</button>
       </div>
-      <div style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
-        <button class="btn btn-quick btn-small" data-console-filter="all" onclick="consoleFilter('all')" style="flex:1; min-width:60px;">Все</button>
-        <button class="btn btn-secondary btn-small" data-console-filter="error" onclick="consoleFilter('error')" style="flex:1; min-width:60px;">❌ Ошиб.</button>
-        <button class="btn btn-secondary btn-small" data-console-filter="warn" onclick="consoleFilter('warn')" style="flex:1; min-width:60px;">⚠️ Варн.</button>
-        <button class="btn btn-secondary btn-small" data-console-filter="log" onclick="consoleFilter('log')" style="flex:1; min-width:60px;">ℹ️ Логи</button>
+      <div class="console-filters">
+        <button class="btn btn-quick btn-small console-filter-btn" data-console-filter="all" onclick="consoleFilter('all')">Все</button>
+        <button class="btn btn-secondary btn-small console-filter-btn" data-console-filter="error" onclick="consoleFilter('error')">❌ Ошиб.</button>
+        <button class="btn btn-secondary btn-small console-filter-btn" data-console-filter="warn" onclick="consoleFilter('warn')">⚠️ Варн.</button>
+        <button class="btn btn-secondary btn-small console-filter-btn" data-console-filter="log" onclick="consoleFilter('log')">ℹ️ Логи</button>
       </div>
-      <div id="consoleView" style="background:#000; border-radius:8px; padding:10px; font-family:'Courier New',monospace; font-size:11px; line-height:1.4; max-height:55vh; overflow-y:auto; color:#94a3b8;"></div>
+      <div id="consoleView" class="console-view"></div>
     </div>
 
     <div id="admin-sub-appsettings" class="admin-section">
@@ -695,14 +927,14 @@
       <details class="admin-settings-group" id="admin-max-settings">
         <summary>📱 MAX <span>Отправка, события и подключение</span></summary>
       <div class="form-card">
-        <div class="section-title" style="margin-top:0;">📱 Уведомления в Max</div>
+        <div class="section-title section-title-first">📱 Уведомления в Max</div>
         <div class="settings-row"><div><div class="settings-label">Включить отправку</div></div><label class="toggle-switch"><input type="checkbox" id="appConfigMaxEnabled" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         
-        <div class="form-group" style="margin-top:12px;"><label>URL (Прокси)</label><input type="text" id="appConfigMaxUrl" class="form-control" placeholder="https://..." onchange="saveAppConfig()"></div>
+        <div class="form-group form-group-top-12"><label>URL (Прокси)</label><input type="text" id="appConfigMaxUrl" class="form-control" placeholder="https://..." onchange="saveAppConfig()"></div>
         <div class="form-group"><label>Токен</label><input type="text" id="appConfigMaxToken" class="form-control" placeholder="Вставьте токен" onchange="saveAppConfig()"></div>
         <div class="form-group"><label>ID чата</label><input type="text" id="appConfigMaxChatId" class="form-control" placeholder="123456789" onchange="saveAppConfig()"></div>
         
-        <div class="section-title" style="margin-top:16px;">Триггеры уведомлений:</div>
+        <div class="section-title section-title-offset">Триггеры уведомлений:</div>
         <div class="settings-row"><div>🚀 Начало смены</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyStart" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         <div class="settings-row"><div>🚛 Приехал на объект</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyArrive" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         <div class="settings-row"><div>⚡ Погрузка (Рейс)</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLoad" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
@@ -710,8 +942,8 @@
         <div class="settings-row"><div>🟢 Добавлен на линию</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLineStart" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         <div class="settings-row"><div>🔴 Убран с линии</div><label class="toggle-switch"><input type="checkbox" id="appConfigNotifyLineEnd" onchange="saveAppConfig()"><span class="toggle-slider"></span></label></div>
         
-        <button class="btn btn-secondary" style="width:100%; margin-top:16px; margin-bottom:8px;" onclick="testMaxMessage()">🧪 Тест</button>
-        <button class="btn btn-secondary btn-small" style="width:100%;" onclick="showMaxQueueStatus()">📋 Очередь</button>
+        <button class="btn btn-secondary btn-test-max" onclick="testMaxMessage()">🧪 Тест</button>
+        <button class="btn btn-secondary btn-small full-width" onclick="showMaxQueueStatus()">📋 Очередь</button>
       </div>
       </details>
       <details class="admin-settings-group" id="admin-line-settings">
@@ -734,7 +966,7 @@
   <div id="tab-backup" class="tab-content">
     <div class="section-title">☁️ Бэкап</div>
     <div class="form-card">
-      <button class="btn btn-quick" style="width:100%; margin-bottom:10px;" onclick="exportBackupFile()">📤 Скачать бэкап</button>
+      <button class="btn btn-quick btn-export-backup" onclick="exportBackupFile()">📤 Скачать бэкап</button>
       <input type="file" id="backupFileInput" accept=".json" class="form-control" onchange="importBackupFile(event)">
     </div>
   </div>
@@ -744,7 +976,7 @@
 
 <div id="settingsModal" class="modal" onclick="if(event.target===this)closeSettingsModal()">
   <div class="modal-content">
-    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>⚙️ Настройки</h3><button class="btn-del" onclick="closeSettingsModal()">✕</button></div>
+    <div class="modal-head-row"><h3>⚙️ Настройки</h3><button class="btn-del" onclick="closeSettingsModal()">✕</button></div>
     <div class="modal-body">
       <div class="form-group"><label>⚡ Погрузка (сек)</label><input type="number" step="0.1" id="settingHoldLoad" class="form-control" onchange="updateHoldSetting('load', this.value)"></div>
       <div class="form-group"><label>🚛 Приехал (сек)</label><input type="number" step="0.1" id="settingHoldArrive" class="form-control" onchange="updateHoldSetting('arrive', this.value)"></div>
@@ -759,20 +991,20 @@
 </div>
 
 <div id="pluginEditModal" class="modal" onclick="if(event.target===this)closePluginModal()">
-  <div class="modal-content" style="max-width: 900px;">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
+  <div class="modal-content modal-content-wide">
+    <div class="modal-head-row">
       <h3 id="pluginModalTitle">Новое расширение</h3>
       <button class="btn-del" onclick="closePluginModal()">✕</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="editPluginId">
-      <div class="form-group" style="display:flex; gap:8px;">
-        <div style="flex:2;"><label>Название (например, Табель)</label><input type="text" id="pluginName" class="form-control"></div>
-        <div style="flex:1;"><label>Иконка (эмодзи)</label><input type="text" id="pluginIcon" class="form-control" placeholder="⏱"></div>
+      <div class="form-group flex-gap-8">
+        <div class="flex-2"><label>Название (например, Табель)</label><input type="text" id="pluginName" class="form-control"></div>
+        <div class="flex-1"><label>Иконка (эмодзи)</label><input type="text" id="pluginIcon" class="form-control" placeholder="⏱"></div>
       </div>
       
-      <div class="section-title" style="margin-top: 12px; font-size: 14px;">Доступ к плагину (Роли):</div>
-      <div id="pluginRolesContainer" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+      <div class="section-title section-title-small">Доступ к плагину (Роли):</div>
+      <div id="pluginRolesContainer" class="plugin-roles">
         <label class="perm-item"><input type="checkbox" data-role="admin" checked> 👑 Админ</label>
         <label class="perm-item"><input type="checkbox" data-role="foreman"> 🔧 Прораб</label>
         <label class="perm-item"><input type="checkbox" data-role="master"> 🛠 Мастер</label>
@@ -783,14 +1015,14 @@
       <div class="form-group">
         <label>Код (JavaScript)</label>
         <textarea id="pluginCode" class="form-control" spellcheck="false"></textarea>
-        <div style="display:flex; gap:8px; margin-top: 8px;">
-          <button class="btn btn-secondary btn-small" style="flex:1;" onclick="clearPluginCode()">🗑 Очистить всё</button>
-          <button class="btn btn-secondary btn-small" style="flex:1;" onclick="pastePluginCode()">📋 Вставить</button>
+        <div class="plugin-code-actions">
+          <button class="btn btn-secondary btn-small flex-1" onclick="clearPluginCode()">🗑 Очистить всё</button>
+          <button class="btn btn-secondary btn-small flex-1" onclick="pastePluginCode()">📋 Вставить</button>
         </div>
       </div>
     </div>
-    <div style="display:flex; gap:10px; margin-top:10px;">
-      <button class="btn btn-quick" style="flex:1;" onclick="savePlugin()">💾 Сохранить и применить</button>
+    <div class="modal-footer-row">
+      <button class="btn btn-quick flex-1" onclick="savePlugin()">💾 Сохранить и применить</button>
       <button class="btn btn-secondary" onclick="closePluginModal()">Отмена</button>
     </div>
   </div>
@@ -798,15 +1030,15 @@
 
 <div id="startShiftModal" class="modal" onclick="if(event.target===this)closeStartShiftModal()">
   <div class="modal-content">
-    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>Выбор объекта</h3><button class="btn-del" onclick="closeStartShiftModal()">✕</button></div>
+    <div class="modal-head-row"><h3>Выбор объекта</h3><button class="btn-del" onclick="closeStartShiftModal()">✕</button></div>
     <div class="modal-body">
-      <div id="existingObjectsList" style="margin-bottom: 14px; max-height: 200px; overflow-y: auto;"></div>
+      <div id="existingObjectsList" class="objects-list"></div>
       <div class="form-group"><input type="text" id="newObjectNameInput" class="form-control" placeholder="Или создать новый..."></div>
-      <div class="form-group" style="margin-bottom: 10px;">
-        <div style="font-size:13px;margin-bottom:6px;">Дневная смена или ночная?</div>
-        <div style="display:flex;gap:10px;">
-          <button type="button" class="btn btn-secondary" style="flex:1;" aria-pressed="false" data-work-shift="day" onclick="selectWorkShift('day')">🌅 Дневная</button>
-          <button type="button" class="btn btn-secondary" style="flex:1;" aria-pressed="false" data-work-shift="night" onclick="selectWorkShift('night')">🌙 Ночная</button>
+      <div class="form-group form-group-margin">
+        <div class="shift-question">Дневная смена или ночная?</div>
+        <div class="flex-gap-10">
+          <button type="button" class="btn btn-secondary flex-1" aria-pressed="false" data-work-shift="day" onclick="selectWorkShift('day')">🌅 Дневная</button>
+          <button type="button" class="btn btn-secondary flex-1" aria-pressed="false" data-work-shift="night" onclick="selectWorkShift('night')">🌙 Ночная</button>
         </div>
       </div>
     </div>
@@ -816,32 +1048,32 @@
 
 <div id="changeObjectModal" class="modal" onclick="if(event.target===this)closeChangeObjectModal()">
   <div class="modal-content">
-    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>Изменить объект</h3><button class="btn-del" onclick="closeChangeObjectModal()">✕</button></div>
+    <div class="modal-head-row"><h3>Изменить объект</h3><button class="btn-del" onclick="closeChangeObjectModal()">✕</button></div>
     <div class="modal-body">
       <div id="changeObjList"></div>
-      <div class="form-group" style="margin-top: 14px;"><input type="text" id="changeObjCustomInput" class="form-control" placeholder="Новое имя"></div>
+      <div class="form-group form-group-top-14"><input type="text" id="changeObjCustomInput" class="form-control" placeholder="Новое имя"></div>
     </div>
-    <div style="display:flex; gap:10px;"><button class="btn btn-quick" style="flex:1;" onclick="confirmChangeObject()">💾 Применить</button><button class="btn btn-secondary" onclick="closeChangeObjectModal()">Отмена</button></div>
+    <div class="flex-gap-10"><button class="btn btn-quick flex-1" onclick="confirmChangeObject()">💾 Применить</button><button class="btn btn-secondary" onclick="closeChangeObjectModal()">Отмена</button></div>
   </div>
 </div>
 
 <div id="archiveModal" class="modal" onclick="if(event.target===this)closeArchiveModal()">
   <div class="modal-content">
-    <div style="display:flex; justify-content:space-between; align-items:center;"><h3 id="modalArchiveTitle">Отчет</h3><button class="btn-del" onclick="closeArchiveModal()">✕</button></div>
+    <div class="modal-head-row"><h3 id="modalArchiveTitle">Отчет</h3><button class="btn-del" onclick="closeArchiveModal()">✕</button></div>
 
     <div class="modal-body" id="modalArchiveBody"></div>
-    <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
-      <button class="btn btn-restore btn-small" id="archiveRestoreBtn" style="flex:1;" onclick="restoreArchiveToShift()">♻️ Восстановить</button>
-      <button class="btn btn-secondary btn-small" style="flex:1;" onclick="exportArchivePNG()">🖼 PNG</button>
-      <button class="btn btn-danger btn-small" id="archiveDeleteBtn" style="flex:1;" onclick="deleteArchiveShift()">🗑 Удалить</button>
+    <div class="archive-actions">
+      <button class="btn btn-restore btn-small flex-1" id="archiveRestoreBtn" onclick="restoreArchiveToShift()">♻️ Восстановить</button>
+      <button class="btn btn-secondary btn-small flex-1" onclick="exportArchivePNG()">🖼 PNG</button>
+      <button class="btn btn-danger btn-small flex-1" id="archiveDeleteBtn" onclick="deleteArchiveShift()">🗑 Удалить</button>
     </div>
   </div>
 </div>
 
 <div id="selectorModal" class="modal" onclick="if(event.target===this)closeSelectorModal()">
   <div class="modal-content">
-    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>Выбор самосвалов</h3><button class="btn-del" onclick="closeSelectorModal()">✕</button></div>
-    <div style="margin-top: 10px;"><input type="text" id="truckSearchInput" class="form-control" placeholder="Поиск..." oninput="renderSelectorList()"></div>
+    <div class="modal-head-row"><h3>Выбор самосвалов</h3><button class="btn-del" onclick="closeSelectorModal()">✕</button></div>
+    <div class="selector-search"><input type="text" id="truckSearchInput" class="form-control" placeholder="Поиск..." oninput="renderSelectorList()"></div>
     <div class="modal-body" id="selectorListContainer"></div>
     <button class="btn btn-quick" onclick="closeSelectorModal()">Готово</button>
   </div>
@@ -849,14 +1081,14 @@
 
 <div id="editLogModal" class="modal" onclick="if(event.target===this)closeEditLogModal()">
   <div class="modal-content">
-    <div style="display:flex; justify-content:space-between; align-items:center;"><h3>Редактировать рейс</h3><button class="btn-del" onclick="closeEditLogModal()">✕</button></div>
+    <div class="modal-head-row"><h3>Редактировать рейс</h3><button class="btn-del" onclick="closeEditLogModal()">✕</button></div>
     <div class="modal-body">
-      <div id="editLogTruckInfo" style="margin-bottom: 12px; font-size: 14px;"></div>
+      <div id="editLogTruckInfo" class="edit-log-info"></div>
       <div class="form-group"><label>Кубатура (м³)</label><input type="number" step="0.5" id="editLogVolume" class="form-control"></div>
       <div class="form-group"><label>Время</label><input type="time" id="editLogTime" class="form-control"></div>
       <div class="form-group"><label>Комментарий (для ГАИ или примечания)</label><input type="text" id="editLogComment" class="form-control" placeholder="Например: перегруз / штраф"></div>
     </div>
-    <div style="display:flex; gap:10px;"><button class="btn btn-quick" style="flex:1;" onclick="saveLogEdit()">💾 Сохранить</button><button class="btn btn-secondary" onclick="closeEditLogModal()">Отмена</button></div>
+    <div class="flex-gap-10"><button class="btn btn-quick flex-1" onclick="saveLogEdit()">💾 Сохранить</button><button class="btn btn-secondary" onclick="closeEditLogModal()">Отмена</button></div>
   </div>
 </div>
 
@@ -874,31 +1106,30 @@
 </nav>
 
 <script id="tabel-plugin" src="./working-test/tabel/plugin.js"></script>
-<script id="test-firebase-traffic-hook" src="./working-test/build/40510c7559ed572c/firebase-traffic-hook.js"></script>
-<script src="./working-test/build/40510c7559ed572c/core.js"></script>
-<script id="test-auto-backup" src="./working-test/build/40510c7559ed572c/auto-backup.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/core.js"></script>
+<script id="test-auto-backup" src="./working-test/build/6aa61d8adc88128c/auto-backup.js"></script>
 
-<script src="./working-test/build/40510c7559ed572c/history-recorder.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/history-recorder.js"></script>
 <!-- === BAKED PATCHES: слой патчей удалён в 1.7.10, живой функционал перенесён в features/ === -->
-<script src="./working-test/build/40510c7559ed572c/undo-redo.js"></script>
-<script src="./working-test/build/40510c7559ed572c/analytics-v2.js"></script>
-<script src="./working-test/build/40510c7559ed572c/reset-hold.js"></script>
-<script src="./working-test/build/40510c7559ed572c/pretty-confirm.js"></script>
-<script src="./working-test/build/40510c7559ed572c/ticker-name.js"></script>
-<script src="./working-test/build/40510c7559ed572c/nav-sort.js"></script>
-<script src="./working-test/build/40510c7559ed572c/fix-log-delete.js"></script>
-<script src="./working-test/build/40510c7559ed572c/anim-speeds.js"></script>
-<script src="./working-test/build/40510c7559ed572c/admin-compact.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/undo-redo.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/analytics-v2.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/reset-hold.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/pretty-confirm.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/ticker-name.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/nav-sort.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/fix-log-delete.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/anim-speeds.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/admin-compact.js"></script>
 
 <!-- Test-only reversible line card stacking fix -->
-<script src="./working-test/build/40510c7559ed572c/line-card-layers.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/line-card-layers.js"></script>
 
 
 
-<script src="./working-test/build/40510c7559ed572c/closed-shift-duplicates.js"></script>
-<script src="./working-test/build/40510c7559ed572c/paper-viewer.js"></script>
-<script src="./working-test/build/40510c7559ed572c/gai-report-toggle.js"></script>
-<script src="./working-test/build/40510c7559ed572c/trip-analytics.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/closed-shift-duplicates.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/paper-viewer.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/gai-report-toggle.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/trip-analytics.js"></script>
 
 
   <style id="offline-load-solo-style">
@@ -911,14 +1142,12 @@
       animation: offlineLoadSoloFly 1.05s cubic-bezier(.4,0,.2,1) both !important;
     }
   </style>
-<script src="./working-test/build/40510c7559ed572c/offline-feedback.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/offline-feedback.js"></script>
 
-<script id="test-firebase-traffic-inference" src="./working-test/build/40510c7559ed572c/firebase-traffic-inference.js"></script>
-<script id="test-firebase-traffic-dashboard" src="./working-test/build/40510c7559ed572c/firebase-traffic-dashboard.js"></script>
-<script src="./working-test/build/40510c7559ed572c/release-history.js"></script>
-<script src="./working-test/build/40510c7559ed572c/confirm-bridge.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/release-history.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/confirm-bridge.js"></script>
 <!-- MAX PLATE PNG PATCH START -->
-<script src="./working-test/build/40510c7559ed572c/reset-settings.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/reset-settings.js"></script>
 <!-- MAX PLATE PNG PATCH END -->
 <style id="game-coins-style">
 .game-preview-settings{border-top:1px solid var(--border);padding-top:12px;margin-top:12px}.game-preview-settings>label{display:block;font-size:13px;font-weight:700;margin-bottom:8px}.game-preview-settings select{margin-bottom:8px;font-size:13px}.game-preview-settings>button{width:100%}
@@ -979,19 +1208,19 @@ body.game-coin-feedback #toast{visibility:hidden}
 @media(prefers-reduced-motion:reduce){#game-wallet.game-wallet-hit{animation:none;background:#854d0e;box-shadow:0 0 8px #fbbf2466}#game-wallet.game-wallet-hit::after,.game-wallet-burst{display:none}}
 .game-ledger{border-top:1px solid var(--border);padding-top:12px;margin:14px 0}.game-ledger-scroll{max-height:48vh;overflow:auto;border:1px solid var(--border);border-radius:10px}.game-ledger-table{width:100%;border-collapse:collapse;font-size:12px;white-space:normal}.game-ledger-table th,.game-ledger-table td{padding:8px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}.game-ledger-table th{position:sticky;top:0;background:var(--card);z-index:1}.game-ledger-table td:first-child{white-space:nowrap}.game-ledger-table .positive,.game-ledger-table .negative{color:var(--text);font-weight:800;white-space:nowrap}.game-ledger-admin,.game-ledger-award{display:grid;gap:8px;margin:10px 0}.game-ledger-award{padding:12px;border:1px solid var(--border);border-radius:10px}.game-ledger select{width:100%;margin-top:4px;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text)}.game-ledger-award .form-control{min-height:40px}
 </style>
-<script id="game-coins-v2" src="./working-test/build/40510c7559ed572c/game-coins-v2.js"></script>
+<script id="game-coins-v2" src="./working-test/build/6aa61d8adc88128c/game-coins-v2.js"></script>
 
 
 <style id="road-shop-style">
 #road-shop-dialog{margin:auto;width:min(820px,calc(100vw - 20px));max-height:90dvh;overflow:auto;border:1px solid var(--border);border-radius:18px;padding:20px;background:var(--card);color:var(--text)}#road-shop-dialog::backdrop{background:#020617b8}#road-shop-dialog .shop-head{display:flex;align-items:center;justify-content:space-between;gap:10px}#road-shop-dialog button{cursor:pointer;min-height:40px}#road-shop-dialog .btn-primary{background:var(--primary);color:#fff}#road-shop-dialog button:disabled{opacity:.5;cursor:not-allowed}#road-shop-dialog .shop-close{font-size:22px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:10px;width:40px}#road-shop-dialog .shop-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}.shop-theme-card{border:1px solid var(--border);border-radius:14px;padding:12px;min-width:0}.shop-theme-card h4{margin:10px 0 5px}.shop-theme-card p{font-size:12px;color:var(--muted);line-height:1.5;min-height:36px}.shop-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.shop-actions button{flex:1}.shop-theme-sample{padding:12px;border-radius:10px;background:var(--sample-bg);color:var(--sample-text);border:1px solid var(--sample-border)}.shop-theme-sample .sample-card{padding:9px;margin:8px 0;background:var(--sample-card);border:1px solid var(--sample-border);border-radius:var(--sample-radius)}.shop-theme-sample .sample-btn{display:inline-block;padding:7px 9px;border-radius:var(--sample-radius);background:var(--sample-primary);color:#fff;font-size:11px;border:var(--sample-edge) solid var(--sample-border);box-shadow:var(--sample-shadow)}.shop-theme-sample small{font-size:11px}.shop-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.shop-toolbar button[aria-pressed="true"]{outline:2px solid var(--warning)}.shop-preview-tools{border:1px dashed var(--warning);border-radius:12px;padding:12px;margin-top:12px}.shop-preview-tools select{max-width:100%;margin:8px 0}#road-shop-status{font-size:13px;line-height:1.5;margin:10px 0}#road-shop-entry{width:100%;margin-bottom:12px}.shop-balance{font-size:14px;line-height:1.7;margin:10px 0}.shop-hint{font-size:12px;line-height:1.5;color:var(--muted)}
 @media(max-width:520px){#road-shop-dialog{padding:14px}#road-shop-dialog .shop-grid{grid-template-columns:1fr}}
 </style>
-<script id="road-shop-v1" src="./working-test/build/40510c7559ed572c/road-shop-v1.js"></script>
+<script id="road-shop-v1" src="./working-test/build/6aa61d8adc88128c/road-shop-v1.js"></script>
 
 <style id="road-jokes-style">
 #road-joke-toast{position:fixed;right:12px;bottom:calc(82px + env(safe-area-inset-bottom,0px));z-index:80;width:min(380px,calc(100vw - 24px));max-height:55dvh;overflow:auto;padding:16px;background:var(--card);color:var(--text);border:1px solid var(--warning);border-radius:16px;box-shadow:0 8px 28px #0005}#road-joke-toast[hidden]{display:none}#road-joke-toast p{white-space:pre-line;line-height:1.5;margin:12px 0;font-size:14px}#road-joke-toast .road-joke-actions{display:flex;gap:8px;flex-wrap:wrap}#road-joke-toast button{min-height:40px;cursor:pointer}#road-joke-toast small,#road-joke-toast a{font-size:11px;color:var(--muted)}#road-joke-toast .road-joke-close{float:right;border:0;background:transparent;color:var(--text);font-size:20px;width:36px}#road-joke-settings select{max-width:100%;margin-top:8px}#road-joke-settings p{font-size:12px;color:var(--muted);line-height:1.5;margin-top:6px}
 </style>
-<script id="road-jokes-v1" src="./working-test/build/40510c7559ed572c/road-jokes-v1.js"></script>
+<script id="road-jokes-v1" src="./working-test/build/6aa61d8adc88128c/road-jokes-v1.js"></script>
 
 <style id="road-season-effects-style">
 #road-season-layer{position:fixed;inset:0;width:100vw;height:100dvh;z-index:70;overflow:hidden;pointer-events:none!important;user-select:none;contain:strict}
@@ -1003,7 +1232,7 @@ body[data-road-season="winter"] :is(.btn,.nav-btn,.sample-btn)>.season-snow-cap{
 .road-season-setting{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}.road-season-setting .settings-row{gap:12px}.road-season-setting p{font-size:12px;color:var(--muted);line-height:1.5;margin-top:6px}.road-season-setting label[for]{font-weight:700;font-size:13px}
 @media print{#road-season-layer,.season-snow-cap{display:none!important}}
 </style>
-<script id="road-season-effects-v1" src="./working-test/build/40510c7559ed572c/road-season-effects-v1.js"></script>
+<script id="road-season-effects-v1" src="./working-test/build/6aa61d8adc88128c/road-season-effects-v1.js"></script>
 <style id="road-arcade-style">
 #arcade-entry{height:26px;min-height:26px;padding:0 6px;border:1px solid var(--border);border-radius:7px;background:var(--card);color:var(--text);font-size:16px;flex-shrink:0;cursor:pointer}
 #arcade-dialog{margin:auto;width:min(1000px,calc(100vw - 16px));max-height:94dvh;padding:18px;border:1px solid #536989;border-radius:20px;background:var(--bg);color:var(--text);overflow:auto}#arcade-dialog::backdrop{background:#030b18ba}#arcade-dialog button{cursor:pointer}#arcade-dialog button:disabled{cursor:not-allowed;opacity:.5}.arcade-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.arcade-head h2{font-size:20px}.arcade-close{border:0;border-radius:9px;background:var(--border);color:var(--text);width:40px;height:40px;font-size:24px}.arcade-tabs,.arcade-tools{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.arcade-tabs button,.arcade-tools button,.arcade-start{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:10px;padding:10px 13px;min-height:42px}.arcade-tabs button[aria-pressed=true]{border-color:#fbbf24;color:#fbbf24}.arcade-note{font-size:12px;line-height:1.55;color:var(--muted);margin:8px 0}.arcade-balance{font-size:13px;display:flex;gap:12px;flex-wrap:wrap}.arcade-balance b{color:#fcd34d}.arcade-status{min-height:22px;font-size:13px;margin:10px 0;color:#fcd34d}.arcade-hub{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}.arcade-game-card{border:1px solid var(--border);border-radius:16px;padding:18px;background:var(--card)}.arcade-game-card h3{margin:10px 0}.arcade-game-card .game-emoji{font-size:45px}.arcade-start{background:#274e70;font-weight:700}.arcade-rules{border:1px solid var(--border);border-radius:10px;padding:12px;font-size:12px;line-height:1.6;margin:12px 0}.arcade-rules summary{cursor:pointer;font-weight:700}
@@ -1029,7 +1258,7 @@ body[data-road-season="winter"] :is(.btn,.nav-btn,.sample-btn)>.season-snow-cap{
 .slot-shell.jackpot{animation:slotJackpotPulse .5s ease-in-out infinite;border-color:#ffd166}
 .slot-jackpot{position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;border-radius:26px;overflow:hidden;background:radial-gradient(circle at 50% 40%,#3b1220f2,#0d0409fa);padding:16px}
 .slot-jackpot.show{display:flex}
-.slot-jackpot-inner{position:relative;z-index:2;text-align:center;width:100%;max-width:430px}
+.slot-jackpot-inner{position:relative;z-index:2;text-align:center;width:100%;max-width:430px;max-height:calc(100% - 24px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 #slot-jackpot-matrix{display:block;width:100%;max-width:420px;height:auto;margin:0 auto;border:2px solid #8a4a1f;border-radius:12px;background:#120a0d;box-shadow:0 0 26px #ffb34744}
 .slot-jackpot-sum{font-size:34px;font-weight:900;color:#ffe08a;margin:10px 0 2px;text-shadow:0 0 18px #ffb34788}
 .slot-jackpot-note{font-size:12px;color:#f6dfc0;margin:0 0 12px}
@@ -1123,7 +1352,10 @@ body[data-road-season="winter"] :is(.btn,.nav-btn,.sample-btn)>.season-snow-cap{
 #arcade-dialog.mario-immersive .mic-exit{display:block}
 
 .mario-first-run{position:absolute;inset:0;z-index:30;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;color:#fff;padding:24px;text-align:center;pointer-events:auto}
-.mario-first-run .mfr-card{max-width:520px;background:rgba(15,23,42,.9);border:1px solid rgba(255,255,255,.2);border-radius:18px;padding:22px 24px;box-shadow:0 20px 60px #000c}
+/* Карточка не может быть выше оверлея: иначе кнопка уезжает за нижний край
+   (диалог .mario-immersive обрезает всё с overflow:hidden) и тап не проходит.
+   На низком экране карточка скроллится, кнопка всегда внутри. */
+.mario-first-run .mfr-card{max-width:520px;max-height:calc(100% - 24px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:rgba(15,23,42,.9);border:1px solid rgba(255,255,255,.2);border-radius:18px;padding:22px 24px;box-shadow:0 20px 60px #000c}
 .mario-first-run h3{margin:0 0 12px;font:900 22px/1.2 Arial Black,sans-serif;color:#ffd230}
 .mario-first-run .mfr-row{display:flex;gap:14px;align-items:center;margin:12px 0;font:700 15px/1.4 ui-monospace,monospace;text-align:left}
 .mario-first-run .mfr-icon{flex:0 0 64px;height:64px;display:flex;align-items:center;justify-content:center;font-size:34px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15)}
@@ -1154,6 +1386,21 @@ body[data-road-season="winter"] :is(.btn,.nav-btn,.sample-btn)>.season-snow-cap{
   #arcade-dialog:not(.mario-immersive) .mic-jump-zone::after{content:'ПРЫЖОК';position:absolute;inset:auto 0 calc(16px + env(safe-area-inset-bottom)) 0;text-align:center;font:800 13px/1 ui-monospace,monospace;letter-spacing:.12em;color:rgba(255,255,255,.75);text-shadow:0 2px 6px #000;pointer-events:none}
   #arcade-dialog:not(.mario-immersive) .mic-jump-hint{display:none}
 }
+/* Памятка «Как играть» на низком ГОРИЗОНТАЛЬНОМ экране (~393–420px): карточка
+   компактнее — мельче шрифты и отступы, чтобы кнопка «Понятно, играть» попадала
+   в видимую часть без долгой прокрутки. */
+@media (orientation:landscape) and (max-height:520px){
+  .mario-first-run{padding:12px}
+  .mario-first-run .mfr-card{max-width:440px;padding:12px 16px}
+  .mario-first-run h3{margin:0 0 6px;font-size:17px}
+  .mario-first-run .mfr-row{gap:10px;margin:8px 0;font-size:12.5px;line-height:1.35}
+  .mario-first-run .mfr-icon{flex-basis:44px;height:44px;font-size:22px;border-radius:10px}
+  .mario-first-run button{margin-top:10px;padding:11px 22px;font-size:15px}
+}
+/* Запас по слоям: памятка всегда выше панели, выхода и управления (джойстик и
+   зона прыжка живут в #mario-fs-controls с z-index:7, панель — 8, выход — 20). */
+.mario-game-wrapper .mario-first-run{z-index:40}
+
 /* Тонкая компенсация: в landscape на узких экранах прыжковая зона не наезжает на джойстик. */
 @media (orientation:landscape) and (max-height:520px){
   #arcade-dialog:not(.mario-immersive) .mic-joystick{bottom:calc(10px + env(safe-area-inset-bottom))}
@@ -1201,16 +1448,16 @@ body[data-road-season="winter"] :is(.btn,.nav-btn,.sample-btn)>.season-snow-cap{
   .dino-field{min-height:0;max-height:none;flex:1 1 auto;height:calc(100dvh - 210px)}
 }
 </style>
-<script id="road-arcade-core" src="./working-test/build/40510c7559ed572c/road-arcade-core.js"></script>
-<script id="road-arcade-runtime" src="./working-test/build/40510c7559ed572c/road-arcade-runtime.js"></script>
-<script id="road-arcade-ui" src="./working-test/build/40510c7559ed572c/road-arcade-ui.js"></script>
+<script id="road-arcade-core" src="./working-test/build/6aa61d8adc88128c/road-arcade-core.js"></script>
+<script id="road-arcade-runtime" src="./working-test/build/6aa61d8adc88128c/road-arcade-runtime.js"></script>
+<script id="road-arcade-ui" src="./working-test/build/6aa61d8adc88128c/road-arcade-ui.js"></script>
 
 <!-- Global interface haptics; legacy truck action haptics remain unchanged. -->
-<script id="global-interface-haptics" src="./working-test/build/40510c7559ed572c/global-interface-haptics.js"></script>
+<script id="global-interface-haptics" src="./working-test/build/6aa61d8adc88128c/global-interface-haptics.js"></script>
 <!-- Test-only, stand-alone Timesheet module. The production HTML is not modified. -->
-<script src="./working-test/build/40510c7559ed572c/working-test-release.js"></script>
+<script src="./working-test/build/6aa61d8adc88128c/working-test-release.js"></script>
 <script id="test-pwa" src="./working-test/src/pwa.js"></script>
-<script id="test-settings-hub" src="./working-test/build/40510c7559ed572c/settings-hub.js"></script>
+<script id="test-settings-hub" src="./working-test/build/6aa61d8adc88128c/settings-hub.js"></script>
 <!-- Shared paper viewer is installed with Summary. -->
 </body>
 </html>
