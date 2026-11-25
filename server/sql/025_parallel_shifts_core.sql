@@ -96,23 +96,29 @@ BEGIN
       OR to_char(to_timestamp((s.payload->>'startedAt')::double precision / 1000.0)
                  AT TIME ZONE 'Europe/Moscow','DD.MM.YYYY') <> s.payload->>'startDate'
       OR (s.payload ? 'shiftId' AND s.payload->>'shiftId' IS DISTINCT FROM s.shift_id)
-      OR (s.payload ? 'state' AND s.payload->>'state' IS DISTINCT FROM
-            CASE WHEN s.payload->>'closing'='true' THEN 'closing'
-                 WHEN s.is_active THEN 'active'
-                 WHEN jsonb_typeof(s.payload->'closedAt')='number'
-                      AND NULLIF(btrim(s.payload->>'closedByUid'),'') IS NOT NULL THEN 'closed'
-                 ELSE 'historical' END)
+      -- D6: real writers (shift-close.mjs) keep a stale state/isActive alias while
+      -- closing/closed. Markers decide the lifecycle; the alias is checked only
+      -- when no marker exists. Both markers at once is a contradiction.
+      OR (s.payload->>'closing'='true' AND jsonb_typeof(s.payload->'closedAt')='number')
+      OR (s.payload ? 'closing' AND jsonb_typeof(s.payload->'closing') IS DISTINCT FROM 'boolean')
+      OR (s.payload->>'closing'='true' AND jsonb_typeof(s.payload->'closingStartedAt') IS DISTINCT FROM 'number')
+      OR (NOT (s.payload ? 'closing') AND NOT (s.payload ? 'closedAt') AND s.payload ? 'state'
+          AND s.payload->>'state' IS DISTINCT FROM CASE WHEN s.is_active THEN 'active' ELSE 'historical' END)
+      OR (jsonb_typeof(s.payload->'closedAt')='number' AND NOT (s.payload->>'closing' IS NOT DISTINCT FROM 'true')
+          AND s.is_active)
       OR (s.payload ? 'date' AND s.payload->>'date' IS DISTINCT FROM
             to_char(to_date(s.payload->>'startDate','DD.MM.YYYY'),'YYYY-MM-DD'))
       OR (s.payload ? 'type' AND s.payload ? 'workShift'
           AND s.payload->>'type' IS DISTINCT FROM s.payload->>'workShift')
       -- An unknown schema version is neither v2 nor a trustworthy legacy v1 row.
       OR (s.payload ? 'payloadSchemaVersion'
-          AND s.payload->>'payloadSchemaVersion' NOT IN ('1','2'))
+          AND (jsonb_typeof(s.payload->'payloadSchemaVersion') IS DISTINCT FROM 'number'
+               OR s.payload->>'payloadSchemaVersion' NOT IN ('1','2')))
       -- Strict v2 rows must carry the full published document and no restore-only
       -- alias; a malformed v2 blocks the migration instead of being silently
-      -- downgraded to legacy v1 (design §4.8.1).
-      OR (s.payload->>'payloadSchemaVersion'='2' AND (
+      -- downgraded to legacy v1 (design §4.8.1). Only the JSON number 2 is v2.
+      OR (jsonb_typeof(s.payload->'payloadSchemaVersion')='number'
+          AND s.payload->>'payloadSchemaVersion'='2' AND (
             NOT (s.payload ?& ARRAY['payloadSchemaVersion','id','shiftId','objectId',
                                     'objectName','startDate','date','workShift','type',
                                     'state','isActive','startedAt','startedBy','startedByUid'])
@@ -346,6 +352,7 @@ BEGIN
     -- unchanged payload (§4.9) does not touch this rule.
     IF payload_write
        AND OLD.payload_schema_version IS DISTINCT FROM 2
+       AND jsonb_typeof(NEW.payload->'payloadSchemaVersion')='number'
        AND NEW.payload->>'payloadSchemaVersion'='2' THEN
       RAISE EXCEPTION 'invalid-shift-v2-provenance: a legacy row is never promoted to strict v2'
         USING ERRCODE='check_violation';
@@ -362,7 +369,8 @@ BEGIN
 
   IF document_bound THEN
     payload_version := NEW.payload->>'payloadSchemaVersion';
-    IF payload_version IS DISTINCT FROM '2' THEN
+    IF jsonb_typeof(NEW.payload->'payloadSchemaVersion') IS DISTINCT FROM 'number'
+       OR payload_version IS DISTINCT FROM '2' THEN
       RAISE EXCEPTION 'protocol-upgrade-required: shift payload schema version % is not writable',
         COALESCE(payload_version,'missing') USING ERRCODE='check_violation';
     END IF;
@@ -506,6 +514,21 @@ BEGIN
           AND NEW.shift_type_resolution <> 'source')
       OR (NEW.is_active IS DISTINCT FROM OLD.is_active
           AND NEW.is_active IS DISTINCT FROM (payload_state IN ('active','closing')))
+      -- Close/closing fields are provenance too: a bare write must equal what the
+      -- document proves, and a key the document does not carry is drift.
+      OR (NEW.closing_started_at IS DISTINCT FROM OLD.closing_started_at
+          AND NEW.closing_started_at IS DISTINCT FROM (CASE WHEN payload_state='closing'
+            AND jsonb_typeof(NEW.payload->'closingStartedAt')='number'
+            THEN to_timestamp((NEW.payload->>'closingStartedAt')::double precision / 1000.0) END))
+      OR (NEW.closing_by_uid IS DISTINCT FROM OLD.closing_by_uid
+          AND NEW.closing_by_uid IS DISTINCT FROM (CASE WHEN payload_state='closing'
+            THEN NULLIF(NEW.payload->>'closingByUid','') END))
+      OR (NEW.closed_at IS DISTINCT FROM OLD.closed_at
+          AND NEW.closed_at IS DISTINCT FROM (CASE WHEN payload_state='closed'
+            THEN to_timestamp((NEW.payload->>'closedAt')::double precision / 1000.0) END))
+      OR (NEW.closed_by_uid IS DISTINCT FROM OLD.closed_by_uid
+          AND NEW.closed_by_uid IS DISTINCT FROM (CASE WHEN payload_state='closed'
+            THEN NEW.payload->>'closedByUid' END))
     ) THEN
       RAISE EXCEPTION 'shift canonical payload mismatch' USING ERRCODE='check_violation';
     END IF;
