@@ -74,20 +74,34 @@ async function archiveBlock() {
 
 // ---------- source contract (no database needed) ----------
 
-test('archive block declares exactly two deferrable publication receipt FKs', async () => {
-  const block = await archiveBlock();
-  assert.equal(
-    block.split('DEFERRABLE INITIALLY DEFERRED').length - 1,
-    2,
-    'exactly the two publication receipt FKs are deferred',
-  );
-  for (const name of ['fk_archive_publication_restore_receipt', 'fk_archive_publication_finalize_receipt']) {
-    const at = block.indexOf(name);
-    assert.notEqual(at, -1, `${name} must be named in the block`);
-    const constraint = block.slice(at, at + 400);
-    assert.match(constraint, /REFERENCES archive_operation_receipts\(workspace_id, operation_id\)/);
-    assert.match(constraint, /ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED/);
-  }
+test('publication receipt FKs are the only deferred constraints of the archive schema', { skip: !approved }, async () => {
+  await withClient(async client => {
+    const constraints = (await client.query(
+      `SELECT c.conname,c.condeferrable,c.condeferred,
+              c.conrelid::regclass::text AS table_name,
+              c.confrelid::regclass::text AS referenced,
+              pg_get_constraintdef(c.oid) AS definition
+         FROM pg_constraint c
+        WHERE c.contype='f' AND c.conrelid = ANY($1::regclass[])
+        ORDER BY c.conname`,
+      [ARCHIVE_TABLES.map(table => `public.${table}`)],
+    )).rows;
+    const deferred = constraints.filter(row => row.condeferrable);
+    assert.deepEqual(
+      deferred.map(row => row.conname).sort(),
+      ['fk_archive_publication_finalize_receipt', 'fk_archive_publication_restore_receipt'],
+      'exactly the two publication receipt FKs are deferred',
+    );
+    for (const row of deferred) {
+      assert.equal(row.condeferred, true, `${row.conname} must be initially deferred`);
+      assert.equal(row.table_name, 'archive_revision_publications');
+      assert.equal(row.referenced, 'archive_operation_receipts');
+      assert.match(
+        row.definition,
+        /REFERENCES archive_operation_receipts\(workspace_id, operation_id\) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED/,
+      );
+    }
+  });
 });
 
 test('archive block creates no synthetic current state and guards evidence ownership', async () => {
@@ -436,19 +450,22 @@ test('publication may precede its receipts in one transaction but not commit wit
     await publish(client, second, secondContext, {
       archiveRevision: secondNext.revision, baseRevision: secondBase.revision, baseSha256: secondBase.sha256,
     });
+    // Same context again, even at a later revision of its own archive -> unique context.
+    const secondAgain = await addRevision(client, second, { revision: 3, previous: secondNext });
+    await addReceipt(client, second.archiveId, 'op_finalize_second_again');
+    await assert.rejects(
+      publish(client, second, secondContext, {
+        archiveRevision: secondAgain.revision, baseRevision: secondNext.revision, baseSha256: secondNext.sha256,
+        finalizeOperationId: 'op_finalize_second_again',
+      }),
+      code('23505'),
+    );
     const third = await createSeries(client, 'archive_publication_unique_3');
     const thirdBase = await addRevision(client, third, { revision: 1 });
     const thirdNext = await addRevision(client, third, { revision: 2, previous: thirdBase });
     const thirdContext = await createContext(client, third, thirdNext);
     await addReceipt(client, third.archiveId, `op_restore_${third.archiveId}`);
     await addReceipt(client, third.archiveId, `op_finalize_${third.archiveId}`);
-    // Same context again -> unique context.
-    await assert.rejects(
-      publish(client, third, secondContext, {
-        archiveRevision: thirdNext.revision, baseRevision: thirdBase.revision, baseSha256: thirdBase.sha256,
-      }),
-      code('23505'),
-    );
     // Same finalize operation for another context -> unique finalize operation.
     await assert.rejects(
       publish(client, third, thirdContext, {
@@ -457,6 +474,74 @@ test('publication may precede its receipts in one transaction but not commit wit
       }),
       code('23505'),
     );
+  });
+});
+
+// ---------- 5b. exact publication context ----------
+
+test('publication names an existing context of its own archive and never burns a context id', { skip: !approved }, async () => {
+  await withClient(async client => {
+    const seriesA = await createSeries(client, 'archive_pub_ctx_a');
+    const baseA = await addRevision(client, seriesA, { revision: 1 });
+    const nextA = await addRevision(client, seriesA, { revision: 2, previous: baseA });
+    const contextA = await createContext(client, seriesA, nextA);
+    await addReceipt(client, seriesA.archiveId, `op_restore_${seriesA.archiveId}`);
+    await addReceipt(client, seriesA.archiveId, `op_finalize_${seriesA.archiveId}`);
+
+    // A publication may not point at a context that does not exist.
+    await assert.rejects(
+      publish(client, seriesA, { contextId: 'ctx_ghost_does_not_exist' }, {
+        archiveRevision: nextA.revision, baseRevision: baseA.revision, baseSha256: baseA.sha256,
+      }),
+      code('23503'),
+      'a dangling restored_context_id must be refused',
+    );
+    assert.equal((await client.query(
+      'SELECT count(*)::int AS n FROM archive_revision_publications WHERE workspace_id=$1 AND archive_id=$2',
+      [WS, seriesA.archiveId],
+    )).rows[0].n, 0, 'the refused publication leaves no row behind');
+
+    // A context of one archive may not be published as a revision of another.
+    const seriesB = await createSeries(client, 'archive_pub_ctx_b');
+    const baseB = await addRevision(client, seriesB, { revision: 1 });
+    const nextB = await addRevision(client, seriesB, { revision: 2, previous: baseB });
+    const contextB = await createContext(client, seriesB, nextB);
+    await addReceipt(client, seriesB.archiveId, `op_restore_${seriesB.archiveId}`);
+    await addReceipt(client, seriesB.archiveId, `op_finalize_${seriesB.archiveId}`);
+    await assert.rejects(
+      publish(client, seriesB, contextA, {
+        archiveRevision: nextB.revision, baseRevision: baseB.revision, baseSha256: baseB.sha256,
+      }),
+      code('23503'),
+      'context of archive A must not be published into archive B',
+    );
+    await assert.rejects(
+      publish(client, seriesA, contextB, {
+        archiveRevision: nextA.revision, baseRevision: baseA.revision, baseSha256: baseA.sha256,
+      }),
+      code('23503'),
+      'context of archive B must not be published into archive A',
+    );
+
+    // The refused ids are not burned: the legitimate publication of each context
+    // into its own archive still succeeds (append-only rows made the old defect
+    // permanent, so this half of the case is the real proof).
+    await publish(client, seriesA, contextA, {
+      archiveRevision: nextA.revision, baseRevision: baseA.revision, baseSha256: baseA.sha256,
+    });
+    await publish(client, seriesB, contextB, {
+      archiveRevision: nextB.revision, baseRevision: baseB.revision, baseSha256: baseB.sha256,
+    });
+    const published = (await client.query(
+      `SELECT archive_id,archive_revision::text AS revision,restored_context_id
+         FROM archive_revision_publications
+        WHERE workspace_id=$1 AND archive_id = ANY($2) ORDER BY archive_id`,
+      [WS, [seriesA.archiveId, seriesB.archiveId]],
+    )).rows;
+    assert.deepEqual(published, [
+      { archive_id: seriesA.archiveId, revision: '2', restored_context_id: contextA.contextId },
+      { archive_id: seriesB.archiveId, revision: '2', restored_context_id: contextB.contextId },
+    ]);
   });
 });
 
@@ -719,9 +804,35 @@ test('every append-only archive table rejects UPDATE, DELETE and TRUNCATE', { sk
         code('23514'),
         `${table} must reject DELETE`,
       );
+      // The truncate guard is proven per table, not through a neighbour: a plain
+      // TRUNCATE of an FK-referenced table stops at the structural "cannot truncate
+      // a table referenced in a foreign key constraint" error before any trigger
+      // runs, so the probe uses CASCADE and then proves by the exact guard message
+      // that the failure came from *this* table (a cascade into a guarded child
+      // would name the child instead).
+      const guard = (await client.query(
+        `SELECT t.tgenabled,t.tgtype,p.proname
+           FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+          WHERE t.tgrelid=$1::regclass AND t.tgname=$2 AND NOT t.tgisinternal`,
+        [`public.${table}`, `${table}_no_truncate`],
+      )).rows;
+      assert.equal(guard.length, 1, `${table} must carry its own named truncate guard`);
+      assert.equal(guard[0].tgenabled, 'O', `${table}_no_truncate must be enabled`);
+      assert.equal(guard[0].tgtype & 2, 2, `${table}_no_truncate must fire BEFORE TRUNCATE`);
+      assert.equal(guard[0].tgtype & 32, 32, `${table}_no_truncate must cover TRUNCATE`);
+      assert.equal(guard[0].tgtype & 1, 0, `${table}_no_truncate must be FOR EACH STATEMENT`);
+      assert.equal(guard[0].proname, 'archive_immutable_guard', `${table}_no_truncate guard function`);
       await assert.rejects(
         client.query(`TRUNCATE TABLE ${table} CASCADE`),
-        code('23514'),
+        error => {
+          assert.equal(error.code, '23514', `expected SQLSTATE 23514, got ${error.code}: ${error.message}`);
+          assert.match(
+            error.message,
+            new RegExp(`TRUNCATE is forbidden on ${table}$`),
+            `${table} must reject TRUNCATE through its own guard`,
+          );
+          return true;
+        },
         `${table} must reject TRUNCATE`,
       );
     }
@@ -753,11 +864,16 @@ test('runtime and PUBLIC hold no mutation right on evidence or source tables', {
       [subject],
     )).rows[0].can_assume;
 
+    for (const role of ['samosval_runtime', 'samosval_maintenance']) {
+      const exists = (await client.query('SELECT count(*)::int AS n FROM pg_roles WHERE rolname=$1', [role])).rows[0].n;
+      // A missing role would silently skip the whole matrix below; bootstrap must
+      // have created it, so its absence is a failure of this test, not a skip.
+      assert.equal(exists, 1, `${role} must be bootstrapped before 025`);
+    }
+
     for (const table of [...APPEND_ONLY_TABLES, ...SOURCE_ALLOW_LIST]) {
       for (const privilege of ['UPDATE', 'DELETE', 'TRUNCATE']) {
         for (const role of ['samosval_runtime', 'samosval_maintenance']) {
-          const exists = (await client.query('SELECT count(*)::int AS n FROM pg_roles WHERE rolname=$1', [role])).rows[0].n;
-          if (!exists) continue;
           assert.equal(
             (await client.query('SELECT has_table_privilege($1,$2,$3) AS allowed', [role, `public.${table}`, privilege])).rows[0].allowed,
             false,

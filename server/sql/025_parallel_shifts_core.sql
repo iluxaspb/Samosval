@@ -1062,6 +1062,9 @@ CREATE TABLE restored_shift_contexts (
   object_name text NOT NULL CHECK (length(object_name) BETWEEN 1 AND 512),
   work_date date NOT NULL,
   PRIMARY KEY (workspace_id, restored_context_id),
+  -- Exact-FK target for `archive_revision_publications`: a publication can only
+  -- name a context of the same archive, never one of another archive.
+  UNIQUE (workspace_id, archive_id, restored_context_id),
   -- Source identity comes from the canonical series of that business shift; the
   -- context does not depend on a `shifts` row and cannot pick another archive.
   FOREIGN KEY (workspace_id, archive_id, source_shift_id)
@@ -1095,6 +1098,14 @@ CREATE TABLE archive_revision_publications (
   UNIQUE (workspace_id, restored_context_id),
   UNIQUE (workspace_id, finalize_operation_id),
   CHECK (archive_revision > base_revision),
+  -- Exact FK on revision *and* context (design §4.6): the published revision and
+  -- the restored context must both exist and belong to this same archive, so a
+  -- dangling or cross-archive publication can never be committed. Without it an
+  -- append-only row could name a ghost/foreign context forever: the row could not
+  -- be deleted or updated, and the unique context would burn that id for good.
+  FOREIGN KEY (workspace_id, archive_id, restored_context_id)
+    REFERENCES restored_shift_contexts(workspace_id, archive_id, restored_context_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
   FOREIGN KEY (workspace_id, archive_id, archive_revision)
     REFERENCES shift_archive_revisions(workspace_id, archive_id, archive_revision)
     ON UPDATE RESTRICT ON DELETE RESTRICT,
