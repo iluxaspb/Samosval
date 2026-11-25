@@ -323,3 +323,31 @@ file-watcher по `/`, `/etc`, `/home`, `/home/iluxa`, ответ `503` на `/a
 **Правило на будущее:** массовые красные в DB-тестах при зелёных одиночных прогонах — это почти всегда чужой активный
 раннер или посторонний опросчик, пересоздающий тестовую БД. Перед разбором «красного» прогона проверять
 `pgrep -af "node --test"`, `docker ps | grep postgres` и счётчик стартов `serve --service`.
+
+## 23. Урок 26.11.2026 (P7): три ловушки миграции restored-строк
+
+**1. `archive-parallel-restore` краснеет на схеме S25 — это не регрессия P7.**
+**Симптом:** файл `server/tests/archive-parallel-restore.test.mjs` падает первым же `INSERT INTO shifts` с
+`protocol-upgrade-required: shift payload schema version missing is not writable`.
+**Причина:** тест — сценарий старой (S24) линии: он пишет legacy-v1 смену через `archive-store`, а 025
+(`shifts_legacy_bridge`) разрешает v1 только в одноразовой классификации уже лежащих строк; новые legacy-записи
+запрещены намеренно. Проверено фактом: с 025 из `HEAD` (без блока Task 7) файл даёт те же `0/1`; на базе S24 —
+`7/7` зелёный. То есть файл валиден только до применения 025 и должен быть переписан вместе с Task 8/9
+(`restored-context-store`, финализация ревизий), а не «починен» внутри Task 7.
+**Что делать:** при разборе красного `archive-parallel-restore` сначала смотреть, применена ли 025, и не искать
+причину в переносе restored-строк.
+
+**2. `FOR UPDATE` требует `UPDATE`-права, даже когда строка только читается.**
+**Симптом:** `SELECT ... FOR UPDATE` в `SECURITY DEFINER`-функции под владельцем evidence падает
+`42501 permission denied`, хотя `SELECT` и `DELETE` выданы.
+**Причина:** блокировка строки — это `UPDATE`-привилегия в PostgreSQL.
+**Что делать:** владельцу миграции выдавать `SELECT, UPDATE, DELETE` на исходные таблицы (UPDATE используется
+только для `FOR UPDATE`, данные не меняются) либо не блокировать строки `FOR UPDATE`.
+
+**3. Два DB-теста на одной БД одновременно = `duplicate key value violates unique constraint "pg_type_typname_nsp_index"`.**
+**Симптом:** новый файл падает при `applyMigrationsThrough` на `CREATE TABLE`, если параллельно работает другой
+файл, который делает `DROP SCHEMA public CASCADE`.
+**Причина:** все DB-тесты делят одну базу `samosval_parallel_shifts_test`; `resetIsolatedDatabase()` одного файла
+сносит схему под ногами другого.
+**Что делать:** прогонять DB-тесты только с `--test-concurrency=1`; после «странной» ошибки `CREATE`/`pg_type`
+перепроверять `pgrep -af "node --test"` и повторять прогон начисто.

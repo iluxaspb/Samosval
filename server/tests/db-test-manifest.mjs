@@ -16,6 +16,7 @@ const dbFiles = [
   'migration-registry', 'notification-store',
   'parallel-shifts-historicalization', 'parallel-shifts-migration-core',
   'refresh-source', 'replica-materialize-parallel-shifts', 'replica-materialize',
+  'restored-context-migration',
   'replica-store', 'report-store', 'seed-identity-db', 'seed-objects-db',
   'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
   'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store'
@@ -36,6 +37,14 @@ const consumersByFile = {
   "archive-read": [
     "tests/archive-read.test.mjs:db-env",
     "tests/archive-read.test.mjs:pg"
+  ],
+  "restored-context-migration": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/restored-context-migration.test.mjs:db-env",
+    "tests/restored-context-migration.test.mjs:pg"
   ],
   "archive-schema-025": [
     "scripts/apply-migrations.mjs:pg",
@@ -263,6 +272,7 @@ const unitReasons = {
 };
 
 const dbReasons = {
+  'restored-context-migration': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact legacy restored copy-verify-delete migration',
   'migration-registry': 'Imports pg and apply-migrations, and reads TEST_DATABASE_URL to verify the migration registry',
   'parallel-shifts-historicalization': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact-report legacy historicalization cutover',
   'parallel-shifts-migration-core': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for destructive migration 025 integration',
@@ -308,7 +318,7 @@ const dbEntries = dbFiles.map(name => ({
   reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   baseline: 'S24',
-  migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' ? 25 : null,
+  migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],

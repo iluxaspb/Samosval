@@ -971,11 +971,25 @@ test('runtime and PUBLIC hold no mutation right on evidence or source tables', {
         code('23514'),
       );
     }
-    // No migration function exists yet: Task 6 is schema only.
-    assert.equal((await client.query(
-      `SELECT count(*)::int AS n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname='public' AND p.proname LIKE 'migrate_legacy_restored_context%'`,
-    )).rows[0].n, 0);
+    // Task 7 replaced the schema-only guarantee: exactly one migration entrypoint
+    // may exist, and it must be the exact signature owned by the evidence owner.
+    const migrationFunctions = (await client.query(
+      `SELECT p.proname,
+              (SELECT string_agg(format_type(t, NULL), ',' ORDER BY ord)
+                 FROM unnest(p.proargtypes) WITH ORDINALITY AS u(t, ord)) AS args,
+              pg_get_userbyid(p.proowner) AS owner, p.prosecdef AS security_definer,
+              coalesce(array_to_string(p.proconfig, ','), '') AS config
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname LIKE 'migrate_legacy_restored_context%'`,
+    )).rows;
+    assert.deepEqual(
+      migrationFunctions.map(row => `${row.proname}(${row.args})`),
+      ['migrate_legacy_restored_context_exact(text,jsonb)'],
+      'exactly one migration entrypoint with the exact signature exists',
+    );
+    assert.equal(migrationFunctions[0].owner, 'samosval_migration_evidence_owner');
+    assert.equal(migrationFunctions[0].security_definer, true);
+    assert.match(migrationFunctions[0].config, /search_path=pg_catalog, pg_temp/);
   });
 });
 
