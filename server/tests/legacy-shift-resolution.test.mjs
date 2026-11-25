@@ -413,7 +413,11 @@ test('a fresh command with the wrong protocol version is refused before any writ
   const ids = await prepare('resolve_protocol', [{ shiftId: 'shift_protocol' }]);
   const pool = db();
   try {
-    await assert.rejects(() => call(pool, ids, 'shift_protocol', { protocolVersion: 1 }), { code: 'protocol-upgrade-required' });
+    // §5.0 of the design is normative here: this stable code is 426, not 409.
+    await assert.rejects(
+      () => call(pool, ids, 'shift_protocol', { protocolVersion: 1 }),
+      { code: 'protocol-upgrade-required', status: 426 },
+    );
     assert.equal(await auditCount(pool), 0);
     assert.equal(await receiptCount(pool), 0);
     assert.equal((await shiftRow(pool, ids, 'shift_protocol')).shift_type_resolution, 'unresolved');
@@ -592,11 +596,122 @@ test('the resolution audit is append-only: update, delete and truncate are refus
     await assert.rejects(() => pool.query("UPDATE shift_legacy_resolution_audit SET evidence_note='подмена'"), { code: '23514' });
     await assert.rejects(() => pool.query('DELETE FROM shift_legacy_resolution_audit'), { code: '23514' });
     await assert.rejects(() => pool.query('TRUNCATE shift_legacy_resolution_audit'), { code: '23514' });
+    // The receipt is the other half of the idempotency guarantee and is immutable too.
+    await assert.rejects(() => pool.query("UPDATE shift_legacy_resolution_receipts SET command_hash=repeat('a',64)"), { code: '23514' });
+    await assert.rejects(() => pool.query('DELETE FROM shift_legacy_resolution_receipts'), { code: '23514' });
     await assert.rejects(() => pool.query('TRUNCATE shift_legacy_resolution_receipts'), { code: '23514' });
     assert.equal(await auditCount(pool), 1);
     assert.equal(await receiptCount(pool), 1);
     const note = (await pool.query('SELECT evidence_note FROM shift_legacy_resolution_audit')).rows[0].evidence_note;
     assert.equal(note, NOTE);
+  } finally { await pool.end(); }
+});
+
+// ---------- DB: the D12 gate is enforced by the schema, not only by the writer ----------
+
+test('the database itself allows only unresolved -> manual and never a rewrite', { skip: !approved }, async () => {
+  const ids = await prepare('resolve_schema_gate', [
+    { shiftId: 'shift_gate_source', identity: 'source', type: 'day' },
+    { shiftId: 'shift_gate_unresolved' },
+  ]);
+  const pool = db();
+  try {
+    const target = 'shift_gate_source';
+    const where = 'WHERE workspace_id=$1 AND shift_id=$2';
+    const base = [ids.workspaceId, target];
+    // Rewriting a proven identity with a different uid while its resolution stays
+    // `source` is a silent provenance rewrite; the JS gate never reaches here, so
+    // only the row trigger can catch a raw writer doing it.
+    await assert.rejects(
+      () => pool.query(`UPDATE shifts SET opened_by_uid=$3 ${where}`, [...base, ids.foremanUid]),
+      error => error.code === '23514' && /legacy-field-not-unresolved/.test(error.message),
+    );
+    // Rewriting `source` into `manual` is the same rewrite wearing a new label.
+    await assert.rejects(
+      () => pool.query(`UPDATE shifts SET opened_by_uid=$3,identity_resolution='manual' ${where}`, [...base, ids.foremanUid]),
+      error => error.code === '23514' && /legacy-field-not-unresolved/.test(error.message),
+    );
+    // Clearing proven provenance (and downgrading it to unresolved) is refused.
+    await assert.rejects(
+      () => pool.query(`UPDATE shifts SET opened_by_uid=NULL,identity_resolution='unresolved' ${where}`, base),
+      error => error.code === '23514' && /legacy-field-not-unresolved/.test(error.message),
+    );
+    // The type dimension is independent and equally frozen.
+    await assert.rejects(
+      () => pool.query(`UPDATE shifts SET shift_type='night' ${where}`, base),
+      error => error.code === '23514' && /legacy-field-not-unresolved/.test(error.message),
+    );
+    await assert.rejects(
+      () => pool.query(`UPDATE shifts SET shift_type=NULL,shift_type_resolution='unresolved' ${where}`, base),
+      error => error.code === '23514' && /legacy-field-not-unresolved/.test(error.message),
+    );
+    // Nothing above wrote anything.
+    const source = await shiftRow(pool, ids, target);
+    assert.equal(source.identity_resolution, 'source');
+    assert.equal(source.opened_by_uid, ids.adminUid);
+    assert.equal(source.shift_type_resolution, 'source');
+    assert.equal(source.shift_type, 'day');
+
+    // The one legal transition is still open at the row level.
+    await pool.query(
+      `UPDATE shifts SET shift_type='day',shift_type_resolution='manual'
+        WHERE workspace_id=$1 AND shift_id='shift_gate_unresolved'`,
+      [ids.workspaceId],
+    );
+    const resolved = await shiftRow(pool, ids, 'shift_gate_unresolved');
+    assert.equal(resolved.shift_type_resolution, 'manual');
+    assert.equal(resolved.identity_resolution, 'unresolved');
+    assert.equal(resolved.state, 'historical', 'the row-level gate never activates anything');
+    assert.equal(resolved.is_active, false);
+  } finally { await pool.end(); }
+});
+
+test('the audit evidence note is checked by the database, so the 1000 bound is real', { skip: !approved }, async () => {
+  const ids = await prepare('resolve_note_check', [{ shiftId: 'shift_note_check' }]);
+  const pool = db();
+  const insert = note => pool.query(
+    `INSERT INTO shift_legacy_resolution_audit
+       (workspace_id, operation_id, shift_id,
+        old_opened_by_uid, new_opened_by_uid, old_identity_resolution, new_identity_resolution,
+        old_shift_type, new_shift_type, old_shift_type_resolution, new_shift_type_resolution,
+        evidence_note, actor_uid, expected_revision, result_revision, command_hash)
+     VALUES ($1,'op_note_check',$2, NULL, NULL, 'unresolved','unresolved',
+             NULL,'day','unresolved','manual',
+             $3,$4,1,2,repeat('a',64))`,
+    [ids.workspaceId, 'shift_note_check', note, ids.adminUid],
+  );
+  try {
+    for (const bad of ['a'.repeat(1001), '  x  ', 'x\u0001']) {
+      await assert.rejects(() => insert(bad), { code: '23514' }, `the database must refuse ${JSON.stringify(bad).slice(0, 24)}`);
+    }
+    assert.equal(await auditCount(pool), 0);
+    await insert('a'.repeat(1000));
+    assert.equal(await auditCount(pool), 1);
+  } finally { await pool.end(); }
+});
+
+test('two identical requests in flight replay instead of failing on a revision they never saw', { skip: !approved }, async () => {
+  const ids = await prepare('resolve_replay_race', [{ shiftId: 'shift_replay_race' }]);
+  const pool = db(2);
+  try {
+    const outcomes = await Promise.allSettled([
+      call(pool, ids, 'shift_replay_race'),
+      call(pool, ids, 'shift_replay_race'),
+    ]);
+    assert.equal(outcomes.filter(outcome => outcome.status === 'fulfilled').length, 2, 'both callers get a result');
+    const results = outcomes.map(outcome => outcome.value);
+    assert.deepEqual(
+      { ...results[0], replayed: undefined },
+      { ...results[1], replayed: undefined },
+      'both see the same stored result',
+    );
+    // Which call wins is up to the scheduler; what matters is that exactly one
+    // executed the command and the other replayed it.
+    assert.deepEqual(results.map(result => result.replayed).sort(), [false, true], 'exactly one replay');
+    // Exactly one command was recorded: idempotency survived the race.
+    assert.equal(await auditCount(pool), 1);
+    assert.equal(await receiptCount(pool), 1);
+    assert.equal(Number((await shiftRow(pool, ids, 'shift_replay_race')).revision), 2);
   } finally { await pool.end(); }
 });
 

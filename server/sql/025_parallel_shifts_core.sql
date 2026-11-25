@@ -866,7 +866,11 @@ CREATE TABLE shift_legacy_resolution_audit (
     CHECK (old_shift_type_resolution IN ('source','manual','unresolved')),
   new_shift_type_resolution text NOT NULL
     CHECK (new_shift_type_resolution IN ('source','manual','unresolved')),
-  evidence_note text NOT NULL CHECK (char_length(evidence_note) BETWEEN 1 AND 1000),
+  evidence_note text NOT NULL
+    CHECK (char_length(evidence_note) BETWEEN 1 AND 1000)
+    -- D17 "и в JS, и в БД": the stored note is already trimmed and control-free,
+    -- so a direct INSERT cannot smuggle either in behind the writer.
+    CHECK (evidence_note = btrim(evidence_note) AND evidence_note !~ '[[:cntrl:]]'),
   actor_uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
   resolved_at timestamptz NOT NULL DEFAULT now(),
   expected_revision bigint NOT NULL CHECK (expected_revision > 0),
@@ -896,6 +900,51 @@ CREATE TRIGGER shift_legacy_resolution_receipts_append_only
 CREATE TRIGGER shift_legacy_resolution_receipts_no_truncate
   BEFORE TRUNCATE ON shift_legacy_resolution_receipts
   FOR EACH STATEMENT EXECUTE FUNCTION legacy_append_only_guard();
+
+-- D12 at the row level (Task 5, §4.9). The writer already refuses a rewrite, but
+-- an invariant this important must not depend on one caller: the schema itself
+-- allows exactly one provenance transition, `unresolved -> manual`. Clearing a
+-- proven value, rewriting a `source`/`manual` value, and downgrading `manual`
+-- back to `unresolved` are all refused here, whatever writes the row.
+--
+-- The trigger is additive and fires after `shifts_legacy_bridge_trigger`
+-- (alphabetical order), so it judges the final NEW row the v2 normalizer
+-- produced; a v2 document write that keeps `source` is unaffected.
+CREATE OR REPLACE FUNCTION shifts_manual_provenance_guard() RETURNS trigger
+LANGUAGE plpgsql AS $manual_provenance$
+BEGIN
+  -- Identity dimension.
+  IF NEW.identity_resolution IS DISTINCT FROM OLD.identity_resolution
+     AND NOT (OLD.identity_resolution = 'unresolved' AND NEW.identity_resolution = 'manual') THEN
+    RAISE EXCEPTION 'legacy-field-not-unresolved: identity provenance % cannot become %',
+      OLD.identity_resolution, NEW.identity_resolution USING ERRCODE='check_violation';
+  END IF;
+  -- A value may not be swapped while its resolution stays put: that is a silent
+  -- rewrite of proven provenance, not a resolution.
+  IF OLD.identity_resolution IN ('source','manual')
+     AND NEW.opened_by_uid IS DISTINCT FROM OLD.opened_by_uid THEN
+    RAISE EXCEPTION 'legacy-field-not-unresolved: a % identity is never rewritten',
+      OLD.identity_resolution USING ERRCODE='check_violation';
+  END IF;
+
+  -- Type dimension: same rules, independent of the identity dimension.
+  IF NEW.shift_type_resolution IS DISTINCT FROM OLD.shift_type_resolution
+     AND NOT (OLD.shift_type_resolution = 'unresolved' AND NEW.shift_type_resolution = 'manual') THEN
+    RAISE EXCEPTION 'legacy-field-not-unresolved: type provenance % cannot become %',
+      OLD.shift_type_resolution, NEW.shift_type_resolution USING ERRCODE='check_violation';
+  END IF;
+  IF OLD.shift_type_resolution IN ('source','manual')
+     AND NEW.shift_type IS DISTINCT FROM OLD.shift_type THEN
+    RAISE EXCEPTION 'legacy-field-not-unresolved: a % shift type is never rewritten',
+      OLD.shift_type_resolution USING ERRCODE='check_violation';
+  END IF;
+
+  RETURN NEW;
+END
+$manual_provenance$;
+CREATE TRIGGER shifts_manual_provenance_guard_trigger
+  BEFORE UPDATE ON shifts
+  FOR EACH ROW EXECUTE FUNCTION shifts_manual_provenance_guard();
 
 -- Immutable archive chain and dedicated restored contexts (Task 6, design §4.6).
 -- Additive only: new tables, constraints, indexes, triggers and grants. No P3/P4/P5

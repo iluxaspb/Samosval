@@ -1464,17 +1464,16 @@ test('sql_null_cannot_bypass_provenance_checks', {
     await expectCheck('manual type cannot lose its value', ...onLegacy('shift_type=NULL'));
     await expectCheck('unresolved type cannot keep a value',
       ...onLegacy(`shift_type='day',shift_type_resolution='unresolved'`));
-    await pool.query(
-      `UPDATE shifts SET shift_type=NULL,shift_type_resolution='unresolved'
-        WHERE workspace_id=$1 AND shift_id=$2`,
-      [ids.workspaceId, 'legacy_unresolved_null'],
-    );
+    // D12 at the row level (Task 5): a proven dimension is never downgraded back to
+    // unresolved either — the audit CHECK alone allowed that, the row trigger does not.
+    await expectCheck('a manual type is never downgraded to unresolved',
+      ...onLegacy(`shift_type=NULL,shift_type_resolution='unresolved'`));
     legacy = (await pool.query(
       `SELECT shift_type,shift_type_resolution FROM shifts
         WHERE workspace_id=$1 AND shift_id=$2`,
       [ids.workspaceId, 'legacy_unresolved_null'],
     )).rows[0];
-    assert.deepEqual(legacy, { shift_type: null, shift_type_resolution: 'unresolved' });
+    assert.deepEqual(legacy, { shift_type: 'day', shift_type_resolution: 'manual' });
   } finally {
     await pool.end();
   }
