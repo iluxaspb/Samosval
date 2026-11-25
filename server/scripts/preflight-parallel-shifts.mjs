@@ -35,6 +35,12 @@ if (!expiresAt || !backupManifestSha256) {
   console.error('preflight: --expires-at and --backup-manifest-sha256 are required');
   process.exit(2);
 }
+// M4: the same format the confirmation writer enforces. A typo here would only
+// surface on the destructive step, so it is refused before any work.
+if (!/^[0-9a-f]{64}$/.test(backupManifestSha256)) {
+  console.error('preflight: --backup-manifest-sha256 must be 64 lowercase hex characters');
+  process.exit(2);
+}
 
 const pool = buildPool();
 const client = await pool.connect();

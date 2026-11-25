@@ -170,6 +170,11 @@ export async function recordHistoricalizationConfirmation(client, input) {
   const { reportBytes, reportSha256, ownerActorUid, expiresAt, backupManifestSha256, databaseFingerprint, confirmationId } = input;
   if (typeof confirmationId !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(confirmationId)) throw fail('confirmation-id-invalid', 400);
   if (!Buffer.isBuffer(reportBytes)) throw fail('report-bytes-required', 400);
+  // M4: a typo in the manifest hash produces a report that cannot be consumed,
+  // and that would only be discovered on the destructive step. Refuse it here.
+  if (typeof backupManifestSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(backupManifestSha256)) {
+    throw fail('backup-manifest-sha256-invalid', 400);
+  }
   if (sha256Hex(reportBytes) !== reportSha256) throw fail('report-hash-mismatch', 400);
   const parsed = JSON.parse(reportBytes.toString('utf8'));
   if (Buffer.from(canonicalJson(parsed), 'utf8').equals(reportBytes) === false) throw fail('report-not-canonical', 400);
@@ -198,6 +203,19 @@ export async function recordHistoricalizationConfirmation(client, input) {
       ownerActorUid, expiresAt, backupManifestSha256, databaseFingerprint],
   );
   return { confirmationId, rowCount: parsed.rows.length };
+}
+
+// The registry version the report was built on. It is read live, never from the
+// confirmation row, so the cutover compares against the real applied state.
+export async function liveSchemaMigrationVersion(client) {
+  try {
+    const row = (await client.query('SELECT max(filename) AS version FROM schema_migrations')).rows[0];
+    return row?.version ?? null;
+  } catch (error) {
+    // No registry at all is not "unchanged": the confirmation cannot be verified.
+    if (error.code === '42P01') return null;
+    throw error;
+  }
 }
 
 // NOTE (Task 5 / role split): the design's "maintenance role" does not exist in the
@@ -235,6 +253,11 @@ export async function historicalizeConfirmedLegacy(client, {
     const { workspaceId } = stored;
     // The confirmation row and the exact bytes must describe the same workspace.
     if (conf.workspace_id !== workspaceId) throw fail('report-context-mismatch');
+    // M1: the report must not re-confirm itself. The version it was built on is
+    // re-read from the live registry, so a migration applied between confirmation
+    // and cutover is caught here instead of being reported as the stored value.
+    const liveMigrationVersion = await liveSchemaMigrationVersion(client);
+    if (liveMigrationVersion !== stored.migrationVersion) throw fail('confirmation-environment-changed');
     // §4.8 п.6: the environment the owner confirmed must still be the live one.
     // The fingerprint is measured here, inside the transaction, before any mutation.
     const liveDatabaseFingerprint = await computeDatabaseFingerprint(client);

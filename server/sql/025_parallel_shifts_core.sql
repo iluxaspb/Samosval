@@ -815,4 +815,86 @@ CREATE TRIGGER legacy_cutover_audit_no_truncate
   BEFORE TRUNCATE ON legacy_cutover_historicalization_audit
   FOR EACH STATEMENT EXECUTE FUNCTION legacy_append_only_guard();
 
+-- Manual legacy provenance resolution (Task 5, design §4.9). Additive only: new
+-- objects appended here, no P3/P4 table, column, constraint, trigger, order or
+-- row is touched. The command writes two provenance dimensions of an existing
+-- row and never activates it.
+--
+-- Guard row: the exact canonical key (workspace + object + work date + requested
+-- type) is unique. The two 64-bit advisory hashes taken by the writer only
+-- serialize; a collision merely serializes unrelated commands, correctness comes
+-- from this exact key.
+CREATE TABLE shift_legacy_resolution_guard (
+  workspace_id text NOT NULL REFERENCES workspaces(id),
+  guard_key text NOT NULL CHECK (length(guard_key) BETWEEN 1 AND 1024),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, guard_key)
+);
+
+-- Receipt: one row per (workspace, operation id). It stores the exact result an
+-- identical replay must return without a second audit.
+CREATE TABLE shift_legacy_resolution_receipts (
+  workspace_id text NOT NULL REFERENCES workspaces(id),
+  operation_id text NOT NULL CHECK (operation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  shift_id text NOT NULL,
+  protocol_version smallint NOT NULL CHECK (protocol_version > 0),
+  actor_uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  command_hash text NOT NULL CHECK (command_hash ~ '^[0-9a-f]{64}$'),
+  result jsonb NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, operation_id),
+  FOREIGN KEY (workspace_id, shift_id) REFERENCES shifts(workspace_id, shift_id)
+);
+
+-- Immutable evidence of one manual resolution. `actor_uid` is RESTRICT so a hard
+-- delete can never erase who resolved a provenance field; accounts are disabled
+-- softly instead.
+CREATE TABLE shift_legacy_resolution_audit (
+  audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  workspace_id text NOT NULL REFERENCES workspaces(id),
+  operation_id text NOT NULL CHECK (operation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  shift_id text NOT NULL,
+  old_opened_by_uid text REFERENCES app_users(uid) ON DELETE RESTRICT,
+  new_opened_by_uid text REFERENCES app_users(uid) ON DELETE RESTRICT,
+  old_identity_resolution text NOT NULL
+    CHECK (old_identity_resolution IN ('source','manual','unresolved')),
+  new_identity_resolution text NOT NULL
+    CHECK (new_identity_resolution IN ('source','manual','unresolved')),
+  old_shift_type text CHECK (old_shift_type IS NULL OR old_shift_type IN ('day','night')),
+  new_shift_type text CHECK (new_shift_type IS NULL OR new_shift_type IN ('day','night')),
+  old_shift_type_resolution text NOT NULL
+    CHECK (old_shift_type_resolution IN ('source','manual','unresolved')),
+  new_shift_type_resolution text NOT NULL
+    CHECK (new_shift_type_resolution IN ('source','manual','unresolved')),
+  evidence_note text NOT NULL CHECK (char_length(evidence_note) BETWEEN 1 AND 1000),
+  actor_uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  resolved_at timestamptz NOT NULL DEFAULT now(),
+  expected_revision bigint NOT NULL CHECK (expected_revision > 0),
+  result_revision bigint NOT NULL CHECK (result_revision > 0),
+  command_hash text NOT NULL CHECK (command_hash ~ '^[0-9a-f]{64}$'),
+  UNIQUE (workspace_id, operation_id),
+  FOREIGN KEY (workspace_id, shift_id) REFERENCES shifts(workspace_id, shift_id),
+  -- One command is one revision step, and it must change at least one dimension.
+  CHECK (result_revision = expected_revision + 1),
+  CHECK (old_identity_resolution IS DISTINCT FROM new_identity_resolution
+         OR old_shift_type_resolution IS DISTINCT FROM new_shift_type_resolution)
+);
+CREATE INDEX shift_legacy_resolution_audit_shift_idx
+  ON shift_legacy_resolution_audit(workspace_id, shift_id, audit_id);
+
+CREATE TRIGGER shift_legacy_resolution_audit_append_only
+  BEFORE UPDATE OR DELETE ON shift_legacy_resolution_audit
+  FOR EACH ROW EXECUTE FUNCTION legacy_append_only_guard();
+CREATE TRIGGER shift_legacy_resolution_audit_no_truncate
+  BEFORE TRUNCATE ON shift_legacy_resolution_audit
+  FOR EACH STATEMENT EXECUTE FUNCTION legacy_append_only_guard();
+-- A receipt that could be rewritten would silently break idempotency, so it is
+-- as immutable as the audit it belongs to.
+CREATE TRIGGER shift_legacy_resolution_receipts_append_only
+  BEFORE UPDATE OR DELETE ON shift_legacy_resolution_receipts
+  FOR EACH ROW EXECUTE FUNCTION legacy_append_only_guard();
+CREATE TRIGGER shift_legacy_resolution_receipts_no_truncate
+  BEFORE TRUNCATE ON shift_legacy_resolution_receipts
+  FOR EACH STATEMENT EXECUTE FUNCTION legacy_append_only_guard();
+
 COMMIT;

@@ -12,13 +12,13 @@ const unitFiles = [
 const dbFiles = [
   'archive-parallel-restore', 'archive-read', 'archive-store', 'auxiliary-store',
   'backup-store', 'control-store', 'game-store', 'history-store',
-  'identity-store', 'line-read', 'line-store', 'migration-registry',
-  'notification-store', 'parallel-shifts-historicalization',
-  'parallel-shifts-migration-core', 'refresh-source',
-  'replica-materialize-parallel-shifts', 'replica-materialize', 'replica-store',
-  'report-store', 'seed-identity-db', 'seed-objects-db', 'senior-foreman',
-  'server-control', 'settings', 'shift-close', 'shift-start', 'tabel-presence',
-  'tabel-store', 'truck-phone-http', 'truck-phone-store'
+  'identity-store', 'legacy-shift-resolution', 'line-read', 'line-store',
+  'migration-registry', 'notification-store',
+  'parallel-shifts-historicalization', 'parallel-shifts-migration-core',
+  'refresh-source', 'replica-materialize-parallel-shifts', 'replica-materialize',
+  'replica-store', 'report-store', 'seed-identity-db', 'seed-objects-db',
+  'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
+  'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store'
 ];
 
 const harnessFiles = [
@@ -108,6 +108,14 @@ const consumersByFile = {
     "tests/isolated-db-templates.test.mjs:pg"
   ],
   "json-response": [],
+  "legacy-shift-resolution": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/legacy-shift-resolution.test.mjs:db-env",
+    "tests/legacy-shift-resolution.test.mjs:pg"
+  ],
   "line-read": [
     "tests/line-read.test.mjs:db-env",
     "tests/line-read.test.mjs:pg"
@@ -292,7 +300,7 @@ const dbEntries = dbFiles.map(name => ({
   reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   baseline: 'S24',
-  migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' ? 25 : null,
+  migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],

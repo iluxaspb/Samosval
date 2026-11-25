@@ -78,7 +78,7 @@ async function prepare(suffix, legacyRows = []) {
 }
 
 // Unresolved-type legacy row -> 025 classifies it as historical (report scope).
-async function seedLegacyV1(pool, ids, { shiftId, withStatus = true, logs = [], foreign = false, restored = false }) {
+async function seedLegacyV1(pool, ids, { shiftId, withStatus = true, logs = [], foreign = false, restored = false, restoredOpener = false }) {
   const payload = foreign
     ? {
       id: shiftId, objectId: ids.objectAId, objectName: ids.objectAId,
@@ -89,6 +89,9 @@ async function seedLegacyV1(pool, ids, { shiftId, withStatus = true, logs = [], 
     : {
       id: shiftId, objectId: ids.objectAId, objectName: ids.objectAId,
       startDate: '23.11.2026', startedAt: 1795420800000, startedBy: 'legacy', isActive: false,
+      // M2: an archived copy may carry the original creator uid in its payload. It
+      // is the document's own value, never proof produced by the restoration.
+      ...(restoredOpener ? { startedByUid: ids.adminUid } : {}),
       closing: true, closingStartedAt: 1795420900000, closingBy: 'legacy', state: 'closing',
       // D7: a restored archive copy is never a live line and never a proven opener.
       ...(restored ? { restored: true, restoredFrom: `${shiftId}_archive` } : {}),
@@ -134,7 +137,9 @@ function confirm(client, ids, built, confirmationId, overrides = {}) {
     reportSha256: built.sha256,
     ownerActorUid: overrides.ownerActorUid ?? ids.adminUid,
     expiresAt: overrides.expiresAt ?? FUTURE,
-    backupManifestSha256: built.report.backupManifestSha256,
+    // The override is how a test supplies a malformed hash (M4); the default stays
+    // exactly the value the report carries.
+    backupManifestSha256: overrides.backupManifestSha256 ?? built.report.backupManifestSha256,
     databaseFingerprint: built.report.databaseFingerprint,
   });
 }
@@ -306,6 +311,41 @@ test('a different live backup manifest aborts before any mutation', { skip: !app
   } finally { client.release(); await pool.end(); }
 });
 
+test('a malformed backup manifest hash is refused at confirmation time', { skip: !approved }, async () => {
+  const ids = await prepare('env_manifest_format', [{ shiftId: 'shift_env_mf' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    // M4: the writer enforces the same `^[0-9a-f]{64}$` as the CLI. A typo must be
+    // caught here, not on the destructive step where the report cannot be consumed.
+    for (const malformed of ['not-a-sha256', MANIFEST.toUpperCase(), `${MANIFEST}0`, MANIFEST.slice(0, 63)]) {
+      await assert.rejects(
+        () => confirm(client, ids, built, 'conf_env_mf', { backupManifestSha256: malformed }),
+        { code: 'backup-manifest-sha256-invalid', status: 400 },
+      );
+    }
+    assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_historicalization_confirmations')).rows[0].n, 0,
+      'a refused confirmation is never stored');
+  } finally { client.release(); await pool.end(); }
+});
+
+test('a migration applied after the confirmation aborts before any mutation', { skip: !approved }, async () => {
+  const ids = await prepare('env_migration', [{ shiftId: 'shift_env_mig' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    await confirm(client, ids, built, 'conf_env_mig');
+    // M1: the report carries `migrationVersion`; it must be the live registry value,
+    // not a copy of the stored one. A next migration between confirmation and
+    // cutover is exactly the drift this catches.
+    await client.query("INSERT INTO schema_migrations(filename) VALUES('026_future_migration.sql')");
+    await assert.rejects(() => consume(client, ids, built, 'conf_env_mig'), { code: 'confirmation-environment-changed' });
+    await assertUntouched(client, { statuses: 1 });
+  } finally { client.release(); await pool.end(); }
+});
+
 test('a missing or malformed live backup manifest is refused, never self-confirmed', { skip: !approved }, async () => {
   const ids = await prepare('env_missing', [{ shiftId: 'shift_env_ms' }]);
   const pool = db();
@@ -373,6 +413,11 @@ test('the fingerprint does not depend on the privileges of the executing role', 
   const client = await pool.connect();
   const probe = 'samosval_fingerprint_probe';
   let revoked = false;
+  // M3: the original ACL is captured and restored exactly. A blanket GRANT would
+  // add a privilege PUBLIC may never have had and would hide a later regression.
+  const originalAcl = (await client.query(
+    "SELECT proacl::text AS acl FROM pg_proc WHERE oid='pg_control_system()'::regprocedure",
+  )).rows[0].acl;
   try {
     const baseline = await computeDatabaseFingerprint(client);
     // A throwaway NOLOGIN role with no grants stands in for the maintenance executor.
@@ -406,7 +451,14 @@ test('the fingerprint does not depend on the privileges of the executing role', 
     assert.equal(await computeDatabaseFingerprint(client), baseline);
   } finally {
     if (revoked) {
-      await client.query('GRANT EXECUTE ON FUNCTION pg_control_system() TO PUBLIC').catch(() => {});
+      await (originalAcl === null
+        ? client.query("UPDATE pg_proc SET proacl=NULL WHERE oid='pg_control_system()'::regprocedure")
+        : client.query("UPDATE pg_proc SET proacl=$1::aclitem[] WHERE oid='pg_control_system()'::regprocedure", [originalAcl])
+      ).catch(() => {});
+      const restoredAcl = (await client.query(
+        "SELECT proacl::text AS acl FROM pg_proc WHERE oid='pg_control_system()'::regprocedure",
+      )).rows[0].acl;
+      assert.equal(restoredAcl, originalAcl, 'the original ACL must be restored exactly');
     }
     await client.query(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${probe}') THEN DROP ROLE ${probe}; END IF; END $$`).catch(() => {});
     client.release();
@@ -711,13 +763,17 @@ test('successful historicalization: historical state, no synthetic close, assign
 });
 
 test('a restored legacy row is audited as a restored snapshot, never as a proven opener', { skip: !approved }, async () => {
-  const ids = await prepare('restored', [{ shiftId: 'shift_restored', restored: true }]);
+  const ids = await prepare('restored', [{ shiftId: 'shift_restored', restored: true, restoredOpener: true }]);
   const pool = db();
   const client = await pool.connect();
   try {
     const built = await buildFor(client, ids);
     const row = built.report.rows.find(r => r.shiftId === 'shift_restored');
     assert.equal(row.restoredSnapshot, true, 'the report marks the restored copy');
+    // M2: the copy carries the original creator uid in its own payload, yet the
+    // report must not present it as a proven author — it emits no identity at all.
+    assert.equal(built.bytes.toString('utf8').includes(ids.adminUid), false, 'no uid in the report');
+    assert.equal(Object.hasOwn(row, 'openedByUid'), false);
     await confirm(client, ids, built, 'conf_restored');
     await consume(client, ids, built, 'conf_restored');
     const audit = (await client.query(
@@ -726,10 +782,16 @@ test('a restored legacy row is audited as a restored snapshot, never as a proven
     assert.equal(audit.restored_snapshot, true, 'audit keeps the restored flag');
     assert.equal(audit.old_state, 'historical');
     assert.equal(audit.new_state, 'historical');
-    // Minor 3 of review 4: a restored archive row never proves the original opener.
-    const shift = (await client.query("SELECT state, opened_by_uid FROM shifts WHERE shift_id='shift_restored'")).rows[0];
+    const shift = (await client.query(
+      "SELECT state, opened_by_uid, identity_resolution, closed_at, closed_by_uid FROM shifts WHERE shift_id='shift_restored'",
+    )).rows[0];
     assert.equal(shift.state, 'historical');
-    assert.equal(shift.opened_by_uid, null);
+    // The uid stays exactly as the archived document stated it (source), and the
+    // restoration never invents a close actor or a proven close.
+    assert.equal(shift.opened_by_uid, ids.adminUid);
+    assert.equal(shift.identity_resolution, 'source');
+    assert.equal(shift.closed_at, null);
+    assert.equal(shift.closed_by_uid, null);
   } finally { client.release(); await pool.end(); }
 });
 
