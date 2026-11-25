@@ -16,7 +16,7 @@ const dbFiles = [
   'migration-registry', 'notification-store',
   'parallel-shifts-historicalization', 'parallel-shifts-migration-core',
   'refresh-source', 'replica-materialize-parallel-shifts', 'replica-materialize',
-  'replica-store', 'report-store', 'seed-identity-db', 'seed-objects-db',
+  'replica-store', 'report-store', 'restored-context-store', 'seed-identity-db', 'seed-objects-db',
   'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
   'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store'
 ];
@@ -191,6 +191,14 @@ const consumersByFile = {
     "tests/report-store.test.mjs:db-env",
     "tests/report-store.test.mjs:pg"
   ],
+  "restored-context-store": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/restored-context-store.test.mjs:db-env",
+    "tests/restored-context-store.test.mjs:pg"
+  ],
   "seed-identity-db": [
     "tests/seed-identity-db.test.mjs:db-env",
     "tests/seed-identity-db.test.mjs:pg"
@@ -308,7 +316,7 @@ const dbEntries = dbFiles.map(name => ({
   reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   baseline: 'S24',
-  migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' ? 25 : null,
+  migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-store' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],

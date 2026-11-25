@@ -4,6 +4,7 @@ import {randomBytes} from 'node:crypto';
 import pg from 'pg';
 import {submitArchive} from '../src/archive-store.mjs';
 import {readArchiveSnapshot} from '../src/archive-read.mjs';
+import {submitRestoredCorrection} from '../src/restored-context-store.mjs';
 test('PostgreSQL archive mutations keep original snapshots, serialize concurrent editors, and restore the complete line atomically',{skip:!process.env.TEST_DATABASE_URL},async t=>{
   const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL,max:6}),sha=randomBytes(32).toString('hex'),ws='arc_'+sha.slice(0,20),uid=ws+'_a',worker=ws+'_w';let originalState;
   const archive={objectId:'site',objectName:'Site',date:'30.10.2026',activeLineIds:['truck','empty'],ttnStatus:{truck:'pending'},paper:{width:900},logs:[{id:'late',truckId:'truck',timestamp:20,volume:24,comment:'late'},{id:'early',truckId:'truck',timestamp:10,volume:24,comment:'early'}]};
@@ -60,4 +61,16 @@ test('PostgreSQL archive mutations keep original snapshots, serialize concurrent
     await pool.query('DELETE FROM migration_documents WHERE import_sha256=$1',[sha]);await pool.query('DELETE FROM migration_imports WHERE sha256=$1',[sha]);
     await pool.query('DELETE FROM workspaces WHERE id=$1',[ws]);await pool.query('DELETE FROM app_users WHERE uid=ANY($1)',[[uid,worker]]);await pool.end();
   }
+});
+// Гейт архивных коррекций: разрешены ровно trip/TTN update/delete. Любой другой
+// type отбивается до обращения к БД, поэтому пул здесь намеренно недоступен.
+test('restored correction domain refuses every non trip/TTN operation before touching the database',async()=>{
+  let connects=0;
+  const pool={connect(){connects+=1;throw new Error('the database must not be touched');}};
+  for(const type of ['shift.close','trip.create','report.update','archive.restore','',null,undefined,42]){
+    await assert.rejects(submitRestoredCorrection(pool,{uid:'gate_user'},'ctx_gate',{operationId:'op_gate',protocolVersion:2,type,recordId:'rec_1',expectedContextRevision:1,expectedBaseArchiveRevision:1,expectedBaseSha256:'a'.repeat(64)}),error=>{
+      assert.equal(error.code,'archive-operation-not-allowed');assert.equal(error.status,400);return true;
+    });
+  }
+  assert.equal(connects,0);
 });
