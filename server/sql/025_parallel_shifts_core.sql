@@ -897,4 +897,519 @@ CREATE TRIGGER shift_legacy_resolution_receipts_no_truncate
   BEFORE TRUNCATE ON shift_legacy_resolution_receipts
   FOR EACH STATEMENT EXECUTE FUNCTION legacy_append_only_guard();
 
+-- Immutable archive chain and dedicated restored contexts (Task 6, design §4.6).
+-- Additive only: new tables, constraints, indexes, triggers and grants. No P3/P4/P5
+-- table, column, constraint, trigger, order or row is touched. This block is schema
+-- only: it migrates no restored data and creates no synthetic shift, line row or
+-- current status. Restored contexts live beside `shifts`, never inside it.
+--
+-- A logical archive series is separated from its immutable content. The single
+-- authoritative default pointer is `latest_finalized_*`; `current_location` is a
+-- mutable catalog placement with its own CAS and never rewrites revision bytes.
+CREATE TABLE shift_archive_series (
+  workspace_id text NOT NULL REFERENCES workspaces(id),
+  archive_id text NOT NULL CHECK (length(archive_id) BETWEEN 1 AND 160),
+  source_shift_id text NOT NULL CHECK (length(source_shift_id) BETWEEN 1 AND 160),
+  current_location text NOT NULL DEFAULT 'archive'
+    CHECK (current_location IN ('archive','trash')),
+  latest_finalized_revision bigint CHECK (latest_finalized_revision > 0),
+  latest_finalized_sha256 text CHECK (latest_finalized_sha256 ~ '^[0-9a-f]{64}$'),
+  series_revision bigint NOT NULL DEFAULT 1 CHECK (series_revision > 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, archive_id),
+  -- One canonical archive per business shift.
+  UNIQUE (workspace_id, source_shift_id),
+  UNIQUE (workspace_id, archive_id, source_shift_id),
+  CHECK ((latest_finalized_revision IS NULL) = (latest_finalized_sha256 IS NULL))
+);
+
+CREATE TABLE shift_archive_revisions (
+  workspace_id text NOT NULL,
+  archive_id text NOT NULL,
+  archive_revision bigint NOT NULL CHECK (archive_revision > 0),
+  previous_revision bigint,
+  previous_sha256 text CHECK (previous_sha256 ~ '^[0-9a-f]{64}$'),
+  -- Authoritative UTF-8 JSON bytes. Parsed JSON/normalized columns may only ever be
+  -- a projection; the hash is computed from these bytes, not from a re-serialization.
+  payload_bytes bytea NOT NULL,
+  payload_sha256 text NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
+  payload_schema_version smallint NOT NULL CHECK (payload_schema_version > 0),
+  source_kind text NOT NULL CHECK (length(source_kind) BETWEEN 1 AND 64),
+  source_locator text NOT NULL CHECK (length(source_locator) BETWEEN 1 AND 1024),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  created_by_uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  PRIMARY KEY (workspace_id, archive_id, archive_revision),
+  UNIQUE (workspace_id, archive_id, payload_sha256),
+  UNIQUE (workspace_id, archive_id, archive_revision, payload_sha256),
+  -- The exact immutable source document of a legacy import is addressed once.
+  UNIQUE (workspace_id, source_locator),
+  FOREIGN KEY (workspace_id, archive_id)
+    REFERENCES shift_archive_series(workspace_id, archive_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  -- Revision 1 has no predecessor; every later revision names the exact previous
+  -- revision number and its exact payload hash (the FK below proves the hash).
+  CHECK ((archive_revision = 1) = (previous_revision IS NULL)),
+  CHECK (previous_revision IS NULL OR previous_revision = archive_revision - 1),
+  CHECK ((previous_revision IS NULL) = (previous_sha256 IS NULL)),
+  FOREIGN KEY (workspace_id, archive_id, previous_revision, previous_sha256)
+    REFERENCES shift_archive_revisions(workspace_id, archive_id, archive_revision, payload_sha256)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CHECK (payload_sha256 = encode(sha256(payload_bytes), 'hex'))
+);
+
+-- The default pointer must name an existing revision of the same archive and its
+-- exact hash: a dangling or mismatched pointer is impossible at the DB level.
+ALTER TABLE shift_archive_series
+  ADD CONSTRAINT shift_archive_series_latest_revision_fk
+  FOREIGN KEY (workspace_id, archive_id, latest_finalized_revision, latest_finalized_sha256)
+  REFERENCES shift_archive_revisions(workspace_id, archive_id, archive_revision, payload_sha256)
+  ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+-- One row per (workspace, operation id): the exact result an identical replay
+-- returns. Immutable, so idempotency can never be rewritten.
+CREATE TABLE archive_operation_receipts (
+  workspace_id text NOT NULL,
+  operation_id text NOT NULL CHECK (operation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  archive_id text NOT NULL,
+  uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  command_hash text NOT NULL CHECK (command_hash ~ '^[0-9a-f]{64}$'),
+  result jsonb NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, operation_id),
+  FOREIGN KEY (workspace_id, archive_id)
+    REFERENCES shift_archive_series(workspace_id, archive_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+-- Canonical restore never creates a legacy row in `shifts`. A dedicated context
+-- carries the archive provenance and the exact original opener/type snapshot.
+CREATE TABLE restored_shift_contexts (
+  workspace_id text NOT NULL,
+  restored_context_id text NOT NULL CHECK (restored_context_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  archive_id text NOT NULL,
+  source_shift_id text NOT NULL,
+  -- Display/edit mode of the restored context, not the active state of a shift.
+  mode text NOT NULL CHECK (mode IN ('standalone','parallel')),
+  -- Editing lifecycle of the context, not `active|closing|closed|historical`.
+  context_state text NOT NULL CHECK (context_state IN ('open','finalized')),
+  original_opened_by_uid text REFERENCES app_users(uid) ON DELETE RESTRICT,
+  original_opened_by_name_snapshot text,
+  original_identity_resolution text NOT NULL
+    CHECK (original_identity_resolution IN ('source','manual','unresolved')),
+  original_shift_type text
+    CHECK (original_shift_type IS NULL OR original_shift_type IN ('day','night')),
+  original_shift_type_resolution text NOT NULL
+    CHECK (original_shift_type_resolution IN ('source','manual','unresolved')),
+  restored_by_uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  restored_by_name_snapshot text NOT NULL,
+  restored_at timestamptz NOT NULL,
+  archive_revision bigint NOT NULL CHECK (archive_revision > 0),
+  context_revision bigint NOT NULL CHECK (context_revision > 0),
+  restore_operation_id text NOT NULL CHECK (restore_operation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  source_state_snapshot jsonb NOT NULL,
+  source_shift_revision bigint NOT NULL CHECK (source_shift_revision > 0),
+  opened_at_snapshot timestamptz NOT NULL,
+  object_id text NOT NULL CHECK (length(object_id) BETWEEN 1 AND 160),
+  object_name text NOT NULL CHECK (length(object_name) BETWEEN 1 AND 512),
+  work_date date NOT NULL,
+  PRIMARY KEY (workspace_id, restored_context_id),
+  -- Source identity comes from the canonical series of that business shift; the
+  -- context does not depend on a `shifts` row and cannot pick another archive.
+  FOREIGN KEY (workspace_id, archive_id, source_shift_id)
+    REFERENCES shift_archive_series(workspace_id, archive_id, source_shift_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, archive_id, archive_revision)
+    REFERENCES shift_archive_revisions(workspace_id, archive_id, archive_revision)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+-- At most one open context per archive series (design §4.6 restore contract).
+CREATE UNIQUE INDEX restored_shift_contexts_single_open_idx
+  ON restored_shift_contexts(workspace_id, archive_id)
+  WHERE context_state = 'open';
+
+-- Append-only provenance of a published revision. Receipt links are deferred so a
+-- finalize transaction may write the publication before its receipts, while a
+-- dangling publication still fails at the constraint checkpoint / commit.
+CREATE TABLE archive_revision_publications (
+  workspace_id text NOT NULL,
+  archive_id text NOT NULL,
+  archive_revision bigint NOT NULL CHECK (archive_revision > 0),
+  restored_context_id text NOT NULL,
+  restore_operation_id text NOT NULL CHECK (restore_operation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  finalize_operation_id text NOT NULL CHECK (finalize_operation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  base_revision bigint NOT NULL CHECK (base_revision > 0),
+  base_sha256 text NOT NULL CHECK (base_sha256 ~ '^[0-9a-f]{64}$'),
+  command_hash text NOT NULL CHECK (command_hash ~ '^[0-9a-f]{64}$'),
+  published_by_uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  published_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, archive_id, archive_revision),
+  UNIQUE (workspace_id, restored_context_id),
+  UNIQUE (workspace_id, finalize_operation_id),
+  CHECK (archive_revision > base_revision),
+  FOREIGN KEY (workspace_id, archive_id, archive_revision)
+    REFERENCES shift_archive_revisions(workspace_id, archive_id, archive_revision)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, archive_id, base_revision, base_sha256)
+    REFERENCES shift_archive_revisions(workspace_id, archive_id, archive_revision, payload_sha256)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT fk_archive_publication_restore_receipt
+    FOREIGN KEY (workspace_id, restore_operation_id)
+    REFERENCES archive_operation_receipts(workspace_id, operation_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  CONSTRAINT fk_archive_publication_finalize_receipt
+    FOREIGN KEY (workspace_id, finalize_operation_id)
+    REFERENCES archive_operation_receipts(workspace_id, operation_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED
+);
+
+-- Restored children use dedicated FKs on the exact context, never a polymorphic
+-- nullable pair. `restored_context_logs` is the latest editable trip state.
+CREATE TABLE restored_context_logs (
+  workspace_id text NOT NULL,
+  restored_context_id text NOT NULL,
+  log_id text NOT NULL CHECK (length(log_id) BETWEEN 1 AND 160),
+  truck_id text NOT NULL,
+  payload jsonb NOT NULL,
+  log_revision bigint NOT NULL CHECK (log_revision > 0),
+  -- NULL only for a trip created inside the restored context; a migrated trip keeps
+  -- the exact original log identity.
+  source_log_id text CHECK (source_log_id IS NULL OR length(source_log_id) BETWEEN 1 AND 160),
+  created_from_archive_revision bigint NOT NULL CHECK (created_from_archive_revision > 0),
+  PRIMARY KEY (workspace_id, restored_context_id, log_id),
+  FOREIGN KEY (workspace_id, restored_context_id)
+    REFERENCES restored_shift_contexts(workspace_id, restored_context_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, truck_id)
+    REFERENCES line_trucks(workspace_id, truck_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+-- Immutable base snapshot for standalone and parallel alike. It keeps the archive
+-- activeLineIds/ttnStatus and is not a current assignment and never blocks a truck.
+CREATE TABLE restored_context_status_snapshots (
+  workspace_id text NOT NULL,
+  restored_context_id text NOT NULL,
+  truck_id text NOT NULL,
+  payload jsonb NOT NULL,
+  status_revision bigint NOT NULL CHECK (status_revision > 0),
+  cycle_revision bigint NOT NULL CHECK (cycle_revision > 0),
+  ttn_revision bigint NOT NULL CHECK (ttn_revision > 0),
+  PRIMARY KEY (workspace_id, restored_context_id, truck_id),
+  FOREIGN KEY (workspace_id, restored_context_id)
+    REFERENCES restored_shift_contexts(workspace_id, restored_context_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, truck_id)
+    REFERENCES line_trucks(workspace_id, truck_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+CREATE TABLE restored_context_history (
+  workspace_id text NOT NULL,
+  action_id text NOT NULL CHECK (length(action_id) BETWEEN 1 AND 160),
+  restored_context_id text NOT NULL,
+  uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  type text NOT NULL CHECK (length(type) BETWEEN 1 AND 64),
+  before_log jsonb,
+  after_log jsonb,
+  before_status_snapshot jsonb,
+  after_status_snapshot jsonb,
+  revision bigint NOT NULL CHECK (revision > 0),
+  undone boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, action_id),
+  FOREIGN KEY (workspace_id, restored_context_id)
+    REFERENCES restored_shift_contexts(workspace_id, restored_context_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+CREATE INDEX restored_context_history_context_idx
+  ON restored_context_history(workspace_id, restored_context_id, created_at DESC, action_id);
+
+CREATE TABLE restored_context_receipts (
+  workspace_id text NOT NULL,
+  operation_id text NOT NULL CHECK (operation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  restored_context_id text NOT NULL,
+  uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  protocol_version smallint NOT NULL CHECK (protocol_version > 0),
+  command_hash text NOT NULL CHECK (command_hash ~ '^[0-9a-f]{64}$'),
+  result jsonb NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, operation_id),
+  FOREIGN KEY (workspace_id, restored_context_id)
+    REFERENCES restored_shift_contexts(workspace_id, restored_context_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+CREATE TABLE restored_context_audit (
+  audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  workspace_id text NOT NULL,
+  restored_context_id text NOT NULL,
+  action_id text,
+  operation_id text NOT NULL CHECK (operation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  type text NOT NULL CHECK (length(type) BETWEEN 1 AND 64),
+  before_state jsonb,
+  after_state jsonb,
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (workspace_id, restored_context_id)
+    REFERENCES restored_shift_contexts(workspace_id, restored_context_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, action_id)
+    REFERENCES restored_context_history(workspace_id, action_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+CREATE INDEX restored_context_audit_context_idx
+  ON restored_context_audit(workspace_id, restored_context_id, audit_id);
+
+-- Immutable evidence of a legacy restored migration. One context has exactly one
+-- manifest; the locator names the single legacy archive document/revision.
+CREATE TABLE restored_context_migration_evidence (
+  workspace_id text NOT NULL,
+  evidence_id uuid NOT NULL,
+  legacy_shift_id text NOT NULL CHECK (length(legacy_shift_id) BETWEEN 1 AND 160),
+  archive_id text NOT NULL,
+  base_archive_revision bigint NOT NULL CHECK (base_archive_revision > 0),
+  source_locator text NOT NULL CHECK (length(source_locator) BETWEEN 1 AND 1024),
+  source_bytes_sha256 text NOT NULL CHECK (source_bytes_sha256 ~ '^[0-9a-f]{64}$'),
+  source_counts jsonb NOT NULL,
+  source_table_roots jsonb NOT NULL,
+  closure_hash text NOT NULL CHECK (closure_hash ~ '^[0-9a-f]{64}$'),
+  migrated_context_id text NOT NULL,
+  migration_operation_id text NOT NULL CHECK (migration_operation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, evidence_id),
+  UNIQUE (workspace_id, migrated_context_id),
+  UNIQUE (workspace_id, legacy_shift_id),
+  UNIQUE (workspace_id, source_locator),
+  FOREIGN KEY (workspace_id, migrated_context_id)
+    REFERENCES restored_shift_contexts(workspace_id, restored_context_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, archive_id)
+    REFERENCES shift_archive_series(workspace_id, archive_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, archive_id, base_archive_revision)
+    REFERENCES shift_archive_revisions(workspace_id, archive_id, archive_revision)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+-- One row per migrated append-only audit/receipt row. There is deliberately no
+-- `restored_context_id` here: the context is derived only through the parent FK,
+-- so a duplicated unchecked context identity is impossible. `source_table` is a
+-- versioned allow-list; adding a table requires a schema version/review.
+CREATE TABLE restored_context_migration_evidence_rows (
+  workspace_id text NOT NULL,
+  evidence_id uuid NOT NULL,
+  source_table text NOT NULL CHECK (source_table IN (
+    'workspace_service_audit', 'workspace_service_receipts',
+    'line_audit', 'line_operation_receipts',
+    'line_history', 'history_audit', 'history_receipts',
+    'shift_operation_receipts'
+  )),
+  source_pk_canonical_jcs text NOT NULL CHECK (length(source_pk_canonical_jcs) BETWEEN 2 AND 4096),
+  source_pk_hash text NOT NULL CHECK (source_pk_hash ~ '^[0-9a-f]{64}$'),
+  source_row_sha256 text NOT NULL CHECK (source_row_sha256 ~ '^[0-9a-f]{64}$'),
+  source_bytes bytea,
+  representation_kind text NOT NULL CHECK (length(representation_kind) BETWEEN 1 AND 64),
+  target_table text NOT NULL CHECK (length(target_table) BETWEEN 1 AND 160),
+  target_pk_canonical_jcs text NOT NULL CHECK (length(target_pk_canonical_jcs) BETWEEN 2 AND 4096),
+  copied_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, evidence_id, source_table, source_pk_hash),
+  CHECK (source_pk_hash = encode(sha256(convert_to(source_pk_canonical_jcs, 'UTF8')), 'hex')),
+  CONSTRAINT fk_restored_evidence_rows_parent
+    FOREIGN KEY (workspace_id, evidence_id)
+    REFERENCES restored_context_migration_evidence(workspace_id, evidence_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+-- Append-only archive audit with archive/source identity, before/after, actor/time.
+CREATE TABLE archive_audit (
+  audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  workspace_id text NOT NULL,
+  archive_id text NOT NULL,
+  source_shift_id text NOT NULL CHECK (length(source_shift_id) BETWEEN 1 AND 160),
+  before_state jsonb,
+  after_state jsonb,
+  actor_uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (workspace_id, archive_id)
+    REFERENCES shift_archive_series(workspace_id, archive_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+CREATE INDEX archive_audit_series_idx
+  ON archive_audit(workspace_id, archive_id, audit_id);
+
+-- Immutability guard for the archive chain. Same shape as the accepted P4 guard:
+-- row triggers for UPDATE/DELETE, statement triggers for TRUNCATE (which bypasses
+-- row triggers), all failing closed with check_violation.
+CREATE OR REPLACE FUNCTION archive_immutable_guard() RETURNS trigger
+LANGUAGE plpgsql AS $archive_immutable$
+BEGIN
+  RAISE EXCEPTION 'append-only archive record: % is forbidden on %', TG_OP, TG_TABLE_NAME
+    USING ERRCODE = 'check_violation';
+END
+$archive_immutable$;
+
+CREATE TRIGGER shift_archive_revisions_append_only
+  BEFORE UPDATE OR DELETE ON shift_archive_revisions
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER shift_archive_revisions_no_truncate
+  BEFORE TRUNCATE ON shift_archive_revisions
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER archive_operation_receipts_append_only
+  BEFORE UPDATE OR DELETE ON archive_operation_receipts
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER archive_operation_receipts_no_truncate
+  BEFORE TRUNCATE ON archive_operation_receipts
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER archive_revision_publications_append_only
+  BEFORE UPDATE OR DELETE ON archive_revision_publications
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER archive_revision_publications_no_truncate
+  BEFORE TRUNCATE ON archive_revision_publications
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_status_snapshots_append_only
+  BEFORE UPDATE OR DELETE ON restored_context_status_snapshots
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_status_snapshots_no_truncate
+  BEFORE TRUNCATE ON restored_context_status_snapshots
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_history_append_only
+  BEFORE UPDATE OR DELETE ON restored_context_history
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_history_no_truncate
+  BEFORE TRUNCATE ON restored_context_history
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_receipts_append_only
+  BEFORE UPDATE OR DELETE ON restored_context_receipts
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_receipts_no_truncate
+  BEFORE TRUNCATE ON restored_context_receipts
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_audit_append_only
+  BEFORE UPDATE OR DELETE ON restored_context_audit
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_audit_no_truncate
+  BEFORE TRUNCATE ON restored_context_audit
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_migration_evidence_append_only
+  BEFORE UPDATE OR DELETE ON restored_context_migration_evidence
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_migration_evidence_no_truncate
+  BEFORE TRUNCATE ON restored_context_migration_evidence
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_migration_evidence_rows_append_only
+  BEFORE UPDATE OR DELETE ON restored_context_migration_evidence_rows
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER restored_context_migration_evidence_rows_no_truncate
+  BEFORE TRUNCATE ON restored_context_migration_evidence_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER archive_audit_append_only
+  BEFORE UPDATE OR DELETE ON archive_audit
+  FOR EACH ROW EXECUTE FUNCTION archive_immutable_guard();
+CREATE TRIGGER archive_audit_no_truncate
+  BEFORE TRUNCATE ON archive_audit
+  FOR EACH STATEMENT EXECUTE FUNCTION archive_immutable_guard();
+
+-- PostgreSQL authority boundary is ownership/grants only, never a GUC or an
+-- advisory lock. The evidence owner is bootstrapped outside SQL; here it only
+-- receives ownership of the evidence manifest and its immutable triggers when the
+-- applying role is allowed to assume it (schema owner / superuser). The runtime
+-- and PUBLIC lose every mutation right on evidence and on the allow-listed source
+-- append-only tables. Identifiers below are a fixed literal allow-list: no dynamic
+-- identifier ever comes from a parameter.
+DO $archive_evidence_authority$
+DECLARE
+  target text;
+  source_table text;
+  applying_role_is_super boolean;
+  can_assume_owner boolean;
+  can_administer boolean;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_migration_evidence_owner') THEN
+    RAISE EXCEPTION 'samosval_migration_evidence_owner must be bootstrapped before 025'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT rolsuper INTO applying_role_is_super FROM pg_roles WHERE rolname = current_user;
+  SELECT COALESCE(applying_role_is_super, false)
+      OR pg_has_role(current_user, 'samosval_migration_evidence_owner', 'MEMBER')
+    INTO can_assume_owner;
+
+  IF can_assume_owner THEN
+    FOR target IN
+      SELECT unnest(ARRAY[
+        'restored_context_migration_evidence',
+        'restored_context_migration_evidence_rows'
+      ])
+    LOOP
+      EXECUTE format('ALTER TABLE public.%I OWNER TO samosval_migration_evidence_owner', target);
+    END LOOP;
+    -- The owner resolves its tables (and its FK checks) through schema public.
+    GRANT USAGE ON SCHEMA public TO samosval_migration_evidence_owner;
+  ELSE
+    RAISE NOTICE 'archive evidence ownership stays with % : role cannot assume samosval_migration_evidence_owner', current_user;
+  END IF;
+
+  FOR target IN
+    SELECT unnest(ARRAY[
+      'shift_archive_revisions',
+      'archive_operation_receipts',
+      'archive_revision_publications',
+      'restored_context_status_snapshots',
+      'restored_context_history',
+      'restored_context_receipts',
+      'restored_context_audit',
+      'restored_context_migration_evidence',
+      'restored_context_migration_evidence_rows',
+      'archive_audit'
+    ])
+  LOOP
+    SELECT (COALESCE(applying_role_is_super, false)
+            OR pg_has_role(current_user, c.relowner, 'MEMBER')) INTO can_administer
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relname = target;
+    IF can_administer THEN
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC', target);
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_runtime') THEN
+        EXECUTE format('REVOKE ALL ON TABLE public.%I FROM samosval_runtime', target);
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_maintenance') THEN
+        EXECUTE format('REVOKE ALL ON TABLE public.%I FROM samosval_maintenance', target);
+      END IF;
+    ELSE
+      RAISE NOTICE 'archive ACL for % stays with the table owner: % cannot administer it', target, current_user;
+    END IF;
+  END LOOP;
+
+  -- Allow-listed source append-only tables: no mutation right for runtime/PUBLIC.
+  -- A role that does not own a pre-existing source table cannot change its ACL; the
+  -- owner/schema-owner path does, and the runtime never holds such a right anyway.
+  FOR source_table IN
+    SELECT unnest(ARRAY[
+      'workspace_service_audit', 'workspace_service_receipts',
+      'line_audit', 'line_operation_receipts',
+      'line_history', 'history_audit', 'history_receipts',
+      'shift_operation_receipts'
+    ])
+  LOOP
+    IF to_regclass('public.' || source_table) IS NOT NULL THEN
+      SELECT (COALESCE(applying_role_is_super, false)
+              OR pg_has_role(current_user, c.relowner, 'MEMBER')) INTO can_administer
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relname = source_table;
+      IF can_administer THEN
+        EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.%I FROM PUBLIC', source_table);
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_runtime') THEN
+          EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.%I FROM samosval_runtime', source_table);
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_maintenance') THEN
+          EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.%I FROM samosval_maintenance', source_table);
+        END IF;
+      ELSE
+        RAISE NOTICE 'source ACL for % stays with the table owner: % cannot administer it', source_table, current_user;
+      END IF;
+    END IF;
+  END LOOP;
+END
+$archive_evidence_authority$;
+
 COMMIT;
