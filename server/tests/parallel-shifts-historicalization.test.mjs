@@ -9,6 +9,7 @@ import {
   buildHistoricalizationReport,
   recordHistoricalizationConfirmation,
   historicalizeConfirmedLegacy,
+  computeDatabaseFingerprint,
   canonicalJson,
   REPORT_SCHEMA,
 } from '../src/legacy-historicalization.mjs';
@@ -64,7 +65,6 @@ test('canonical JSON rejects non-finite numbers', () => {
 // ---------- DB behaviour (needs the one-off isolated cluster on 55432) ----------
 
 // Legacy v1 rows must exist BEFORE 025: the P3 trigger rejects a v1 INSERT after it.
-// 025 then classifies them (unresolved type -> historical), as in production.
 async function prepare(suffix, legacyRows = []) {
   await resetIsolatedDatabase();
   await applyMigrationsThrough(24);
@@ -77,12 +77,20 @@ async function prepare(suffix, legacyRows = []) {
   return ids;
 }
 
-async function seedLegacyV1(pool, ids, { shiftId, withStatus = true }) {
-  const payload = {
-    id: shiftId, objectId: ids.objectAId, objectName: ids.objectAId,
-    startDate: '23.11.2026', startedAt: 1795420800000, startedBy: 'legacy', isActive: false,
-    closing: true, closingStartedAt: 1795420900000, closingBy: 'legacy', state: 'closing',
-  };
+// Unresolved-type legacy row -> 025 classifies it as historical (report scope).
+async function seedLegacyV1(pool, ids, { shiftId, withStatus = true, logs = [], foreign = false }) {
+  const payload = foreign
+    ? {
+      id: shiftId, objectId: ids.objectAId, objectName: ids.objectAId,
+      startDate: '23.11.2026', startedAt: 1795420800000, startedBy: ids.adminUid,
+      startedByUid: ids.adminUid, isActive: false, workShift: 'day',
+      closedAt: 1795420900000, closedByUid: ids.adminUid,
+    }
+    : {
+      id: shiftId, objectId: ids.objectAId, objectName: ids.objectAId,
+      startDate: '23.11.2026', startedAt: 1795420800000, startedBy: 'legacy', isActive: false,
+      closing: true, closingStartedAt: 1795420900000, closingBy: 'legacy', state: 'closing',
+    };
   await pool.query(
     'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,false,$3)',
     [ids.workspaceId, shiftId, payload],
@@ -98,24 +106,66 @@ async function seedLegacyV1(pool, ids, { shiftId, withStatus = true }) {
         { id: `${shiftId}_truck`, shiftId, onLine: true, arriveTimestamp: 1795420800000, ttnStatus: null, cycleRevision: 1, ttnRevision: 1 }],
     );
   }
+  for (const [index, log] of logs.entries()) {
+    await pool.query(
+      'INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES($1,$2,$3,$4,$5)',
+      [ids.workspaceId, log.logId ?? `${shiftId}_log_${index}`, shiftId, `${shiftId}_truck`, log],
+    );
+  }
 }
 
-function buildFor(client, ids, expiresAt = FUTURE) {
+async function buildFor(client, ids, overrides = {}) {
   return buildHistoricalizationReport(client, {
     workspaceId: ids.workspaceId,
     migrationVersion: '025_parallel_shifts_core.sql',
     generatedAt: '2026-11-25T00:00:00.000Z',
-    expiresAt,
-    backupManifestSha256: MANIFEST,
-    databaseFingerprint: FP,
+    expiresAt: overrides.expiresAt ?? FUTURE,
+    backupManifestSha256: overrides.backupManifestSha256 ?? MANIFEST,
+    databaseFingerprint: overrides.databaseFingerprint ?? await computeDatabaseFingerprint(client),
   });
 }
 
-function confirm(client, ids, built, confirmationId, expiresAt = FUTURE) {
+function confirm(client, ids, built, confirmationId, overrides = {}) {
   return recordHistoricalizationConfirmation(client, {
-    confirmationId, reportBytes: built.bytes, reportSha256: built.sha256,
-    ownerActorUid: ids.adminUid, expiresAt, backupManifestSha256: MANIFEST, databaseFingerprint: FP,
+    confirmationId,
+    reportBytes: built.bytes,
+    reportSha256: built.sha256,
+    ownerActorUid: overrides.ownerActorUid ?? ids.adminUid,
+    expiresAt: overrides.expiresAt ?? FUTURE,
+    backupManifestSha256: built.report.backupManifestSha256,
+    databaseFingerprint: built.report.databaseFingerprint,
   });
+}
+
+// Defaults are exactly the values the owner confirmed; overrides simulate drift.
+function consume(client, ids, built, confirmationId, overrides = {}) {
+  return historicalizeConfirmedLegacy(client, {
+    confirmationId,
+    confirmReportSha256: overrides.confirmReportSha256 ?? built.sha256,
+    maintenanceActorUid: overrides.maintenanceActorUid ?? ids.adminUid,
+    liveBackupManifestSha256: overrides.liveBackup ?? built.report.backupManifestSha256,
+    liveDatabaseFingerprint: overrides.liveFingerprint ?? built.report.databaseFingerprint,
+  });
+}
+
+async function counts(client) {
+  const row = (await client.query(`
+    SELECT (SELECT count(*) FROM legacy_line_status_snapshots)::int AS snapshots,
+           (SELECT count(*) FROM legacy_cutover_historicalization_audit)::int AS audit,
+           (SELECT count(*) FROM line_truck_statuses)::int AS statuses,
+           (SELECT count(*) FROM line_logs)::int AS logs
+  `)).rows[0];
+  return row;
+}
+
+async function assertUntouched(client, { statuses, logs = 0 }) {
+  assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_line_status_snapshots')).rows[0].n, 0);
+  assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_cutover_historicalization_audit')).rows[0].n, 0);
+  assert.equal((await client.query('SELECT count(*)::int AS n FROM line_truck_statuses')).rows[0].n, statuses);
+  assert.equal((await client.query('SELECT count(*)::int AS n FROM line_logs')).rows[0].n, logs);
+  assert.equal((await client.query('SELECT count(*)::int AS n FROM shifts WHERE historicalized_at IS NOT NULL')).rows[0].n, 0);
+  const confirmations = (await client.query('SELECT state FROM legacy_historicalization_confirmations')).rows;
+  assert.ok(confirmations.every(row => row.state === 'pending'), 'every confirmation stays pending');
 }
 
 test('report is exact, schema-tagged, sorted and free of close values or PII', { skip: !approved }, async () => {
@@ -126,8 +176,9 @@ test('report is exact, schema-tagged, sorted and free of close values or PII', {
   const pool = db();
   const client = await pool.connect();
   try {
-    const a = await buildFor(client, ids);
-    const b = await buildFor(client, ids);
+    // Fixed fingerprint keeps this golden hash independent of the cluster identity.
+    const a = await buildFor(client, ids, { databaseFingerprint: FP });
+    const b = await buildFor(client, ids, { databaseFingerprint: FP });
     assert.equal(a.sha256, b.sha256, 'rebuilding from the same rows must give the same bytes');
     assert.equal(a.report.schema, REPORT_SCHEMA);
     assert.deepEqual(a.report.rows.map(r => r.shiftId), ['shift_a_report', 'shift_z_report']);
@@ -144,14 +195,13 @@ test('report is exact, schema-tagged, sorted and free of close values or PII', {
     assert.equal(text.includes('"legacy"'), false, 'close actor value never appears, only presence/hash');
     assert.equal(text.includes(ids.adminUid), false, 'actor uids are not emitted');
     assert.equal(text.includes('shift_z_report_truck'), false, 'truck ids are not emitted (no safeTruckIds policy)');
-    assert.equal(a.report.consequences.length, 2);
     assert.deepEqual(a.report.consequences, [
       'Текущие назначения этих самосвалов будут освобождены',
       'Незавершённая работа будет сохранена как неизменяемый исторический снимок и не будет считаться завершённой',
     ]);
+    assert.equal(Object.hasOwn(a.report.rows[0].assignmentSummary, 'safeTruckIds'), false);
     // Byte-exactness: any changed key order, count or consequence text changes this hash.
     assert.equal(a.sha256, '6ea9e539863b804def35c5d1b710f26a36230ed4a1f3a53b689d29c5d4c7630f');
-    assert.equal(Object.hasOwn(a.report.rows[0].assignmentSummary, 'safeTruckIds'), false);
   } finally { client.release(); await pool.end(); }
 });
 
@@ -168,38 +218,260 @@ test('a tampered stored report aborts with no data mutation', { skip: !approved 
       "UPDATE legacy_historicalization_confirmations SET report_bytes=$2, report_sha256=encode(sha256($2),'hex') WHERE confirmation_id=$1",
       ['conf_byte', tampered],
     );
-    await assert.rejects(
-      () => historicalizeConfirmedLegacy(client, { confirmationId: 'conf_byte', confirmReportSha256: built.sha256, maintenanceActorUid: ids.adminUid }),
-      { code: 'report-hash-mismatch' },
-    );
-    assert.equal((await client.query("SELECT state FROM shifts WHERE shift_id='shift_byte'")).rows[0].state, 'historical');
-    assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_line_status_snapshots')).rows[0].n, 0);
-    assert.equal((await client.query('SELECT count(*)::int AS n FROM line_truck_statuses')).rows[0].n, 1);
-    assert.equal((await client.query("SELECT state FROM legacy_historicalization_confirmations WHERE confirmation_id='conf_byte'")).rows[0].state, 'pending');
+    await assert.rejects(() => consume(client, ids, built, 'conf_byte'), { code: 'report-hash-mismatch' });
+    await assertUntouched(client, { statuses: 1 });
   } finally { client.release(); await pool.end(); }
 });
 
-test('a source change after confirmation aborts byte-for-byte with no mutation', { skip: !approved }, async () => {
-  const ids = await prepare('source_change', [{ shiftId: 'shift_src' }]);
+// Stored bytes are the compared artifact: mutating the consequence text or the
+// redaction policy inside them must be detected by the byte-for-byte rebuild.
+for (const [label, from, to] of [
+  ['consequences', 'будут освобождены', 'будут освобожденЫ'],
+  ['redaction-policy', 'samosval.legacy-redaction/v1-no-truck-ids', 'samosval.legacy-redaction/v1-no-truck-idz'],
+]) {
+  test(`stored bytes mutated at ${label} abort byte-for-byte with no mutation`, { skip: !approved }, async () => {
+    const ids = await prepare(`bytes_${label}`, [{ shiftId: 'shift_bm' }]);
+    const pool = db();
+    const client = await pool.connect();
+    try {
+      const built = await buildFor(client, ids);
+      await confirm(client, ids, built, 'conf_bm');
+      const text = built.bytes.toString('utf8');
+      assert.ok(text.includes(from), `fixture must contain ${label}`);
+      const mutated = Buffer.from(text.replace(from, to), 'utf8');
+      assert.equal(mutated.length, built.bytes.length, 'same-length mutation keeps the row shape');
+      await client.query(
+        "UPDATE legacy_historicalization_confirmations SET report_bytes=$2, report_sha256=encode(sha256($2),'hex') WHERE confirmation_id=$1",
+        ['conf_bm', mutated],
+      );
+      await assert.rejects(
+        () => consume(client, ids, built, 'conf_bm', { confirmReportSha256: sha(mutated) }),
+        { code: 'report-bytes-changed' },
+      );
+      await assertUntouched(client, { statuses: 1 });
+    } finally { client.release(); await pool.end(); }
+  });
+}
+
+// ---------- Major 1: the live environment must match the confirmation ----------
+
+test('a different live database fingerprint aborts before any mutation', { skip: !approved }, async () => {
+  const ids = await prepare('env_fp', [{ shiftId: 'shift_env_fp' }]);
   const pool = db();
   const client = await pool.connect();
   try {
     const built = await buildFor(client, ids);
-    await confirm(client, ids, built, 'conf_src');
-    // Same shift set, different assignment state: the rebuild must not match the confirmed bytes.
-    await client.query(
-      "UPDATE line_truck_statuses SET payload=payload||'{\"ttnStatus\":true}'::jsonb WHERE shift_id='shift_src'",
-    );
+    await confirm(client, ids, built, 'conf_env_fp');
     await assert.rejects(
-      () => historicalizeConfirmedLegacy(client, { confirmationId: 'conf_src', confirmReportSha256: built.sha256, maintenanceActorUid: ids.adminUid }),
-      { code: 'report-bytes-changed' },
+      () => consume(client, ids, built, 'conf_env_fp', { liveFingerprint: 'fp-of-another-cluster' }),
+      { code: 'confirmation-environment-changed' },
     );
-    assert.equal((await client.query("SELECT historicalized_at FROM shifts WHERE shift_id='shift_src'")).rows[0].historicalized_at, null);
-    assert.equal((await client.query("SELECT count(*)::int AS n FROM line_truck_statuses WHERE shift_id='shift_src'")).rows[0].n, 1);
-    assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_line_status_snapshots')).rows[0].n, 0);
-    assert.equal((await client.query("SELECT state FROM legacy_historicalization_confirmations WHERE confirmation_id='conf_src'")).rows[0].state, 'pending');
+    await assertUntouched(client, { statuses: 1 });
   } finally { client.release(); await pool.end(); }
 });
+
+test('a different live backup manifest aborts before any mutation', { skip: !approved }, async () => {
+  const ids = await prepare('env_backup', [{ shiftId: 'shift_env_bk' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    await confirm(client, ids, built, 'conf_env_bk');
+    await assert.rejects(
+      () => consume(client, ids, built, 'conf_env_bk', { liveBackup: sha('another-backup') }),
+      { code: 'confirmation-environment-changed' },
+    );
+    await assertUntouched(client, { statuses: 1 });
+  } finally { client.release(); await pool.end(); }
+});
+
+test('missing live environment values are refused, never self-confirmed', { skip: !approved }, async () => {
+  const ids = await prepare('env_missing', [{ shiftId: 'shift_env_ms' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    await confirm(client, ids, built, 'conf_env_ms');
+    await assert.rejects(() => consume(client, ids, built, 'conf_env_ms', { liveFingerprint: '' }), { code: 'live-environment-required' });
+    await assert.rejects(() => consume(client, ids, built, 'conf_env_ms', { liveBackup: 'not-a-hash' }), { code: 'live-environment-required' });
+    await assertUntouched(client, { statuses: 1 });
+  } finally { client.release(); await pool.end(); }
+});
+
+test('matching live environment completes the cutover', { skip: !approved }, async () => {
+  const ids = await prepare('env_ok', [{ shiftId: 'shift_env_ok' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    assert.match(built.report.databaseFingerprint, /^[0-9a-f]{64}$/, 'fingerprint is a real cluster identity');
+    await confirm(client, ids, built, 'conf_env_ok');
+    const result = await consume(client, ids, built, 'conf_env_ok');
+    assert.equal(result.historicalized, 1);
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM line_truck_statuses WHERE shift_id='shift_env_ok'")).rows[0].n, 0);
+  } finally { client.release(); await pool.end(); }
+});
+
+test('computeDatabaseFingerprint is deterministic and independent of data volume', { skip: !approved }, async () => {
+  const ids = await prepare('env_det', [{ shiftId: 'shift_env_det' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const first = await computeDatabaseFingerprint(client);
+    assert.match(first, /^[0-9a-f]{64}$/);
+    assert.equal(await computeDatabaseFingerprint(client), first);
+    // Recording a confirmation (a write) must not change the fingerprint.
+    const built = await buildFor(client, ids);
+    await confirm(client, ids, built, 'conf_env_det');
+    assert.equal(await computeDatabaseFingerprint(client), first);
+  } finally { client.release(); await pool.end(); }
+});
+
+// ---------- Major 2: full mutation matrix ----------
+
+const mutations = [
+  {
+    name: 'an added assignment',
+    statusesAfter: 2,
+    mutate: async (client, ids, shiftId) => {
+      const truckId = `${shiftId}_extra_truck`;
+      await client.query('INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES($1,$2,$3)',
+        [ids.workspaceId, truckId, { id: truckId }]);
+      await client.query('INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES($1,$2,$3,$4)',
+        [ids.workspaceId, truckId, shiftId, { id: truckId, shiftId, onLine: true }]);
+    },
+  },
+  {
+    name: 'a removed assignment',
+    statusesAfter: 0,
+    mutate: (client, ids, shiftId) => client.query('DELETE FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id=$2', [ids.workspaceId, shiftId]),
+  },
+  {
+    name: 'onLine true->false',
+    statusesAfter: 1,
+    mutate: (client, ids, shiftId) => client.query(
+      "UPDATE line_truck_statuses SET payload = payload || '{\"onLine\": false}'::jsonb WHERE workspace_id=$1 AND shift_id=$2",
+      [ids.workspaceId, shiftId]),
+  },
+  {
+    name: 'arriveTimestamp presence',
+    statusesAfter: 1,
+    mutate: (client, ids, shiftId) => client.query(
+      "UPDATE line_truck_statuses SET payload = payload - 'arriveTimestamp' WHERE workspace_id=$1 AND shift_id=$2",
+      [ids.workspaceId, shiftId]),
+  },
+  {
+    name: 'lastLoadTimestamp presence',
+    statusesAfter: 1,
+    mutate: (client, ids, shiftId) => client.query(
+      "UPDATE line_truck_statuses SET payload = payload || '{\"lastLoadTimestamp\": 1795420800001}'::jsonb WHERE workspace_id=$1 AND shift_id=$2",
+      [ids.workspaceId, shiftId]),
+  },
+  {
+    name: 'loadedAfterArrive',
+    statusesAfter: 1,
+    mutate: (client, ids, shiftId) => client.query(
+      "UPDATE line_truck_statuses SET payload = payload || '{\"loadedAfterArrive\": true}'::jsonb WHERE workspace_id=$1 AND shift_id=$2",
+      [ids.workspaceId, shiftId]),
+  },
+  {
+    name: 'unfinished -> finished cycle',
+    statusesAfter: 1,
+    mutate: (client, ids, shiftId) => client.query(
+      "UPDATE line_truck_statuses SET payload = payload || '{\"ttnStatus\": true}'::jsonb WHERE workspace_id=$1 AND shift_id=$2",
+      [ids.workspaceId, shiftId]),
+  },
+];
+
+for (const { name, statusesAfter, mutate } of mutations) {
+  test(`source mutation: ${name} -> report-bytes-changed, zero mutation`, { skip: !approved }, async () => {
+    const suffix = `mut_${name.replaceAll(/[^a-z0-9]/gi, '_').toLowerCase()}`;
+    const shiftId = `shift_${suffix}`;
+    const ids = await prepare(suffix, [{ shiftId }]);
+    const pool = db();
+    const client = await pool.connect();
+    try {
+      const built = await buildFor(client, ids);
+      await confirm(client, ids, built, `conf_${suffix}`);
+      await mutate(client, ids, shiftId);
+      // snapshot-count / assignment-count changed for add/remove; every case must abort.
+      await assert.rejects(() => consume(client, ids, built, `conf_${suffix}`), { code: 'report-bytes-changed' });
+      await assertUntouched(client, { statuses: statusesAfter });
+    } finally { client.release(); await pool.end(); }
+  });
+}
+
+// ---------- Major 3: children (logs) and shift granularity ----------
+
+test('logs are counted, hashed, preserved and recorded in audit', { skip: !approved }, async () => {
+  const ids = await prepare('logs', [{
+    shiftId: 'shift_logs',
+    logs: [
+      { id: 'shift_logs_log_0', shiftId: 'shift_logs', truckId: 'shift_logs_truck', volume: 12, timestamp: 1795420800000 },
+      { id: 'shift_logs_log_1', shiftId: 'shift_logs', truckId: 'shift_logs_truck', volume: 7, timestamp: 1795420900000 },
+    ],
+  }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    const row = built.report.rows.find(r => r.shiftId === 'shift_logs');
+    assert.equal(row.childCounts.lineLogs, 2, 'logs must be part of childCounts');
+    assert.equal(row.childCounts.truckStatuses, 1);
+    const logsBefore = (await client.query("SELECT log_id, payload FROM line_logs WHERE shift_id='shift_logs' ORDER BY log_id COLLATE \"C\"")).rows;
+    await confirm(client, ids, built, 'conf_logs');
+    await consume(client, ids, built, 'conf_logs');
+    const logsAfter = (await client.query("SELECT log_id, payload FROM line_logs WHERE shift_id='shift_logs' ORDER BY log_id COLLATE \"C\"")).rows;
+    assert.deepEqual(logsAfter, logsBefore, 'logs are never deleted or rewritten');
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM line_truck_statuses WHERE shift_id='shift_logs'")).rows[0].n, 0);
+    const audit = (await client.query("SELECT children_sha256, source_payload_sha256, restored_snapshot FROM legacy_cutover_historicalization_audit WHERE shift_id='shift_logs'")).rows[0];
+    assert.equal(audit.children_sha256, row.childrenSha256, 'audit keeps the per-child hash from the report');
+    assert.equal(audit.source_payload_sha256, row.sourcePayloadSha256);
+    assert.equal(audit.restored_snapshot, false);
+  } finally { client.release(); await pool.end(); }
+});
+
+test('a log change after confirmation aborts byte-for-byte with no mutation', { skip: !approved }, async () => {
+  const ids = await prepare('logs_mut', [{
+    shiftId: 'shift_logs_mut',
+    logs: [{ id: 'shift_logs_mut_log_0', shiftId: 'shift_logs_mut', truckId: 'shift_logs_mut_truck', volume: 5, timestamp: 1795420800000 }],
+  }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    await confirm(client, ids, built, 'conf_logs_mut');
+    await client.query("UPDATE line_logs SET payload = payload || '{\"volume\": 9}'::jsonb WHERE log_id='shift_logs_mut_log_0'");
+    await assert.rejects(() => consume(client, ids, built, 'conf_logs_mut'), { code: 'report-bytes-changed' });
+    await assertUntouched(client, { statuses: 1, logs: 1 });
+  } finally { client.release(); await pool.end(); }
+});
+
+test('a foreign shift keeps its own statuses and logs untouched', { skip: !approved }, async () => {
+  const ids = await prepare('foreign_shift', [
+    { shiftId: 'shift_target', logs: [{ id: 'shift_target_log_0', shiftId: 'shift_target', truckId: 'shift_target_truck', volume: 3, timestamp: 1795420800000 }] },
+    { shiftId: 'shift_foreign_keep', foreign: true, logs: [{ id: 'shift_foreign_log_0', shiftId: 'shift_foreign_keep', truckId: 'shift_foreign_keep_truck', volume: 4, timestamp: 1795420800000 }] },
+  ]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    assert.deepEqual(built.report.rows.map(r => r.shiftId), ['shift_target'], 'only the unresolved row is in scope');
+    const foreignBefore = (await client.query("SELECT state, closed_at FROM shifts WHERE shift_id='shift_foreign_keep'")).rows[0];
+    assert.equal(foreignBefore.state, 'closed');
+    await confirm(client, ids, built, 'conf_foreign_shift');
+    await consume(client, ids, built, 'conf_foreign_shift');
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM line_truck_statuses WHERE shift_id='shift_target'")).rows[0].n, 0);
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM line_truck_statuses WHERE shift_id='shift_foreign_keep'")).rows[0].n, 1, 'foreign statuses survive');
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM line_logs WHERE shift_id='shift_foreign_keep'")).rows[0].n, 1, 'foreign logs survive');
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM line_logs WHERE shift_id='shift_target'")).rows[0].n, 1, 'target logs survive');
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM legacy_line_status_snapshots WHERE shift_id='shift_foreign_keep'")).rows[0].n, 0);
+    const foreignAfter = (await client.query("SELECT state, closed_at FROM shifts WHERE shift_id='shift_foreign_keep'")).rows[0];
+    assert.deepEqual(foreignAfter, foreignBefore, 'the foreign shift is not touched');
+  } finally { client.release(); await pool.end(); }
+});
+
+// ---------- confirmation guards ----------
 
 test('confirmation is one-time: reuse aborts untouched', { skip: !approved }, async () => {
   const ids = await prepare('one_time', [{ shiftId: 'shift_once' }]);
@@ -208,11 +480,8 @@ test('confirmation is one-time: reuse aborts untouched', { skip: !approved }, as
   try {
     const built = await buildFor(client, ids);
     await confirm(client, ids, built, 'conf_once');
-    await historicalizeConfirmedLegacy(client, { confirmationId: 'conf_once', confirmReportSha256: built.sha256, maintenanceActorUid: ids.adminUid });
-    await assert.rejects(
-      () => historicalizeConfirmedLegacy(client, { confirmationId: 'conf_once', confirmReportSha256: built.sha256, maintenanceActorUid: ids.adminUid }),
-      { code: 'confirmation-consumed' },
-    );
+    await consume(client, ids, built, 'conf_once');
+    await assert.rejects(() => consume(client, ids, built, 'conf_once'), { code: 'confirmation-consumed' });
     assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_cutover_historicalization_audit')).rows[0].n, 1);
   } finally { client.release(); await pool.end(); }
 });
@@ -225,33 +494,99 @@ test('expired confirmation aborts untouched', { skip: !approved }, async () => {
     const built = await buildFor(client, ids);
     await confirm(client, ids, built, 'conf_exp');
     await client.query("UPDATE legacy_historicalization_confirmations SET expires_at = now() - interval '1 second', confirmed_at = now() - interval '2 seconds' WHERE confirmation_id='conf_exp'");
-    await assert.rejects(
-      () => historicalizeConfirmedLegacy(client, { confirmationId: 'conf_exp', confirmReportSha256: built.sha256, maintenanceActorUid: ids.adminUid }),
-      { code: 'confirmation-expired' },
-    );
+    await assert.rejects(() => consume(client, ids, built, 'conf_exp'), { code: 'confirmation-expired' });
     assert.equal((await client.query("SELECT historicalized_at FROM shifts WHERE shift_id='shift_exp'")).rows[0].historicalized_at, null);
   } finally { client.release(); await pool.end(); }
 });
 
-test('foreign (non-admin) actor cannot record a confirmation', { skip: !approved }, async () => {
-  const ids = await prepare('foreign', [{ shiftId: 'shift_foreign' }]);
+test('an unknown confirmation aborts', { skip: !approved }, async () => {
+  const ids = await prepare('missing_conf', [{ shiftId: 'shift_miss' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    await assert.rejects(() => consume(client, ids, built, 'conf_does_not_exist'), { code: 'confirmation-not-found' });
+    await assertUntouched(client, { statuses: 1 });
+  } finally { client.release(); await pool.end(); }
+});
+
+test('foreign (non-admin) actor cannot record or consume a confirmation', { skip: !approved }, async () => {
+  const ids = await prepare('foreign_actor', [{ shiftId: 'shift_foreign_actor' }]);
   const pool = db();
   const client = await pool.connect();
   try {
     const built = await buildFor(client, ids);
     await assert.rejects(
-      () => recordHistoricalizationConfirmation(client, {
-        confirmationId: 'conf_foreign', reportBytes: built.bytes, reportSha256: built.sha256,
-        ownerActorUid: ids.foremanUid, expiresAt: FUTURE, backupManifestSha256: MANIFEST, databaseFingerprint: FP,
-      }),
+      () => confirm(client, ids, built, 'conf_foreign_actor', { ownerActorUid: ids.foremanUid }),
       { code: 'owner-acl-denied' },
     );
+    await confirm(client, ids, built, 'conf_foreign_actor');
+    await assert.rejects(
+      () => consume(client, ids, built, 'conf_foreign_actor', { maintenanceActorUid: ids.foremanUid }),
+      { code: 'owner-acl-denied' },
+    );
+    await assertUntouched(client, { statuses: 1 });
   } finally { client.release(); await pool.end(); }
 });
 
+test('an already expired or inconsistent expiresAt is refused at write time', { skip: !approved }, async () => {
+  const ids = await prepare('expiry_write', [{ shiftId: 'shift_expw' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    await assert.rejects(
+      () => confirm(client, ids, built, 'conf_expw', { expiresAt: '2020-01-01T00:00:00.000Z' }),
+      { code: 'expires-at-invalid' },
+    );
+    assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_historicalization_confirmations')).rows[0].n, 0);
+    await assertUntouched(client, { statuses: 1 });
+  } finally { client.release(); await pool.end(); }
+});
+
+test('report bytes that are not canonical, wrong schema or wrong context are refused', { skip: !approved }, async () => {
+  const ids = await prepare('bad_report', [{ shiftId: 'shift_bad' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    const pretty = Buffer.from(JSON.stringify(built.report, null, 2), 'utf8');
+    await assert.rejects(
+      () => recordHistoricalizationConfirmation(client, {
+        confirmationId: 'conf_pretty', reportBytes: pretty, reportSha256: sha(pretty),
+        ownerActorUid: ids.adminUid, expiresAt: FUTURE,
+        backupManifestSha256: MANIFEST, databaseFingerprint: built.report.databaseFingerprint,
+      }),
+      { code: 'report-not-canonical' },
+    );
+    const wrongSchema = JSON.parse(built.bytes.toString('utf8'));
+    wrongSchema.schema = 'samosval.legacy-historicalization/v0';
+    const wrongSchemaBytes = Buffer.from(canonicalJson(wrongSchema), 'utf8');
+    await assert.rejects(
+      () => recordHistoricalizationConfirmation(client, {
+        confirmationId: 'conf_schema', reportBytes: wrongSchemaBytes, reportSha256: sha(wrongSchemaBytes),
+        ownerActorUid: ids.adminUid, expiresAt: FUTURE,
+        backupManifestSha256: MANIFEST, databaseFingerprint: built.report.databaseFingerprint,
+      }),
+      { code: 'report-schema-mismatch' },
+    );
+    await assert.rejects(
+      () => recordHistoricalizationConfirmation(client, {
+        confirmationId: 'conf_ctx', reportBytes: built.bytes, reportSha256: built.sha256,
+        ownerActorUid: ids.adminUid, expiresAt: FUTURE,
+        backupManifestSha256: sha('other-manifest'), databaseFingerprint: built.report.databaseFingerprint,
+      }),
+      { code: 'report-context-mismatch' },
+    );
+    assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_historicalization_confirmations')).rows[0].n, 0);
+  } finally { client.release(); await pool.end(); }
+});
+
+// ---------- successful cutover and rollback ----------
+
 test('successful historicalization: historical state, no synthetic close, assignments released, snapshots immutable', { skip: !approved }, async () => {
   const ids = await prepare('success', [
-    { shiftId: 'shift_ok' },
+    { shiftId: 'shift_ok', logs: [{ id: 'shift_ok_log_0', shiftId: 'shift_ok', truckId: 'shift_ok_truck', volume: 6, timestamp: 1795420800000 }] },
     { shiftId: 'shift_ok_nochild', withStatus: false },
   ]);
   const pool = db();
@@ -259,25 +594,28 @@ test('successful historicalization: historical state, no synthetic close, assign
   try {
     const built = await buildFor(client, ids);
     await confirm(client, ids, built, 'conf_ok');
-    const result = await historicalizeConfirmedLegacy(client, { confirmationId: 'conf_ok', confirmReportSha256: built.sha256, maintenanceActorUid: ids.adminUid });
+    const result = await consume(client, ids, built, 'conf_ok');
     assert.equal(result.historicalized, 2);
     const shift = (await client.query("SELECT * FROM shifts WHERE shift_id='shift_ok'")).rows[0];
     assert.equal(shift.state, 'historical');
     assert.equal(shift.closed_at, null);
     assert.equal(shift.closed_by_uid, null);
+    assert.equal(shift.closing_started_at, null);
+    assert.equal(shift.closing_by_uid, null);
+    assert.equal(shift.is_active, false);
+    assert.notEqual(shift.historicalized_at, null);
+    assert.equal(shift.historicalized_by_uid, ids.adminUid);
     assert.equal(shift.historicalization_reason, 'legacy-type-unresolved-at-cutover');
     assert.equal(shift.historicalization_report_hash, built.sha256);
     assert.equal((await client.query("SELECT count(*)::int AS n FROM line_truck_statuses WHERE shift_id='shift_ok'")).rows[0].n, 0);
-    assert.equal((await client.query("SELECT count(*)::int AS n FROM legacy_line_status_snapshots WHERE shift_id='shift_ok'")).rows[0].n, 1);
+    const snapshot = (await client.query("SELECT payload, payload_canonical, payload_sha256 FROM legacy_line_status_snapshots WHERE shift_id='shift_ok'")).rows[0];
+    assert.equal(snapshot.payload_sha256, sha(snapshot.payload_canonical), 'hash is bound to the stored canonical bytes');
     assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_cutover_historicalization_audit')).rows[0].n, 2);
-    await assert.rejects(
-      () => client.query("UPDATE legacy_line_status_snapshots SET payload='{}'::jsonb"),
-      { code: '23514' },
-    );
-    await assert.rejects(
-      () => client.query("UPDATE shifts SET historicalized_by_uid=NULL WHERE shift_id='shift_ok'"),
-      { code: '23514' },
-    );
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM line_logs WHERE shift_id='shift_ok'")).rows[0].n, 1);
+    await assert.rejects(() => client.query("UPDATE legacy_line_status_snapshots SET payload='{}'::jsonb"), { code: '23514' });
+    await assert.rejects(() => client.query('TRUNCATE legacy_line_status_snapshots'), { code: '23514' });
+    await assert.rejects(() => client.query('TRUNCATE legacy_cutover_historicalization_audit'), { code: '23514' });
+    await assert.rejects(() => client.query("UPDATE shifts SET historicalized_by_uid=NULL WHERE shift_id='shift_ok'"), { code: '23514' });
   } finally { client.release(); await pool.end(); }
 });
 
@@ -291,7 +629,7 @@ test('fault injection after the snapshot step rolls the whole transaction back',
     // Make the audit insert fail after snapshot, removal and marker already ran.
     await client.query('ALTER TABLE legacy_cutover_historicalization_audit DROP CONSTRAINT legacy_cutover_historicalization_audit_reason_check');
     await client.query("ALTER TABLE legacy_cutover_historicalization_audit ADD CONSTRAINT legacy_cutover_historicalization_audit_reason_check CHECK (reason = 'never')");
-    await assert.rejects(() => historicalizeConfirmedLegacy(client, { confirmationId: 'conf_fault', confirmReportSha256: built.sha256, maintenanceActorUid: ids.adminUid }));
+    await assert.rejects(() => consume(client, ids, built, 'conf_fault'));
     const shift = (await client.query("SELECT state, historicalized_at FROM shifts WHERE shift_id='shift_fault'")).rows[0];
     assert.equal(shift.state, 'historical');
     assert.equal(shift.historicalized_at, null);

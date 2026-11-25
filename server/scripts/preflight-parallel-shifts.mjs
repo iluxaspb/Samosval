@@ -6,7 +6,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildPool } from './apply-migrations.mjs';
-import { buildHistoricalizationReport, CONSEQUENCES } from '../src/legacy-historicalization.mjs';
+import {
+  buildHistoricalizationReport,
+  computeDatabaseFingerprint,
+  CONSEQUENCES,
+} from '../src/legacy-historicalization.mjs';
 
 const args = process.argv.slice(2);
 if (args.some(arg => arg === '--apply' || arg.startsWith('--apply='))) {
@@ -38,13 +42,21 @@ try {
   // Read-only transaction: any accidental write fails at the database level.
   await client.query('BEGIN READ ONLY');
   const migrationVersion = (await client.query("SELECT max(filename) AS v FROM schema_migrations")).rows[0]?.v ?? null;
+  // The owner confirms the environment by passing the fingerprint. Verify it against
+  // the live cluster instead of trusting the flag: a stale or copied value would
+  // otherwise be stored in the report and later compared only with itself.
+  const liveFingerprint = await computeDatabaseFingerprint(client);
+  if (liveFingerprint !== databaseFingerprint) {
+    const error = Object.assign(new Error('confirmation-environment-changed'), { code: 'confirmation-environment-changed' });
+    throw error;
+  }
   const built = await buildHistoricalizationReport(client, {
     workspaceId,
     migrationVersion,
     generatedAt: new Date().toISOString(),
     expiresAt,
     backupManifestSha256,
-    databaseFingerprint,
+    databaseFingerprint: liveFingerprint,
   });
   await client.query('COMMIT');
 
@@ -60,6 +72,7 @@ try {
       `Отчёт историзации legacy-смен. Количество строк: ${built.rowCount}`,
       `SHA-256: ${built.sha256}`,
       `Срок действия: ${expiresAt}`,
+      `Отпечаток БД: ${liveFingerprint}`,
       ...CONSEQUENCES,
     ];
     await writeFile(join(outDir, 'report.txt'), `${lines.join('\n')}\n`);

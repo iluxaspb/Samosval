@@ -24,6 +24,38 @@ const CLOSE_KEYS = ['closedAt', 'closedBy', 'closedByUid', 'closing', 'closingSt
 const fail = (code, status = 409) => Object.assign(new Error(code), { code, status });
 const sha256Hex = value => createHash('sha256').update(value).digest('hex');
 
+// Byte order, never locale/collation order: the report must hash identically on a
+// database with a different locale after a restore into another cluster.
+const byteCompare = (a, b) => Buffer.compare(Buffer.from(String(a), 'utf8'), Buffer.from(String(b), 'utf8'));
+
+// Deterministic identity of the live database. It must NOT depend on data volume,
+// otherwise recording the confirmation row itself would invalidate the fingerprint.
+// `system_identifier` identifies the cluster; postmaster start time detects a
+// restart/restore into a different instance. Both are read-only and never random.
+export async function computeDatabaseFingerprint(client) {
+  const row = (await client.query(`
+    SELECT current_database() AS database,
+           pg_postmaster_start_time()::text AS postmaster_start,
+           (SELECT oid::text FROM pg_database WHERE datname = current_database()) AS database_oid
+  `)).rows[0];
+  // pg_control_system() is superuser-only by default; probe the privilege instead of
+  // failing a statement inside the caller's transaction (a failed statement would
+  // abort it and silently break every later query).
+  const allowed = (await client.query(
+    "SELECT has_function_privilege(current_user,'pg_control_system()','EXECUTE') AS ok",
+  )).rows[0].ok;
+  const systemIdentifier = allowed
+    ? (await client.query('SELECT system_identifier::text AS id FROM pg_control_system()')).rows[0].id
+    : null;
+  return sha256Hex(canonicalJson({
+    schema: 'samosval.database-fingerprint/v1',
+    database: row.database,
+    postmasterStart: row.postmaster_start,
+    databaseOid: row.database_oid,
+    systemIdentifier,
+  }));
+}
+
 // RFC 8785 (JCS) for the value domain used here: sorted keys (UTF-16 code units),
 // no whitespace, ECMAScript number/string serialization.
 export function canonicalJson(value) {
@@ -75,11 +107,11 @@ export async function buildHistoricalizationReport(client, context) {
   const rows = [];
   for (const shift of shifts) {
     const logs = (await client.query(
-      'SELECT log_id, payload FROM line_logs WHERE workspace_id=$1 AND shift_id=$2 ORDER BY log_id',
+      'SELECT log_id, payload FROM line_logs WHERE workspace_id=$1 AND shift_id=$2 ORDER BY log_id COLLATE "C"',
       [workspaceId, shift.shift_id],
     )).rows;
     const statuses = (await client.query(
-      'SELECT truck_id, payload, status_revision, cycle_revision, ttn_revision FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id=$2 ORDER BY truck_id',
+      'SELECT truck_id, payload, status_revision, cycle_revision, ttn_revision FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id=$2 ORDER BY truck_id COLLATE "C"',
       [workspaceId, shift.shift_id],
     )).rows;
     const closeFields = {};
@@ -110,7 +142,7 @@ export async function buildHistoricalizationReport(client, context) {
       },
     });
   }
-  rows.sort((a, b) => (a.shiftId < b.shiftId ? -1 : a.shiftId > b.shiftId ? 1 : 0));
+  rows.sort((a, b) => byteCompare(a.shiftId, b.shiftId));
   const report = {
     schema: REPORT_SCHEMA,
     workspaceId,
@@ -139,6 +171,13 @@ export async function recordHistoricalizationConfirmation(client, input) {
   if (parsed.backupManifestSha256 !== backupManifestSha256 || parsed.databaseFingerprint !== databaseFingerprint) {
     throw fail('report-context-mismatch', 400);
   }
+  // A confirmation that is already expired (or that outlives its own report window)
+  // must be rejected at write time, not silently stored and burned at consume time.
+  const expiry = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
+  const generated = typeof parsed.generatedAt === 'string' ? Date.parse(parsed.generatedAt) : Number.NaN;
+  if (!Number.isFinite(expiry) || !Number.isFinite(generated)) throw fail('expires-at-invalid', 400);
+  if (parsed.expiresAt !== expiresAt) throw fail('expires-at-invalid', 400);
+  if (expiry <= Date.now() || expiry <= generated) throw fail('expires-at-invalid', 400);
   const owner = (await client.query(
     "SELECT 1 FROM app_users WHERE uid=$1 AND role='admin' AND status='active'",
     [ownerActorUid],
@@ -155,7 +194,23 @@ export async function recordHistoricalizationConfirmation(client, input) {
   return { confirmationId, rowCount: parsed.rows.length };
 }
 
-export async function historicalizeConfirmedLegacy(client, { confirmationId, confirmReportSha256, maintenanceActorUid }) {
+// NOTE (Task 5 / role split): the design's "maintenance role" does not exist in the
+// current model. Until the role split lands, the maintenance gate is an active
+// `role='admin'` account, exactly like the owner gate. Task 5 must replace this with
+// the real maintenance role and must NOT look for a role that is not there yet.
+export async function historicalizeConfirmedLegacy(client, {
+  confirmationId, confirmReportSha256, maintenanceActorUid,
+  liveBackupManifestSha256, liveDatabaseFingerprint,
+}) {
+  // The live environment values come from the caller (maintenance entrypoint / CLI
+  // flags the owner confirms at execution time). Without them there is nothing to
+  // compare against, so the cutover is refused rather than silently self-confirmed.
+  if (typeof liveBackupManifestSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(liveBackupManifestSha256)) {
+    throw fail('live-environment-required', 400);
+  }
+  if (typeof liveDatabaseFingerprint !== 'string' || !liveDatabaseFingerprint) {
+    throw fail('live-environment-required', 400);
+  }
   await client.query('BEGIN');
   try {
     const conf = (await client.query(
@@ -176,17 +231,26 @@ export async function historicalizeConfirmedLegacy(client, { confirmationId, con
 
     const stored = JSON.parse(conf.report_bytes.toString('utf8'));
     const { workspaceId } = stored;
+    // The confirmation row and the exact bytes must describe the same workspace.
+    if (conf.workspace_id !== workspaceId) throw fail('report-context-mismatch');
+    // §4.8 п.6: the backup manifest and database fingerprint confirmed by the owner
+    // must still be the live ones. Compared against caller-supplied live values, not
+    // against the stored bytes, so this check can actually fail.
+    if (stored.backupManifestSha256 !== liveBackupManifestSha256
+        || stored.databaseFingerprint !== liveDatabaseFingerprint) {
+      throw fail('confirmation-environment-changed');
+    }
     // Lock the sources first, then rebuild from locked rows and compare bytes.
     const locked = (await client.query(
-      `${scopeSql.replace('ORDER BY shift_id', 'ORDER BY shift_id FOR UPDATE')}`,
+      `${scopeSql.replace('ORDER BY shift_id', 'ORDER BY shift_id COLLATE "C" FOR UPDATE')}`,
       [workspaceId],
     )).rows;
     await client.query(
-      'SELECT truck_id FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id = ANY($2::text[]) ORDER BY truck_id FOR UPDATE',
+      'SELECT truck_id FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id = ANY($2::text[]) ORDER BY truck_id COLLATE "C" FOR UPDATE',
       [workspaceId, locked.map(r => r.shift_id)],
     );
     await client.query(
-      'SELECT log_id FROM line_logs WHERE workspace_id=$1 AND shift_id = ANY($2::text[]) ORDER BY log_id FOR SHARE',
+      'SELECT log_id FROM line_logs WHERE workspace_id=$1 AND shift_id = ANY($2::text[]) ORDER BY log_id COLLATE "C" FOR SHARE',
       [workspaceId, locked.map(r => r.shift_id)],
     );
     const rebuilt = await buildHistoricalizationReport(client, {
@@ -207,15 +271,19 @@ export async function historicalizeConfirmedLegacy(client, { confirmationId, con
 
     for (const row of rebuilt.report.rows) {
       const statuses = (await client.query(
-        'SELECT truck_id, payload, status_revision, cycle_revision, ttn_revision FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id=$2 ORDER BY truck_id',
+        'SELECT truck_id, payload, status_revision, cycle_revision, ttn_revision FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id=$2 ORDER BY truck_id COLLATE "C"',
         [workspaceId, row.shiftId],
       )).rows;
       for (const s of statuses) {
+        // The canonical text is stored next to the payload so the DB itself can prove
+        // the hash belongs to this payload (see the snapshot CHECKs in 025).
+        const canonical = canonicalJson(s.payload);
         await client.query(
           `INSERT INTO legacy_line_status_snapshots
-             (workspace_id, confirmation_id, shift_id, truck_id, payload, payload_sha256, status_revision, cycle_revision, ttn_revision)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [workspaceId, confirmationId, row.shiftId, s.truck_id, s.payload, sha256Hex(canonicalJson(s.payload)),
+             (workspace_id, confirmation_id, shift_id, truck_id, payload, payload_canonical, payload_sha256,
+              status_revision, cycle_revision, ttn_revision)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [workspaceId, confirmationId, row.shiftId, s.truck_id, s.payload, canonical, sha256Hex(canonical),
             s.status_revision, s.cycle_revision, s.ttn_revision],
         );
       }
@@ -241,10 +309,12 @@ export async function historicalizeConfirmedLegacy(client, { confirmationId, con
       await client.query(
         `INSERT INTO legacy_cutover_historicalization_audit
            (workspace_id, confirmation_id, report_schema, report_sha256, shift_id, source_payload_sha256,
-            children_sha256, old_state, new_state, reason, original_close_fields, maintenance_actor_uid, result_revision)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'historical','historical',$8,$9,$10,$11)`,
+            children_sha256, restored_snapshot, old_state, new_state, reason, original_close_fields,
+            maintenance_actor_uid, result_revision)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'historical','historical',$9,$10,$11,$12)`,
         [workspaceId, confirmationId, REPORT_SCHEMA, rebuilt.sha256, row.shiftId, row.sourcePayloadSha256,
-          row.childrenSha256, HISTORICALIZATION_REASON, closeFields, maintenanceActorUid, updated.rows[0].revision],
+          row.childrenSha256, row.restoredSnapshot === true, HISTORICALIZATION_REASON, closeFields,
+          maintenanceActorUid, updated.rows[0].revision],
       );
     }
     await client.query('COMMIT');

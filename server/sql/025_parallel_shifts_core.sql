@@ -752,12 +752,18 @@ CREATE TABLE legacy_line_status_snapshots (
   shift_id text NOT NULL,
   truck_id text NOT NULL,
   payload jsonb NOT NULL,
+  -- The exact RFC 8785 bytes the hash was computed from. PostgreSQL cannot rebuild
+  -- JCS from jsonb, so the canonical text is stored and the hash is bound to it here:
+  -- this is a real DB-side check, not a JS-only promise.
+  payload_canonical text NOT NULL,
   payload_sha256 text NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
   status_revision bigint NOT NULL CHECK (status_revision > 0),
   cycle_revision bigint NOT NULL CHECK (cycle_revision > 0),
   ttn_revision bigint NOT NULL CHECK (ttn_revision > 0),
   captured_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (confirmation_id, shift_id, truck_id),
+  CHECK (payload_canonical::jsonb = payload),
+  CHECK (payload_sha256 = encode(sha256(convert_to(payload_canonical, 'UTF8')), 'hex')),
   FOREIGN KEY (workspace_id, shift_id) REFERENCES shifts(workspace_id, shift_id)
 );
 CREATE INDEX legacy_line_status_snapshots_shift_idx
@@ -772,6 +778,10 @@ CREATE TABLE legacy_cutover_historicalization_audit (
   shift_id text NOT NULL,
   source_payload_sha256 text NOT NULL CHECK (source_payload_sha256 ~ '^[0-9a-f]{64}$'),
   children_sha256 text NOT NULL CHECK (children_sha256 ~ '^[0-9a-f]{64}$'),
+  -- Known limitation from review 4 (Minor 3): a restored archive row is never proof
+  -- of the original opener. The flag is recorded so the limitation is auditable
+  -- without rehashing the report.
+  restored_snapshot boolean NOT NULL,
   old_state text NOT NULL CHECK (old_state IN ('historical')),
   new_state text NOT NULL CHECK (new_state IN ('historical')),
   reason text NOT NULL CHECK (reason = 'legacy-type-unresolved-at-cutover'),
@@ -797,5 +807,12 @@ CREATE TRIGGER legacy_line_status_snapshots_append_only
 CREATE TRIGGER legacy_cutover_audit_append_only
   BEFORE UPDATE OR DELETE ON legacy_cutover_historicalization_audit
   FOR EACH ROW EXECUTE FUNCTION legacy_append_only_guard();
+-- TRUNCATE bypasses row triggers, so the immutable tables need statement-level guards.
+CREATE TRIGGER legacy_line_status_snapshots_no_truncate
+  BEFORE TRUNCATE ON legacy_line_status_snapshots
+  FOR EACH STATEMENT EXECUTE FUNCTION legacy_append_only_guard();
+CREATE TRIGGER legacy_cutover_audit_no_truncate
+  BEFORE TRUNCATE ON legacy_cutover_historicalization_audit
+  FOR EACH STATEMENT EXECUTE FUNCTION legacy_append_only_guard();
 
 COMMIT;
