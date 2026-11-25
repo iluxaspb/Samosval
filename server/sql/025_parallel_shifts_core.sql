@@ -707,4 +707,95 @@ ALTER TABLE line_truck_statuses
 CREATE INDEX line_truck_statuses_shift_idx
   ON line_truck_statuses(workspace_id,shift_id,truck_id);
 
+-- Historicalization (Task 4, D8-D10). 025 only classifies legacy rows; the
+-- destructive cutover is gated by an exact-report confirmation. This block is
+-- DDL only: no existing data is rewritten here.
+ALTER TABLE shifts
+  ADD COLUMN historicalized_at timestamptz,
+  ADD COLUMN historicalized_by_uid text REFERENCES app_users(uid) ON DELETE RESTRICT,
+  ADD COLUMN historicalization_reason text,
+  ADD COLUMN historicalization_report_hash text,
+  ADD CONSTRAINT shifts_historicalization_marker_check CHECK (
+    (historicalized_at IS NULL) = (historicalized_by_uid IS NULL)
+    AND (historicalized_at IS NULL) = (historicalization_reason IS NULL)
+    AND (historicalized_at IS NULL) = (historicalization_report_hash IS NULL)
+    AND (historicalization_reason IS NULL OR state = 'historical')
+    AND (historicalization_reason IS NULL OR historicalization_reason = 'legacy-type-unresolved-at-cutover')
+    AND (historicalization_report_hash IS NULL OR historicalization_report_hash ~ '^[0-9a-f]{64}$')
+  );
+
+CREATE TABLE legacy_historicalization_confirmations (
+  confirmation_id text PRIMARY KEY CHECK (confirmation_id ~ '^[A-Za-z0-9_-]{1,160}$'),
+  workspace_id text NOT NULL REFERENCES workspaces(id),
+  report_schema text NOT NULL CHECK (report_schema = 'samosval.legacy-historicalization/v1'),
+  report_sha256 text NOT NULL CHECK (report_sha256 ~ '^[0-9a-f]{64}$'),
+  report_bytes bytea NOT NULL,
+  row_count integer NOT NULL CHECK (row_count >= 0),
+  owner_actor_uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  confirmed_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  backup_manifest_sha256 text NOT NULL CHECK (backup_manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  database_fingerprint text NOT NULL CHECK (length(database_fingerprint) BETWEEN 1 AND 256),
+  state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','consumed')),
+  consumed_at timestamptz,
+  consumed_by_uid text REFERENCES app_users(uid) ON DELETE RESTRICT,
+  CHECK (expires_at > confirmed_at),
+  -- The stored bytes are the only source of truth: the hash must match them in the DB.
+  CHECK (report_sha256 = encode(sha256(report_bytes), 'hex')),
+  CHECK ((state = 'consumed') = (consumed_at IS NOT NULL AND consumed_by_uid IS NOT NULL))
+);
+
+CREATE TABLE legacy_line_status_snapshots (
+  snapshot_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  workspace_id text NOT NULL,
+  confirmation_id text NOT NULL REFERENCES legacy_historicalization_confirmations(confirmation_id),
+  shift_id text NOT NULL,
+  truck_id text NOT NULL,
+  payload jsonb NOT NULL,
+  payload_sha256 text NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
+  status_revision bigint NOT NULL CHECK (status_revision > 0),
+  cycle_revision bigint NOT NULL CHECK (cycle_revision > 0),
+  ttn_revision bigint NOT NULL CHECK (ttn_revision > 0),
+  captured_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (confirmation_id, shift_id, truck_id),
+  FOREIGN KEY (workspace_id, shift_id) REFERENCES shifts(workspace_id, shift_id)
+);
+CREATE INDEX legacy_line_status_snapshots_shift_idx
+  ON legacy_line_status_snapshots(workspace_id, shift_id, truck_id);
+
+CREATE TABLE legacy_cutover_historicalization_audit (
+  audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  workspace_id text NOT NULL REFERENCES workspaces(id),
+  confirmation_id text NOT NULL REFERENCES legacy_historicalization_confirmations(confirmation_id),
+  report_schema text NOT NULL CHECK (report_schema = 'samosval.legacy-historicalization/v1'),
+  report_sha256 text NOT NULL CHECK (report_sha256 ~ '^[0-9a-f]{64}$'),
+  shift_id text NOT NULL,
+  source_payload_sha256 text NOT NULL CHECK (source_payload_sha256 ~ '^[0-9a-f]{64}$'),
+  children_sha256 text NOT NULL CHECK (children_sha256 ~ '^[0-9a-f]{64}$'),
+  old_state text NOT NULL CHECK (old_state IN ('historical')),
+  new_state text NOT NULL CHECK (new_state IN ('historical')),
+  reason text NOT NULL CHECK (reason = 'legacy-type-unresolved-at-cutover'),
+  original_close_fields jsonb NOT NULL,
+  maintenance_actor_uid text NOT NULL REFERENCES app_users(uid) ON DELETE RESTRICT,
+  maintenance_at timestamptz NOT NULL DEFAULT now(),
+  result_revision bigint NOT NULL CHECK (result_revision > 0),
+  UNIQUE (confirmation_id, shift_id),
+  FOREIGN KEY (workspace_id, shift_id) REFERENCES shifts(workspace_id, shift_id)
+);
+
+-- Append-only guard: snapshots and audit can be inserted, never changed or removed.
+CREATE OR REPLACE FUNCTION legacy_append_only_guard() RETURNS trigger
+LANGUAGE plpgsql AS $append_only$
+BEGIN
+  RAISE EXCEPTION 'append-only historicalization record: % is forbidden on %', TG_OP, TG_TABLE_NAME
+    USING ERRCODE = 'check_violation';
+END
+$append_only$;
+CREATE TRIGGER legacy_line_status_snapshots_append_only
+  BEFORE UPDATE OR DELETE ON legacy_line_status_snapshots
+  FOR EACH ROW EXECUTE FUNCTION legacy_append_only_guard();
+CREATE TRIGGER legacy_cutover_audit_append_only
+  BEFORE UPDATE OR DELETE ON legacy_cutover_historicalization_audit
+  FOR EACH ROW EXECUTE FUNCTION legacy_append_only_guard();
+
 COMMIT;

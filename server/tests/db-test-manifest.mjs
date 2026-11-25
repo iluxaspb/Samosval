@@ -13,7 +13,8 @@ const dbFiles = [
   'archive-parallel-restore', 'archive-read', 'archive-store', 'auxiliary-store',
   'backup-store', 'control-store', 'game-store', 'history-store',
   'identity-store', 'line-read', 'line-store', 'migration-registry',
-  'notification-store', 'parallel-shifts-migration-core', 'refresh-source',
+  'notification-store', 'parallel-shifts-historicalization',
+  'parallel-shifts-migration-core', 'refresh-source',
   'replica-materialize-parallel-shifts', 'replica-materialize', 'replica-store',
   'report-store', 'seed-identity-db', 'seed-objects-db', 'senior-foreman',
   'server-control', 'settings', 'shift-close', 'shift-start', 'tabel-presence',
@@ -133,6 +134,14 @@ const consumersByFile = {
     "tests/notification-store.test.mjs:pg"
   ],
   "opencode-smoke": [],
+  "parallel-shifts-historicalization": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/parallel-shifts-historicalization.test.mjs:db-env",
+    "tests/parallel-shifts-historicalization.test.mjs:pg"
+  ],
   "parallel-shifts-migration-core": [
     "scripts/apply-migrations.mjs:pg",
     "tests/helpers/isolated-db.mjs:db-env",
@@ -239,6 +248,7 @@ const unitReasons = {
 
 const dbReasons = {
   'migration-registry': 'Imports pg and apply-migrations, and reads TEST_DATABASE_URL to verify the migration registry',
+  'parallel-shifts-historicalization': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact-report legacy historicalization cutover',
   'parallel-shifts-migration-core': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for destructive migration 025 integration',
   'refresh-source': 'Imports pg and reads TEST_DATABASE_URL for source refresh with import tables',
   'replica-materialize-parallel-shifts': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for atomic S24 to migration 025 replica behavior',
@@ -282,7 +292,7 @@ const dbEntries = dbFiles.map(name => ({
   reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   baseline: 'S24',
-  migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' ? 25 : null,
+  migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],
