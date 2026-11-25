@@ -1,6 +1,7 @@
 import {isDeepStrictEqual} from 'node:util';
 import {fail,map} from './tabel-access.mjs';
 import {serviceActor,serviceCommand,validId} from './service-command.mjs';
+import {submitRestoredCorrection} from './restored-context-store.mjs';
 const WS=process.env.WORKSPACE_ID||'main_workspace';
 export const reportVersion=x=>x?{volume:x.volume,timestamp:x.timestamp,timeStr:x.timeStr,comment:x.comment||'',truckId:x.truckId,shiftId:x.shiftId}:null;
 export function normalizeReport(input){
@@ -19,7 +20,23 @@ async function writeState(c,ws,id,log,status,truckId){
  if(log)await c.query('INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES ($1,$2,$3,$4,$5) ON CONFLICT(workspace_id,log_id) DO UPDATE SET payload=EXCLUDED.payload',[ws,id,log.shiftId,log.truckId,log]);else await c.query('DELETE FROM line_logs WHERE workspace_id=$1 AND log_id=$2',[ws,id]);
  if(status)await c.query('UPDATE line_truck_statuses SET payload=$3 WHERE workspace_id=$1 AND truck_id=$2 AND shift_id=$4',[ws,truckId,status,status.shiftId]);
 }
+// Архивный режим: рейс принадлежит restored-контексту, а не активной смене.
+// Правка адресует context+log и никогда `line_logs`; CAS идёт по context revision
+// + base archive revision/hash (сильнее прежней проверки одной версии рейса).
+export const isRestoredReport=input=>map(input)&&typeof input.restoredContextId==='string'&&input.restoredContextId.length>0;
+export function restoredReportCommand(input){
+ if(!map(input)||!validId(input.id)||!['report.update','report.delete'].includes(input.type)||!validId(input.logId))throw fail('invalid-report-operation');
+ const type=input.type==='report.update'?'trip.update':'trip.delete';
+ const command={operationId:input.id,protocolVersion:2,type,recordId:input.logId,expectedContextRevision:input.expectedContextRevision,expectedBaseArchiveRevision:input.expectedBaseArchiveRevision,expectedBaseSha256:input.expectedBaseSha256};
+ if(type==='trip.update')command.data=input.data;
+ return {restoredContextId:input.restoredContextId,command};
+}
+export async function submitRestoredReport(pool,uid,input,ws=WS){
+ const {restoredContextId,command}=restoredReportCommand(input),receipt=await submitRestoredCorrection(pool,{uid,workspaceId:ws},restoredContextId,command);
+ return {...receipt.result,...(receipt.replayed?{replayed:true}:{})};
+}
 export function submitReport(pool,uid,input,ws=WS){
+ if(isRestoredReport(input))return submitRestoredReport(pool,uid,input,ws);
  const op=normalizeReport(input);if(!op.id.startsWith('report_'))throw fail('invalid-report-id');
  return serviceCommand(pool,uid,op,ws,(c,u)=>serviceActor(c,u,'edit_logs'),async(c,actor)=>{
   const beforeLog=await currentLog(c,ws,op.logId);if(!beforeLog||!isDeepStrictEqual(reportVersion(beforeLog),op.expected))throw fail('report-changed',409);

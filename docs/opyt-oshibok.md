@@ -335,7 +335,8 @@ file-watcher по `/`, `/etc`, `/home`, `/home/iluxa`, ответ `503` на `/a
 `7/7` зелёный. То есть файл валиден только до применения 025 и должен быть переписан вместе с Task 8/9
 (`restored-context-store`, финализация ревизий), а не «починен» внутри Task 7.
 **Что делать:** при разборе красного `archive-parallel-restore` сначала смотреть, применена ли 025, и не искать
-причину в переносе restored-строк.
+причину в переносе restored-строк. То же верно для `archive-store` и `replica-materialize`: их baseline в
+манифесте — `S24`, поэтому официальный harness готовит для них схему до 025; прогон «на 025» даёт ложные красные.
 
 **2. `FOR UPDATE` требует `UPDATE`-права, даже когда строка только читается.**
 **Симптом:** `SELECT ... FOR UPDATE` в `SECURITY DEFINER`-функции под владельцем evidence падает
@@ -351,3 +352,15 @@ file-watcher по `/`, `/etc`, `/home`, `/home/iluxa`, ответ `503` на `/a
 сносит схему под ногами другого.
 **Что делать:** прогонять DB-тесты только с `--test-concurrency=1`; после «странной» ошибки `CREATE`/`pg_type`
 перепроверять `pgrep -af "node --test"` и повторять прогон начисто.
+
+## 24. Урок 26.11.2026 (P8): append-only receipt нельзя «захватить и потом дописать»
+
+**Симптом:** домен коррекций restored-контекста падал на `append-only archive record: UPDATE is forbidden on restored_context_receipts` (SQLSTATE 23514), хотя логика CAS и записи истории уже была верной.
+
+**Причина:** схема P6 держит `restored_context_receipts/history/audit` под append-only триггерами. Привычный паттерн `INSERT ... ON CONFLICT DO NOTHING` → выполнить работу → `UPDATE ... SET result` невозможен: вторая половина — это UPDATE.
+
+**Что делать:** receipt пишется **одной** INSERT уже с готовым `result` в конце транзакции; повтор ищется отдельным `SELECT` в начале транзакции (до любой работы), поэтому replay не упирается в устаревшую ревизию CAS. Гонка одинаковых операций разрешается `ON CONFLICT DO NOTHING`: если строка не вставилась — `ROLLBACK` всей работы и сверка `uid/context/protocol_version/command_hash`, иначе `operation-id-reused`. Тот же приём применим к любому будущему домену на append-only receipt (finalize в Task 9).
+
+**Попутно (фикстуры прямого SQL по схеме P6):** `restored_shift_contexts.original_opened_by_uid` и `restored_by_uid` — FK на `app_users(uid)` `ON DELETE RESTRICT`, поэтому «старого автора» надо завести в `app_users` (можно `disabled`), иначе seed падает на 23503. Живой `shifts` требует строку `workspace_objects(workspace_id,object_id)` (`shifts_object_fk`), а `line_trucks` — до `line_truck_statuses`.
+
+**Про прогон:** официальный harness (`scripts/test-isolated-db.mjs`) принимает только порт 55432 (`validateAdminUrl`), а задачи выделяют свои порты (55433/55434/55435). Эквивалентный прогон без обхода harness: `resetIsolatedDatabase()` + `applyMigrationsThrough(25)` из `tests/helpers/isolated-db.mjs` на своей БД, затем `node --test <файл>` с `TEST_DATABASE_URL` и `SAMOSVAL_ISOLATED_TEST=1`. Для нового DB-теста не забыть манифест: имя в `dbFiles`, точные consumers (иначе `loadManifest` краснеет), `migrationsThrough: 25` и +1 к счётчику в `db-test-discovery.test.mjs`.
