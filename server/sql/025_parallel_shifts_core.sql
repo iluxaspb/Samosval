@@ -1461,4 +1461,1734 @@ BEGIN
 END
 $archive_evidence_authority$;
 
+
+-- ============================================================================
+-- Legacy restored migration (Task 7, design §4.6).
+-- Additive only: one named immutable receipt guard, the plan/manifest readers,
+-- one exact SECURITY DEFINER copy-verify-delete function, their ownership and
+-- grants, and the lookup indexes the migration uses. Nothing from P3/P4/P5/P6 is
+-- rewritten and no restored row is migrated by this block.
+--
+-- Authority model: the only bypass is a transactional
+-- `ALTER TABLE public.archive_overrides DISABLE TRIGGER <fixed name>` executed by
+-- the owner of that table inside the static SECURITY DEFINER function. No GUC,
+-- `current_user` check, advisory lock or function identity is a capability, and
+-- `session_replication_role` is never touched.
+-- ============================================================================
+
+-- The legacy restore receipt (`archive_overrides` row with location='restored')
+-- is the immutable proof that a `shifts` row with restored provenance came from a
+-- named archive document. Its placement can only be closed by the exact migration
+-- below: a plain UPDATE cannot return it to the archive catalog. DELETE stays
+-- legal so a workspace reset/teardown still removes its own catalog rows.
+CREATE OR REPLACE FUNCTION public.archive_overrides_restored_receipt_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $restored_receipt_guard$
+BEGIN
+  IF OLD.location = 'restored' AND NEW.location IS DISTINCT FROM OLD.location THEN
+    RAISE EXCEPTION 'legacy restore receipt is immutable: % cannot leave location=restored', OLD.record_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$restored_receipt_guard$;
+
+DROP TRIGGER IF EXISTS archive_overrides_restored_receipt_immutable ON public.archive_overrides;
+CREATE TRIGGER archive_overrides_restored_receipt_immutable
+  BEFORE UPDATE ON public.archive_overrides
+  FOR EACH ROW EXECUTE FUNCTION public.archive_overrides_restored_receipt_guard();
+
+-- Exact source lookups the migration performs.
+CREATE INDEX IF NOT EXISTS line_history_shift_action_idx
+  ON public.line_history(workspace_id, shift_id, action_id);
+CREATE INDEX IF NOT EXISTS history_audit_action_idx
+  ON public.history_audit(workspace_id, action_id, operation_id);
+CREATE INDEX IF NOT EXISTS restored_context_logs_source_idx
+  ON public.restored_context_logs(workspace_id, source_log_id);
+CREATE INDEX IF NOT EXISTS restored_context_migration_evidence_locator_idx
+  ON public.restored_context_migration_evidence(workspace_id, source_locator);
+
+-- ----------------------------------------------------------------------------
+-- Plan builder. Pure read: no lock, no write, no dynamic identifier. Every
+-- branch is a static allow-listed table; the returned plan is the exact manifest
+-- the mutation function re-verifies against the locked rows.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.restored_context_migration_plan(
+  p_workspace_id text,
+  p_legacy_shift_id text,
+  p_archive_id text,
+  p_base_archive_revision bigint,
+  p_migration_operation_id text
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $restored_plan$
+DECLARE
+  shift_row record;
+  series_row record;
+  revision_row record;
+  receipt_row record;
+  archive_doc jsonb;
+  v_mode text;
+  v_restored_from text;
+  v_restored_uid text;
+  v_restored_name text;
+  v_restored_at timestamptz;
+  v_opened_uid text;
+  v_opened_name text;
+  v_identity_resolution text;
+  v_shift_type text;
+  v_type_resolution text;
+  v_actions text[];
+  v_report_actions text[];
+  v_history_actions text[];
+  v_logs jsonb;
+  v_statuses jsonb;
+  v_history jsonb;
+  v_receipts jsonb;
+  v_audits jsonb;
+  v_evidence_rows jsonb;
+  v_counts jsonb;
+  v_roots jsonb;
+  v_target_counts jsonb;
+  v_context jsonb;
+  v_archive jsonb;
+  v_receipt jsonb;
+  v_manifest jsonb;
+  v_closure jsonb;
+  v_closure_hash text;
+  v_context_id text;
+  v_evidence_id uuid;
+  v_seed text;
+  v_bad int;
+BEGIN
+  IF p_workspace_id IS NULL OR p_legacy_shift_id IS NULL OR p_archive_id IS NULL
+     OR p_base_archive_revision IS NULL OR p_migration_operation_id IS NULL THEN
+    RAISE EXCEPTION 'migration-manifest-invalid: every locator argument is required'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF length(p_workspace_id) NOT BETWEEN 1 AND 160
+     OR length(p_legacy_shift_id) NOT BETWEEN 1 AND 160
+     OR length(p_archive_id) NOT BETWEEN 1 AND 160
+     OR p_base_archive_revision < 1
+     OR p_migration_operation_id !~ '^[A-Za-z0-9_-]{1,160}$' THEN
+    RAISE EXCEPTION 'migration-manifest-invalid: locator argument is not well formed'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 1. Source row exists and carries restored provenance.
+  SELECT * INTO shift_row FROM public.shifts s
+   WHERE s.workspace_id = p_workspace_id AND s.shift_id = p_legacy_shift_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'migration-source-missing: no shift % in workspace %', p_legacy_shift_id, p_workspace_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NOT (shift_row.payload ? 'restoredFrom' OR COALESCE(shift_row.payload->>'restored','') = 'true') THEN
+    RAISE EXCEPTION 'migration-not-restored: shift % carries no restored provenance', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  v_restored_from := NULLIF(btrim(shift_row.payload->>'restoredFrom'),'');
+  IF v_restored_from IS NULL THEN
+    RAISE EXCEPTION 'migration-restore-receipt-missing: shift % names no restored archive record', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  v_mode := CASE WHEN shift_row.payload->>'restored' = 'true' THEN 'parallel' ELSE 'standalone' END;
+
+  -- 2. The legacy restore receipt must still point at the archive.
+  SELECT * INTO receipt_row FROM public.archive_overrides o
+   WHERE o.workspace_id = p_workspace_id AND o.record_id = v_restored_from;
+  IF NOT FOUND OR receipt_row.location <> 'restored' THEN
+    RAISE EXCEPTION 'migration-restore-receipt-missing: archive record % is not a live restored receipt', v_restored_from
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 3. Named archive series/revision must exist and match the receipt bytes.
+  SELECT * INTO series_row FROM public.shift_archive_series ss
+   WHERE ss.workspace_id = p_workspace_id AND ss.archive_id = p_archive_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'migration-archive-missing: no archive series % in workspace %', p_archive_id, p_workspace_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT * INTO revision_row FROM public.shift_archive_revisions rr
+   WHERE rr.workspace_id = p_workspace_id AND rr.archive_id = p_archive_id
+     AND rr.archive_revision = p_base_archive_revision;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'migration-archive-missing: archive % has no revision %', p_archive_id, p_base_archive_revision
+      USING ERRCODE = 'check_violation';
+  END IF;
+  archive_doc := convert_from(revision_row.payload_bytes,'UTF8')::jsonb;
+  IF series_row.source_shift_id IS DISTINCT FROM NULLIF(receipt_row.payload->>'sourceShiftId','') THEN
+    RAISE EXCEPTION 'migration-archive-mismatch: receipt % names source shift %, series % names %',
+      v_restored_from, COALESCE(receipt_row.payload->>'sourceShiftId',''), p_archive_id, series_row.source_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NULLIF(btrim(shift_row.payload->>'originalSourceShiftId'),'') IS NOT NULL
+     AND shift_row.payload->>'originalSourceShiftId' IS DISTINCT FROM series_row.source_shift_id THEN
+    RAISE EXCEPTION 'migration-archive-mismatch: restored shift % names source shift %',
+      p_legacy_shift_id, shift_row.payload->>'originalSourceShiftId'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF receipt_row.payload IS DISTINCT FROM archive_doc THEN
+    RAISE EXCEPTION 'migration-archive-receipt-mismatch: receipt % bytes differ from revision % of archive %',
+      v_restored_from, p_base_archive_revision, p_archive_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 4. Restore actor comes from the proven legacy restore fields; the original
+  -- opener/type come only from the archive document and are never replaced.
+  v_restored_uid := NULLIF(btrim(shift_row.payload->>'startedByUid'),'');
+  v_restored_name := NULLIF(btrim(shift_row.payload->>'startedBy'),'');
+  IF v_restored_uid IS NULL OR v_restored_name IS NULL
+     OR jsonb_typeof(shift_row.payload->'startedAt') IS DISTINCT FROM 'number' THEN
+    RAISE EXCEPTION 'migration-restore-actor-unproven: shift % carries no restore actor/time', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.app_users u WHERE u.uid = v_restored_uid) THEN
+    RAISE EXCEPTION 'migration-restore-actor-unproven: restore actor % is not a known user', v_restored_uid
+      USING ERRCODE = 'check_violation';
+  END IF;
+  v_restored_at := to_timestamp((shift_row.payload->>'startedAt')::double precision / 1000.0);
+
+  v_opened_uid := NULLIF(btrim(archive_doc->>'openedByUid'),'');
+  IF v_opened_uid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.app_users u WHERE u.uid = v_opened_uid) THEN
+    RAISE EXCEPTION 'migration-original-opener-unknown: archive names opener %', v_opened_uid
+      USING ERRCODE = 'check_violation';
+  END IF;
+  v_opened_name := COALESCE(NULLIF(archive_doc->>'openedByName',''), NULLIF(archive_doc->>'openedByNameSnapshot',''));
+  v_identity_resolution := CASE WHEN v_opened_uid IS NULL THEN 'unresolved' ELSE 'source' END;
+  v_shift_type := CASE WHEN archive_doc->>'shiftType' IN ('day','night') THEN archive_doc->>'shiftType' END;
+  v_type_resolution := CASE WHEN v_shift_type IS NULL THEN 'unresolved' ELSE 'source' END;
+
+  -- 5. No child may belong to another shift/workspace and no child may name a
+  -- truck that does not exist (the target FK must be provable).
+  SELECT count(*)::int INTO v_bad FROM public.line_logs l
+   WHERE l.workspace_id = p_workspace_id AND l.shift_id = p_legacy_shift_id
+     AND (l.payload ? 'shiftId' AND l.payload->>'shiftId' IS DISTINCT FROM p_legacy_shift_id);
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'migration-foreign-child: a line log of shift % names another shift', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT count(*)::int INTO v_bad FROM public.line_truck_statuses st
+   WHERE st.workspace_id = p_workspace_id AND st.shift_id = p_legacy_shift_id
+     AND (st.payload ? 'shiftId' AND st.payload->>'shiftId' IS DISTINCT FROM p_legacy_shift_id);
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'migration-foreign-child: a truck status of shift % names another shift', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT count(*)::int INTO v_bad FROM public.line_logs l
+   WHERE l.workspace_id = p_workspace_id AND l.shift_id = p_legacy_shift_id
+     AND NOT EXISTS (SELECT 1 FROM public.line_trucks t
+                      WHERE t.workspace_id = p_workspace_id AND t.truck_id = l.truck_id);
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'migration-truck-orphan: % line log(s) of shift % name an unknown truck', v_bad, p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT count(*)::int INTO v_bad FROM public.line_truck_statuses st
+   WHERE st.workspace_id = p_workspace_id AND st.shift_id = p_legacy_shift_id
+     AND NOT EXISTS (SELECT 1 FROM public.line_trucks t
+                      WHERE t.workspace_id = p_workspace_id AND t.truck_id = st.truck_id);
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'migration-truck-orphan: % truck status(es) of shift % name an unknown truck', v_bad, p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 6. A parallel restored row never carried statuses: it is rebuilt as an
+  -- explicit archive snapshot, never as a business event.
+  IF v_mode = 'parallel' AND EXISTS (
+       SELECT 1 FROM public.line_truck_statuses st
+        WHERE st.workspace_id = p_workspace_id AND st.shift_id = p_legacy_shift_id) THEN
+    RAISE EXCEPTION 'migration-parallel-with-statuses: parallel shift % carries truck statuses', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 7. No side effect that the migration would have to invent.
+  SELECT count(*)::int INTO v_bad FROM public.shift_members m
+   WHERE m.workspace_id = p_workspace_id AND m.shift_id = p_legacy_shift_id;
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'migration-foreign-reference: shift % still has shift members', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT count(*)::int INTO v_bad FROM public.legacy_line_status_snapshots sn
+   WHERE sn.workspace_id = p_workspace_id AND sn.shift_id = p_legacy_shift_id;
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'migration-foreign-reference: shift % already has legacy status snapshots', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT count(*)::int INTO v_bad FROM public.legacy_cutover_historicalization_audit cu
+   WHERE cu.workspace_id = p_workspace_id AND cu.shift_id = p_legacy_shift_id;
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'migration-foreign-reference: shift % is part of a historicalization cutover', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT count(*)::int INTO v_bad FROM public.shift_archives ar
+   WHERE ar.workspace_id = p_workspace_id AND ar.shift_id = p_legacy_shift_id;
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'migration-foreign-reference: shift % already owns a legacy archive row', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 8. Exact action identity of the restored line.
+  SELECT COALESCE(array_agg(lh.action_id ORDER BY lh.action_id COLLATE "C"), ARRAY[]::text[])
+    INTO v_actions
+    FROM public.line_history lh
+   WHERE lh.workspace_id = p_workspace_id AND lh.shift_id = p_legacy_shift_id;
+  SELECT COALESCE(array_agg(a.operation_id ORDER BY a.operation_id COLLATE "C"), ARRAY[]::text[])
+    INTO v_report_actions
+    FROM public.workspace_service_audit a
+   WHERE a.workspace_id = p_workspace_id
+     AND a.type IN ('report.update','report.delete')
+     AND (a.before_data->>'shiftId' = p_legacy_shift_id OR a.after_data->>'shiftId' = p_legacy_shift_id);
+  SELECT COALESCE(array_agg(DISTINCT ha.operation_id), ARRAY[]::text[])
+    INTO v_history_actions
+    FROM public.history_audit ha
+   WHERE ha.workspace_id = p_workspace_id AND ha.action_id = ANY(v_actions);
+
+  -- 9. Target rows. Every payload is copied verbatim.
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'log_id', l.log_id,
+           'truck_id', l.truck_id,
+           'payload', l.payload,
+           'log_revision', 1,
+           'source_log_id', l.log_id,
+           'created_from_archive_revision', p_base_archive_revision
+         ) ORDER BY l.log_id COLLATE "C"), '[]'::jsonb)
+    INTO v_logs
+    FROM public.line_logs l
+   WHERE l.workspace_id = p_workspace_id AND l.shift_id = p_legacy_shift_id;
+
+  IF v_mode = 'standalone' THEN
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+             'truck_id', st.truck_id,
+             'payload', st.payload,
+             'status_revision', 1,
+             'cycle_revision', 1,
+             'ttn_revision', 1
+           ) ORDER BY st.truck_id COLLATE "C"), '[]'::jsonb)
+      INTO v_statuses
+      FROM public.line_truck_statuses st
+     WHERE st.workspace_id = p_workspace_id AND st.shift_id = p_legacy_shift_id;
+  ELSE
+    SELECT COALESCE(jsonb_agg(snap.row ORDER BY snap.truck_id COLLATE "C"), '[]'::jsonb)
+      INTO v_statuses
+      FROM (
+        SELECT trucks.truck_id,
+               jsonb_build_object(
+                 'truck_id', trucks.truck_id,
+                 'payload', jsonb_build_object(
+                   'id', trucks.truck_id,
+                   'shiftId', p_legacy_shift_id,
+                   'onLine', EXISTS (SELECT 1 FROM jsonb_array_elements_text(
+                                       COALESCE(archive_doc->'activeLineIds','[]'::jsonb)) a(id)
+                                      WHERE a.id = trucks.truck_id),
+                   'arriveStatus', NULL,
+                   'arriveTimestamp', NULL,
+                   'arriveBy', NULL,
+                   'ttnStatus', archive_doc->'ttnStatus'->trucks.truck_id,
+                   'ttnBy', NULL,
+                   'ttnLogId', last_log.log_id,
+                   'lastLoadTimestamp', (last_log.payload->>'timestamp')::bigint,
+                   'lastLoadBy', last_log.payload->>'createdBy',
+                   'lastLoadLogId', last_log.log_id,
+                   'cycleRevision', 1,
+                   'ttnRevision', 1,
+                   'loadedAfterArrive', false,
+                   'snapshotSource', 'archive'
+                 ),
+                 'status_revision', 1,
+                 'cycle_revision', 1,
+                 'ttn_revision', 1
+               ) AS row
+          FROM (
+            SELECT l.truck_id FROM public.line_logs l
+             WHERE l.workspace_id = p_workspace_id AND l.shift_id = p_legacy_shift_id
+            UNION
+            SELECT a.id FROM jsonb_array_elements_text(
+                            COALESCE(archive_doc->'activeLineIds','[]'::jsonb)) a(id)
+          ) trucks
+          LEFT JOIN LATERAL (
+            SELECT l.log_id, l.payload FROM public.line_logs l
+             WHERE l.workspace_id = p_workspace_id AND l.shift_id = p_legacy_shift_id
+               AND l.truck_id = trucks.truck_id
+             ORDER BY (l.payload->>'timestamp')::bigint DESC, l.log_id COLLATE "C" DESC
+             LIMIT 1
+          ) last_log ON true
+      ) snap;
+    IF EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v_statuses) e
+       WHERE NOT EXISTS (SELECT 1 FROM public.line_trucks t
+                          WHERE t.workspace_id = p_workspace_id AND t.truck_id = e->>'truck_id')) THEN
+      RAISE EXCEPTION 'migration-truck-orphan: archive snapshot of shift % names an unknown truck', p_legacy_shift_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  -- Restored history: line actions of the shift and report corrections addressing it.
+  SELECT COALESCE(jsonb_agg(rows.row ORDER BY rows.action_id COLLATE "C"), '[]'::jsonb)
+    INTO v_history
+    FROM (
+      SELECT lh.action_id,
+             jsonb_build_object(
+               'action_id', lh.action_id,
+               'uid', lh.uid,
+               'type', lh.type,
+               'before_log', lh.log_data,
+               'after_log', NULL,
+               'before_status_snapshot', lh.before_status,
+               'after_status_snapshot', lh.after_status,
+               'revision', lh.revision,
+               'undone', lh.undone,
+               'created_at', to_char(lh.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+             ) AS row
+        FROM public.line_history lh
+       WHERE lh.workspace_id = p_workspace_id AND lh.shift_id = p_legacy_shift_id
+      UNION ALL
+      SELECT a.operation_id,
+             jsonb_build_object(
+               'action_id', a.operation_id,
+               'uid', a.uid,
+               'type', a.type,
+               'before_log', a.before_data->'log',
+               'after_log', a.after_data->'log',
+               'before_status_snapshot', a.before_data->'status',
+               'after_status_snapshot', a.after_data->'status',
+               'revision', a.revision,
+               'undone', a.undone,
+               'created_at', to_char(a.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+             ) AS row
+        FROM public.workspace_service_audit a
+       WHERE a.workspace_id = p_workspace_id AND a.operation_id = ANY(v_report_actions)
+    ) rows;
+  IF (SELECT count(*) FROM jsonb_array_elements(v_history)) <>
+     (SELECT count(DISTINCT e->>'action_id') FROM jsonb_array_elements(v_history) e) THEN
+    RAISE EXCEPTION 'migration-ambiguous-history: shift % has two actions with one identity', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- Restored receipts: every receipt attributable by exact operation identity.
+  SELECT COALESCE(jsonb_agg(rows.row ORDER BY rows.operation_id COLLATE "C"), '[]'::jsonb)
+    INTO v_receipts
+    FROM (
+      SELECT r.operation_id,
+             jsonb_build_object(
+               'operation_id', r.operation_id,
+               'uid', r.uid,
+               'protocol_version', 1,
+               'command_hash', r.request_hash,
+               'result', r.result,
+               'recorded_at', to_char(r.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+             ) AS row
+        FROM public.line_operation_receipts r
+       WHERE r.workspace_id = p_workspace_id AND r.operation_id = ANY(v_actions)
+      UNION ALL
+      SELECT r.operation_id,
+             jsonb_build_object(
+               'operation_id', r.operation_id,
+               'uid', r.uid,
+               'protocol_version', 1,
+               'command_hash', r.request_hash,
+               'result', r.result,
+               'recorded_at', COALESCE(
+                 to_char((SELECT min(ha.created_at) FROM public.history_audit ha
+                           WHERE ha.workspace_id = p_workspace_id AND ha.operation_id = r.operation_id)
+                         AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                 to_char(v_restored_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))
+             ) AS row
+        FROM public.history_receipts r
+       WHERE r.workspace_id = p_workspace_id AND r.operation_id = ANY(v_history_actions)
+      UNION ALL
+      SELECT r.operation_id,
+             jsonb_build_object(
+               'operation_id', r.operation_id,
+               'uid', r.uid,
+               'protocol_version', 1,
+               'command_hash', r.request_hash,
+               'result', r.result,
+               'recorded_at', COALESCE(
+                 to_char((SELECT min(a.created_at) FROM public.workspace_service_audit a
+                           WHERE a.workspace_id = p_workspace_id AND a.operation_id = r.operation_id)
+                         AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                 to_char(v_restored_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))
+             ) AS row
+        FROM public.workspace_service_receipts r
+       WHERE r.workspace_id = p_workspace_id AND r.operation_id = ANY(v_report_actions)
+      UNION ALL
+      SELECT r.operation_id,
+             jsonb_build_object(
+               'operation_id', r.operation_id,
+               'uid', r.uid,
+               'protocol_version', 1,
+               'command_hash', r.request_hash,
+               'result', r.result,
+               'recorded_at', to_char(r.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+             ) AS row
+        FROM public.shift_operation_receipts r
+       WHERE r.workspace_id = p_workspace_id AND r.result->'shift'->>'id' = p_legacy_shift_id
+    ) rows;
+  IF (SELECT count(*) FROM jsonb_array_elements(v_receipts)) <>
+     (SELECT count(DISTINCT e->>'operation_id') FROM jsonb_array_elements(v_receipts) e) THEN
+    RAISE EXCEPTION 'migration-duplicate-receipt: shift % has two receipts with one operation id', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_receipts) e
+              WHERE e->>'command_hash' !~ '^[0-9a-f]{64}$') THEN
+    RAISE EXCEPTION 'migration-receipt-hash-invalid: a receipt of shift % carries no exact command hash', p_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- Restored audit: line audit rows, their undo/redo audit rows and report
+  -- correction audit rows, with exact actor/type/state/time.
+  SELECT COALESCE(jsonb_agg(rows.row ORDER BY rows.operation_id COLLATE "C", rows.type COLLATE "C"), '[]'::jsonb)
+    INTO v_audits
+    FROM (
+      SELECT a.operation_id,
+             a.type,
+             jsonb_build_object(
+               'action_id', (SELECT h->>'action_id' FROM jsonb_array_elements(v_history) h
+                              WHERE h->>'action_id' = a.operation_id LIMIT 1),
+               'operation_id', a.operation_id,
+               'uid', a.uid,
+               'type', a.type,
+               'before_state', NULL,
+               'after_state', jsonb_build_object('status', a.status),
+               'recorded_at', to_char(a.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+             ) AS row
+        FROM public.line_audit a
+       WHERE a.workspace_id = p_workspace_id AND a.operation_id = ANY(v_actions)
+      UNION ALL
+      SELECT ha.operation_id,
+             'history_' || ha.direction,
+             jsonb_build_object(
+               'action_id', ha.action_id,
+               'operation_id', ha.operation_id,
+               'uid', ha.uid,
+               'type', 'history_' || ha.direction,
+               'before_state', NULL,
+               'after_state', NULL,
+               'recorded_at', to_char(ha.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+             ) AS row
+        FROM public.history_audit ha
+       WHERE ha.workspace_id = p_workspace_id AND ha.action_id = ANY(v_actions)
+      UNION ALL
+      SELECT a.operation_id,
+             a.type,
+             jsonb_build_object(
+               'action_id', a.operation_id,
+               'operation_id', a.operation_id,
+               'uid', a.uid,
+               'type', a.type,
+               'before_state', a.before_data,
+               'after_state', a.after_data,
+               'recorded_at', to_char(a.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+             ) AS row
+        FROM public.workspace_service_audit a
+       WHERE a.workspace_id = p_workspace_id AND a.operation_id = ANY(v_report_actions)
+    ) rows;
+
+  -- 10. Evidence child rows: one exact locator per migrated append-only row.
+  SELECT COALESCE(jsonb_agg(ev.row ORDER BY ev.source_table COLLATE "C", ev.source_pk_hash COLLATE "C"), '[]'::jsonb)
+    INTO v_evidence_rows
+    FROM (
+      SELECT 'line_history'::text AS source_table,
+             encode(sha256(convert_to(t.pk,'UTF8')),'hex') AS source_pk_hash,
+             jsonb_build_object(
+               'source_table','line_history',
+               'source_pk_canonical_jcs', t.pk,
+               'source_pk_hash', encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+               'source_row_sha256', encode(sha256(convert_to(t.canonical,'UTF8')),'hex'),
+               'source_bytes_hex', encode(convert_to(t.canonical,'UTF8'),'hex'),
+               'representation_kind','jsonb-canonical-v1',
+               'target_table','restored_context_history',
+               'target_pk_canonical_jcs', jsonb_build_object('action_id',t.action_id,'workspace_id',p_workspace_id)::text
+             ) AS row
+        FROM (
+          SELECT jsonb_build_object('action_id',lh.action_id,'workspace_id',lh.workspace_id)::text AS pk,
+                 lh.action_id,
+                 jsonb_build_object(
+                   'workspace_id',lh.workspace_id,'action_id',lh.action_id,'uid',lh.uid,'shift_id',lh.shift_id,
+                   'truck_id',lh.truck_id,'type',lh.type,'before_status',lh.before_status,'after_status',lh.after_status,
+                   'log_data',lh.log_data,'undone',lh.undone,'revision',lh.revision,
+                   'created_at',to_char(lh.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                   'game_rewards',lh.game_rewards,'game_actor',lh.game_actor
+                 )::text AS canonical
+            FROM public.line_history lh
+           WHERE lh.workspace_id = p_workspace_id AND lh.shift_id = p_legacy_shift_id
+        ) t
+      UNION ALL
+      SELECT 'line_audit', encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+             jsonb_build_object(
+               'source_table','line_audit','source_pk_canonical_jcs',t.pk,
+               'source_pk_hash',encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+               'source_row_sha256',encode(sha256(convert_to(t.canonical,'UTF8')),'hex'),
+               'source_bytes_hex',encode(convert_to(t.canonical,'UTF8'),'hex'),
+               'representation_kind','jsonb-canonical-v1',
+               'target_table','restored_context_audit',
+               'target_pk_canonical_jcs', jsonb_build_object('action_id',t.operation_id,'operation_id',t.operation_id,'workspace_id',p_workspace_id)::text
+             )
+        FROM (
+          SELECT jsonb_build_object('operation_id',a.operation_id,'workspace_id',a.workspace_id)::text AS pk,
+                 a.operation_id,
+                 jsonb_build_object(
+                   'workspace_id',a.workspace_id,'operation_id',a.operation_id,'uid',a.uid,'type',a.type,
+                   'status',a.status,'created_at',to_char(a.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                 )::text AS canonical
+            FROM public.line_audit a
+           WHERE a.workspace_id = p_workspace_id AND a.operation_id = ANY(v_actions)
+        ) t
+      UNION ALL
+      SELECT 'line_operation_receipts', encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+             jsonb_build_object(
+               'source_table','line_operation_receipts','source_pk_canonical_jcs',t.pk,
+               'source_pk_hash',encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+               'source_row_sha256',encode(sha256(convert_to(t.canonical,'UTF8')),'hex'),
+               'source_bytes_hex',encode(convert_to(t.canonical,'UTF8'),'hex'),
+               'representation_kind','jsonb-canonical-v1',
+               'target_table','restored_context_receipts',
+               'target_pk_canonical_jcs', jsonb_build_object('operation_id',t.operation_id,'workspace_id',p_workspace_id)::text
+             )
+        FROM (
+          SELECT jsonb_build_object('operation_id',r.operation_id,'workspace_id',r.workspace_id)::text AS pk,
+                 r.operation_id,
+                 jsonb_build_object(
+                   'workspace_id',r.workspace_id,'operation_id',r.operation_id,'uid',r.uid,'request_hash',r.request_hash,
+                   'result',r.result,'recorded_at',to_char(r.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                 )::text AS canonical
+            FROM public.line_operation_receipts r
+           WHERE r.workspace_id = p_workspace_id AND r.operation_id = ANY(v_actions)
+        ) t
+      UNION ALL
+      SELECT 'history_audit', encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+             jsonb_build_object(
+               'source_table','history_audit','source_pk_canonical_jcs',t.pk,
+               'source_pk_hash',encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+               'source_row_sha256',encode(sha256(convert_to(t.canonical,'UTF8')),'hex'),
+               'source_bytes_hex',encode(convert_to(t.canonical,'UTF8'),'hex'),
+               'representation_kind','jsonb-canonical-v1',
+               'target_table','restored_context_audit',
+               'target_pk_canonical_jcs', jsonb_build_object('action_id',t.action_id,'operation_id',t.operation_id,'workspace_id',p_workspace_id)::text
+             )
+        FROM (
+          SELECT jsonb_build_object('operation_id',ha.operation_id,'workspace_id',ha.workspace_id)::text AS pk,
+                 ha.operation_id, ha.action_id,
+                 jsonb_build_object(
+                   'workspace_id',ha.workspace_id,'operation_id',ha.operation_id,'uid',ha.uid,'action_id',ha.action_id,
+                   'direction',ha.direction,'created_at',to_char(ha.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                 )::text AS canonical
+            FROM public.history_audit ha
+           WHERE ha.workspace_id = p_workspace_id AND ha.action_id = ANY(v_actions)
+        ) t
+      UNION ALL
+      SELECT 'history_receipts', encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+             jsonb_build_object(
+               'source_table','history_receipts','source_pk_canonical_jcs',t.pk,
+               'source_pk_hash',encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+               'source_row_sha256',encode(sha256(convert_to(t.canonical,'UTF8')),'hex'),
+               'source_bytes_hex',encode(convert_to(t.canonical,'UTF8'),'hex'),
+               'representation_kind','jsonb-canonical-v1',
+               'target_table','restored_context_receipts',
+               'target_pk_canonical_jcs', jsonb_build_object('operation_id',t.operation_id,'workspace_id',p_workspace_id)::text
+             )
+        FROM (
+          SELECT jsonb_build_object('operation_id',r.operation_id,'workspace_id',r.workspace_id)::text AS pk,
+                 r.operation_id,
+                 jsonb_build_object(
+                   'workspace_id',r.workspace_id,'operation_id',r.operation_id,'uid',r.uid,
+                   'request_hash',r.request_hash,'result',r.result
+                 )::text AS canonical
+            FROM public.history_receipts r
+           WHERE r.workspace_id = p_workspace_id AND r.operation_id = ANY(v_history_actions)
+        ) t
+      UNION ALL
+      SELECT 'workspace_service_audit', encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+             jsonb_build_object(
+               'source_table','workspace_service_audit','source_pk_canonical_jcs',t.pk,
+               'source_pk_hash',encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+               'source_row_sha256',encode(sha256(convert_to(t.canonical,'UTF8')),'hex'),
+               'source_bytes_hex',encode(convert_to(t.canonical,'UTF8'),'hex'),
+               'representation_kind','jsonb-canonical-v1',
+               'target_table','restored_context_audit',
+               'target_pk_canonical_jcs', jsonb_build_object('action_id',t.operation_id,'operation_id',t.operation_id,'workspace_id',p_workspace_id)::text
+             )
+        FROM (
+          SELECT jsonb_build_object('operation_id',a.operation_id,'workspace_id',a.workspace_id)::text AS pk,
+                 a.operation_id,
+                 jsonb_build_object(
+                   'workspace_id',a.workspace_id,'operation_id',a.operation_id,'uid',a.uid,'type',a.type,
+                   'before_data',a.before_data,'after_data',a.after_data,'revision',a.revision,'undone',a.undone,
+                   'dataset_epoch',a.dataset_epoch,
+                   'created_at',to_char(a.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                 )::text AS canonical
+            FROM public.workspace_service_audit a
+           WHERE a.workspace_id = p_workspace_id AND a.operation_id = ANY(v_report_actions)
+        ) t
+      UNION ALL
+      SELECT 'workspace_service_receipts', encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+             jsonb_build_object(
+               'source_table','workspace_service_receipts','source_pk_canonical_jcs',t.pk,
+               'source_pk_hash',encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+               'source_row_sha256',encode(sha256(convert_to(t.canonical,'UTF8')),'hex'),
+               'source_bytes_hex',encode(convert_to(t.canonical,'UTF8'),'hex'),
+               'representation_kind','jsonb-canonical-v1',
+               'target_table','restored_context_receipts',
+               'target_pk_canonical_jcs', jsonb_build_object('operation_id',t.operation_id,'workspace_id',p_workspace_id)::text
+             )
+        FROM (
+          SELECT jsonb_build_object('operation_id',r.operation_id,'workspace_id',r.workspace_id)::text AS pk,
+                 r.operation_id,
+                 jsonb_build_object(
+                   'workspace_id',r.workspace_id,'operation_id',r.operation_id,'uid',r.uid,
+                   'request_hash',r.request_hash,'result',r.result
+                 )::text AS canonical
+            FROM public.workspace_service_receipts r
+           WHERE r.workspace_id = p_workspace_id AND r.operation_id = ANY(v_report_actions)
+        ) t
+      UNION ALL
+      SELECT 'shift_operation_receipts', encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+             jsonb_build_object(
+               'source_table','shift_operation_receipts','source_pk_canonical_jcs',t.pk,
+               'source_pk_hash',encode(sha256(convert_to(t.pk,'UTF8')),'hex'),
+               'source_row_sha256',encode(sha256(convert_to(t.canonical,'UTF8')),'hex'),
+               'source_bytes_hex',encode(convert_to(t.canonical,'UTF8'),'hex'),
+               'representation_kind','jsonb-canonical-v1',
+               'target_table','restored_context_receipts',
+               'target_pk_canonical_jcs', jsonb_build_object('operation_id',t.operation_id,'workspace_id',p_workspace_id)::text
+             )
+        FROM (
+          SELECT jsonb_build_object('operation_id',r.operation_id,'workspace_id',r.workspace_id)::text AS pk,
+                 r.operation_id,
+                 jsonb_build_object(
+                   'workspace_id',r.workspace_id,'operation_id',r.operation_id,'uid',r.uid,
+                   'request_hash',r.request_hash,'result',r.result,
+                   'recorded_at',to_char(r.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                 )::text AS canonical
+            FROM public.shift_operation_receipts r
+           WHERE r.workspace_id = p_workspace_id AND r.result->'shift'->>'id' = p_legacy_shift_id
+        ) t
+    ) ev;
+
+  -- 11. Counts and aggregate roots: per source table and per target table.
+  v_counts := jsonb_build_object(
+    'shifts', 1,
+    'line_logs', jsonb_array_length(v_logs),
+    'line_truck_statuses', (SELECT count(*) FROM public.line_truck_statuses st
+                             WHERE st.workspace_id = p_workspace_id AND st.shift_id = p_legacy_shift_id),
+    'line_history', (SELECT count(*) FROM jsonb_array_elements(v_evidence_rows) e WHERE e->>'source_table'='line_history'),
+    'line_audit', (SELECT count(*) FROM jsonb_array_elements(v_evidence_rows) e WHERE e->>'source_table'='line_audit'),
+    'line_operation_receipts', (SELECT count(*) FROM jsonb_array_elements(v_evidence_rows) e WHERE e->>'source_table'='line_operation_receipts'),
+    'history_audit', (SELECT count(*) FROM jsonb_array_elements(v_evidence_rows) e WHERE e->>'source_table'='history_audit'),
+    'history_receipts', (SELECT count(*) FROM jsonb_array_elements(v_evidence_rows) e WHERE e->>'source_table'='history_receipts'),
+    'workspace_service_audit', (SELECT count(*) FROM jsonb_array_elements(v_evidence_rows) e WHERE e->>'source_table'='workspace_service_audit'),
+    'workspace_service_receipts', (SELECT count(*) FROM jsonb_array_elements(v_evidence_rows) e WHERE e->>'source_table'='workspace_service_receipts'),
+    'shift_operation_receipts', (SELECT count(*) FROM jsonb_array_elements(v_evidence_rows) e WHERE e->>'source_table'='shift_operation_receipts')
+  );
+  v_target_counts := jsonb_build_object(
+    'restored_context_logs', jsonb_array_length(v_logs),
+    'restored_context_status_snapshots', jsonb_array_length(v_statuses),
+    'restored_context_history', jsonb_array_length(v_history),
+    'restored_context_receipts', jsonb_array_length(v_receipts),
+    'restored_context_audit', jsonb_array_length(v_audits)
+  );
+
+  v_roots := jsonb_build_object(
+    'shifts', encode(sha256(convert_to(COALESCE((
+      SELECT string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C")
+        FROM (
+          SELECT s.shift_id AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'shift_id',s.shift_id,'workspace_id',s.workspace_id,'state',s.state,
+                   'is_active',s.is_active,'payload_schema_version',s.payload_schema_version,
+                   'revision',s.revision,'payload',s.payload,
+                   'identity_resolution',s.identity_resolution,'shift_type',s.shift_type,
+                   'shift_type_resolution',s.shift_type_resolution,
+                   'object_id',s.object_id,'object_name_snapshot',s.object_name_snapshot,
+                   'work_date',to_char(s.work_date,'YYYY-MM-DD'),
+                   'opened_at',to_char(s.opened_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                   'opened_by_uid',s.opened_by_uid,'opened_by_name_snapshot',s.opened_by_name_snapshot
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM public.shifts s
+           WHERE s.workspace_id = p_workspace_id AND s.shift_id = p_legacy_shift_id
+        ) t),''),'UTF8')),'hex'),
+    'line_logs', encode(sha256(convert_to(COALESCE((
+      SELECT string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C")
+        FROM (
+          SELECT l.log_id AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'log_id',l.log_id,'truck_id',l.truck_id,'payload',l.payload,
+                   'log_revision',1,'source_log_id',l.log_id,
+                   'created_from_archive_revision',p_base_archive_revision
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM public.line_logs l
+           WHERE l.workspace_id = p_workspace_id AND l.shift_id = p_legacy_shift_id
+        ) t),''),'UTF8')),'hex'),
+    'line_truck_statuses', encode(sha256(convert_to(COALESCE((
+      SELECT string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C")
+        FROM (
+          SELECT st.truck_id AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'truck_id',st.truck_id,'payload',st.payload,
+                   'status_revision',1,'cycle_revision',1,'ttn_revision',1
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM public.line_truck_statuses st
+           WHERE st.workspace_id = p_workspace_id AND st.shift_id = p_legacy_shift_id
+        ) t),''),'UTF8')),'hex'),
+    'restored_context_logs', encode(sha256(convert_to(COALESCE((
+      SELECT string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C")
+        FROM (
+          SELECT e->>'log_id' AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'log_id',e->>'log_id','truck_id',e->>'truck_id','payload',e->'payload',
+                   'log_revision',(e->>'log_revision')::bigint,'source_log_id',e->>'source_log_id',
+                   'created_from_archive_revision',(e->>'created_from_archive_revision')::bigint
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM jsonb_array_elements(v_logs) e
+        ) t),''),'UTF8')),'hex'),
+    'restored_context_status_snapshots', encode(sha256(convert_to(COALESCE((
+      SELECT string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C")
+        FROM (
+          SELECT e->>'truck_id' AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'truck_id',e->>'truck_id','payload',e->'payload',
+                   'status_revision',(e->>'status_revision')::bigint,
+                   'cycle_revision',(e->>'cycle_revision')::bigint,
+                   'ttn_revision',(e->>'ttn_revision')::bigint
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM jsonb_array_elements(v_statuses) e
+        ) t),''),'UTF8')),'hex'),
+    'restored_context_history', encode(sha256(convert_to(COALESCE((
+      SELECT string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C")
+        FROM (
+          SELECT e->>'action_id' AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'action_id',e->>'action_id','uid',e->>'uid','type',e->>'type',
+                   'before_log',e->'before_log','after_log',e->'after_log',
+                   'before_status_snapshot',e->'before_status_snapshot',
+                   'after_status_snapshot',e->'after_status_snapshot',
+                   'revision',(e->>'revision')::bigint,'undone',(e->>'undone')::boolean,
+                   'created_at',e->>'created_at'
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM jsonb_array_elements(v_history) e
+        ) t),''),'UTF8')),'hex'),
+    'restored_context_receipts', encode(sha256(convert_to(COALESCE((
+      SELECT string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C")
+        FROM (
+          SELECT e->>'operation_id' AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'operation_id',e->>'operation_id','uid',e->>'uid',
+                   'protocol_version',(e->>'protocol_version')::bigint,
+                   'command_hash',e->>'command_hash','result',e->'result',
+                   'recorded_at',e->>'recorded_at'
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM jsonb_array_elements(v_receipts) e
+        ) t),''),'UTF8')),'hex'),
+    'restored_context_audit', encode(sha256(convert_to(COALESCE((
+      SELECT string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C")
+        FROM (
+          SELECT (e->>'operation_id')||'/'||(e->>'type') AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'action_id',e->'action_id','operation_id',e->>'operation_id','uid',e->>'uid',
+                   'type',e->>'type','before_state',e->'before_state','after_state',e->'after_state',
+                   'recorded_at',e->>'recorded_at'
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM jsonb_array_elements(v_audits) e
+        ) t),''),'UTF8')),'hex')
+  );
+
+  -- 12. Deterministic target identity: replay names the same context/evidence.
+  v_seed := 'samosval.restored-context/v1|' || p_workspace_id || '|' || p_legacy_shift_id;
+  v_context_id := 'rctx_' || substr(encode(sha256(convert_to(v_seed,'UTF8')),'hex'),1,40);
+  v_seed := 'samosval.restored-context-evidence/v1|' || p_workspace_id || '|' || p_legacy_shift_id;
+  v_seed := encode(sha256(convert_to(v_seed,'UTF8')),'hex');
+  v_evidence_id := (substr(v_seed,1,8) || '-' || substr(v_seed,9,4) || '-5' || substr(v_seed,14,3)
+                    || '-a' || substr(v_seed,18,3) || '-' || substr(v_seed,21,12))::uuid;
+
+  v_archive := jsonb_build_object(
+    'archiveId', p_archive_id,
+    'baseArchiveRevision', p_base_archive_revision,
+    'sourceShiftId', series_row.source_shift_id,
+    'sourceLocator', revision_row.source_locator,
+    'sourceBytesSha256', revision_row.payload_sha256
+  );
+  v_receipt := jsonb_build_object(
+    'recordId', receipt_row.record_id,
+    'location', receipt_row.location,
+    'revision', receipt_row.revision
+  );
+  v_context := jsonb_build_object(
+    'restored_context_id', v_context_id,
+    'archive_id', p_archive_id,
+    'source_shift_id', series_row.source_shift_id,
+    'mode', v_mode,
+    'context_state', 'open',
+    'original_opened_by_uid', v_opened_uid,
+    'original_opened_by_name_snapshot', v_opened_name,
+    'original_identity_resolution', v_identity_resolution,
+    'original_shift_type', v_shift_type,
+    'original_shift_type_resolution', v_type_resolution,
+    'restored_by_uid', v_restored_uid,
+    'restored_by_name_snapshot', v_restored_name,
+    'restored_at', to_char(v_restored_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    'archive_revision', p_base_archive_revision,
+    'context_revision', 1,
+    'restore_operation_id', p_migration_operation_id,
+    'source_state_snapshot', archive_doc,
+    'source_shift_revision', shift_row.revision,
+    'opened_at_snapshot', to_char(shift_row.opened_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    'object_id', shift_row.object_id,
+    'object_name', shift_row.object_name_snapshot,
+    'work_date', to_char(shift_row.work_date,'YYYY-MM-DD')
+  );
+
+  -- 13. Exact closure hash: archive identity, receipt, context identity, counts,
+  -- roots and every evidence locator/hash. Any byte changes it.
+  v_closure := jsonb_build_object(
+    'schema','samosval.restored-context-migration-closure/v1',
+    'workspaceId', p_workspace_id,
+    'legacyShiftId', p_legacy_shift_id,
+    'contextId', v_context_id,
+    'mode', v_mode,
+    'archive', v_archive,
+    'receipt', v_receipt,
+    'original', jsonb_build_object(
+      'openedByUid', v_opened_uid,
+      'openedByNameSnapshot', v_opened_name,
+      'identityResolution', v_identity_resolution,
+      'shiftType', v_shift_type,
+      'shiftTypeResolution', v_type_resolution
+    ),
+    'restored', jsonb_build_object(
+      'uid', v_restored_uid,
+      'name', v_restored_name,
+      'at', to_char(v_restored_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+    ),
+    'counts', v_counts,
+    'roots', v_roots,
+    'targetCounts', v_target_counts,
+    'evidenceRows', (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'sourceTable', e->>'source_table',
+        'sourcePkHash', e->>'source_pk_hash',
+        'sourceRowSha256', e->>'source_row_sha256',
+        'targetTable', e->>'target_table',
+        'targetPkHash', encode(sha256(convert_to(e->>'target_pk_canonical_jcs','UTF8')),'hex')
+      ) ORDER BY (e->>'source_table') COLLATE "C", (e->>'source_pk_hash') COLLATE "C"), '[]'::jsonb)
+      FROM jsonb_array_elements(v_evidence_rows) e)
+  );
+  v_closure_hash := encode(sha256(convert_to(v_closure::text,'UTF8')),'hex');
+
+  v_manifest := jsonb_build_object(
+    'schema','samosval.restored-context-migration/v1',
+    'workspaceId', p_workspace_id,
+    'migrationOperationId', p_migration_operation_id,
+    'legacyShiftId', p_legacy_shift_id,
+    'mode', v_mode,
+    'contextId', v_context_id,
+    'evidenceId', v_evidence_id::text,
+    'archive', v_archive,
+    'receipt', v_receipt,
+    'original', v_closure->'original',
+    'restored', v_closure->'restored',
+    'counts', v_counts,
+    'roots', v_roots,
+    'targetCounts', v_target_counts,
+    'evidenceRows', (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'sourceTable', e->>'source_table',
+        'sourcePkHash', e->>'source_pk_hash',
+        'sourceRowSha256', e->>'source_row_sha256',
+        'targetTable', e->>'target_table',
+        'targetPkHash', encode(sha256(convert_to(e->>'target_pk_canonical_jcs','UTF8')),'hex')
+      ) ORDER BY (e->>'source_table') COLLATE "C", (e->>'source_pk_hash') COLLATE "C"), '[]'::jsonb)
+      FROM jsonb_array_elements(v_evidence_rows) e),
+    'closureHash', v_closure_hash
+  );
+
+  RETURN jsonb_build_object(
+    'manifest', v_manifest,
+    'closureHash', v_closure_hash,
+    'contextId', v_context_id,
+    'evidenceId', v_evidence_id::text,
+    'context', v_context,
+    'logs', v_logs,
+    'statuses', v_statuses,
+    'history', v_history,
+    'receipts', v_receipts,
+    'audits', v_audits,
+    'evidenceRows', v_evidence_rows,
+    'counts', v_counts,
+    'targetCounts', v_target_counts,
+    'roots', v_roots,
+    'receiptTarget', v_receipt,
+    'delete', jsonb_build_object(
+      'line_logs', (SELECT COALESCE(jsonb_agg(l.log_id ORDER BY l.log_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.line_logs l
+                     WHERE l.workspace_id = p_workspace_id AND l.shift_id = p_legacy_shift_id),
+      'line_truck_statuses', (SELECT COALESCE(jsonb_agg(st.truck_id ORDER BY st.truck_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.line_truck_statuses st
+                     WHERE st.workspace_id = p_workspace_id AND st.shift_id = p_legacy_shift_id),
+      'line_history', (SELECT COALESCE(jsonb_agg(lh.action_id ORDER BY lh.action_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.line_history lh
+                     WHERE lh.workspace_id = p_workspace_id AND lh.shift_id = p_legacy_shift_id),
+      'line_audit', (SELECT COALESCE(jsonb_agg(a.operation_id ORDER BY a.operation_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.line_audit a
+                     WHERE a.workspace_id = p_workspace_id AND a.operation_id = ANY(v_actions)),
+      'line_operation_receipts', (SELECT COALESCE(jsonb_agg(r.operation_id ORDER BY r.operation_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.line_operation_receipts r
+                     WHERE r.workspace_id = p_workspace_id AND r.operation_id = ANY(v_actions)),
+      'history_audit', (SELECT COALESCE(jsonb_agg(ha.operation_id ORDER BY ha.operation_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.history_audit ha
+                     WHERE ha.workspace_id = p_workspace_id AND ha.action_id = ANY(v_actions)),
+      'history_receipts', (SELECT COALESCE(jsonb_agg(r.operation_id ORDER BY r.operation_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.history_receipts r
+                     WHERE r.workspace_id = p_workspace_id AND r.operation_id = ANY(v_history_actions)),
+      'workspace_service_audit', (SELECT COALESCE(jsonb_agg(a.operation_id ORDER BY a.operation_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.workspace_service_audit a
+                     WHERE a.workspace_id = p_workspace_id AND a.operation_id = ANY(v_report_actions)),
+      'workspace_service_receipts', (SELECT COALESCE(jsonb_agg(r.operation_id ORDER BY r.operation_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.workspace_service_receipts r
+                     WHERE r.workspace_id = p_workspace_id AND r.operation_id = ANY(v_report_actions)),
+      'shift_operation_receipts', (SELECT COALESCE(jsonb_agg(r.operation_id ORDER BY r.operation_id COLLATE "C"),'[]'::jsonb)
+                      FROM public.shift_operation_receipts r
+                     WHERE r.workspace_id = p_workspace_id AND r.result->'shift'->>'id' = p_legacy_shift_id)
+    )
+  );
+END
+$restored_plan$;
+
+-- Public manifest entrypoint: exactly the hash-only manifest of the plan above.
+CREATE OR REPLACE FUNCTION public.restored_context_source_manifest(
+  p_workspace_id text,
+  p_legacy_shift_id text,
+  p_archive_id text,
+  p_base_archive_revision bigint,
+  p_migration_operation_id text
+) RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $restored_manifest$
+  SELECT public.restored_context_migration_plan(
+    p_workspace_id, p_legacy_shift_id, p_archive_id, p_base_archive_revision, p_migration_operation_id
+  )->'manifest'::text
+$restored_manifest$;
+
+-- ----------------------------------------------------------------------------
+-- The single exact mutation entrypoint. It accepts only a manifest built by the
+-- function above for the same locator; every identifier is a literal in the body
+-- and the only trigger it disables is named below.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.migrate_legacy_restored_context_exact(
+  p_workspace_id text,
+  p_manifest jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $restored_migrate$
+DECLARE
+  v_legacy_shift_id text;
+  v_archive_id text;
+  v_base_revision bigint;
+  v_operation_id text;
+  v_plan jsonb;
+  v_context jsonb;
+  v_context_id text;
+  v_evidence_id uuid;
+  v_closure_hash text;
+  v_existing record;
+  v_count int;
+  v_expected int;
+  v_root text;
+  v_trigger_state "char";
+  v_seed text;
+BEGIN
+  -- 0. Envelope. No identifier, table or trigger name is ever taken from here.
+  IF p_manifest IS NULL OR jsonb_typeof(p_manifest) <> 'object' THEN
+    RAISE EXCEPTION 'migration-manifest-invalid: a manifest object is required'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF p_manifest->>'schema' IS DISTINCT FROM 'samosval.restored-context-migration/v1' THEN
+    RAISE EXCEPTION 'migration-manifest-invalid: unsupported manifest schema %', COALESCE(p_manifest->>'schema','missing')
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF p_manifest->>'workspaceId' IS DISTINCT FROM p_workspace_id THEN
+    RAISE EXCEPTION 'migration-workspace-mismatch: manifest names workspace %, caller names %',
+      COALESCE(p_manifest->>'workspaceId','missing'), COALESCE(p_workspace_id,'missing')
+      USING ERRCODE = 'check_violation';
+  END IF;
+  v_legacy_shift_id := p_manifest->>'legacyShiftId';
+  v_archive_id := p_manifest->'archive'->>'archiveId';
+  v_operation_id := p_manifest->>'migrationOperationId';
+  IF v_legacy_shift_id IS NULL OR v_archive_id IS NULL OR v_operation_id IS NULL
+     OR jsonb_typeof(p_manifest->'archive'->'baseArchiveRevision') IS DISTINCT FROM 'number'
+     OR p_manifest->>'evidenceId' IS NULL OR p_manifest->>'closureHash' IS NULL THEN
+    RAISE EXCEPTION 'migration-manifest-invalid: manifest is missing its exact locator'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  v_base_revision := (p_manifest->'archive'->>'baseArchiveRevision')::bigint;
+  IF v_operation_id !~ '^[A-Za-z0-9_-]{1,160}$'
+     OR p_manifest->>'evidenceId' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     OR p_manifest->>'closureHash' !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'migration-manifest-invalid: migration identity is not well formed'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  -- The evidence allow-list is closed: an arbitrary source/target table is refused
+  -- before anything is read, and every row entry must be exactly this shape.
+  IF jsonb_typeof(COALESCE(p_manifest->'evidenceRows','[]'::jsonb)) <> 'array' THEN
+    RAISE EXCEPTION 'migration-manifest-invalid: evidenceRows must be an array'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(COALESCE(p_manifest->'evidenceRows','[]'::jsonb)) e
+     WHERE jsonb_typeof(e) <> 'object'
+        OR e->>'sourceTable' IS NULL OR e->>'sourceTable' NOT IN (
+             'workspace_service_audit','workspace_service_receipts','line_audit','line_operation_receipts',
+             'line_history','history_audit','history_receipts','shift_operation_receipts')
+        OR e->>'targetTable' IS NULL OR e->>'targetTable' NOT IN (
+             'restored_context_audit','restored_context_receipts','restored_context_history')
+        OR e->>'sourcePkHash' IS NULL OR e->>'sourcePkHash' !~ '^[0-9a-f]{64}$'
+        OR e->>'sourceRowSha256' IS NULL OR e->>'sourceRowSha256' !~ '^[0-9a-f]{64}$'
+        OR e->>'targetPkHash' IS NULL OR e->>'targetPkHash' !~ '^[0-9a-f]{64}$'
+        OR (SELECT count(*) FROM jsonb_object_keys(e)) <> 5
+  ) THEN
+    RAISE EXCEPTION 'migration-source-table-not-allowed: the manifest names a table or row outside the versioned allow-list'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 1. Advisory lock: serialization only, never authorization.
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    'samosval.restored-context-migration/v1|' || p_workspace_id || '|' || v_legacy_shift_id, 0));
+
+  -- 2. Replay or refuse. The target identity is deterministic, so a second call
+  -- with the same manifest is an exact replay only after the source is gone.
+  v_evidence_id := (p_manifest->>'evidenceId')::uuid;
+  SELECT * INTO v_existing FROM public.restored_context_migration_evidence e
+   WHERE e.workspace_id = p_workspace_id AND e.evidence_id = v_evidence_id;
+  IF FOUND THEN
+    IF v_existing.closure_hash IS DISTINCT FROM p_manifest->>'closureHash' THEN
+      RAISE EXCEPTION 'migration-already-applied-different-manifest: evidence % has another closure', v_evidence_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.shifts s
+                WHERE s.workspace_id = p_workspace_id AND s.shift_id = v_legacy_shift_id)
+       OR EXISTS (SELECT 1 FROM public.line_logs l
+                   WHERE l.workspace_id = p_workspace_id AND l.shift_id = v_legacy_shift_id)
+       OR EXISTS (SELECT 1 FROM public.line_truck_statuses st
+                   WHERE st.workspace_id = p_workspace_id AND st.shift_id = v_legacy_shift_id) THEN
+      RAISE EXCEPTION 'migration-double-authority: source of % is still present beside its context', v_legacy_shift_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN jsonb_build_object(
+      'outcome','replayed',
+      'evidenceId', v_evidence_id::text,
+      'restoredContextId', v_existing.migrated_context_id,
+      'archiveId', v_existing.archive_id,
+      'baseArchiveRevision', v_existing.base_archive_revision,
+      'closureHash', v_existing.closure_hash,
+      'migrationOperationId', v_existing.migration_operation_id
+    );
+  END IF;
+
+  -- 3. Lock source rows in table allow-list order, then canonical PK order.
+  PERFORM 1 FROM public.shifts s
+   WHERE s.workspace_id = p_workspace_id AND s.shift_id = v_legacy_shift_id
+   FOR UPDATE;
+  PERFORM 1 FROM public.line_logs l
+   WHERE l.workspace_id = p_workspace_id AND l.shift_id = v_legacy_shift_id
+   ORDER BY l.log_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.line_truck_statuses st
+   WHERE st.workspace_id = p_workspace_id AND st.shift_id = v_legacy_shift_id
+   ORDER BY st.truck_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.line_history lh
+   WHERE lh.workspace_id = p_workspace_id AND lh.shift_id = v_legacy_shift_id
+   ORDER BY lh.action_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.line_audit a
+   WHERE a.workspace_id = p_workspace_id
+     AND a.operation_id = ANY(ARRAY(SELECT lh.action_id FROM public.line_history lh
+                                     WHERE lh.workspace_id = p_workspace_id AND lh.shift_id = v_legacy_shift_id))
+   ORDER BY a.operation_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.line_operation_receipts r
+   WHERE r.workspace_id = p_workspace_id
+     AND r.operation_id = ANY(ARRAY(SELECT lh.action_id FROM public.line_history lh
+                                     WHERE lh.workspace_id = p_workspace_id AND lh.shift_id = v_legacy_shift_id))
+   ORDER BY r.operation_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.history_audit ha
+   WHERE ha.workspace_id = p_workspace_id
+     AND ha.action_id = ANY(ARRAY(SELECT lh.action_id FROM public.line_history lh
+                                   WHERE lh.workspace_id = p_workspace_id AND lh.shift_id = v_legacy_shift_id))
+   ORDER BY ha.operation_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.history_receipts r
+   WHERE r.workspace_id = p_workspace_id
+     AND r.operation_id = ANY(ARRAY(SELECT ha.operation_id FROM public.history_audit ha
+                                     WHERE ha.workspace_id = p_workspace_id
+                                       AND ha.action_id = ANY(ARRAY(SELECT lh.action_id FROM public.line_history lh
+                                                                     WHERE lh.workspace_id = p_workspace_id
+                                                                       AND lh.shift_id = v_legacy_shift_id))))
+   ORDER BY r.operation_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.workspace_service_audit a
+   WHERE a.workspace_id = p_workspace_id
+     AND a.type IN ('report.update','report.delete')
+     AND (a.before_data->>'shiftId' = v_legacy_shift_id OR a.after_data->>'shiftId' = v_legacy_shift_id)
+   ORDER BY a.operation_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.workspace_service_receipts r
+   WHERE r.workspace_id = p_workspace_id
+     AND r.operation_id = ANY(ARRAY(SELECT a.operation_id FROM public.workspace_service_audit a
+                                     WHERE a.workspace_id = p_workspace_id
+                                       AND a.type IN ('report.update','report.delete')
+                                       AND (a.before_data->>'shiftId' = v_legacy_shift_id
+                                            OR a.after_data->>'shiftId' = v_legacy_shift_id)))
+   ORDER BY r.operation_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.shift_operation_receipts r
+   WHERE r.workspace_id = p_workspace_id AND r.result->'shift'->>'id' = v_legacy_shift_id
+   ORDER BY r.operation_id COLLATE "C" FOR UPDATE;
+  PERFORM 1 FROM public.archive_overrides o
+   WHERE o.workspace_id = p_workspace_id
+     AND o.record_id = COALESCE(p_manifest->'receipt'->>'recordId','')
+   FOR UPDATE;
+
+  -- 4. Rebuild the plan from the locked rows and require the exact manifest.
+  v_plan := public.restored_context_migration_plan(
+    p_workspace_id, v_legacy_shift_id, v_archive_id, v_base_revision, v_operation_id);
+  IF v_plan->'manifest' IS DISTINCT FROM p_manifest THEN
+    RAISE EXCEPTION 'migration-manifest-mismatch: the locked source rows no longer match the manifest'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  v_context_id := v_plan->>'contextId';
+  v_closure_hash := v_plan->>'closureHash';
+  v_context := v_plan->'context';
+
+  -- 5. Double authority is refused before any write.
+  IF EXISTS (SELECT 1 FROM public.restored_context_migration_evidence e
+              WHERE e.workspace_id = p_workspace_id AND e.legacy_shift_id = v_legacy_shift_id) THEN
+    RAISE EXCEPTION 'migration-double-authority: legacy shift % already has a migration evidence', v_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.restored_context_migration_evidence e
+              WHERE e.workspace_id = p_workspace_id
+                AND e.source_locator = v_plan->'manifest'->'archive'->>'sourceLocator') THEN
+    RAISE EXCEPTION 'migration-locator-claimed: source locator % already backs another evidence',
+      v_plan->'manifest'->'archive'->>'sourceLocator'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.restored_shift_contexts c
+              WHERE c.workspace_id = p_workspace_id AND c.restored_context_id = v_context_id) THEN
+    RAISE EXCEPTION 'migration-double-authority: context % already exists', v_context_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.restored_shift_contexts c
+              WHERE c.workspace_id = p_workspace_id AND c.archive_id = v_archive_id
+                AND c.context_state = 'open') THEN
+    RAISE EXCEPTION 'migration-double-authority: archive % already has an open restored context', v_archive_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.restored_context_logs rl
+      JOIN jsonb_array_elements(v_plan->'logs') x ON x->>'log_id' = rl.source_log_id
+     WHERE rl.workspace_id = p_workspace_id) THEN
+    RAISE EXCEPTION 'migration-double-authority: a source trip of % already lives in a restored context', v_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 6. Copy: context, then its dedicated children. Every value comes from the
+  -- verified plan, never from the manifest itself.
+  INSERT INTO public.restored_shift_contexts(
+    workspace_id, restored_context_id, archive_id, source_shift_id, mode, context_state,
+    original_opened_by_uid, original_opened_by_name_snapshot, original_identity_resolution,
+    original_shift_type, original_shift_type_resolution,
+    restored_by_uid, restored_by_name_snapshot, restored_at,
+    archive_revision, context_revision, restore_operation_id,
+    source_state_snapshot, source_shift_revision, opened_at_snapshot,
+    object_id, object_name, work_date)
+  VALUES (
+    p_workspace_id, v_context_id, v_archive_id, v_context->>'source_shift_id',
+    v_context->>'mode', 'open',
+    v_context->>'original_opened_by_uid', v_context->>'original_opened_by_name_snapshot',
+    v_context->>'original_identity_resolution',
+    v_context->>'original_shift_type', v_context->>'original_shift_type_resolution',
+    v_context->>'restored_by_uid', v_context->>'restored_by_name_snapshot',
+    (v_context->>'restored_at')::timestamptz,
+    v_base_revision, 1, v_operation_id,
+    v_context->'source_state_snapshot', (v_context->>'source_shift_revision')::bigint,
+    (v_context->>'opened_at_snapshot')::timestamptz,
+    v_context->>'object_id', v_context->>'object_name', (v_context->>'work_date')::date);
+
+  INSERT INTO public.restored_context_logs(
+    workspace_id, restored_context_id, log_id, truck_id, payload, log_revision,
+    source_log_id, created_from_archive_revision)
+  SELECT p_workspace_id, v_context_id, x.log_id, x.truck_id, x.payload, x.log_revision,
+         x.source_log_id, x.created_from_archive_revision
+    FROM jsonb_to_recordset(v_plan->'logs') AS x(
+      log_id text, truck_id text, payload jsonb, log_revision bigint,
+      source_log_id text, created_from_archive_revision bigint);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  v_expected := (v_plan->'targetCounts'->>'restored_context_logs')::int;
+  IF v_count <> v_expected THEN
+    RAISE EXCEPTION 'migration-copy-count-mismatch: copied % trips of %, expected %', v_count, v_legacy_shift_id, v_expected
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  INSERT INTO public.restored_context_status_snapshots(
+    workspace_id, restored_context_id, truck_id, payload,
+    status_revision, cycle_revision, ttn_revision)
+  SELECT p_workspace_id, v_context_id, x.truck_id, x.payload,
+         x.status_revision, x.cycle_revision, x.ttn_revision
+    FROM jsonb_to_recordset(v_plan->'statuses') AS x(
+      truck_id text, payload jsonb, status_revision bigint, cycle_revision bigint, ttn_revision bigint);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  v_expected := (v_plan->'targetCounts'->>'restored_context_status_snapshots')::int;
+  IF v_count <> v_expected THEN
+    RAISE EXCEPTION 'migration-copy-count-mismatch: copied % status snapshots of %, expected %',
+      v_count, v_legacy_shift_id, v_expected
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  INSERT INTO public.restored_context_history(
+    workspace_id, action_id, restored_context_id, uid, type,
+    before_log, after_log, before_status_snapshot, after_status_snapshot,
+    revision, undone, created_at)
+  SELECT p_workspace_id, x.action_id, v_context_id, x.uid, x.type,
+         x.before_log, x.after_log, x.before_status_snapshot, x.after_status_snapshot,
+         x.revision, x.undone, (x.created_at)::timestamptz
+    FROM jsonb_to_recordset(v_plan->'history') AS x(
+      action_id text, uid text, type text, before_log jsonb, after_log jsonb,
+      before_status_snapshot jsonb, after_status_snapshot jsonb,
+      revision bigint, undone boolean, created_at text);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  v_expected := (v_plan->'targetCounts'->>'restored_context_history')::int;
+  IF v_count <> v_expected THEN
+    RAISE EXCEPTION 'migration-copy-count-mismatch: copied % history rows of %, expected %',
+      v_count, v_legacy_shift_id, v_expected
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  INSERT INTO public.restored_context_receipts(
+    workspace_id, operation_id, restored_context_id, uid,
+    protocol_version, command_hash, result, recorded_at)
+  SELECT p_workspace_id, x.operation_id, v_context_id, x.uid,
+         x.protocol_version, x.command_hash, x.result, (x.recorded_at)::timestamptz
+    FROM jsonb_to_recordset(v_plan->'receipts') AS x(
+      operation_id text, uid text, protocol_version smallint, command_hash text,
+      result jsonb, recorded_at text);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  v_expected := (v_plan->'targetCounts'->>'restored_context_receipts')::int;
+  IF v_count <> v_expected THEN
+    RAISE EXCEPTION 'migration-copy-count-mismatch: copied % receipts of %, expected %',
+      v_count, v_legacy_shift_id, v_expected
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  INSERT INTO public.restored_context_audit(
+    workspace_id, restored_context_id, action_id, operation_id, uid, type,
+    before_state, after_state, recorded_at)
+  SELECT p_workspace_id, v_context_id, x.action_id, x.operation_id, x.uid, x.type,
+         x.before_state, x.after_state, (x.recorded_at)::timestamptz
+    FROM jsonb_to_recordset(v_plan->'audits') AS x(
+      action_id text, operation_id text, uid text, type text,
+      before_state jsonb, after_state jsonb, recorded_at text);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  v_expected := (v_plan->'targetCounts'->>'restored_context_audit')::int;
+  IF v_count <> v_expected THEN
+    RAISE EXCEPTION 'migration-copy-count-mismatch: copied % audit rows of %, expected %',
+      v_count, v_legacy_shift_id, v_expected
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 7. Evidence: parent first, then one child row per migrated append-only row
+  -- through the exact parent FK. `restored_context_id` is deliberately absent.
+  INSERT INTO public.restored_context_migration_evidence(
+    workspace_id, evidence_id, legacy_shift_id, archive_id, base_archive_revision,
+    source_locator, source_bytes_sha256, source_counts, source_table_roots,
+    closure_hash, migrated_context_id, migration_operation_id)
+  VALUES (
+    p_workspace_id, v_evidence_id, v_legacy_shift_id, v_archive_id, v_base_revision,
+    v_plan->'manifest'->'archive'->>'sourceLocator', v_plan->'manifest'->'archive'->>'sourceBytesSha256',
+    v_plan->'counts', v_plan->'roots', v_closure_hash, v_context_id, v_operation_id);
+
+  INSERT INTO public.restored_context_migration_evidence_rows(
+    workspace_id, evidence_id, source_table, source_pk_canonical_jcs, source_pk_hash,
+    source_row_sha256, source_bytes, representation_kind, target_table, target_pk_canonical_jcs)
+  SELECT p_workspace_id, v_evidence_id, x.source_table, x.source_pk_canonical_jcs,
+         x.source_pk_hash, x.source_row_sha256, decode(x.source_bytes_hex,'hex'),
+         x.representation_kind, x.target_table, x.target_pk_canonical_jcs
+    FROM jsonb_to_recordset(v_plan->'evidenceRows') AS x(
+      source_table text, source_pk_canonical_jcs text, source_pk_hash text,
+      source_row_sha256 text, source_bytes_hex text, representation_kind text,
+      target_table text, target_pk_canonical_jcs text);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  v_expected := jsonb_array_length(v_plan->'evidenceRows');
+  IF v_count <> v_expected THEN
+    RAISE EXCEPTION 'migration-evidence-count-mismatch: wrote % evidence rows, expected %', v_count, v_expected
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 8. Verify every copied set against the plan: count and aggregate root.
+  SELECT count(*)::int INTO v_count FROM public.restored_context_logs rl
+   WHERE rl.workspace_id = p_workspace_id AND rl.restored_context_id = v_context_id;
+  IF v_count <> (v_plan->'targetCounts'->>'restored_context_logs')::int THEN
+    RAISE EXCEPTION 'migration-copy-count-mismatch: stored trips of % are %', v_context_id, v_count
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT encode(sha256(convert_to(COALESCE(string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C"),''),'UTF8')),'hex')
+    INTO v_root
+    FROM (SELECT rl.log_id AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'log_id',rl.log_id,'truck_id',rl.truck_id,'payload',rl.payload,
+                   'log_revision',rl.log_revision,'source_log_id',rl.source_log_id,
+                   'created_from_archive_revision',rl.created_from_archive_revision
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM public.restored_context_logs rl
+           WHERE rl.workspace_id = p_workspace_id AND rl.restored_context_id = v_context_id) t;
+  IF v_root IS DISTINCT FROM v_plan->'roots'->>'restored_context_logs' THEN
+    RAISE EXCEPTION 'migration-copy-root-mismatch: restored trips of % differ from the plan', v_context_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT encode(sha256(convert_to(COALESCE(string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C"),''),'UTF8')),'hex')
+    INTO v_root
+    FROM (SELECT st.truck_id AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'truck_id',st.truck_id,'payload',st.payload,
+                   'status_revision',st.status_revision,'cycle_revision',st.cycle_revision,
+                   'ttn_revision',st.ttn_revision
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM public.restored_context_status_snapshots st
+           WHERE st.workspace_id = p_workspace_id AND st.restored_context_id = v_context_id) t;
+  IF v_root IS DISTINCT FROM v_plan->'roots'->>'restored_context_status_snapshots' THEN
+    RAISE EXCEPTION 'migration-copy-root-mismatch: status snapshots of % differ from the plan', v_context_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT encode(sha256(convert_to(COALESCE(string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C"),''),'UTF8')),'hex')
+    INTO v_root
+    FROM (SELECT h.action_id AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'action_id',h.action_id,'uid',h.uid,'type',h.type,
+                   'before_log',h.before_log,'after_log',h.after_log,
+                   'before_status_snapshot',h.before_status_snapshot,
+                   'after_status_snapshot',h.after_status_snapshot,
+                   'revision',h.revision,'undone',h.undone,
+                   'created_at',to_char(h.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM public.restored_context_history h
+           WHERE h.workspace_id = p_workspace_id AND h.restored_context_id = v_context_id) t;
+  IF v_root IS DISTINCT FROM v_plan->'roots'->>'restored_context_history' THEN
+    RAISE EXCEPTION 'migration-copy-root-mismatch: restored history of % differs from the plan', v_context_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT encode(sha256(convert_to(COALESCE(string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C"),''),'UTF8')),'hex')
+    INTO v_root
+    FROM (SELECT r.operation_id AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'operation_id',r.operation_id,'uid',r.uid,'protocol_version',r.protocol_version,
+                   'command_hash',r.command_hash,'result',r.result,
+                   'recorded_at',to_char(r.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM public.restored_context_receipts r
+           WHERE r.workspace_id = p_workspace_id AND r.restored_context_id = v_context_id) t;
+  IF v_root IS DISTINCT FROM v_plan->'roots'->>'restored_context_receipts' THEN
+    RAISE EXCEPTION 'migration-copy-root-mismatch: restored receipts of % differ from the plan', v_context_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT encode(sha256(convert_to(COALESCE(string_agg(t.row_sha, ',' ORDER BY t.sort_key COLLATE "C"),''),'UTF8')),'hex')
+    INTO v_root
+    FROM (SELECT (a.operation_id)||'/'||(a.type) AS sort_key,
+                 encode(sha256(convert_to(jsonb_build_object(
+                   'action_id',a.action_id,'operation_id',a.operation_id,'uid',a.uid,
+                   'type',a.type,'before_state',a.before_state,'after_state',a.after_state,
+                   'recorded_at',to_char(a.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                 )::text,'UTF8')),'hex') AS row_sha
+            FROM public.restored_context_audit a
+           WHERE a.workspace_id = p_workspace_id AND a.restored_context_id = v_context_id) t;
+  IF v_root IS DISTINCT FROM v_plan->'roots'->>'restored_context_audit' THEN
+    RAISE EXCEPTION 'migration-copy-root-mismatch: restored audit of % differs from the plan', v_context_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- Parent -> context consistency and evidence completeness.
+  IF NOT EXISTS (SELECT 1 FROM public.restored_context_migration_evidence e
+                  WHERE e.workspace_id = p_workspace_id AND e.evidence_id = v_evidence_id
+                    AND e.migrated_context_id = v_context_id AND e.closure_hash = v_closure_hash) THEN
+    RAISE EXCEPTION 'migration-evidence-gap: evidence % does not close context %', v_evidence_id, v_context_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 9. Close the legacy restore receipt under the named guard. The guard is
+  -- disabled for exactly this statement and re-enabled in the same transaction,
+  -- so any failure below rolls both the placement and the trigger state back.
+  ALTER TABLE public.archive_overrides DISABLE TRIGGER archive_overrides_restored_receipt_immutable;
+  UPDATE public.archive_overrides o
+     SET location = 'archive', revision = o.revision + 1
+   WHERE o.workspace_id = p_workspace_id
+     AND o.record_id = v_plan->'receiptTarget'->>'recordId'
+     AND o.location = 'restored'
+     AND o.revision = (v_plan->'receiptTarget'->>'revision')::bigint;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'migration-receipt-changed: the legacy restore receipt of % changed during the migration', v_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  ALTER TABLE public.archive_overrides ENABLE TRIGGER archive_overrides_restored_receipt_immutable;
+
+  -- 10. Exact source delete, children first, synthetic shift anchor last.
+  DELETE FROM public.line_audit a
+   USING jsonb_array_elements_text(v_plan->'delete'->'line_audit') k(operation_id)
+   WHERE a.workspace_id = p_workspace_id AND a.operation_id = k.operation_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'line_audit')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % line_audit rows, expected %',
+      v_count, v_plan->'counts'->>'line_audit'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.line_operation_receipts r
+   USING jsonb_array_elements_text(v_plan->'delete'->'line_operation_receipts') k(operation_id)
+   WHERE r.workspace_id = p_workspace_id AND r.operation_id = k.operation_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'line_operation_receipts')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % line receipts, expected %',
+      v_count, v_plan->'counts'->>'line_operation_receipts'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.history_audit ha
+   USING jsonb_array_elements_text(v_plan->'delete'->'history_audit') k(operation_id)
+   WHERE ha.workspace_id = p_workspace_id AND ha.operation_id = k.operation_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'history_audit')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % history audit rows, expected %',
+      v_count, v_plan->'counts'->>'history_audit'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.history_receipts r
+   USING jsonb_array_elements_text(v_plan->'delete'->'history_receipts') k(operation_id)
+   WHERE r.workspace_id = p_workspace_id AND r.operation_id = k.operation_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'history_receipts')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % history receipts, expected %',
+      v_count, v_plan->'counts'->>'history_receipts'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.workspace_service_audit a
+   USING jsonb_array_elements_text(v_plan->'delete'->'workspace_service_audit') k(operation_id)
+   WHERE a.workspace_id = p_workspace_id AND a.operation_id = k.operation_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'workspace_service_audit')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % report audit rows, expected %',
+      v_count, v_plan->'counts'->>'workspace_service_audit'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.workspace_service_receipts r
+   USING jsonb_array_elements_text(v_plan->'delete'->'workspace_service_receipts') k(operation_id)
+   WHERE r.workspace_id = p_workspace_id AND r.operation_id = k.operation_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'workspace_service_receipts')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % report receipts, expected %',
+      v_count, v_plan->'counts'->>'workspace_service_receipts'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.shift_operation_receipts r
+   USING jsonb_array_elements_text(v_plan->'delete'->'shift_operation_receipts') k(operation_id)
+   WHERE r.workspace_id = p_workspace_id AND r.operation_id = k.operation_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'shift_operation_receipts')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % shift receipts, expected %',
+      v_count, v_plan->'counts'->>'shift_operation_receipts'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.line_history lh
+   USING jsonb_array_elements_text(v_plan->'delete'->'line_history') k(action_id)
+   WHERE lh.workspace_id = p_workspace_id AND lh.action_id = k.action_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'line_history')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % history rows, expected %',
+      v_count, v_plan->'counts'->>'line_history'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.line_truck_statuses st
+   USING jsonb_array_elements_text(v_plan->'delete'->'line_truck_statuses') k(truck_id)
+   WHERE st.workspace_id = p_workspace_id AND st.truck_id = k.truck_id
+     AND st.shift_id = v_legacy_shift_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'line_truck_statuses')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % truck statuses, expected %',
+      v_count, v_plan->'counts'->>'line_truck_statuses'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.line_logs l
+   USING jsonb_array_elements_text(v_plan->'delete'->'line_logs') k(log_id)
+   WHERE l.workspace_id = p_workspace_id AND l.log_id = k.log_id
+     AND l.shift_id = v_legacy_shift_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> (v_plan->'counts'->>'line_logs')::int THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % trips, expected %',
+      v_count, v_plan->'counts'->>'line_logs'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  DELETE FROM public.shifts s
+   WHERE s.workspace_id = p_workspace_id AND s.shift_id = v_legacy_shift_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'migration-delete-count-mismatch: deleted % shift anchors, expected 1', v_count
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 11. Postconditions: nothing of the source survives, the named trigger is
+  -- enabled again, the receipt is closed and no double authority was produced.
+  IF EXISTS (SELECT 1 FROM public.line_logs l
+              WHERE l.workspace_id = p_workspace_id AND l.shift_id = v_legacy_shift_id)
+     OR EXISTS (SELECT 1 FROM public.line_truck_statuses st
+                 WHERE st.workspace_id = p_workspace_id AND st.shift_id = v_legacy_shift_id)
+     OR EXISTS (SELECT 1 FROM public.line_history lh
+                 WHERE lh.workspace_id = p_workspace_id AND lh.shift_id = v_legacy_shift_id)
+     OR EXISTS (SELECT 1 FROM public.shifts s
+                 WHERE s.workspace_id = p_workspace_id AND s.shift_id = v_legacy_shift_id) THEN
+    RAISE EXCEPTION 'migration-source-remains: source rows of % survived the delete', v_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT t.tgenabled INTO v_trigger_state FROM pg_catalog.pg_trigger t
+   WHERE t.tgrelid = 'public.archive_overrides'::regclass
+     AND t.tgname = 'archive_overrides_restored_receipt_immutable';
+  IF v_trigger_state IS DISTINCT FROM 'O' THEN
+    RAISE EXCEPTION 'migration-trigger-not-restored: the named receipt guard is not enabled after the migration'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.archive_overrides o
+                  WHERE o.workspace_id = p_workspace_id
+                    AND o.record_id = v_plan->'receiptTarget'->>'recordId'
+                    AND o.location = 'archive') THEN
+    RAISE EXCEPTION 'migration-receipt-changed: the legacy restore receipt of % is not closed', v_legacy_shift_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.restored_context_logs rl
+              WHERE rl.workspace_id = p_workspace_id AND rl.restored_context_id <> v_context_id
+                AND rl.source_log_id IN (SELECT x->>'log_id' FROM jsonb_array_elements(v_plan->'logs') x)) THEN
+    RAISE EXCEPTION 'migration-double-authority: a migrated trip is also held by another context'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'outcome','migrated',
+    'evidenceId', v_evidence_id::text,
+    'restoredContextId', v_context_id,
+    'archiveId', v_archive_id,
+    'baseArchiveRevision', v_base_revision,
+    'mode', v_plan->>'mode',
+    'closureHash', v_closure_hash,
+    'migrationOperationId', v_operation_id,
+    'counts', v_plan->'counts',
+    'targetCounts', v_plan->'targetCounts',
+    'sourceLocator', v_plan->'manifest'->'archive'->>'sourceLocator'
+  );
+END
+$restored_migrate$;
+
+-- ----------------------------------------------------------------------------
+-- Authority: the evidence owner owns the legacy receipt catalog (so the single
+-- named trigger can be disabled inside the exact function) and both entrypoints.
+-- The runtime never gains EXECUTE on the mutation function; the maintenance
+-- executor gets the read-only entrypoints and receives the mutation grant only
+-- for the explicit maintenance window handled by src/restored-context-migration.mjs.
+-- ----------------------------------------------------------------------------
+DO $restored_migration_authority$
+DECLARE
+  can_assume_owner boolean;
+  can_administer boolean;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_migration_evidence_owner') THEN
+    RAISE EXCEPTION 'samosval_migration_evidence_owner must be bootstrapped before 025'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT (r.rolsuper OR pg_has_role(current_user, 'samosval_migration_evidence_owner', 'MEMBER'))
+    INTO can_assume_owner
+    FROM pg_roles r WHERE r.rolname = current_user;
+  -- Fail closed: an entrypoint owned by the applying (privileged) role would be an
+  -- escalation path for the maintenance executor, so the migration refuses it.
+  IF COALESCE(can_assume_owner, false) = false THEN
+    RAISE EXCEPTION 'restored migration entrypoints require the samosval_migration_evidence_owner role'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  GRANT USAGE ON SCHEMA public TO samosval_migration_evidence_owner;
+  -- The runtime and the maintenance executor must be able to resolve names in
+  -- public before any ACL can be evaluated. This is schema visibility only: no
+  -- table or function privilege is implied or granted here.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_runtime') THEN
+    GRANT USAGE ON SCHEMA public TO samosval_runtime;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_maintenance') THEN
+    GRANT USAGE ON SCHEMA public TO samosval_maintenance;
+  END IF;
+
+  -- The receipt catalog is owned by the evidence owner so the exact function can
+  -- disable its own named guard. The app keeps its catalog rights explicitly.
+  SELECT (r.rolsuper OR pg_has_role(current_user, c.relowner, 'MEMBER')) INTO can_administer
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, pg_roles r
+   WHERE n.nspname = 'public' AND c.relname = 'archive_overrides' AND r.rolname = current_user;
+  IF COALESCE(can_administer, false) THEN
+    ALTER TABLE public.archive_overrides OWNER TO samosval_migration_evidence_owner;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_runtime') THEN
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.archive_overrides TO samosval_runtime;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_schema_owner') THEN
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.archive_overrides TO samosval_schema_owner;
+    END IF;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.archive_overrides TO CURRENT_USER;
+  END IF;
+
+  -- Exact read/delete rights the migration needs. UPDATE is only the row-lock
+  -- privilege `SELECT ... FOR UPDATE` requires, never a data mutation path.
+  GRANT SELECT ON TABLE public.app_users, public.workspaces, public.line_trucks TO samosval_migration_evidence_owner;
+  GRANT SELECT ON TABLE public.shift_archive_series, public.shift_archive_revisions TO samosval_migration_evidence_owner;
+  GRANT SELECT, UPDATE, DELETE ON TABLE public.shifts, public.line_logs, public.line_truck_statuses TO samosval_migration_evidence_owner;
+  GRANT SELECT ON TABLE public.shift_members, public.legacy_line_status_snapshots,
+                        public.legacy_cutover_historicalization_audit, public.shift_archives TO samosval_migration_evidence_owner;
+  GRANT SELECT, UPDATE, DELETE ON TABLE public.workspace_service_audit, public.workspace_service_receipts,
+                           public.line_audit, public.line_operation_receipts, public.line_history,
+                           public.history_audit, public.history_receipts, public.shift_operation_receipts
+    TO samosval_migration_evidence_owner;
+  GRANT SELECT, INSERT ON TABLE public.restored_shift_contexts, public.restored_context_logs,
+                           public.restored_context_status_snapshots, public.restored_context_history,
+                           public.restored_context_receipts, public.restored_context_audit
+    TO samosval_migration_evidence_owner;
+  GRANT SELECT, INSERT ON TABLE public.restored_context_migration_evidence,
+                           public.restored_context_migration_evidence_rows
+    TO samosval_migration_evidence_owner;
+
+  ALTER FUNCTION public.archive_overrides_restored_receipt_guard() OWNER TO samosval_migration_evidence_owner;
+  ALTER FUNCTION public.restored_context_migration_plan(text,text,text,bigint,text)
+    OWNER TO samosval_migration_evidence_owner;
+  ALTER FUNCTION public.restored_context_source_manifest(text,text,text,bigint,text)
+    OWNER TO samosval_migration_evidence_owner;
+  ALTER FUNCTION public.migrate_legacy_restored_context_exact(text,jsonb)
+    OWNER TO samosval_migration_evidence_owner;
+
+  REVOKE ALL ON FUNCTION public.restored_context_migration_plan(text,text,text,bigint,text) FROM PUBLIC;
+  REVOKE ALL ON FUNCTION public.restored_context_source_manifest(text,text,text,bigint,text) FROM PUBLIC;
+  REVOKE ALL ON FUNCTION public.migrate_legacy_restored_context_exact(text,jsonb) FROM PUBLIC;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_runtime') THEN
+    REVOKE ALL ON FUNCTION public.restored_context_migration_plan(text,text,text,bigint,text) FROM samosval_runtime;
+    REVOKE ALL ON FUNCTION public.restored_context_source_manifest(text,text,text,bigint,text) FROM samosval_runtime;
+    REVOKE ALL ON FUNCTION public.migrate_legacy_restored_context_exact(text,jsonb) FROM samosval_runtime;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'samosval_maintenance') THEN
+    -- The preflight/manifest build is read-only and belongs to the maintenance
+    -- executor. The mutation entrypoint stays revoked until the maintenance window.
+    GRANT EXECUTE ON FUNCTION public.restored_context_migration_plan(text,text,text,bigint,text) TO samosval_maintenance;
+    GRANT EXECUTE ON FUNCTION public.restored_context_source_manifest(text,text,text,bigint,text) TO samosval_maintenance;
+    REVOKE ALL ON FUNCTION public.migrate_legacy_restored_context_exact(text,jsonb) FROM samosval_maintenance;
+  END IF;
+END
+$restored_migration_authority$;
+
 COMMIT;
