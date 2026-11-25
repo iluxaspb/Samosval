@@ -28,31 +28,37 @@ const sha256Hex = value => createHash('sha256').update(value).digest('hex');
 // database with a different locale after a restore into another cluster.
 const byteCompare = (a, b) => Buffer.compare(Buffer.from(String(a), 'utf8'), Buffer.from(String(b), 'utf8'));
 
-// Deterministic identity of the live database. It must NOT depend on data volume,
-// otherwise recording the confirmation row itself would invalidate the fingerprint.
-// `system_identifier` identifies the cluster; postmaster start time detects a
-// restart/restore into a different instance. Both are read-only and never random.
+// Deterministic identity of the live database. Two hard requirements:
+//
+// 1. ROLE INDEPENDENT. The preflight runs under the deployment/bootstrap account,
+//    the destructive cutover under the maintenance executor. If any part of the hash
+//    depended on `current_user` privileges (e.g. `system_identifier` from the
+//    superuser-only `pg_control_system()`), the two would disagree and a legitimate
+//    cutover would fail with `confirmation-environment-changed`. Everything below is
+//    readable by any role, so no privilege probing and no NULL branches.
+// 2. SESSION INDEPENDENT. `timestamptz::text` is rendered in the session `TimeZone`
+//    (and honours `DateStyle`), so the same cluster would hash differently from a
+//    connection with a different timezone. The postmaster start time is rendered
+//    explicitly in UTC with a fixed format instead.
+//
+// It must NOT depend on data volume, otherwise recording the confirmation row itself
+// would invalidate the fingerprint.
+//
+// `postmasterStartUtc` is intentionally part of the fingerprint: a cluster restart or
+// failover between confirmation and cutover changes it and the cutover is refused
+// (fail-closed). The owner then takes a fresh preflight and reconfirms. That is the
+// safe direction: a stale confirmation must never survive into a different instance.
 export async function computeDatabaseFingerprint(client) {
   const row = (await client.query(`
     SELECT current_database() AS database,
-           pg_postmaster_start_time()::text AS postmaster_start,
-           (SELECT oid::text FROM pg_database WHERE datname = current_database()) AS database_oid
+           (SELECT oid::text FROM pg_database WHERE datname = current_database()) AS database_oid,
+           to_char(pg_postmaster_start_time() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US') AS postmaster_start_utc
   `)).rows[0];
-  // pg_control_system() is superuser-only by default; probe the privilege instead of
-  // failing a statement inside the caller's transaction (a failed statement would
-  // abort it and silently break every later query).
-  const allowed = (await client.query(
-    "SELECT has_function_privilege(current_user,'pg_control_system()','EXECUTE') AS ok",
-  )).rows[0].ok;
-  const systemIdentifier = allowed
-    ? (await client.query('SELECT system_identifier::text AS id FROM pg_control_system()')).rows[0].id
-    : null;
   return sha256Hex(canonicalJson({
-    schema: 'samosval.database-fingerprint/v1',
+    schema: 'samosval.database-fingerprint/v2',
     database: row.database,
-    postmasterStart: row.postmaster_start,
     databaseOid: row.database_oid,
-    systemIdentifier,
+    postmasterStartUtc: row.postmaster_start_utc,
   }));
 }
 
@@ -199,16 +205,12 @@ export async function recordHistoricalizationConfirmation(client, input) {
 // `role='admin'` account, exactly like the owner gate. Task 5 must replace this with
 // the real maintenance role and must NOT look for a role that is not there yet.
 export async function historicalizeConfirmedLegacy(client, {
-  confirmationId, confirmReportSha256, maintenanceActorUid,
-  liveBackupManifestSha256, liveDatabaseFingerprint,
+  confirmationId, confirmReportSha256, maintenanceActorUid, liveBackupManifestSha256,
 }) {
-  // The live environment values come from the caller (maintenance entrypoint / CLI
-  // flags the owner confirms at execution time). Without them there is nothing to
-  // compare against, so the cutover is refused rather than silently self-confirmed.
+  // The backup manifest is an external artifact (a file on the backup host), so it can
+  // only come from the caller. The database fingerprint is NOT: it is recomputed from
+  // this very connection below, so copying it out of report.json cannot confirm itself.
   if (typeof liveBackupManifestSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(liveBackupManifestSha256)) {
-    throw fail('live-environment-required', 400);
-  }
-  if (typeof liveDatabaseFingerprint !== 'string' || !liveDatabaseFingerprint) {
     throw fail('live-environment-required', 400);
   }
   await client.query('BEGIN');
@@ -233,9 +235,9 @@ export async function historicalizeConfirmedLegacy(client, {
     const { workspaceId } = stored;
     // The confirmation row and the exact bytes must describe the same workspace.
     if (conf.workspace_id !== workspaceId) throw fail('report-context-mismatch');
-    // §4.8 п.6: the backup manifest and database fingerprint confirmed by the owner
-    // must still be the live ones. Compared against caller-supplied live values, not
-    // against the stored bytes, so this check can actually fail.
+    // §4.8 п.6: the environment the owner confirmed must still be the live one.
+    // The fingerprint is measured here, inside the transaction, before any mutation.
+    const liveDatabaseFingerprint = await computeDatabaseFingerprint(client);
     if (stored.backupManifestSha256 !== liveBackupManifestSha256
         || stored.databaseFingerprint !== liveDatabaseFingerprint) {
       throw fail('confirmation-environment-changed');

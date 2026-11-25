@@ -20,7 +20,7 @@ if (args.some(arg => arg === '--apply' || arg.startsWith('--apply='))) {
 const outIndex = args.indexOf('--out');
 const outDir = outIndex >= 0 ? args[outIndex + 1] : null;
 if (!outDir) {
-  console.error('usage: preflight-parallel-shifts.mjs --out <dir> [--workspace <id>] [--expires-at <iso>] [--backup-manifest-sha256 <hex>] [--database-fingerprint <text>]');
+  console.error('usage: preflight-parallel-shifts.mjs --out <dir> --expires-at <iso> --backup-manifest-sha256 <hex> [--workspace <id>] [--database-fingerprint <hex>]');
   process.exit(2);
 }
 const option = name => {
@@ -30,9 +30,9 @@ const option = name => {
 const workspaceId = option('--workspace') || process.env.WORKSPACE_ID || 'main_workspace';
 const expiresAt = option('--expires-at');
 const backupManifestSha256 = option('--backup-manifest-sha256');
-const databaseFingerprint = option('--database-fingerprint');
-if (!expiresAt || !backupManifestSha256 || !databaseFingerprint) {
-  console.error('preflight: --expires-at, --backup-manifest-sha256 and --database-fingerprint are required');
+const claimedFingerprint = option('--database-fingerprint');
+if (!expiresAt || !backupManifestSha256) {
+  console.error('preflight: --expires-at and --backup-manifest-sha256 are required');
   process.exit(2);
 }
 
@@ -42,12 +42,14 @@ try {
   // Read-only transaction: any accidental write fails at the database level.
   await client.query('BEGIN READ ONLY');
   const migrationVersion = (await client.query("SELECT max(filename) AS v FROM schema_migrations")).rows[0]?.v ?? null;
-  // The owner confirms the environment by passing the fingerprint. Verify it against
-  // the live cluster instead of trusting the flag: a stale or copied value would
-  // otherwise be stored in the report and later compared only with itself.
+  // The tool measures the live cluster itself; there is no chicken-and-egg flag to
+  // discover first. A passed --database-fingerprint is only cross-checked: if it does
+  // not match, the operator is running against a different instance than intended.
   const liveFingerprint = await computeDatabaseFingerprint(client);
-  if (liveFingerprint !== databaseFingerprint) {
-    const error = Object.assign(new Error('confirmation-environment-changed'), { code: 'confirmation-environment-changed' });
+  if (claimedFingerprint !== undefined && claimedFingerprint !== liveFingerprint) {
+    const error = Object.assign(new Error(
+      `live ${liveFingerprint}, claimed ${claimedFingerprint}`,
+    ), { code: 'confirmation-environment-changed' });
     throw error;
   }
   const built = await buildHistoricalizationReport(client, {

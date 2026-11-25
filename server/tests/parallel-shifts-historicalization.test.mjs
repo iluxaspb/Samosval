@@ -78,7 +78,7 @@ async function prepare(suffix, legacyRows = []) {
 }
 
 // Unresolved-type legacy row -> 025 classifies it as historical (report scope).
-async function seedLegacyV1(pool, ids, { shiftId, withStatus = true, logs = [], foreign = false }) {
+async function seedLegacyV1(pool, ids, { shiftId, withStatus = true, logs = [], foreign = false, restored = false }) {
   const payload = foreign
     ? {
       id: shiftId, objectId: ids.objectAId, objectName: ids.objectAId,
@@ -90,6 +90,8 @@ async function seedLegacyV1(pool, ids, { shiftId, withStatus = true, logs = [], 
       id: shiftId, objectId: ids.objectAId, objectName: ids.objectAId,
       startDate: '23.11.2026', startedAt: 1795420800000, startedBy: 'legacy', isActive: false,
       closing: true, closingStartedAt: 1795420900000, closingBy: 'legacy', state: 'closing',
+      // D7: a restored archive copy is never a live line and never a proven opener.
+      ...(restored ? { restored: true, restoredFrom: `${shiftId}_archive` } : {}),
     };
   await pool.query(
     'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,false,$3)',
@@ -137,15 +139,31 @@ function confirm(client, ids, built, confirmationId, overrides = {}) {
   });
 }
 
-// Defaults are exactly the values the owner confirmed; overrides simulate drift.
+// The backup manifest is the only caller-supplied "live" value; the database
+// fingerprint is measured by the module itself, so it cannot be faked from here.
 function consume(client, ids, built, confirmationId, overrides = {}) {
   return historicalizeConfirmedLegacy(client, {
     confirmationId,
     confirmReportSha256: overrides.confirmReportSha256 ?? built.sha256,
     maintenanceActorUid: overrides.maintenanceActorUid ?? ids.adminUid,
     liveBackupManifestSha256: overrides.liveBackup ?? built.report.backupManifestSha256,
-    liveDatabaseFingerprint: overrides.liveFingerprint ?? built.report.databaseFingerprint,
   });
+}
+
+// Replaces the fingerprint inside the stored confirmation bytes and recomputes the
+// hash, so the row is internally consistent but describes a different cluster.
+async function rewriteStoredFingerprint(client, confirmationId, fingerprint) {
+  const stored = JSON.parse((await client.query(
+    'SELECT report_bytes FROM legacy_historicalization_confirmations WHERE confirmation_id=$1',
+    [confirmationId],
+  )).rows[0].report_bytes.toString('utf8'));
+  stored.databaseFingerprint = fingerprint;
+  const bytes = Buffer.from(canonicalJson(stored), 'utf8');
+  await client.query(
+    "UPDATE legacy_historicalization_confirmations SET report_bytes=$2, report_sha256=encode(sha256($2),'hex') WHERE confirmation_id=$1",
+    [confirmationId, bytes],
+  );
+  return bytes;
 }
 
 async function counts(client) {
@@ -255,15 +273,18 @@ for (const [label, from, to] of [
 
 // ---------- Major 1: the live environment must match the confirmation ----------
 
-test('a different live database fingerprint aborts before any mutation', { skip: !approved }, async () => {
+test('a confirmation that describes another database aborts before any mutation', { skip: !approved }, async () => {
   const ids = await prepare('env_fp', [{ shiftId: 'shift_env_fp' }]);
   const pool = db();
   const client = await pool.connect();
   try {
     const built = await buildFor(client, ids);
     await confirm(client, ids, built, 'conf_env_fp');
+    // The stored confirmation now describes a different cluster, with a valid hash of
+    // its own bytes. Nothing the caller can pass makes it match the live fingerprint.
+    const bytes = await rewriteStoredFingerprint(client, 'conf_env_fp', sha('another-cluster'));
     await assert.rejects(
-      () => consume(client, ids, built, 'conf_env_fp', { liveFingerprint: 'fp-of-another-cluster' }),
+      () => consume(client, ids, built, 'conf_env_fp', { confirmReportSha256: sha(bytes) }),
       { code: 'confirmation-environment-changed' },
     );
     await assertUntouched(client, { statuses: 1 });
@@ -285,14 +306,14 @@ test('a different live backup manifest aborts before any mutation', { skip: !app
   } finally { client.release(); await pool.end(); }
 });
 
-test('missing live environment values are refused, never self-confirmed', { skip: !approved }, async () => {
+test('a missing or malformed live backup manifest is refused, never self-confirmed', { skip: !approved }, async () => {
   const ids = await prepare('env_missing', [{ shiftId: 'shift_env_ms' }]);
   const pool = db();
   const client = await pool.connect();
   try {
     const built = await buildFor(client, ids);
     await confirm(client, ids, built, 'conf_env_ms');
-    await assert.rejects(() => consume(client, ids, built, 'conf_env_ms', { liveFingerprint: '' }), { code: 'live-environment-required' });
+    await assert.rejects(() => consume(client, ids, built, 'conf_env_ms', { liveBackup: '' }), { code: 'live-environment-required' });
     await assert.rejects(() => consume(client, ids, built, 'conf_env_ms', { liveBackup: 'not-a-hash' }), { code: 'live-environment-required' });
     await assertUntouched(client, { statuses: 1 });
   } finally { client.release(); await pool.end(); }
@@ -305,6 +326,7 @@ test('matching live environment completes the cutover', { skip: !approved }, asy
   try {
     const built = await buildFor(client, ids);
     assert.match(built.report.databaseFingerprint, /^[0-9a-f]{64}$/, 'fingerprint is a real cluster identity');
+    assert.equal(built.report.databaseFingerprint, await computeDatabaseFingerprint(client));
     await confirm(client, ids, built, 'conf_env_ok');
     const result = await consume(client, ids, built, 'conf_env_ok');
     assert.equal(result.historicalized, 1);
@@ -325,6 +347,71 @@ test('computeDatabaseFingerprint is deterministic and independent of data volume
     await confirm(client, ids, built, 'conf_env_det');
     assert.equal(await computeDatabaseFingerprint(client), first);
   } finally { client.release(); await pool.end(); }
+});
+
+test('the fingerprint does not depend on the session TimeZone or DateStyle', { skip: !approved }, async () => {
+  const ids = await prepare('env_tz', [{ shiftId: 'shift_env_tz' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const baseline = await computeDatabaseFingerprint(client);
+    await client.query("SET TIME ZONE 'Asia/Tokyo'");
+    await client.query("SET DateStyle = 'SQL, DMY'");
+    try {
+      assert.equal(await computeDatabaseFingerprint(client), baseline, 'timezone must not change the fingerprint');
+    } finally {
+      await client.query("SET TIME ZONE 'UTC'");
+      await client.query("SET DateStyle = 'ISO, MDY'");
+    }
+    assert.equal(await computeDatabaseFingerprint(client), baseline);
+  } finally { client.release(); await pool.end(); }
+});
+
+test('the fingerprint does not depend on the privileges of the executing role', { skip: !approved }, async () => {
+  const ids = await prepare('env_role', [{ shiftId: 'shift_env_role' }]);
+  const pool = db();
+  const client = await pool.connect();
+  const probe = 'samosval_fingerprint_probe';
+  let revoked = false;
+  try {
+    const baseline = await computeDatabaseFingerprint(client);
+    // A throwaway NOLOGIN role with no grants stands in for the maintenance executor.
+    await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${probe}') THEN CREATE ROLE ${probe} NOLOGIN; END IF; END $$`);
+    const asProbe = async () => {
+      await client.query('BEGIN');
+      try {
+        await client.query(`SET LOCAL ROLE ${probe}`);
+        const allowed = (await client.query(
+          "SELECT has_function_privilege(current_user,'pg_control_system()','EXECUTE') AS ok",
+        )).rows[0].ok;
+        const fingerprint = await computeDatabaseFingerprint(client);
+        return { allowed, fingerprint };
+      } finally {
+        await client.query('ROLLBACK');
+      }
+    };
+
+    const plain = await asProbe();
+    assert.equal(plain.fingerprint, baseline, 'a different role must not change the fingerprint');
+
+    // The exact asymmetry the v1 fingerprint suffered from: revoke EXECUTE on the
+    // superuser-flavoured function and measure again under the same role. v1 branched
+    // on this privilege and produced a different hash; v2 does not read it at all.
+    await client.query('REVOKE EXECUTE ON FUNCTION pg_control_system() FROM PUBLIC');
+    revoked = true;
+    const withoutControl = await asProbe();
+    assert.equal(withoutControl.allowed, false, 'the probe must really lose EXECUTE for this check to mean anything');
+    assert.equal(withoutControl.fingerprint, baseline, 'losing pg_control_system() must not change the fingerprint');
+
+    assert.equal(await computeDatabaseFingerprint(client), baseline);
+  } finally {
+    if (revoked) {
+      await client.query('GRANT EXECUTE ON FUNCTION pg_control_system() TO PUBLIC').catch(() => {});
+    }
+    await client.query(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${probe}') THEN DROP ROLE ${probe}; END IF; END $$`).catch(() => {});
+    client.release();
+    await pool.end();
+  }
 });
 
 // ---------- Major 2: full mutation matrix ----------
@@ -608,6 +695,10 @@ test('successful historicalization: historical state, no synthetic close, assign
     assert.equal(shift.historicalization_reason, 'legacy-type-unresolved-at-cutover');
     assert.equal(shift.historicalization_report_hash, built.sha256);
     assert.equal((await client.query("SELECT count(*)::int AS n FROM line_truck_statuses WHERE shift_id='shift_ok'")).rows[0].n, 0);
+    // Exactly one snapshot per current assignment of the shift, as the report promised.
+    const okRow = built.report.rows.find(r => r.shiftId === 'shift_ok');
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM legacy_line_status_snapshots WHERE shift_id='shift_ok'")).rows[0].n,
+      okRow.assignmentSummary.statusSnapshotsToCreate);
     const snapshot = (await client.query("SELECT payload, payload_canonical, payload_sha256 FROM legacy_line_status_snapshots WHERE shift_id='shift_ok'")).rows[0];
     assert.equal(snapshot.payload_sha256, sha(snapshot.payload_canonical), 'hash is bound to the stored canonical bytes');
     assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_cutover_historicalization_audit')).rows[0].n, 2);
@@ -616,6 +707,44 @@ test('successful historicalization: historical state, no synthetic close, assign
     await assert.rejects(() => client.query('TRUNCATE legacy_line_status_snapshots'), { code: '23514' });
     await assert.rejects(() => client.query('TRUNCATE legacy_cutover_historicalization_audit'), { code: '23514' });
     await assert.rejects(() => client.query("UPDATE shifts SET historicalized_by_uid=NULL WHERE shift_id='shift_ok'"), { code: '23514' });
+  } finally { client.release(); await pool.end(); }
+});
+
+test('a restored legacy row is audited as a restored snapshot, never as a proven opener', { skip: !approved }, async () => {
+  const ids = await prepare('restored', [{ shiftId: 'shift_restored', restored: true }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    const row = built.report.rows.find(r => r.shiftId === 'shift_restored');
+    assert.equal(row.restoredSnapshot, true, 'the report marks the restored copy');
+    await confirm(client, ids, built, 'conf_restored');
+    await consume(client, ids, built, 'conf_restored');
+    const audit = (await client.query(
+      "SELECT restored_snapshot, old_state, new_state FROM legacy_cutover_historicalization_audit WHERE shift_id='shift_restored'",
+    )).rows[0];
+    assert.equal(audit.restored_snapshot, true, 'audit keeps the restored flag');
+    assert.equal(audit.old_state, 'historical');
+    assert.equal(audit.new_state, 'historical');
+    // Minor 3 of review 4: a restored archive row never proves the original opener.
+    const shift = (await client.query("SELECT state, opened_by_uid FROM shifts WHERE shift_id='shift_restored'")).rows[0];
+    assert.equal(shift.state, 'historical');
+    assert.equal(shift.opened_by_uid, null);
+  } finally { client.release(); await pool.end(); }
+});
+
+test('a confirmation row bound to another workspace aborts before any mutation', { skip: !approved }, async () => {
+  const ids = await prepare('workspace_mismatch', [{ shiftId: 'shift_ws' }]);
+  const pool = db();
+  const client = await pool.connect();
+  try {
+    const built = await buildFor(client, ids);
+    await confirm(client, ids, built, 'conf_ws');
+    const otherWorkspace = `${ids.workspaceId}_other`;
+    await client.query('INSERT INTO workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING', [otherWorkspace]);
+    await client.query('UPDATE legacy_historicalization_confirmations SET workspace_id=$2 WHERE confirmation_id=$1', ['conf_ws', otherWorkspace]);
+    await assert.rejects(() => consume(client, ids, built, 'conf_ws'), { code: 'report-context-mismatch' });
+    await assertUntouched(client, { statuses: 1 });
   } finally { client.release(); await pool.end(); }
 });
 
