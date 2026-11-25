@@ -863,6 +863,86 @@ test('v2 trigger mirrors the preflight lifecycle marker rules', {
   }
 });
 
+test('v2 trigger rejects a stringly typed closing marker', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('v2_closing_string');
+  await applyMigrationsThrough(25);
+  const pool = poolForTest();
+  try {
+    const startedAt = Date.parse('2026-11-26T06:00:00Z'); // 09:00 Europe/Moscow
+    const live = shiftStartPayload(
+      { id: 'v2_closing_string', objectId: ids.objectAId, createdAt: startedAt, workShift: 'day' },
+      { name: 'Closing string object' },
+      { uid: ids.adminUid, display_name: 'Admin' },
+      startedAt,
+    );
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,true,$3)',
+      [ids.workspaceId, live.id, live],
+    );
+    // closing must be a JSON boolean (025 trigger rule, the v2 twin of the legacy
+    // preflight check). Without this guard the string falls through to isActive
+    // and is silently accepted as a live row.
+    await assert.rejects(
+      pool.query(
+        'UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+        [ids.workspaceId, live.id, { ...live, closing: 'true' }],
+      ),
+      error => error.code === '23514' && /closing must be a JSON boolean/.test(error.message),
+      'a stringly closing marker is a provenance error, not a generic CHECK failure',
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT state,is_active FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, live.id],
+    )).rows[0], { state: 'active', is_active: true });
+  } finally {
+    await pool.end();
+  }
+});
+
+test('v2 trigger rejects a historical alias when proved close evidence derives closed', {
+  skip: !approved,
+}, async () => {
+  const ids = await prepareLegacyFixture('v2_historical_alias');
+  await applyMigrationsThrough(25);
+  const pool = poolForTest();
+  try {
+    const startedAt = Date.parse('2026-11-26T06:00:00Z'); // 09:00 Europe/Moscow
+    const live = shiftStartPayload(
+      { id: 'v2_historical_alias', objectId: ids.objectAId, createdAt: startedAt, workShift: 'day' },
+      { name: 'Historical alias object' },
+      { uid: ids.adminUid, display_name: 'Admin' },
+      startedAt,
+    );
+    await pool.query(
+      'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,true,$3)',
+      [ids.workspaceId, live.id, live],
+    );
+    // Proved close evidence (numeric closedAt + a closedByUid that exists) derives
+    // 'closed'. A state='historical' alias then contradicts the evidence and must
+    // be refused by the provenance guard, not accepted and later normalised.
+    await assert.rejects(
+      pool.query(
+        'UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2',
+        [ids.workspaceId, live.id, {
+          ...live, isActive: false, state: 'historical',
+          closedAt: startedAt + 120000, closedByUid: ids.adminUid, closedBy: 'Admin',
+        }],
+      ),
+      error => error.code === '23514' && /historical row keeps no close proof/.test(error.message),
+      'the state=historical guard is reachable and fires on proved close evidence',
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT state,is_active,closed_at,closed_by_uid FROM shifts
+        WHERE workspace_id=$1 AND shift_id=$2`,
+      [ids.workspaceId, live.id],
+    )).rows[0], { state: 'active', is_active: true, closed_at: null, closed_by_uid: null });
+  } finally {
+    await pool.end();
+  }
+});
+
 test('real writer contract until Task 7: payload-only passes, a column write is rejected', {
   skip: !approved,
 }, async () => {
@@ -916,6 +996,32 @@ expectUnsafeLegacyFixtureRejected('025 rejects a state alias without markers con
       id: 'state_no_markers', objectId: ids.objectAId, objectName: 'Stale state',
       startDate: '18.11.2026', startedAt, startedBy: 'Legacy Person', isActive: false,
       state: 'active',
+    }],
+  );
+});
+
+// The D7 loosening (empty objectName, startDate unrelated to startedAt) is only
+// for restored rows. A plain row must still fail both preflight checks; if the
+// NOT disappears from either condition, these two fixtures migrate and the
+// helper's "must fail" assertion goes red.
+expectUnsafeLegacyFixtureRejected('025 rejects an ordinary row with an empty objectName', async (pool, ids) => {
+  const startedAt = Date.parse('2026-11-18T06:00:00Z');
+  await pool.query(
+    'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,false,$3)',
+    [ids.workspaceId, 'empty_name_plain', {
+      id: 'empty_name_plain', objectId: ids.objectAId, objectName: '',
+      startDate: '18.11.2026', startedAt, startedBy: 'Legacy Person', isActive: false,
+    }],
+  );
+});
+
+expectUnsafeLegacyFixtureRejected('025 rejects an ordinary row whose startDate differs from the startedAt Moscow date', async (pool, ids) => {
+  const startedAt = Date.parse('2026-11-18T06:00:00Z'); // 09:00 Europe/Moscow on 18.11
+  await pool.query(
+    'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,false,$3)',
+    [ids.workspaceId, 'date_mismatch_plain', {
+      id: 'date_mismatch_plain', objectId: ids.objectAId, objectName: 'Date mismatch',
+      startDate: '19.11.2026', startedAt, startedBy: 'Legacy Person', isActive: false,
     }],
   );
 });
