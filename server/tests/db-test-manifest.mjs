@@ -19,7 +19,8 @@ const dbFiles = [
 'restored-context-migration',
   'replica-store', 'replica-stream-026', 'report-store', 'restored-context-store', 'seed-identity-db', 'seed-objects-db',
   'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
-  'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store'
+  'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store',
+  'v2-command'
 ];
 
 const harnessFiles = [
@@ -309,6 +310,10 @@ const consumersByFile = {
     "tests/truck-phone-store.test.mjs:pg"
   ],
   "truck-phone": [],
+  "v2-command": [
+    "tests/v2-command.test.mjs:db-env",
+    "tests/v2-command.test.mjs:pg"
+  ],
   "updater": [
     "audit:updater-release-only"
   ]
