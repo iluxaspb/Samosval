@@ -2,7 +2,18 @@ import {createHash} from 'node:crypto';
 import {fail,map} from './tabel-access.mjs';
 import {serviceActor,serviceCommand,validId} from './service-command.mjs';
 import {readArchiveEntries} from './archive-read.mjs';
+import {hasRevisionChain} from './archive-latest.mjs';
 const WS=process.env.WORKSPACE_ID||'main_workspace';
+// Серия/ревизии — доменный признак, а не форма ответа чтения. На baseline S24
+// (до 025) таблиц нет, и legacy-поведение сохраняется как есть.
+async function seriesExists(client,ws,archiveId){
+  if(!(await hasRevisionChain(client)))return false;
+  return (await client.query('SELECT 1 FROM shift_archive_series WHERE workspace_id=$1 AND archive_id=$2',[ws,archiveId])).rowCount>0;
+}
+async function revisionsExist(client,ws,archiveId){
+  if(!(await hasRevisionChain(client)))return false;
+  return (await client.query('SELECT 1 FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 LIMIT 1',[ws,archiveId])).rowCount>0;
+}
 // Hash нормализованной архивной команды — ровно то же правило, что применяет
 // serviceCommand к своим receipt'ам: sha256 от JSON нормализованной команды (без
 // полей тела вроде uid). Нужен вызывающим, которые пишут receipt/publication сами
@@ -54,10 +65,20 @@ export function submitArchive(pool,uid,input,ws=WS){
     }else if(op.type==='archive.gai.delete'){
       // Удаление только листочка ГАИ: обычные рейсы, объёмы и весь остальной
       // архив остаются как были. Операция идёт с проверкой ревизии.
+      // Immutable-цепочку нельзя править payload-override: это была бы
+      // фальшивая «ревизия 2» или тихий no-op. Пока нет команды, публикующей
+      // новую ревизию из правки (design §4.6: revision создаёт только close/
+      // import/finalize), series-backed архив получает стабильный отказ до
+      // любой записи. Legacy-архив без серии по-прежнему правит payload.
+      if(await seriesExists(client,ws,op.recordId))throw fail('archive-series-immutable',409);
       const {payload:next,removed}=gaiDeletedPayload(before,actor,Date.now());
       location='archive';payload=next;
       result={id:op.recordId,location,revision:op.expectedRevision+1,removedGaiTrips:removed};
     }else if(op.type==='trash.purge'){
+      // Purge запрещён при живой цепочке (design §4.6): он не удаляет данные, а
+      // лишь скрывает запись из каталога, оставляя ревизии/контексты/
+      // публикации/audit. Legacy-запись без провенанса purgeable как раньше.
+      if(await revisionsExist(client,ws,op.recordId))throw fail('archive-purge-blocked',409);
       location='purged';payload=before;result={id:op.recordId,location,revision:op.expectedRevision+1};
     }else{
       // Решение владельца 23.11.2026: архивную смену можно восстановить для

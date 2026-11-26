@@ -34,6 +34,22 @@ test('PostgreSQL archive mutations keep original snapshots, serialize concurrent
       await send('purge','trash.purge','legacy',2);assert.equal((await readArchiveSnapshot(pool,uid,ws)).trash.length,0);
       assert.deepEqual((await pool.query('SELECT payload FROM migration_documents WHERE import_sha256=$1 ORDER BY document_path',[sha])).rows[0].payload,archive);
     });
+    await t.test('gai sheet delete stays a payload override on a legacy archive',async()=>{
+      // Legacy-архив без провенанса: удаление листа ГАИ по-прежнему правит payload
+      // (у series-архива эта же операция обязана отказать, см. archive-consumers-latest).
+      const gai={objectId:'site',objectName:'Site',date:'29.10.2026',activeLineIds:['truck'],ttnStatus:{truck:'pending'},logs:[{id:'gai_std',truckId:'truck',timestamp:5,volume:24,isGAI:false},{id:'gai_trip',truckId:'truck',timestamp:6,volume:12,isGAI:true}],totalTrips:1,totalVolume:24};
+      await pool.query('INSERT INTO migration_documents(import_sha256,document_path,payload) VALUES ($1,$2,$3)',[sha,`workspaces/${ws}/archive/gai`,gai]);
+      const receipt=await send('gai_del','archive.gai.delete','gai',1);
+      assert.equal(receipt.result.removedGaiTrips,1);assert.equal(receipt.result.revision,2);assert.equal(receipt.result.location,'archive');
+      const after=(await readArchiveSnapshot(pool,uid,ws)).archives.find(row=>row.id==='gai');
+      assert.deepEqual(after.logs.map(log=>log.id),['gai_std']);assert.equal(after.totalVolume,24);assert.equal(after.revision,2);
+      // Возвращаем список в исходное состояние: последний шаг ждёт пустой архив.
+      await send('gai_trash','archive.trash','gai',2);
+      await send('gai_purge','trash.purge','gai',3);
+      const final=await readArchiveSnapshot(pool,uid,ws);
+      assert.equal(final.archives.some(row=>row.id==='gai'),false);
+      assert.equal(final.trash.some(row=>row.id==='gai'),false);
+    });
     await t.test('an active line no longer blocks restoration: the archive returns as a parallel restored shift',async()=>{
       await pool.query('INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',[ws,'live',{id:'live',isActive:true}]);
       const receipt=await send('restore_live','archive.restore','restore',1);

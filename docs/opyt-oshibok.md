@@ -384,3 +384,36 @@ file-watcher по `/`, `/etc`, `/home`, `/home/iluxa`, ответ `503` на `/a
 **4. Резолвер должен переживать baseline S24.**
 **Симптом:** `archive-store`/`replica-materialize`/`archive-read` в манифесте живут на S24, где таблиц ревизий ещё нет.
 **Что делать:** `hasRevisionChain(client)` (`to_regclass('public.shift_archive_series')`) возвращает `false` → резолвер отдаёт `null`/пусто, а legacy-путь остаётся как был. Это не «догадка по старым строкам», а честное «ревизий нет».
+
+## 26. Урок 26.11.2026 (P10 fix): форма ответа — часть контракта, а immutable-цепочку нельзя «править» override'ом
+
+**1. Корзина серии обязана иметь ту же форму, что legacy-запись.**
+**Симптом:** series-backed архив → `archive.trash` → `readArchiveEntries()` отдавал «голый» payload latest (`'shift' in row === false`, `deletedAt === undefined`); UI `renderTrash` падал `TypeError: Cannot read properties of undefined (reading 'objectId')` — белый экран корзины.
+**Причина:** резолвер latest клал payload в `trash` без legacy-обёртки `{shift,deletedAt,deletedBy,deletedByUid}`, на которую опирается UI.
+**Что делать:** в `archive-read.mjs` строить запись корзины одной функцией `trashEntry`: `shift` = immutable latest finalized payload, `deletedAt/deletedBy*` — из payload override (метаданные размещения), `archiveId/revision/archiveSha256` — аддитивно рядом. Не заменять форму ответа, а дополнять. Legacy-записи при этом обязаны всегда иметь `archiveId:null`/`archiveSha256:null`, а не отсутствие ключей (иначе consumer'ы различают формы по `in`).
+
+**2. Payload-override на series-backed архиве — это фальшивая ревизия.**
+**Симптом:** `archive.gai.delete` на серии возвращал `{location:'archive',revision:2,removedGaiTrips:1}`, хотя ревизии 2 нет, ГАИ-рейс на месте, а следующий CAS с `expectedRevision:2` ловил `archive-changed`.
+**Причина:** операция писала изменённый payload в `archive_overrides`, а чтение серии override игнорирует и берёт байты latest (design §4.6: revision создаёт только close/import/successful finalize).
+**Что делать:** до записи отказывать стабильным кодом `archive-series-immutable` (409), пока нет команды, публикующей новую ревизию из правки. Legacy-архив без серии по-прежнему правит payload. Проверку делать по домену (`shift_archive_series`), а не по форме ответа чтения.
+
+**3. `trash.purge` при живой цепочке — только отказ.**
+**Симптом:** purge серии «успешно» скрывал её из архива и корзины, оставляя `shift_archive_revisions = 1`.
+**Что делать:** `archive-purge-blocked` (409), если у записи есть хотя бы одна ревизия (design §4.6). Purge скрывает только view и не удаляет данные; legacy-запись без провенанса остаётся purgeable. Проверка в домене, без DDL — исторические записи без ревизий должны оставаться purgeable.
+
+**4. ACL finalize читать под series/context lock, не до них.**
+**Симптом:** отзыв права (`UPDATE role_permissions`) блокировался транзакцией finalize, которая ещё ждала series-лок: `serviceActor` брал `FOR SHARE` заранее.
+**Что делать:** порядок строго series `FOR UPDATE` → context `FOR UPDATE` → `serviceActor` → replay. Тогда отзыв коммитится, пока finalize ждёт лок, а finalize после лока видит уже отозванное право и получает `forbidden`. Replay-читку receipt оставлять как есть.
+
+**5. `payload_schema_version` finalize-ревизии = 2, а не копия базы.**
+**Причина:** колонка описывает схему самого документа; байты finalize всегда несут конверт `archiveRevision/previous*/restoredContext` (v2). Копия `base.payload_schema_version` делала колонку ложью для базы со схемой 1.
+**Что делать:** константа `FINALIZE_PAYLOAD_SCHEMA_VERSION = 2` и явный тест «база schema 1 → новая ревизия schema 2 и её байты это подтверждают».
+
+**6. Мутацию откатывать копией файла, а не `git checkout --`.**
+**Симптом:** после мутации `git checkout -- src/restored-context-store.mjs` вернул файл к HEAD и снёс ВСЕ незакоммиченные правки задачи.
+**Что делать:** перед мутацией `cp` файла в `/tmp`, после — `cp` обратно и сверять `md5sum` с зафиксированным до мутации. `git checkout --` на незакоммиченном файле допустим только как аварийный откат к HEAD, не как «восстановление мутации».
+
+**7. Тест, который пинит точную форму legacy-записи, обязан обновиться вместе с контрактом.**
+**Симптом:** `tests/archive-read.test.mjs` делал `deepEqual` всей legacy-записи и покраснел после добавления `archiveId:null/archiveSha256:null`.
+**Что делать:** при аддитивном изменении формы ответа обновлять такой тест осознанно (это и есть проверка контракта), а не «чинить» код обратно.
+
