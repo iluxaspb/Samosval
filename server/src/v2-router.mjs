@@ -1,14 +1,21 @@
 import { v2Error, v2ErrorBody } from './v2-errors.mjs';
 import { loadActor } from './shift-access-v2.mjs';
 import { listVisibleShifts, readShiftSnapshot } from './shift-read-v2.mjs';
+import {
+  addShiftMember,
+  changeShiftObject,
+  createShift,
+  removeShiftMember,
+} from './shift-members-v2.mjs';
 
-// `/api/v2` router foundation (design §5, §14, plan Task 18).
+// `/api/v2` router (design §5, §14, plan Tasks 18–19).
 //
-// Task 18 exposes exactly the two reads — the visible shift list and one scoped
-// snapshot. Every other `/api/v2` path answers a stable `404 not-found` instead
-// of falling through to the v1 tree, and a wrong method answers `405`. Command
-// routes of Tasks 19–22 plug into `matchV2Route` and reuse `runV2Command`; this
-// module deliberately does not invent a second dispatch mechanism.
+// Task 18 exposed the two reads (visible list and one scoped snapshot); Task 19
+// adds the shift metadata/membership commands. Every other `/api/v2` path
+// answers a stable `404 not-found` instead of falling through to the v1 tree, a
+// known path with a wrong method answers `405`, and the command routes plug into
+// the same `runV2Command` runner (receipt, audit, idempotency, CAS) — this module
+// never invents a second dispatch or a second authorization path.
 //
 // Error bodies are always the stable v2 shape `{protocolVersion:2,error,details}`
 // (`v2-errors.mjs`), including unexpected failures, so a client never sees a
@@ -17,21 +24,83 @@ import { listVisibleShifts, readShiftSnapshot } from './shift-read-v2.mjs';
 
 const SHIFT_TOKEN = /^[A-Za-z0-9_-]{1,160}$/;
 const SNAPSHOT_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/snapshot$/;
+const SHIFT_SUBROUTE = /^\/api\/v2\/shifts\/([^/]+)\/(object|members)(?:\/([^/]+))?$/;
 
-export function matchV2Route(pathname) {
-  if (pathname === '/api/v2/shifts') return { kind: 'list' };
-  const match = SNAPSHOT_ROUTE.exec(pathname);
-  if (!match) return null;
-  let shiftId;
+// Only the plain token form is an id; `%61`/`a%20b` are not silently normalised
+// into another shift or user.
+function decodeToken(raw) {
+  let value;
   try {
-    shiftId = decodeURIComponent(match[1]);
+    value = decodeURIComponent(raw);
   } catch {
     return null;
   }
-  // Only the plain token form is a route; `%61`/`a%20b` are not silently
-  // normalised into another shift id.
-  if (shiftId !== match[1] || !SHIFT_TOKEN.test(shiftId)) return null;
-  return { kind: 'snapshot', shiftId };
+  if (value !== raw || !SHIFT_TOKEN.test(value)) return null;
+  return value;
+}
+
+function resolveV2Path(pathname) {
+  if (pathname === '/api/v2/shifts') return { kind: 'shifts' };
+  const snapshot = SNAPSHOT_ROUTE.exec(pathname);
+  if (snapshot) {
+    const shiftId = decodeToken(snapshot[1]);
+    return shiftId ? { kind: 'snapshot', shiftId } : null;
+  }
+  const sub = SHIFT_SUBROUTE.exec(pathname);
+  if (!sub) return null;
+  const shiftId = decodeToken(sub[1]);
+  if (!shiftId) return null;
+  if (sub[2] === 'object' && sub[3] === undefined) return { kind: 'object', shiftId };
+  if (sub[2] === 'members' && sub[3] === undefined) return { kind: 'members', shiftId };
+  if (sub[2] === 'members' && sub[3] !== undefined) {
+    const uid = decodeToken(sub[3]);
+    return uid ? { kind: 'member', shiftId, uid } : null;
+  }
+  return null;
+}
+
+export function matchV2Route(pathname, method = 'GET') {
+  const path = resolveV2Path(pathname);
+  if (!path) return null;
+  switch (path.kind) {
+    case 'shifts':
+      if (method === 'GET') return { kind: 'list' };
+      if (method === 'POST') return { kind: 'create' };
+      return null;
+    case 'snapshot':
+      return method === 'GET' ? path : null;
+    case 'object':
+      return method === 'PATCH' ? { kind: 'shift-object', shiftId: path.shiftId } : null;
+    case 'members':
+      return method === 'POST' ? { kind: 'member-add', shiftId: path.shiftId } : null;
+    case 'member':
+      return method === 'DELETE' ? { kind: 'member-remove', shiftId: path.shiftId, uid: path.uid } : null;
+    default:
+      return null;
+  }
+}
+
+// A command body is a JSON object. The reader is injected by the API process
+// (`readJson` in index.mjs) so the HTTP limit and the JSON error stay in one
+// place; a unit test passes `body` directly.
+function requirePlainBody(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw v2Error('invalid-command', 400, { field: 'body' });
+  }
+  return value;
+}
+
+async function readCommandBody(input, req) {
+  if (Object.hasOwn(input, 'body') && input.body !== undefined) return requirePlainBody(input.body);
+  if (typeof input.readBody !== 'function') throw v2Error('invalid-command', 400, { field: 'body' });
+  let parsed;
+  try {
+    parsed = await input.readBody(req);
+  } catch {
+    // A malformed or oversized body is a schema error, never an internal one.
+    throw v2Error('invalid-command', 400, { field: 'body' });
+  }
+  return requirePlainBody(parsed);
 }
 
 function protocolUpgrade(declared) {
@@ -44,7 +113,7 @@ function protocolUpgrade(declared) {
 // `handleV2Request` returns true when it answered the request and false when the
 // path is not a v2 path (the caller keeps routing). `services` exists so the
 // HTTP contract is unit-testable without a database; production leaves it empty
-// and uses the real readers.
+// and uses the real readers/commands.
 export async function handleV2Request(options) {
   const input = options ?? {};
   const { pool, req, res, send, authenticate } = input;
@@ -54,12 +123,13 @@ export async function handleV2Request(options) {
   const method = input.method ?? req?.method ?? 'GET';
   if (!url.pathname.startsWith('/api/v2')) return false;
 
-  const route = matchV2Route(url.pathname);
-  if (!route) {
+  // An unknown path is 404; a known path with a wrong method is 405.
+  if (!resolveV2Path(url.pathname)) {
     send(res, 404, { protocolVersion: 2, error: 'not-found', details: {} });
     return true;
   }
-  if (method !== 'GET') {
+  const route = matchV2Route(url.pathname, method);
+  if (!route) {
     send(res, 405, { protocolVersion: 2, error: 'method-not-allowed', details: {} });
     return true;
   }
@@ -74,6 +144,10 @@ export async function handleV2Request(options) {
   const resolveActor = services.loadActor ?? loadActor;
   const listShifts = services.listVisibleShifts ?? listVisibleShifts;
   const readSnapshot = services.readShiftSnapshot ?? readShiftSnapshot;
+  const createShiftCommand = services.createShift ?? createShift;
+  const changeObjectCommand = services.changeShiftObject ?? changeShiftObject;
+  const addMemberCommand = services.addShiftMember ?? addShiftMember;
+  const removeMemberCommand = services.removeShiftMember ?? removeShiftMember;
   const workspaceId = input.workspaceId ?? process.env.WORKSPACE_ID ?? 'main_workspace';
 
   try {
@@ -90,7 +164,30 @@ export async function handleV2Request(options) {
       }));
       return true;
     }
-    send(res, 200, await readSnapshot(pool, actor, { workspaceId, shiftId: route.shiftId }));
+    if (route.kind === 'snapshot') {
+      send(res, 200, await readSnapshot(pool, actor, { workspaceId, shiftId: route.shiftId }));
+      return true;
+    }
+    // Commands: the body never supplies the workspace or the addressed shift —
+    // both come from the server configuration and the matched path.
+    const body = await readCommandBody(input, req);
+    const command = { ...body, workspaceId };
+    if (route.kind === 'create') {
+      const result = await createShiftCommand(pool, actor, command);
+      send(res, result.replayed ? 200 : 201, result);
+      return true;
+    }
+    if (route.kind === 'shift-object') {
+      send(res, 200, await changeObjectCommand(pool, actor, { ...command, shiftId: route.shiftId }));
+      return true;
+    }
+    if (route.kind === 'member-add') {
+      send(res, 200, await addMemberCommand(pool, actor, { ...command, shiftId: route.shiftId }));
+      return true;
+    }
+    send(res, 200, await removeMemberCommand(pool, actor, {
+      ...command, shiftId: route.shiftId, uid: route.uid,
+    }));
     return true;
   } catch (error) {
     if (error?.name === 'V2Error') {

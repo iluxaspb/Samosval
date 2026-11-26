@@ -21,7 +21,7 @@ const dbFiles = [
   'restored-context-store', 'seed-identity-db', 'seed-objects-db',
   'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
   'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store',
-  'v2-command', 'v2-shift-access', 'v2-shift-read-db'
+  'v2-command', 'v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db'
 ];
 
 const harnessFiles = [
@@ -343,6 +343,14 @@ const consumersByFile = {
     "tests/v2-shift-access.test.mjs:db-env",
     "tests/v2-shift-access.test.mjs:pg"
   ],
+  "v2-shift-members-db": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/v2-shift-members-db.test.mjs:db-env",
+    "tests/v2-shift-members-db.test.mjs:pg"
+  ],
   "v2-shift-read-db": [
     "scripts/apply-migrations.mjs:pg",
     "tests/helpers/isolated-db.mjs:db-env",
@@ -384,6 +392,7 @@ const dbReasons = {
   'seed-identity-db': 'Imports pg and reads TEST_DATABASE_URL for identity promotion from explicit import tables',
   'seed-objects-db': 'Imports pg and reads TEST_DATABASE_URL for object promotion from explicit import tables',
   'v2-command': 'Imports pg and reads TEST_DATABASE_URL for v2 receipt/audit atomicity and replay',
+  'v2-shift-members-db': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for strict v2 shift creation, object change and membership CAS on the S25 baseline',
   'v2-shift-read-db': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the visible shift list, scoped snapshot and trap B on the S24 baseline',
   'truck-phone-http': 'Starts the real src/index.mjs API child and imports pg; the child inherits its generated TEST_DATABASE_URL'
 };
@@ -406,6 +415,7 @@ const timeoutsByFile = {
   'replica-store': 180_000,
   'restored-context-migration': 240_000,
   'restored-context-store': 180_000,
+  'v2-shift-members-db': 180_000,
   'v2-shift-read-db': 240_000
 };
 
@@ -468,6 +478,7 @@ const bootstrapEnvByFile = {
   'restored-context-migration': ['bootstrap-url', 'runtime-password', 'maintenance-password'],
   'restored-context-store': ['bootstrap-url'],
   'v2-shift-access': ['bootstrap-url'],
+  'v2-shift-members-db': ['bootstrap-url'],
   'v2-shift-read-db': ['bootstrap-url']
 };
 
@@ -507,8 +518,8 @@ const dbEntries = dbFiles.map(name => ({
   // `v2-shift-read-db` stays on S24 on purpose: an unresolved historical row and
   // a restored copy can only be legacy v1 rows inserted before 025, so the root
   // applies 025/026/027 itself (docs/opyt-oshibok.md, lesson 19).
-  baseline: name === 'v2-shift-access' ? 'S25' : 'S24',
-migrationsThrough: ['v2-shift-access', 'v2-shift-read-db'].includes(name) ? 27 : name === 'replica-stream-026' || name === 'replica-store' || name === 'replica-pending-materialize' || name === 'replica-exact-backup' ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
+  baseline: ['v2-shift-access', 'v2-shift-members-db'].includes(name) ? 'S25' : 'S24',
+migrationsThrough: ['v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db'].includes(name) ? 27 : ['replica-stream-026', 'replica-store', 'replica-pending-materialize', 'replica-exact-backup'].includes(name) ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],
