@@ -23,18 +23,22 @@ const composeEnvironment = {
 };
 
 function renderCompose() {
-  for (const command of [
-    ['docker', ['compose', '-f', 'compose.test.yaml', 'config']],
-    ['docker-compose', ['-f', 'compose.test.yaml', 'config']],
-  ]) {
-    const result = spawnSync(command[0], command[1], {
-      cwd: new URL('..', import.meta.url),
-      encoding: 'utf8',
-      env: composeEnvironment,
-    });
-    if (result.status === 0) return result.stdout;
-  }
-  return null;
+  const compose = resolveCompose();
+  if (!compose) return null;
+  // The postgres service lives in the "test" profile. `docker compose config`
+  // without --profile renders an empty service set (in CI that produced
+  // "services: {}" and failed every assertion below), while the legacy
+  // docker-compose ignores profiles entirely.
+  const result = spawnSync(compose.command, [
+    ...compose.prefix, '-f', 'compose.test.yaml',
+    ...(compose.filtersProfilesInConfig ? ['--profile', 'test'] : []),
+    'config',
+  ], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: composeEnvironment,
+  });
+  return result.status === 0 ? result.stdout : null;
 }
 
 function legacyEffectiveServices(config, profile) {

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import pg from 'pg';
 
 import {
@@ -794,7 +796,7 @@ test('the route adapter resolves through the same domain command', { skip: !appr
 test('the preflight CLI refuses a malformed backup manifest hash before touching the database', () => {
   const result = spawnSync(process.execPath, [
     'scripts/preflight-parallel-shifts.mjs',
-    '--out', '/tmp/opencode/p5/never-written',
+    '--out', join(tmpdir(), 'p5-never-written'),
     '--expires-at', '2099-01-01T00:00:00.000Z',
     '--backup-manifest-sha256', 'not-a-sha256',
   ], { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8', env: { ...process.env, TEST_DATABASE_URL: '' } });

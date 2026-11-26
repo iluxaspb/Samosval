@@ -123,3 +123,36 @@ test('reset_never_uses_unapproved_url', async () => {
     await assert.rejects(resetIsolatedDatabase(), /isolated database target is not approved/i);
   });
 });
+
+// CI runs on a fresh ubuntu runner: /tmp/opencode and /home/<owner> do not
+// exist there. A test that hard-codes such a path fails with ENOENT on the gate
+// while passing on the owner's server, which hides a green/red difference
+// between machines. Use os.tmpdir()/mkdtempSync instead.
+test('no test or harness module hard_codes an owner-only absolute path', async () => {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  // Only what CI actually runs. scripts/*.mjs also holds owner-only manual
+  // tools (control-check-firebase-login) whose defaults are overridable by env
+  // and never executed on the gate.
+  const roots = ['tests', 'scripts/isolated-db'];
+  // Only quoted literals count, so the explanation comments stay allowed.
+  const forbidden = [/['"`]\/tmp\/opencode\//, /['"`]\/home\/iluxa\//];
+  const offenders = [];
+  const walk = async directory => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules') continue;
+        await walk(path);
+        continue;
+      }
+      if (!/\.(mjs|js|cjs|sh)$/.test(entry.name)) continue;
+      const source = await readFile(path, 'utf8');
+      for (const pattern of forbidden) {
+        if (pattern.test(source)) offenders.push(path);
+      }
+    }
+  };
+  for (const root of roots) await walk(root);
+  assert.deepEqual(offenders, []);
+});

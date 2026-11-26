@@ -495,3 +495,20 @@ file-watcher по `/`, `/etc`, `/home`, `/home/iluxa`, ответ `503` на `/a
 **9. Таймаут 60 с маскирует ошибку как «тишину».** `parallel-shifts-historicalization` «молчал» 60 с и падал по таймауту, хотя реальная причина — ACL. При таймауте без вывода сначала проверять права/ошибку на одном тесте с `--test-name-pattern`, а не увеличивать таймаут.
 
 **10. Порт локального кластера жёстко 55432.** `scripts/isolated-db/safety.mjs` принимает только `55432`; при `POSTGRES_TEST_PORT=55433` в env-файле `adminPreflight` падает `connect ECONNREFUSED 127.0.0.1:55432`. Проверять фактический проброс (`docker port server_postgres_1`) и не полагаться на значение из старого env-файла.
+
+## 31. Урок 26.11.2026: гейт впервые запустился и покраснел на переносимости тестов, а не на коде
+
+Первый реальный прогон `synology-server-tests` для `feature/wtest-parallel-shifts-20261123` (run 45804417264) дал ровно **два** красных файла из 79 — оба про окружение раннера. Сам harness отработал штатно: `cleanup: complete`, `leaks: 0`, утечек и висящих баз нет.
+
+**1. `mkdtempSync('/tmp/opencode/i5-process-')` → ENOENT на раннере.**
+**Симптом:** пять проверок `isolated-db-process.test.mjs` падают `ENOENT: no such file or directory, mkdtemp '/tmp/opencode/i5-process-XXXXXX'`, при этом локально всё зелёное.
+**Причина:** `/tmp/opencode` — каталог, созданный только на сервере владельца; на `ubuntu-latest` его нет, а `mkdtemp` не создаёт родителя.
+**Что делать:** в тестах и harness-модулях брать `mkdtempSync(join(tmpdir(), '<prefix>-'))`. То же касается литеральных `--out /tmp/opencode/...` в тестах: заменять на `join(tmpdir(), ...)`.
+**Защита:** в `tests/isolated-db-guard.test.mjs` добавлена проверка «ни тест, ни harness-модуль не содержит абсолютного пути владельца в кавычках» (сканируются `tests/` и `scripts/isolated-db/`; `scripts/*.mjs` исключены намеренно — `control-check-firebase-login.mjs` держит local-путь по умолчанию с переопределением через env и в CI не запускается).
+
+**2. `docker compose config` без `--profile` рендерит пустой набор сервисов.**
+**Симптом:** `compose-isolated-db.test.mjs` падал `The input did not match /POSTGRES_DB: postgres/. Input: 'name: server\nservices: {}\n'`.
+**Причина:** сервис `postgres` объявлен в профиле `test`. `docker compose` v2 (есть на раннере) фильтрует `config` по активным профилям и отдаёт `services: {}`; legacy `docker-compose` v1 (был локально) профили игнорирует и отдавал всё — поэтому локально тест был зелёным.
+**Что делать:** в тесте, который читает `config`, передавать `--profile test` именно для v2 (`compose.filtersProfilesInConfig === true`), иначе получаешь «пустой compose» вместо ошибки. Это второй случай правила: **отсутствие `docker compose` v2 локально не означает, что его нет в CI** — проверять обе ветки (см. урок 30, п. 10 про порт).
+
+**3. Правило на будущее.** Любой новый тест, который трогает ФС или compose, обязан проходить при «чужом» окружении: другой каталог временных файлов, другой набор docker-плагинов, отсутствие `/home/iluxa`. Локальная зелень больше не считается доказательством для гейта; доказательство — push в ветку из триггеров и зелёный run.

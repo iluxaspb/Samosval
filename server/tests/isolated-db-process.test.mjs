@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -13,7 +14,9 @@ const processModuleUrl = pathToFileURL(join(serverDirectory, 'scripts/isolated-d
 const reservedFixture = join(testsDirectory, 'fixtures/isolated-db-process.test.mjs');
 
 function makeWorkspace() {
-  const directory = mkdtempSync('/tmp/opencode/i5-process-');
+  // Not /tmp/opencode: that directory only exists on the owner's server, and a
+  // CI runner has no such path (ENOENT from mkdtemp). Use the OS temp directory.
+  const directory = mkdtempSync(join(tmpdir(), 'i5-process-'));
   return {
     directory,
     path(name) { return join(directory, name); },
