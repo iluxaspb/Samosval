@@ -15,7 +15,14 @@ const NEXT_STATE = Object.freeze({ creating: 'created', created: 'marked', marke
 const RECORD_STATES = new Set(Object.keys(NEXT_STATE).concat('running'));
 const CLEANUP_PHASES = new Set(['setup', 'running', 'assertion', 'timeout']);
 const CLEANUP_STATES = new Set(['marked', 'running']);
-const TEMPLATE_KINDS = new Set(['empty', 'S24']);
+const TEMPLATE_KINDS = new Set(['empty', 'S24', 'S25']);
+// Frozen baseline chain: version and the template each baseline is cloned from.
+// S25 must come from S24 (never from `empty`), so exactly 025 is applied.
+const TEMPLATE_CHAIN = Object.freeze({
+  empty: { version: 0, source: 'template0' },
+  S24: { version: 24, source: 'empty' },
+  S25: { version: 25, source: 'S24' },
+});
 const CONTEXT_KEYS = ['bootstrapClient', 'runid', 'capability', 'templates', 'onState'];
 const TEMPLATE_KEYS = ['kind', 'database', 'source', 'version', 'registryHash', 'owner', 'comment', 'immutable'];
 const RECORD_KEYS = ['type', 'database', 'runid', 'state', 'comment', 'file', 'baseline'];
@@ -73,8 +80,11 @@ function templateRecord(runid, kind, record) {
   try { validateGeneratedIdentifier(record.database, { runid, kind: 'template' }); } catch { refused(); }
   if (record.database !== `${GENERATED_DATABASE_PREFIX}${runid}_tpl_${kind.toLowerCase()}`) refused();
   if (record.owner !== undefined && record.owner !== TARGET_OWNER) refused();
-  if (record.version !== undefined && record.version !== (kind === 'empty' ? 0 : 24)) refused();
-  if (record.source !== undefined && record.source !== (kind === 'empty' ? 'template0' : `${GENERATED_DATABASE_PREFIX}${runid}_tpl_empty`)) refused();
+  if (record.version !== undefined && record.version !== TEMPLATE_CHAIN[kind].version) refused();
+  if (record.source !== undefined) {
+    const parent = TEMPLATE_CHAIN[kind].source;
+    if (record.source !== (parent === 'template0' ? 'template0' : `${GENERATED_DATABASE_PREFIX}${runid}_tpl_${parent.toLowerCase()}`)) refused();
+  }
   if (record.registryHash !== undefined && typeof record.registryHash !== 'string') refused();
   if (record.comment !== undefined && (typeof record.comment !== 'string' || !record.comment.startsWith(TEMPLATE_COMMENT_START(runid, kind)))) refused();
   return record;
@@ -203,7 +213,7 @@ function trackedTarget(context, record) {
 function classifyRow(runid, row, tracked) {
   const name = row.datname;
   const template = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_`;
-  if (name === `${template}empty` || name === `${template}s24`) return 'template';
+  if (name === `${template}empty` || name === `${template}s24` || name === `${template}s25`) return 'template';
   // Anything else under the run prefix must be an exact marked target of this
   // run that the run tracker knows. Every other hit — a drifted marker or
   // owner, a foreign suffix, or a valid marker the run never tracked — is

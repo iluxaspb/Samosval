@@ -16,6 +16,35 @@ export const EXPECTED_S24_REGISTRY = Object.freeze(readdirSync(sqlDir)
   .map(filename => Object.freeze({ filename, checksum: createHash('sha256').update(readFileSync(join(sqlDir, filename))).digest('hex') })));
 export const EXPECTED_S24_HASH = createHash('sha256').update(JSON.stringify(EXPECTED_S24_REGISTRY)).digest('hex');
 
+// S25 = S24 + exactly one redesigned product migration (025). The registry is
+// derived from the real files on disk, never from a hand-written checksum, so a
+// drifted 025 fails closed in the template verifier below.
+export const EXPECTED_S25_REGISTRY = Object.freeze(readdirSync(sqlDir)
+  .filter(f => numberOf(f) !== null && numberOf(f) <= 25)
+  .sort()
+  .map(filename => Object.freeze({ filename, checksum: createHash('sha256').update(readFileSync(join(sqlDir, filename))).digest('hex') })));
+export const EXPECTED_S25_HASH = createHash('sha256').update(JSON.stringify(EXPECTED_S25_REGISTRY)).digest('hex');
+
+// Key 025 objects and enabled triggers, named explicitly. A template that merely
+// claims version 25 but lacks one of these is rejected.
+export const S25_KEY_OBJECTS = Object.freeze([
+  'restored_shift_contexts',
+  'shift_archive_series',
+  'shift_archive_revisions',
+  'archive_revision_publications',
+  'archive_operation_receipts',
+  'restored_context_migration_evidence',
+  'restored_context_migration_evidence_rows',
+]);
+export const S25_KEY_TRIGGERS = Object.freeze([
+  'shifts_manual_provenance_guard_trigger',
+  'shift_archive_revisions_append_only',
+  'archive_operation_receipts_append_only',
+  'archive_revision_publications_append_only',
+  'restored_context_migration_evidence_append_only',
+]);
+export const S25_MIGRATE_FUNCTION = 'public.migrate_legacy_restored_context_exact(text,jsonb)';
+
 function templateName(runid, suffix) {
   const database = `${GENERATED_DATABASE_PREFIX}${runid}_${suffix}`;
   validateGeneratedIdentifier(database, { runid, kind: 'template' });
@@ -29,6 +58,32 @@ export async function verifyS24Target(query) {
   const schema = (await query(`SELECT to_regclass('public.workspaces') IS NOT NULL workspaces,to_regclass('public.app_users') IS NOT NULL users,to_regclass('public.server_authority') IS NOT NULL authority,to_regclass('public.replica_stream') IS NOT NULL replica,to_regclass('public.truck_phones') IS NOT NULL phones`)).rows[0];
   if (!schema || Object.values(schema).some(v => v !== true)) throw new Error('S24 schema verification failed closed');
   return Object.freeze({ count: rows.length, version: 24, registryHash: EXPECTED_S24_HASH });
+}
+
+// S25 fails closed on the real registry and the real 025 surface: the last
+// migration must be 025 with the exact file checksum, the key objects must
+// exist, the exact migration function must be installed and the D12/append-only
+// triggers must be enabled. Nothing here trusts the version number alone.
+export async function verifyS25Target(query) {
+  if (typeof query !== 'function') throw new Error('S25 verifier query is not approved');
+  const rows = (await query(`SELECT filename,checksum FROM schema_migrations WHERE filename ~ '^[0-9]{3}_' ORDER BY filename`)).rows;
+  if (JSON.stringify(rows) !== JSON.stringify(EXPECTED_S25_REGISTRY)) throw new Error('S25 migration registry verification failed closed');
+  const last = rows[rows.length - 1];
+  if (!last || last.filename !== '025_parallel_shifts_core.sql') throw new Error('S25 migration registry verification failed closed');
+  const schema = (await query(`SELECT
+    to_regclass('public.workspaces') IS NOT NULL workspaces,
+    to_regclass('public.app_users') IS NOT NULL users,
+    to_regclass('public.server_authority') IS NOT NULL authority,
+    to_regclass('public.replica_stream') IS NOT NULL replica,
+    to_regclass('public.truck_phones') IS NOT NULL phones`)).rows[0];
+  if (!schema || Object.values(schema).some(v => v !== true)) throw new Error('S25 schema verification failed closed');
+  const objects = (await query(`SELECT count(*)::int AS present FROM unnest($1::text[]) AS target(name) WHERE to_regclass('public.' || target.name) IS NOT NULL`, [S25_KEY_OBJECTS])).rows[0];
+  if (objects?.present !== S25_KEY_OBJECTS.length) throw new Error('S25 schema verification failed closed');
+  const fn = (await query(`SELECT to_regprocedure($1) IS NOT NULL AS installed`, [S25_MIGRATE_FUNCTION])).rows[0];
+  if (fn?.installed !== true) throw new Error('S25 schema verification failed closed');
+  const triggers = (await query(`SELECT count(*)::int AS enabled FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND t.tgenabled='O' AND t.tgname = ANY($1::text[])`, [S25_KEY_TRIGGERS])).rows[0];
+  if (triggers?.enabled !== S25_KEY_TRIGGERS.length) throw new Error('S25 trigger verification failed closed');
+  return Object.freeze({ count: rows.length, version: 25, registryHash: EXPECTED_S25_HASH });
 }
 
 export async function verifyTargetAuthority(query) {
@@ -93,6 +148,7 @@ export async function prepareTemplates(context) {
   const { runid } = context;
   const empty = templateName(runid, 'tpl_empty');
   const s24 = templateName(runid, 'tpl_s24');
+  const s25 = templateName(runid, 'tpl_s25');
   await context.templateOperation({ operation: 'createTemplate', database: empty, source: 'template0' });
   const emptySeal = await context.templateOperation({ operation: 'freezeTemplate', database: empty, registryHash: 'empty' });
   await inspectTemplateSeal(context.queryCatalog, empty, emptySeal.comment);
@@ -102,8 +158,17 @@ export async function prepareTemplates(context) {
   await verifyTargetAuthority((text, values) => context.queryTemplate(s24, text, values));
   const s24Seal = await context.templateOperation({ operation: 'freezeTemplate', database: s24, registryHash: migration.registryHash });
   await inspectTemplateSeal(context.queryCatalog, s24, s24Seal.comment);
+  // S25 is cloned from the frozen S24 and receives exactly 025. The migration
+  // runner applies only the missing file, so 026 can never leak into S25.
+  await context.templateOperation({ operation: 'createTemplate', database: s25, source: s24 });
+  await context.migrateTemplate({ database: s25, through: 25 });
+  const s25Migration = await verifyS25Target((text, values) => context.queryTemplate(s25, text, values));
+  await verifyTargetAuthority((text, values) => context.queryTemplate(s25, text, values));
+  const s25Seal = await context.templateOperation({ operation: 'freezeTemplate', database: s25, registryHash: s25Migration.registryHash });
+  await inspectTemplateSeal(context.queryCatalog, s25, s25Seal.comment);
   return new Map([
     ['empty', record('empty', empty, 'template0', 0, 'empty', emptySeal.comment)],
     ['S24', record('S24', s24, empty, 24, migration.registryHash, s24Seal.comment)],
+    ['S25', record('S25', s25, s24, 25, s25Migration.registryHash, s25Seal.comment)],
   ]);
 }

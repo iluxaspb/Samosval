@@ -56,11 +56,11 @@ test('admin URL accepts only an explicit approved PostgreSQL maintenance endpoin
 
 test('generated identifiers are exact bounded ASCII names and reserved names fail closed', () => {
   assert.equal(validateGeneratedIdentifier(target, { runid, kind: 'target' }), target);
-  for (const suffix of ['tpl_empty', 'tpl_s24']) {
+  for (const suffix of ['tpl_empty', 'tpl_s24', 'tpl_s25']) {
     const template = `${GENERATED_DATABASE_PREFIX}${runid}_${suffix}`;
     assert.equal(validateGeneratedIdentifier(template, { runid, kind: 'template' }), template);
   }
-  for (const suffix of ['tpl_', 'tpl_other', 'tpl_s25', 'tpl_s24x', 'tpl_s24_extra']) {
+  for (const suffix of ['tpl_', 'tpl_other', 'tpl_s26', 'tpl_s24x', 'tpl_s24_extra']) {
     const template = `${GENERATED_DATABASE_PREFIX}${runid}_${suffix}`;
     assert.throws(() => validateGeneratedIdentifier(template, { runid, kind: 'template' }), /generated identifier is not approved/i);
   }
@@ -154,13 +154,18 @@ test('closed template broker accepts only empty/S24 lifecycle operations without
   const broker = createTemplateBroker({ bootstrapClient, runid, capability });
   const empty = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_empty`;
   const s24 = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s24`;
+  const s25 = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s25`;
   await broker.run({ operation: 'createTemplate', database: empty, source: 'template0', capability });
   await broker.run({ operation: 'createTemplate', database: s24, source: empty, capability });
   await broker.run({ operation: 'freezeTemplate', database: s24, registryHash: EXPECTED_S24_HASH, capability });
   assert.equal(calls.some(([config]) => String(config.text ?? config).includes(`CREATE DATABASE "${empty}" TEMPLATE "template0"`)), true);
   assert.equal(calls.some(([config]) => String(config.text ?? config).includes(`CREATE DATABASE "${s24}" TEMPLATE "${empty}"`)), true);
   assert.equal(calls.some(([config]) => String(config.text ?? config).includes(`ALTER DATABASE "${s24}" ALLOW_CONNECTIONS false`)), true);
-  await assert.rejects(broker.run({ operation: 'createTemplate', database: `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s25`, source: s24 }), /not approved/i);
+  // S25 is a clone of S24 and nothing else; S26 is not a baseline yet.
+  await broker.run({ operation: 'createTemplate', database: s25, source: s24, capability });
+  assert.equal(calls.some(([config]) => String(config.text ?? config).includes(`CREATE DATABASE "${s25}" TEMPLATE "${s24}"`)), true);
+  await assert.rejects(broker.run({ operation: 'createTemplate', database: s25, source: empty, capability }), /not approved/i);
+  await assert.rejects(broker.run({ operation: 'createTemplate', database: `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s26`, source: s25, capability }), /not approved/i);
   await assert.rejects(broker.run({ operation: 'sql', sql: 'DROP DATABASE postgres', capability }), /not approved/i);
 });
 

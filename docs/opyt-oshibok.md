@@ -417,3 +417,20 @@ file-watcher по `/`, `/etc`, `/home`, `/home/iluxa`, ответ `503` на `/a
 **Симптом:** `tests/archive-read.test.mjs` делал `deepEqual` всей legacy-записи и покраснел после добавления `archiveId:null/archiveSha256:null`.
 **Что делать:** при аддитивном изменении формы ответа обновлять такой тест осознанно (это и есть проверка контракта), а не «чинить» код обратно.
 
+## 27. Урок 26.11.2026 (I6): S25-шаблон и почему фикстуры провенанса не могут быть db-корнем
+
+**1. db-ребёнок harness работает под `samosval_test_app`, поэтому фикстуры с владельческими операциями — только harness-contract.**
+**Симптом:** новый `isolated-db-s25-fixtures` как `kind:'db'` получает `TEST_DATABASE_URL` под `samosval_test_app` и падает на `permission denied for schema public` (создание `samosval_fixture_registry`) и `must be owner of table shifts` (`ALTER TABLE ... DISABLE TRIGGER` для pre-025 legacy-строки).
+**Причина:** `buildDbEnv` (`scripts/isolated-db/env.mjs`) даёт db-ребёнку ровно `TEST_DATABASE_URL` + маркер, без bootstrap/admin-URL; `grantTargetAccess` выдаёт app-роли только `USAGE` на схему и DML на таблицы/последовательности.
+**Что делать:** фикстуры, которым нужен владелец (реестр фикстур, `DISABLE TRIGGER`, любые DDL), проверять в harness-contract с `env:['bootstrap-url']` (как `isolated-db-fixtures`). db-корень для них не подходит по устройству прав, а не по вкусу. Шаблон S25 при этом строит сам harness (`prepareTemplates`), но только когда в выборке есть db-корень или `isolated-db-integration` (`needsTarget`); иначе контракт обязан собрать эквивалентный S25 сам, иначе прогон «только harness-контракты» молча ничего не проверит.
+
+**2. `requireIsolatedDatabase` принимает только точное имя `samosval_parallel_shifts_test` — harness-цели с суффиксом `_<runid>_<hash>` отвергаются.**
+**Симптом:** `scripts/test-isolated-db.mjs tests/isolated-db-integration.test.mjs` → `ok 1 ... # SKIP`, `EXIT=1`; `parseNodeEvents` считает неразрешённый SKIP провалом. То же у всех 10 файлов на `tests/helpers/isolated-db.mjs` (`archive-*`, `legacy-shift-resolution`, `restored-context-*`, `parallel-shifts-*`), поэтому полный прогон harness по всем корням сейчас красный не из-за логики тестов.
+**Что делать:** до исправления helper'а (принять `^samosval_parallel_shifts_test_[a-f0-9]{12,20}_[a-f0-9]{12}$`) гонять такие файлы эквивалентным путём из §24 (своя БД с точным именем + `resetIsolatedDatabase` + `applyMigrationsThrough`). Это шов для I7/026: без него baseline S25 в манифесте нельзя честно прогонять через harness.
+
+**3. После красного прогона bootstrap/lifecycle остаются `target_receipts` с фиксированными runid — следующие прогоны падают на «reservation rejected».**
+**Симптом:** `isolated-db-bootstrap` тесты 16–17 (`runid` 111111111111/222222222222/333333333333) краснеют `isolated target reservation rejected` / `admin operation failed closed`, хотя базы уже удалены.
+**Причина:** `finally` теста глушит ошибки drop (`catch(()=>{})`), а receipt остаётся; reservation видит занятое имя.
+**Что делать:** перед повторным прогоном чистить `samosval_isolated_admin.target_receipts` по этим runid; при разборе «странного» отказа сначала смотреть receipts, а не код.
+
+**4. 025 authority-блок и последовательности.** Переназначение владельцев в шаблоне должно идти по `relkind IN ('r','p','v','m')`: `ALTER SEQUENCE ... OWNER` для identity-последовательности, связанной с таблицей, падает `cannot change owner of sequence ... is linked to table`. Смена владельца таблицы тянет принадлежащие ей последовательности сама.

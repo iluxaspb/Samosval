@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { BOOTSTRAP_MARKER, GENERATED_DATABASE_PREFIX, quoteIdentifier, validateAdminUrl, validateGeneratedIdentifier } from './safety.mjs';
-import { EXPECTED_S24_HASH } from './templates.mjs';
+import { EXPECTED_S24_HASH, EXPECTED_S25_HASH } from './templates.mjs';
 
 const MARKER_SETTING = 'samosval.isolated_db_bootstrap';
 const EXPECTED_SERVER_MAJOR = 16;
@@ -101,10 +101,25 @@ export async function runAdminStatement(client, request) {
 }
 
 function quoteLiteral(value) {
-  if (typeof value !== 'string' || !/^samosval-isolated-db:v1;kind=template;runid=[a-f0-9]{12,20};baseline=(empty|S24);version=(0|24);registry=(empty|[a-f0-9]{64});owner=samosval_test_prepared_owner$/.test(value)) {
+  if (typeof value !== 'string' || !/^samosval-isolated-db:v1;kind=template;runid=[a-f0-9]{12,20};baseline=(empty|S24|S25);version=(0|24|25);registry=(empty|[a-f0-9]{64});owner=samosval_test_prepared_owner$/.test(value)) {
     throw new Error('template operation is not approved');
   }
   return `'${value.replaceAll("'", "''")}'`;
+}
+
+// Closed baseline table: version, exact registry hash and the template a clone
+// must be created from. S25 is a clone of S24 and never of `empty`, so a run
+// can only ever apply the single 025 migration on top of a verified S24.
+const TEMPLATE_BASELINES = Object.freeze({
+  empty: { version: 0, registry: 'empty' },
+  S24: { version: 24, registry: EXPECTED_S24_HASH },
+  S25: { version: 25, registry: EXPECTED_S25_HASH },
+});
+
+function templateSource(suffix, runid) {
+  if (suffix === 'empty') return 'template0';
+  const parent = suffix === 'S24' ? 'empty' : 'S24';
+  return `${GENERATED_DATABASE_PREFIX}${runid}_tpl_${parent.toLowerCase()}`;
 }
 
 export function createTemplateBroker({ bootstrapClient, runid, capability }) {
@@ -130,14 +145,15 @@ export function createTemplateBroker({ bootstrapClient, runid, capability }) {
       }
       validateGeneratedIdentifier(request.database, { runid: boundRunid, kind: 'template' });
       const suffix = request.database.endsWith('_tpl_empty') ? 'empty'
-        : request.database.endsWith('_tpl_s24') ? 'S24' : null;
+        : request.database.endsWith('_tpl_s24') ? 'S24'
+          : request.database.endsWith('_tpl_s25') ? 'S25' : null;
+      if (!suffix) throw new Error('template operation is not approved');
       if (request.operation === 'createTemplate') {
-        const expectedSource = suffix === 'empty' ? 'template0' : `${GENERATED_DATABASE_PREFIX}${boundRunid}_tpl_empty`;
+        const expectedSource = templateSource(suffix, boundRunid);
         if (request.source !== expectedSource) throw new Error('template operation is not approved');
       } else if (request.operation === 'dropTemplate') {
         if (request.database.endsWith('_tpl_empty') && suffix !== 'empty') throw new Error('template operation is not approved');
-      } else if ((suffix === 'empty' && request.registryHash !== 'empty')
-          || (suffix === 'S24' && request.registryHash !== EXPECTED_S24_HASH)) {
+      } else if (request.registryHash !== TEMPLATE_BASELINES[suffix].registry) {
         throw new Error('template operation is not approved');
       }
       const identifier = quoteIdentifier(request.database);
@@ -149,8 +165,8 @@ export function createTemplateBroker({ bootstrapClient, runid, capability }) {
           return Object.freeze({ database: request.database });
         }
         if (request.operation === 'dropTemplate') {
-          const expectedRegistry = suffix === 'empty' ? 'empty' : EXPECTED_S24_HASH;
-          const expectedVersion = suffix === 'empty' ? 0 : 24;
+          const expectedRegistry = suffix === 'empty' ? 'empty' : TEMPLATE_BASELINES[suffix].registry;
+          const expectedVersion = TEMPLATE_BASELINES[suffix].version;
           const expectedComment = `samosval-isolated-db:v1;kind=template;runid=${boundRunid};baseline=${suffix};version=${expectedVersion};registry=${expectedRegistry};owner=${OWNER}`;
           const identity = await bootstrapClient.query(`SELECT d.datname, d.datallowconn, owner.rolname AS owner, description.description AS comment, (SELECT count(*)::int FROM pg_stat_activity WHERE datname=d.datname) AS sessions FROM pg_database d JOIN pg_roles owner ON owner.oid=d.datdba LEFT JOIN pg_shdescription description ON description.objoid=d.oid AND description.classoid='pg_catalog.pg_database'::regclass WHERE d.datname=$1`, [request.database]);
           const row = identity.rows[0];
@@ -159,9 +175,8 @@ export function createTemplateBroker({ bootstrapClient, runid, capability }) {
           return Object.freeze({ database: request.database });
         }
         const expectedRegistry = suffix === 'empty' ? 'empty' : request.registryHash;
-        if ((suffix === 'empty' && request.registryHash !== 'empty')
-            || (suffix === 'S24' && request.registryHash !== EXPECTED_S24_HASH)) throw new Error('template operation is not approved');
-        const version = suffix === 'empty' ? 0 : 24;
+        if (suffix === 'empty' && request.registryHash !== 'empty') throw new Error('template operation is not approved');
+        const version = TEMPLATE_BASELINES[suffix].version;
         const comment = `samosval-isolated-db:v1;kind=template;runid=${boundRunid};baseline=${suffix};version=${version};registry=${expectedRegistry};owner=${OWNER}`;
         const sessions = await bootstrapClient.query('SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname=$1', [request.database]);
         if (sessions.rows[0]?.count !== 0) throw closedError();

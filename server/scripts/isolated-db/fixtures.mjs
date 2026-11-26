@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
 
+import {
+  REPORT_SCHEMA,
+  buildHistoricalizationReport,
+  canonicalJson,
+  computeDatabaseFingerprint,
+} from '../../src/legacy-historicalization.mjs';
+
 const TARGET=/^samosval_parallel_shifts_test_[a-f0-9]{12,20}_[a-f0-9]{12}$/;
 const REPLICA_UID='test-admin-replica';
 // Canonical consumer DDL (archive-store, seed-objects-db, archive-read,
@@ -8,6 +15,142 @@ const REPLICA_UID='test-admin-replica';
 const IMPORT_DDL=`CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL); CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))`;
 const IMPORT_HASH=createHash('sha256').update(IMPORT_DDL).digest('hex');
 const REGISTRY_DDL=`CREATE TABLE IF NOT EXISTS samosval_fixture_registry(id text PRIMARY KEY,source_hash text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`;
+
+// ---------------------------------------------------------------------------
+// S25 provenance/archive fixtures (I6). Every identifier below lives in a real
+// parent row (workspaces, app_users, workspace_objects, line_trucks), so a
+// missing parent fails as 23503 instead of being silently accepted. The golden
+// v2 document is the exact 14-key document written by src/shift-start.mjs, and
+// the legacy v1 document is the exact 7-key Firebase document of design §4.8.
+// ---------------------------------------------------------------------------
+const sha256Hex=value=>createHash('sha256').update(value).digest('hex');
+const canonicalSha256=value=>sha256Hex(Buffer.from(canonicalJson(value),'utf8'));
+const hex64=value=>typeof value==='string'&&/^[0-9a-f]{64}$/.test(value);
+const recordFixture=(q,id,hash)=>q('INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)',[id,hash]);
+const insertUser=(q,uid,displayName,role)=>q(`INSERT INTO app_users(uid,email,display_name,role,status,revision,profile,protected) VALUES ($1,$2,$3,$4,'active',1,'{}',false)`,[uid,`${uid}@example.invalid`,displayName,role]);
+const insertObject=(q,workspaceId,objectId,name)=>q(`INSERT INTO workspace_objects(workspace_id,object_id,payload) VALUES ($1,$2,$3)`,[workspaceId,objectId,{id:objectId,name}]);
+const insertTruck=(q,workspaceId,truckId,name)=>q(`INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES ($1,$2,$3)`,[workspaceId,truckId,{id:truckId,name}]);
+
+// Recreates one pre-025 legacy document exactly as 025's one-time backfill
+// classified it. The v2 bridge deliberately refuses every legacy write, so the
+// fixture must present the already-classified row: it disables the named bridge
+// trigger for this single INSERT (owner/superuser only) and re-enables it in the
+// same transaction. Nothing here is a runtime write path.
+async function insertLegacyV1(q,{workspaceId,shiftId,objectId,objectName,payload}){
+  await q('ALTER TABLE shifts DISABLE TRIGGER shifts_legacy_bridge_trigger');
+  try{
+    await q(`INSERT INTO shifts(workspace_id,shift_id,is_active,payload,state,object_id,object_name_snapshot,work_date,shift_type,shift_type_resolution,opened_at,opened_by_uid,opened_by_name_snapshot,identity_resolution,payload_schema_version,revision)
+             VALUES ($1,$2,false,$3,'historical',$4,$5,to_date($6,'DD.MM.YYYY'),NULL,'unresolved',to_timestamp(($7::double precision)/1000.0),NULL,$8,'unresolved',1,1)`,
+      [workspaceId,shiftId,payload,objectId,objectName,payload.startDate,payload.startedAt,payload.startedBy]);
+  }finally{
+    await q('ALTER TABLE shifts ENABLE TRIGGER shifts_legacy_bridge_trigger');
+  }
+}
+
+// Runs a statement that must fail closed and rolls the savepoint back, so a
+// fixture verifier can prove a refusal without leaving any trace.
+async function rejectsWith(q,sql,values,pattern){
+  await q('SAVEPOINT fixture_expectation');
+  let error=null;
+  try{await q(sql,values);}catch(caught){error=caught;}
+  await q('ROLLBACK TO SAVEPOINT fixture_expectation');
+  if(!error)throw new Error(`expected refusal was accepted: ${pattern}`);
+  if(!pattern.test(String(error.message??'')))throw new Error(`unexpected refusal: ${error.message}`);
+  return true;
+}
+
+const LEGACY_WORKSPACE='main_workspace';
+const LEGACY_OBJECT_ID='fixture_legacy_object';
+const LEGACY_SHIFT_ID='shift_fixture_legacy_v1';
+const LEGACY_STARTED_AT=1795420800000;
+const LEGACY_PAYLOAD=Object.freeze({
+  id:LEGACY_SHIFT_ID,
+  objectId:LEGACY_OBJECT_ID,
+  objectName:'Объект наследия',
+  startDate:'23.11.2026',
+  startedAt:LEGACY_STARTED_AT,
+  startedBy:'Мастер прошлой смены',
+  isActive:true,
+});
+
+const V2_WORKSPACE='main_workspace';
+const V2_OBJECT_ID='fixture_v2_object';
+const V2_CREATOR_UID='fixture_v2_creator';
+const V2_SENDER_UID='fixture_v2_sender';
+const V2_SHIFT_ID='shift_fixture_v2_night';
+const V2_STARTED_AT=1795453200000;
+const V2_PAYLOAD=Object.freeze({
+  payloadSchemaVersion:2,
+  id:V2_SHIFT_ID,
+  shiftId:V2_SHIFT_ID,
+  objectId:V2_OBJECT_ID,
+  objectName:'Ночной объект фикстуры',
+  startDate:'23.11.2026',
+  date:'2026-11-23',
+  workShift:'night',
+  type:'night',
+  state:'active',
+  isActive:true,
+  startedAt:V2_STARTED_AT,
+  startedBy:'Ночной мастер',
+  startedByUid:V2_CREATOR_UID,
+});
+const V2_JOURNAL=Object.freeze({
+  collection:'shift',
+  path:`shift/${V2_SHIFT_ID}`,
+  data:V2_PAYLOAD,
+  // Transport identity of the replica batch. It authorizes delivery only and is
+  // never the document creator; the materialized row must keep startedByUid.
+  senderUid:V2_SENDER_UID,
+});
+
+const CUTOVER_WORKSPACE='fixture_cutover_workspace';
+const CUTOVER_OBJECT_ID='fixture_cutover_object';
+const CUTOVER_SHIFT_ID='shift_fixture_cutover_v1';
+const CUTOVER_ADMIN_UID='fixture_cutover_admin';
+const CUTOVER_OPENED_AT=1795424400000;
+const CUTOVER_PAYLOAD=Object.freeze({
+  id:CUTOVER_SHIFT_ID,
+  objectId:CUTOVER_OBJECT_ID,
+  objectName:'Объект отчёта перехода',
+  startDate:'23.11.2026',
+  startedAt:CUTOVER_OPENED_AT,
+  startedBy:'Мастер отчёта',
+  isActive:true,
+});
+const CUTOVER_CONFIRMATION_ID='fixture_cutover_confirmation';
+const CUTOVER_REPORT_CONTEXT=Object.freeze({
+  workspaceId:CUTOVER_WORKSPACE,
+  migrationVersion:'025_parallel_shifts_core.sql',
+  generatedAt:'2098-12-31T00:00:00.000Z',
+  expiresAt:'2099-01-01T00:00:00.000Z',
+  backupManifestSha256:'a'.repeat(64),
+});
+
+const ARCHIVE_EDITOR_UID='fixture_archive_editor';
+const ARCHIVE_ORIGINAL_UID='fixture_archive_original';
+const ARCHIVE_OBJECT_ID='fixture_archive_object';
+const ARCHIVE_TRUCK_ID='fixture_archive_truck';
+const ARCHIVE_REVISION_ONE=Buffer.from(canonicalJson({schema:'samosval.archive/v1',shiftId:'shift_fixture_archive_source',revision:1,objectId:ARCHIVE_OBJECT_ID}),'utf8');
+const ARCHIVE_REVISION_TWO=Buffer.from(canonicalJson({schema:'samosval.archive/v1',shiftId:'shift_fixture_archive_source',revision:2,objectId:ARCHIVE_OBJECT_ID}),'utf8');
+const CHAIN_EDITOR_UID='fixture_chain_editor';
+const CHAIN_OBJECT_ID='fixture_chain_object';
+
+const RUNTIME_PROBE_TABLES=Object.freeze([
+  'shift_archive_revisions','archive_operation_receipts','archive_revision_publications',
+  'restored_context_status_snapshots','restored_context_history','restored_context_receipts',
+  'restored_context_audit','restored_context_migration_evidence',
+  'restored_context_migration_evidence_rows','archive_audit',
+]);
+const RUNTIME_PROBE_SOURCE_TABLES=Object.freeze([
+  'workspace_service_audit','workspace_service_receipts','line_audit','line_operation_receipts',
+  'line_history','history_audit','history_receipts','shift_operation_receipts',
+]);
+const RUNTIME_PROBE_FUNCTIONS=Object.freeze([
+  'public.restored_context_migration_plan(text,text,text,bigint,text)',
+  'public.restored_context_source_manifest(text,text,text,bigint,text)',
+  'public.migrate_legacy_restored_context_exact(text,jsonb)',
+]);
 
 async function catalog(query,names){return (await query(`SELECT c.relname,c.relkind,owner.rolname owner,COALESCE(array_to_string(c.relacl,','),'') acl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles owner ON owner.oid=c.relowner WHERE n.nspname='public' AND c.relname=ANY($1) ORDER BY c.relname`,[names])).rows;}
 function exactNames(rows,names){return rows.map(r=>r.relname).join('|')===[...names].sort().join('|');}
@@ -20,6 +163,222 @@ const registry=new Map([
  ['authority-main-firebase',{order:50,async apply(q){await q(`UPDATE server_authority SET provider='firebase',generation=1,reason='fixture',updated_by='system' WHERE workspace_id='main_workspace'`);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['authority-main-firebase','firebase-v1']);},async verify(q){const rows=(await q(`SELECT workspace_id,provider,generation::text generation FROM server_authority WHERE workspace_id='main_workspace'`)).rows;return {exact:rows.length===1&&rows[0].provider==='firebase'&&rows[0].generation==='1'};}}],
  ['replica-admin',{order:60,async apply(q){await q(`INSERT INTO app_users(uid,email,display_name,role,status,revision,profile,protected) VALUES ($1,$2,$3,'admin','active',1,'{}',false)`,[REPLICA_UID,'replica@example.invalid','Replica Admin']);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['replica-admin','replica-admin-v1']);},async verify(q){const rows=(await q(`SELECT uid,email,display_name,role,status FROM app_users`)).rows;return {exact:rows.length===1&&rows[0].uid===REPLICA_UID&&rows[0].email==='replica@example.invalid'&&rows[0].role==='admin'&&rows[0].status==='active'};}}],
  ['replica-empty-stream-cursors',{order:70,async apply(q){await q(`DELETE FROM replica_stream; UPDATE replica_cursor SET f2s_seq=0,s2f_seq=0 WHERE workspace_id='main_workspace'`);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['replica-empty-stream-cursors','replica-empty-v1']);},async verify(q){const row=(await q(`SELECT (SELECT count(*)::int FROM replica_stream) stream,(SELECT count(*)::int FROM replica_cursor) cursors,(SELECT count(*)::int FROM replica_cursor WHERE workspace_id='main_workspace' AND f2s_seq=0 AND s2f_seq=0) initial`)).rows[0];const objects=await catalog(q,['replica_stream','replica_cursor']);return {objects:exactNames(objects,['replica_stream','replica_cursor']),empty:row?.stream===0,initial:row?.cursors===1&&row?.initial===1};}}],
+
+ ['parallel-shift-legacy-unresolved',{order:100,
+  async apply(q){
+   await insertObject(q,LEGACY_WORKSPACE,LEGACY_OBJECT_ID,'Объект наследия');
+   await insertLegacyV1(q,{workspaceId:LEGACY_WORKSPACE,shiftId:LEGACY_SHIFT_ID,objectId:LEGACY_OBJECT_ID,objectName:'Объект наследия',payload:LEGACY_PAYLOAD});
+   await recordFixture(q,'parallel-shift-legacy-unresolved','legacy-v1-unresolved');
+  },
+  async verify(q){
+   const row=(await q(`SELECT state,is_active,payload_schema_version::int AS version,identity_resolution,opened_by_uid,opened_by_name_snapshot,shift_type,shift_type_resolution,object_id,to_char(work_date,'YYYY-MM-DD') AS work_date,to_char(opened_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS opened_at FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,[LEGACY_WORKSPACE,LEGACY_SHIFT_ID])).rows[0];
+   const payload=(await q('SELECT payload=$3::jsonb AS same FROM shifts WHERE workspace_id=$1 AND shift_id=$2',[LEGACY_WORKSPACE,LEGACY_SHIFT_ID,LEGACY_PAYLOAD])).rows[0];
+   const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='parallel-shift-legacy-unresolved'")).rows[0];
+   const live=await rejectsWith(q,`UPDATE shifts SET state='active',is_active=true WHERE workspace_id=$1 AND shift_id=$2`,[LEGACY_WORKSPACE,LEGACY_SHIFT_ID],/protocol-upgrade-required/i);
+   return {
+    exact:row?.state==='historical'&&row?.is_active===false&&row?.version===1&&row?.identity_resolution==='unresolved'&&row?.opened_by_uid===null&&row?.opened_by_name_snapshot==='Мастер прошлой смены'&&row?.shift_type===null&&row?.shift_type_resolution==='unresolved'&&row?.object_id===LEGACY_OBJECT_ID&&row?.work_date==='2026-11-23'&&row?.opened_at==='2026-11-23T08:00:00.000Z',
+    payloadBytes:payload?.same===true,
+    registry:registry?.source_hash==='legacy-v1-unresolved',
+    legacyNeverLive:live===true,
+   };
+  }}],
+
+ ['parallel-shift-v2-night',{order:110,
+  async apply(q){
+   await insertUser(q,V2_CREATOR_UID,'Ночной мастер','foreman');
+   await insertUser(q,V2_SENDER_UID,'Отправитель реплики','admin');
+   await insertObject(q,V2_WORKSPACE,V2_OBJECT_ID,'Ночной объект фикстуры');
+   await q('INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',[V2_WORKSPACE,V2_SHIFT_ID,V2_PAYLOAD]);
+   await q(`INSERT INTO replica_cursor(workspace_id,f2s_seq,s2f_seq) VALUES ($1,1,0) ON CONFLICT (workspace_id) DO UPDATE SET f2s_seq=GREATEST(replica_cursor.f2s_seq,1),updated_at=now()`,[V2_WORKSPACE]);
+   await q(`INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256) VALUES ($1,1,'f2s',$2,'doc.set',$3,$4)`,[V2_WORKSPACE,'fixture_v2_night_operation',V2_JOURNAL,canonicalSha256(V2_JOURNAL)]);
+   await recordFixture(q,'parallel-shift-v2-night','golden-v2-night-sender-ne-creator');
+  },
+  async verify(q){
+   const row=(await q(`SELECT opened_by_uid,opened_by_name_snapshot,shift_type,shift_type_resolution,identity_resolution,payload_schema_version::int AS version,state,is_active FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,[V2_WORKSPACE,V2_SHIFT_ID])).rows[0];
+   const payload=(await q('SELECT payload=$3::jsonb AS same FROM shifts WHERE workspace_id=$1 AND shift_id=$2',[V2_WORKSPACE,V2_SHIFT_ID,V2_PAYLOAD])).rows[0];
+   const journal=(await q(`SELECT payload->>'senderUid' AS sender,payload->'data'->>'startedByUid' AS creator,sha256 FROM replica_stream WHERE workspace_id=$1 AND operation_id=$2`,[V2_WORKSPACE,'fixture_v2_night_operation'])).rows[0];
+   const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='parallel-shift-v2-night'")).rows[0];
+   return {
+    exact:row?.opened_by_uid===V2_CREATOR_UID&&row?.opened_by_name_snapshot==='Ночной мастер'&&row?.shift_type==='night'&&row?.shift_type_resolution==='source'&&row?.identity_resolution==='source'&&row?.version===2&&row?.state==='active'&&row?.is_active===true,
+    payloadBytes:payload?.same===true,
+    senderIsTransportOnly:journal?.sender===V2_SENDER_UID&&journal?.creator===V2_CREATOR_UID&&journal.sender!==journal.creator&&row?.opened_by_uid!==journal.sender,
+    journalHash:journal?.sha256===canonicalSha256(V2_JOURNAL),
+    registry:registry?.source_hash==='golden-v2-night-sender-ne-creator',
+   };
+  }}],
+
+ ['parallel-shift-cutover-report',{order:120,
+  async apply(q){
+   await q('INSERT INTO workspaces(id) VALUES ($1)',[CUTOVER_WORKSPACE]);
+   await insertUser(q,CUTOVER_ADMIN_UID,'Администратор отчёта','admin');
+   await insertObject(q,CUTOVER_WORKSPACE,CUTOVER_OBJECT_ID,'Объект отчёта перехода');
+   await insertLegacyV1(q,{workspaceId:CUTOVER_WORKSPACE,shiftId:CUTOVER_SHIFT_ID,objectId:CUTOVER_OBJECT_ID,objectName:'Объект отчёта перехода',payload:CUTOVER_PAYLOAD});
+   const databaseFingerprint=await computeDatabaseFingerprint({query:q});
+   const report=await buildHistoricalizationReport({query:q},{...CUTOVER_REPORT_CONTEXT,databaseFingerprint});
+   await q(`INSERT INTO legacy_historicalization_confirmations(confirmation_id,workspace_id,report_schema,report_sha256,report_bytes,row_count,owner_actor_uid,expires_at,backup_manifest_sha256,database_fingerprint)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+     [CUTOVER_CONFIRMATION_ID,CUTOVER_WORKSPACE,REPORT_SCHEMA,report.sha256,report.bytes,report.rowCount,CUTOVER_ADMIN_UID,CUTOVER_REPORT_CONTEXT.expiresAt,CUTOVER_REPORT_CONTEXT.backupManifestSha256,databaseFingerprint]);
+   await recordFixture(q,'parallel-shift-cutover-report','canonical-report-bytes');
+  },
+  async verify(q){
+   const stored=(await q('SELECT report_bytes,report_sha256,row_count,state FROM legacy_historicalization_confirmations WHERE confirmation_id=$1',[CUTOVER_CONFIRMATION_ID])).rows[0];
+   const databaseFingerprint=await computeDatabaseFingerprint({query:q});
+   const recomputed=await buildHistoricalizationReport({query:q},{...CUTOVER_REPORT_CONTEXT,databaseFingerprint});
+   const mutated=JSON.parse(recomputed.bytes.toString('utf8'));
+   mutated.rows[0].objectId=`${mutated.rows[0].objectId}_mutated`;
+   const shift=(await q(`SELECT state,closed_at,closed_by_uid,payload ? 'closedAt' AS has_closed,payload ? 'closing' AS has_closing FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,[CUTOVER_WORKSPACE,CUTOVER_SHIFT_ID])).rows[0];
+   const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='parallel-shift-cutover-report'")).rows[0];
+   return {
+    bytes:Buffer.isBuffer(stored?.report_bytes)&&stored.report_bytes.equals(recomputed.bytes),
+    hash:stored?.report_sha256===recomputed.sha256&&recomputed.sha256===sha256Hex(stored.report_bytes),
+    mutationInvalidates:canonicalSha256(mutated)!==recomputed.sha256,
+    noSyntheticClose:shift?.state==='historical'&&shift?.closed_at===null&&shift?.closed_by_uid===null&&shift?.has_closed===false&&shift?.has_closing===false,
+    rowCount:stored?.row_count===1&&recomputed.rowCount===1&&stored?.state==='pending',
+    registry:registry?.source_hash==='canonical-report-bytes',
+   };
+  }}],
+
+ ['parallel-shift-restored-contexts',{order:130,
+  async apply(q){
+   await insertUser(q,ARCHIVE_EDITOR_UID,'Редактор архива','admin');
+   await insertUser(q,ARCHIVE_ORIGINAL_UID,'Оригинальный мастер','foreman');
+   await insertObject(q,LEGACY_WORKSPACE,ARCHIVE_OBJECT_ID,'Архивный объект');
+   await insertTruck(q,LEGACY_WORKSPACE,ARCHIVE_TRUCK_ID,'Самосвал архива');
+   await q(`INSERT INTO shift_archive_series(workspace_id,archive_id,source_shift_id,current_location,series_revision) VALUES ($1,$2,$3,'archive',1)`,['main_workspace','fixture_archive_context','shift_fixture_context_source']);
+   await q(`INSERT INTO shift_archive_revisions(workspace_id,archive_id,archive_revision,previous_revision,previous_sha256,payload_bytes,payload_sha256,payload_schema_version,source_kind,source_locator,created_by_uid)
+            VALUES ($1,$2,1,NULL,NULL,$3,$4,2,'firebase',$5,$6)`,
+     ['main_workspace','fixture_archive_context',ARCHIVE_REVISION_ONE,sha256Hex(ARCHIVE_REVISION_ONE),'fixture://shift/shift_fixture_context_source',ARCHIVE_EDITOR_UID]);
+   await q(`INSERT INTO restored_shift_contexts(workspace_id,restored_context_id,archive_id,source_shift_id,mode,context_state,original_opened_by_uid,original_opened_by_name_snapshot,original_identity_resolution,original_shift_type,original_shift_type_resolution,restored_by_uid,restored_by_name_snapshot,restored_at,archive_revision,context_revision,restore_operation_id,source_state_snapshot,source_shift_revision,opened_at_snapshot,object_id,object_name,work_date)
+            VALUES ($1,$2,$3,$4,'parallel','open',$5,'Оригинальный мастер','source','night','source',$6,'Редактор архива',to_timestamp(($7::double precision)/1000.0),1,1,$8,$9,1,to_timestamp(($10::double precision)/1000.0),$11,$12,to_date($13,'DD.MM.YYYY'))`,
+     ['main_workspace','fixture_restored_context','fixture_archive_context','shift_fixture_context_source',ARCHIVE_ORIGINAL_UID,ARCHIVE_EDITOR_UID,1795496400000,'fixture_restore_context_operation',{state:'closed',objectId:ARCHIVE_OBJECT_ID},1795420800000,ARCHIVE_OBJECT_ID,'Архивный объект','23.11.2026']);
+   await q(`INSERT INTO restored_context_logs(workspace_id,restored_context_id,log_id,truck_id,payload,log_revision,source_log_id,created_from_archive_revision)
+            VALUES ($1,$2,$3,$4,$5,1,$6,1)`,
+     ['main_workspace','fixture_restored_context','fixture_restored_log',ARCHIVE_TRUCK_ID,{id:'fixture_restored_log',truckId:ARCHIVE_TRUCK_ID,timestamp:1795424400000,type:'trip'},'source_log_fixture_0001']);
+   await q(`INSERT INTO restored_context_status_snapshots(workspace_id,restored_context_id,truck_id,payload,status_revision,cycle_revision,ttn_revision)
+            VALUES ($1,$2,$3,$4,1,1,1)`,
+     ['main_workspace','fixture_restored_context',ARCHIVE_TRUCK_ID,{onLine:false,arriveTimestamp:1795424400000,lastLoadTimestamp:1795428000000,ttnStatus:true}]);
+   await q(`INSERT INTO restored_context_history(workspace_id,action_id,restored_context_id,uid,type,before_log,after_log,revision,undone)
+            VALUES ($1,$2,$3,$4,'restore',NULL,$5,1,false)`,
+     ['main_workspace','fixture_restored_action','fixture_restored_context',ARCHIVE_EDITOR_UID,{id:'fixture_restored_log'}]);
+   await recordFixture(q,'parallel-shift-restored-contexts','restored-context-snapshot');
+  },
+  async verify(q){
+   const context=(await q(`SELECT original_opened_by_uid,original_opened_by_name_snapshot,original_identity_resolution,original_shift_type,original_shift_type_resolution,restored_by_uid,context_state,mode,archive_revision::int AS archive_revision,context_revision::int AS context_revision FROM restored_shift_contexts WHERE workspace_id=$1 AND restored_context_id=$2`,['main_workspace','fixture_restored_context'])).rows[0];
+   const series=(await q(`SELECT latest_finalized_revision,latest_finalized_sha256,series_revision::int AS series_revision FROM shift_archive_series WHERE workspace_id=$1 AND archive_id=$2`,['main_workspace','fixture_archive_context'])).rows[0];
+   const revision=(await q(`SELECT encode(payload_bytes,'hex') AS bytes_hex,payload_sha256 FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 AND archive_revision=1`,['main_workspace','fixture_archive_context'])).rows[0];
+   const children=(await q(`SELECT (SELECT count(*)::int FROM restored_context_logs WHERE workspace_id=$1 AND restored_context_id=$2) AS logs,(SELECT count(*)::int FROM restored_context_status_snapshots WHERE workspace_id=$1 AND restored_context_id=$2) AS snapshots,(SELECT count(*)::int FROM restored_context_history WHERE workspace_id=$1 AND restored_context_id=$2) AS history` ,['main_workspace','fixture_restored_context'])).rows[0];
+   const snapshot=(await q(`SELECT payload->>'arriveTimestamp' AS arrive,payload->>'ttnStatus' AS ttn FROM restored_context_status_snapshots WHERE workspace_id=$1 AND restored_context_id=$2 AND truck_id=$3`,['main_workspace','fixture_restored_context',ARCHIVE_TRUCK_ID])).rows[0];
+   const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='parallel-shift-restored-contexts'")).rows[0];
+   return {
+    provenancePreserved:context?.original_identity_resolution==='source'&&context?.original_shift_type==='night'&&context?.original_shift_type_resolution==='source'&&context?.original_opened_by_uid===ARCHIVE_ORIGINAL_UID&&context?.original_opened_by_name_snapshot==='Оригинальный мастер',
+    distinctRestorer:context?.restored_by_uid===ARCHIVE_EDITOR_UID&&context?.restored_by_uid!==context?.original_opened_by_uid,
+    snapshotBytes:revision?.bytes_hex===ARCHIVE_REVISION_ONE.toString('hex')&&revision?.payload_sha256===sha256Hex(ARCHIVE_REVISION_ONE),
+    seriesNotAdvanced:series?.latest_finalized_revision===null&&series?.latest_finalized_sha256===null&&series?.series_revision===1,
+    children:children?.logs===1&&children?.snapshots===1&&children?.history===1,
+    statusSnapshot:snapshot?.arrive==='1795424400000'&&snapshot?.ttn==='true',
+    registry:registry?.source_hash==='restored-context-snapshot',
+   };
+  }}],
+
+ ['archive-immutable-revisions',{order:140,
+  async apply(q){
+   await insertUser(q,CHAIN_EDITOR_UID,'Редактор цепочки','admin');
+   await insertObject(q,LEGACY_WORKSPACE,CHAIN_OBJECT_ID,'Объект цепочки');
+   await q(`INSERT INTO shift_archive_series(workspace_id,archive_id,source_shift_id,current_location,series_revision) VALUES ($1,$2,$3,'archive',1)`,['main_workspace','fixture_archive_chain','shift_fixture_chain_source']);
+   const one=sha256Hex(ARCHIVE_REVISION_ONE),two=sha256Hex(ARCHIVE_REVISION_TWO);
+   await q(`INSERT INTO shift_archive_revisions(workspace_id,archive_id,archive_revision,previous_revision,previous_sha256,payload_bytes,payload_sha256,payload_schema_version,source_kind,source_locator,created_by_uid)
+            VALUES ($1,$2,1,NULL,NULL,$3,$4,2,'firebase',$5,$6)`,
+     ['main_workspace','fixture_archive_chain',ARCHIVE_REVISION_ONE,one,'fixture://shift/shift_fixture_chain_source',CHAIN_EDITOR_UID]);
+   await q(`INSERT INTO shift_archive_revisions(workspace_id,archive_id,archive_revision,previous_revision,previous_sha256,payload_bytes,payload_sha256,payload_schema_version,source_kind,source_locator,created_by_uid)
+            VALUES ($1,$2,2,1,$3,$4,$5,2,'firebase',$6,$7)`,
+     ['main_workspace','fixture_archive_chain',one,ARCHIVE_REVISION_TWO,two,'fixture://shift/shift_fixture_chain_source/2',CHAIN_EDITOR_UID]);
+   await q(`UPDATE shift_archive_series SET latest_finalized_revision=2,latest_finalized_sha256=$3,series_revision=2 WHERE workspace_id=$1 AND archive_id=$2`,['main_workspace','fixture_archive_chain',two]);
+   await q(`INSERT INTO archive_operation_receipts(workspace_id,operation_id,archive_id,uid,command_hash,result) VALUES ($1,$2,$3,$4,$5,$6)`,
+     ['main_workspace','fixture_chain_restore_operation','fixture_archive_chain',CHAIN_EDITOR_UID,'b'.repeat(64),{outcome:'restored'}]);
+   await q(`INSERT INTO archive_operation_receipts(workspace_id,operation_id,archive_id,uid,command_hash,result) VALUES ($1,$2,$3,$4,$5,$6)`,
+     ['main_workspace','fixture_chain_finalize_operation','fixture_archive_chain',CHAIN_EDITOR_UID,'c'.repeat(64),{outcome:'finalized'}]);
+   await q(`INSERT INTO restored_shift_contexts(workspace_id,restored_context_id,archive_id,source_shift_id,mode,context_state,original_opened_by_uid,original_opened_by_name_snapshot,original_identity_resolution,original_shift_type,original_shift_type_resolution,restored_by_uid,restored_by_name_snapshot,restored_at,archive_revision,context_revision,restore_operation_id,source_state_snapshot,source_shift_revision,opened_at_snapshot,object_id,object_name,work_date)
+            VALUES ($1,$2,$3,$4,'parallel','finalized',NULL,'<unresolved>','unresolved',NULL,'unresolved',$5,'Редактор архива',to_timestamp(($6::double precision)/1000.0),1,1,$7,$8,1,to_timestamp(($9::double precision)/1000.0),$10,$11,to_date($12,'DD.MM.YYYY'))`,
+     ['main_workspace','fixture_chain_context','fixture_archive_chain','shift_fixture_chain_source',CHAIN_EDITOR_UID,1795496400000,'fixture_chain_restore_operation',{state:'closed',objectId:CHAIN_OBJECT_ID},1795420800000,CHAIN_OBJECT_ID,'Архивный объект','23.11.2026']);
+   await q(`INSERT INTO archive_revision_publications(workspace_id,archive_id,archive_revision,restored_context_id,restore_operation_id,finalize_operation_id,base_revision,base_sha256,command_hash,published_by_uid)
+            VALUES ($1,$2,2,$3,$4,$5,1,$6,$7,$8)`,
+     ['main_workspace','fixture_archive_chain','fixture_chain_context','fixture_chain_restore_operation','fixture_chain_finalize_operation',one,'d'.repeat(64),CHAIN_EDITOR_UID]);
+   await recordFixture(q,'archive-immutable-revisions','two-revision-chain');
+  },
+  async verify(q){
+   const revisions=(await q(`SELECT archive_revision::int AS revision,previous_revision::int AS previous_revision,previous_sha256,payload_sha256,encode(payload_bytes,'hex') AS bytes_hex FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 ORDER BY archive_revision`,['main_workspace','fixture_archive_chain'])).rows;
+   const series=(await q(`SELECT latest_finalized_revision::int AS revision,latest_finalized_sha256 FROM shift_archive_series WHERE workspace_id=$1 AND archive_id=$2`,['main_workspace','fixture_archive_chain'])).rows[0];
+   const publication=(await q(`SELECT archive_revision::int AS revision,base_revision::int AS base_revision,base_sha256 FROM archive_revision_publications WHERE workspace_id=$1 AND archive_id=$2`,['main_workspace','fixture_archive_chain'])).rows[0];
+   const receipts=(await q(`SELECT count(*)::int AS n FROM archive_operation_receipts WHERE workspace_id=$1 AND archive_id=$2`,['main_workspace','fixture_archive_chain'])).rows[0];
+   const updateRefused=await rejectsWith(q,`UPDATE shift_archive_revisions SET source_kind='mutated' WHERE workspace_id=$1 AND archive_id=$2 AND archive_revision=1`,['main_workspace','fixture_archive_chain'],/append-only/i);
+   const deleteRefused=await rejectsWith(q,`DELETE FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 AND archive_revision=1`,['main_workspace','fixture_archive_chain'],/append-only/i);
+   const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='archive-immutable-revisions'")).rows[0];
+   const [first,second]=revisions;
+   return {
+    chain:revisions.length===2&&first?.revision===1&&first?.previous_revision===null&&first?.previous_sha256===null&&first?.payload_sha256===sha256Hex(ARCHIVE_REVISION_ONE)&&first?.bytes_hex===ARCHIVE_REVISION_ONE.toString('hex')&&second?.revision===2&&second?.previous_revision===1&&second?.previous_sha256===first?.payload_sha256&&second?.payload_sha256===sha256Hex(ARCHIVE_REVISION_TWO)&&second?.bytes_hex===ARCHIVE_REVISION_TWO.toString('hex'),
+    latest:series?.revision===2&&series?.latest_finalized_sha256===second?.payload_sha256,
+    publication:publication?.revision===2&&publication?.base_revision===1&&publication?.base_sha256===first?.payload_sha256,
+    receipts:receipts?.n===2,
+    immutable:updateRefused===true&&deleteRefused===true,
+    registry:registry?.source_hash==='two-revision-chain',
+   };
+  }}],
+
+ ['restore-bootstrap-boundary',{order:150,
+  async apply(q){
+   await q('INSERT INTO workspaces(id) VALUES ($1)',['fixture_boundary_workspace']);
+   await insertObject(q,'fixture_boundary_workspace','fixture_boundary_object','Объект границы восстановления');
+   // A restore-only alias may never enter `shifts`: the published v2 document is
+   // exact, so the boundary is enforced by the schema, not by one caller.
+   await rejectsWith(q,'INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',
+    ['fixture_boundary_workspace','shift_fixture_boundary',{...V2_PAYLOAD,id:'shift_fixture_boundary',shiftId:'shift_fixture_boundary',objectId:'fixture_boundary_object',restoredFrom:'archive_fixture'}],
+    /invalid-shift-v2-provenance/i);
+   await recordFixture(q,'restore-bootstrap-boundary','no-active-line-on-restore');
+  },
+  async verify(q){
+   const counts=(await q(`SELECT (SELECT count(*)::int FROM shifts WHERE workspace_id=$1) AS shifts,(SELECT count(*)::int FROM line_logs WHERE workspace_id=$1) AS logs,(SELECT count(*)::int FROM line_truck_statuses WHERE workspace_id=$1) AS statuses` ,['fixture_boundary_workspace'])).rows[0];
+   const bootstrap=(await q(`SELECT to_regclass('public.restored_shift_contexts') IS NOT NULL AS contexts,to_regclass('public.restored_context_logs') IS NOT NULL AS context_logs`)).rows[0];
+   const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='restore-bootstrap-boundary'")).rows[0];
+   return {
+    noActiveLine:counts?.shifts===0&&counts?.logs===0&&counts?.statuses===0,
+    bootstrapSchema:bootstrap?.contexts===true&&bootstrap?.context_logs===true,
+    registry:registry?.source_hash==='no-active-line-on-restore',
+   };
+  }}],
+
+ ['parallel-shift-runtime-role',{order:160,
+  async apply(q){
+   await recordFixture(q,'parallel-shift-runtime-role','runtime-read-only');
+  },
+  async verify(q){
+   const probes=(await q(`WITH roles AS (SELECT unnest(ARRAY['samosval_runtime','samosval_maintenance']) AS role)
+     SELECT
+       (SELECT count(*)::int FROM unnest($1::text[]) AS t(name), roles r
+         WHERE has_table_privilege(r.role,'public.'||t.name,'SELECT') OR has_table_privilege(r.role,'public.'||t.name,'INSERT')
+            OR has_table_privilege(r.role,'public.'||t.name,'UPDATE') OR has_table_privilege(r.role,'public.'||t.name,'DELETE')
+            OR has_table_privilege(r.role,'public.'||t.name,'TRUNCATE') OR has_table_privilege(r.role,'public.'||t.name,'REFERENCES')
+            OR has_table_privilege(r.role,'public.'||t.name,'TRIGGER')) AS archive_privileges,
+       (SELECT count(*)::int FROM unnest($2::text[]) AS t(name), roles r
+         WHERE has_table_privilege(r.role,'public.'||t.name,'UPDATE') OR has_table_privilege(r.role,'public.'||t.name,'DELETE')
+            OR has_table_privilege(r.role,'public.'||t.name,'TRUNCATE') OR has_table_privilege(r.role,'public.'||t.name,'REFERENCES')
+            OR has_table_privilege(r.role,'public.'||t.name,'TRIGGER')) AS source_mutations,
+       (SELECT has_schema_privilege('samosval_runtime','public','USAGE') AND has_schema_privilege('samosval_maintenance','public','USAGE')) AS schema_usage,
+       (SELECT NOT has_function_privilege('samosval_runtime',$3,'EXECUTE') AND NOT has_function_privilege('samosval_maintenance',$3,'EXECUTE')) AS mutation_revoked,
+       (SELECT has_function_privilege('samosval_maintenance',$4,'EXECUTE') AND has_function_privilege('samosval_maintenance',$5,'EXECUTE')
+           AND NOT has_function_privilege('samosval_runtime',$4,'EXECUTE') AND NOT has_function_privilege('samosval_runtime',$5,'EXECUTE')) AS read_only_grants,
+       (SELECT has_table_privilege('samosval_runtime','public.archive_overrides','UPDATE') AND has_table_privilege('samosval_runtime','public.archive_overrides','DELETE')) AS receipt_catalog`,
+    [RUNTIME_PROBE_TABLES,RUNTIME_PROBE_SOURCE_TABLES,RUNTIME_PROBE_FUNCTIONS[2],RUNTIME_PROBE_FUNCTIONS[0],RUNTIME_PROBE_FUNCTIONS[1]])).rows[0];
+   const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='parallel-shift-runtime-role'")).rows[0];
+   return {
+    appendOnlyClosed:probes?.archive_privileges===0,
+    sourceMutationsClosed:probes?.source_mutations===0,
+    schemaUsage:probes?.schema_usage===true,
+    mutationRevoked:probes?.mutation_revoked===true,
+    readOnlyGrants:probes?.read_only_grants===true,
+    receiptCatalog:probes?.receipt_catalog===true,
+    registry:registry?.source_hash==='runtime-read-only',
+   };
+  }}],
 ]);
 export const FIXTURE_IDS=Object.freeze([...registry.keys()]);
 function passed(report){return report&&Object.values(report).every(v=>v===true);}
@@ -31,5 +390,17 @@ export async function applyFixtures(context,requested){
  const ordered=[...unique].sort((a,b)=>registry.get(a).order-registry.get(b).order);const reports=[];
  let registryReady=false;
   for(const id of ordered){const fixture=registry.get(id);try{await context.query('BEGIN');if(!registryReady){await context.query(REGISTRY_DDL);registryReady=true;}await fixture.apply(context.query);const postcondition=await fixture.verify(context.query);if(!passed(postcondition))throw new Error(`fixture postcondition failed: ${id}`);await context.query('COMMIT');reports.push(Object.freeze({type:'samosval-fixture-report:v1',id,postcondition:Object.freeze(postcondition)}));}catch(error){await context.query('ROLLBACK').catch(()=>{});if(error?.code==='23505'||error?.code==='42P07')throw new Error(`fixture already applied: ${id}`);throw error;}}
+ return reports;
+}
+
+// Read-only re-verification of fixtures that are already applied. It exists so
+// a contract test can prove a verifier rejects tampered state instead of only
+// observing that a correct fixture passes.
+export async function verifyFixtures(context,requested){
+ if(!context||Object.keys(context).join()!=='query'||typeof context.query!=='function')throw new Error('fixture context is not approved');
+ if(!Array.isArray(requested)||requested.length===0)throw new Error('fixture list is not approved');
+ const database=(await context.query('SELECT current_database() AS database')).rows[0]?.database;if(!TARGET.test(database))throw new Error('fixture target is not approved');
+ const reports=[];
+ for(const id of requested){if(!registry.has(id))throw new Error(`fixture is unavailable: ${id}`);const postcondition=await registry.get(id).verify(context.query);if(!passed(postcondition))throw new Error(`fixture postcondition failed: ${id}`);reports.push(Object.freeze({type:'samosval-fixture-report:v1',id,postcondition:Object.freeze(postcondition)}));}
  return reports;
 }

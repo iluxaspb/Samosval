@@ -6,7 +6,7 @@ import pg from 'pg';
 import { applyMigrations } from '../scripts/apply-migrations.mjs';
 import { createTemplateBroker, generateRunCapability } from '../scripts/isolated-db/admin.mjs';
 import { transformLegacyMigrationGuard } from '../scripts/isolated-db/legacy-guards.mjs';
-import { EXPECTED_S24_HASH, EXPECTED_S24_REGISTRY, inspectTemplateSeal, prepareTemplates, verifyS24Target, verifyTargetAuthority } from '../scripts/isolated-db/templates.mjs';
+import { EXPECTED_S24_HASH, EXPECTED_S24_REGISTRY, EXPECTED_S25_HASH, EXPECTED_S25_REGISTRY, S25_KEY_OBJECTS, S25_KEY_TRIGGERS, inspectTemplateSeal, prepareTemplates, verifyS24Target, verifyS25Target, verifyTargetAuthority } from '../scripts/isolated-db/templates.mjs';
 import { GENERATED_DATABASE_PREFIX } from '../scripts/isolated-db/safety.mjs';
 import { FIXTURE_IDS } from '../scripts/isolated-db/fixtures.mjs';
 import manifest from './db-test-manifest.mjs';
@@ -29,10 +29,17 @@ function stubbedTemplateContext() {
     EXPECTED_S24_REGISTRY.map(x => ({ ...x })),
     [{ workspaces: true, users: true, authority: true, replica: true, phones: true }],
     [cleanAuthorityRow],
+    EXPECTED_S25_REGISTRY.map(x => ({ ...x })),
+    [{ workspaces: true, users: true, authority: true, replica: true, phones: true }],
+    [{ present: S25_KEY_OBJECTS.length }],
+    [{ installed: true }],
+    [{ enabled: S25_KEY_TRIGGERS.length }],
+    [cleanAuthorityRow],
   ];
   const catalogAnswers = [
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=${OWNER}`)],
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S24;version=24;registry=${EXPECTED_S24_HASH};owner=${OWNER}`)],
+    [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S25;version=25;registry=${EXPECTED_S25_HASH};owner=${OWNER}`)],
   ];
   return {
     runid,
@@ -80,10 +87,17 @@ test('prepareTemplates consumes trusted queries, exact chain and complete author
     EXPECTED_S24_REGISTRY.map(x => ({ ...x })),        // verifyS24Target registry rows
     [{ workspaces: true, users: true, authority: true, replica: true, phones: true }], // schema postconditions
     [cleanAuthorityRow],                               // verifyTargetAuthority inventory
+    EXPECTED_S25_REGISTRY.map(x => ({ ...x })),        // verifyS25Target registry rows
+    [{ workspaces: true, users: true, authority: true, replica: true, phones: true }], // S25 schema postconditions
+    [{ present: S25_KEY_OBJECTS.length }],             // S25 key objects
+    [{ installed: true }],                             // S25 migration function
+    [{ enabled: S25_KEY_TRIGGERS.length }],            // S25 enabled triggers
+    [cleanAuthorityRow],                               // S25 authority inventory
   ];
   const catalogAnswers = [
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=${OWNER}`)],
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S24;version=24;registry=${EXPECTED_S24_HASH};owner=${OWNER}`)],
+    [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S25;version=25;registry=${EXPECTED_S25_HASH};owner=${OWNER}`)],
   ];
   const context = {
     runid,
@@ -93,9 +107,12 @@ test('prepareTemplates consumes trusted queries, exact chain and complete author
     async queryCatalog() { return { rows: catalogAnswers.shift() ?? [] }; },
   };
   const records = await prepareTemplates(context);
-  assert.deepEqual([...records.keys()], ['empty', 'S24']);
+  assert.deepEqual([...records.keys()], ['empty', 'S24', 'S25']);
   assert.equal(records.get('S24').registryHash, EXPECTED_S24_HASH);
-  assert.deepEqual(calls, ['createTemplate', 'freezeTemplate', 'createTemplate', 'migrate', 'freezeTemplate']);
+  assert.equal(records.get('S25').registryHash, EXPECTED_S25_HASH);
+  assert.equal(records.get('S25').source, records.get('S24').database);
+  assert.equal(records.get('S25').version, 25);
+  assert.deepEqual(calls, ['createTemplate', 'freezeTemplate', 'createTemplate', 'migrate', 'freezeTemplate', 'createTemplate', 'migrate', 'freezeTemplate']);
   assert.equal(templateAnswers.length, 0, 'every trusted template query must be consumed');
   assert.equal(catalogAnswers.length, 0, 'every trusted catalog inspection must be consumed');
 });
@@ -155,16 +172,57 @@ test('broker binds run/capability and derives exact semantic marker tuple', asyn
   ]) await assert.rejects(broker.run(request), /not approved/i);
 });
 
-test('template and fixture registries expose no S25 or S26 baseline', async () => {
+test('trusted S25 verifier rejects missing, drifted, extra and 026 registry rows and any missing 025 surface', async () => {
+  const schemaRow = { workspaces: true, users: true, authority: true, replica: true, phones: true };
+  const run = async (rows, surface = {}) => {
+    const objects = surface.objects ?? S25_KEY_OBJECTS.length;
+    const triggers = surface.triggers ?? S25_KEY_TRIGGERS.length;
+    const installed = surface.installed ?? true;
+    return verifyS25Target(async (sql, values) => {
+      if (sql.includes('schema_migrations')) return { rows };
+      if (sql.includes('unnest')) { assert.deepEqual(values, [S25_KEY_OBJECTS]); return { rows: [{ present: objects }] }; }
+      if (sql.includes('to_regprocedure')) return { rows: [{ installed }] };
+      if (sql.includes('pg_trigger')) { assert.deepEqual(values, [S25_KEY_TRIGGERS]); return { rows: [{ enabled: triggers }] }; }
+      return { rows: [schemaRow] };
+    });
+  };
+  const valid = EXPECTED_S25_REGISTRY.map(x => ({ ...x }));
+  const verified = await run(valid);
+  assert.equal(verified.version, 25);
+  assert.equal(verified.registryHash, EXPECTED_S25_HASH);
+  assert.equal(verified.count, valid.length);
+  // The registry is the fact, not the version: every one of these is rejected.
+  for (const rows of [
+    EXPECTED_S24_REGISTRY.map(x => ({ ...x })),
+    valid.slice(1),
+    [...valid, { filename: '026_future.sql', checksum: 'a'.repeat(64) }],
+    valid.map((x, i) => i === valid.length - 1 ? { ...x, checksum: '0'.repeat(64) } : x),
+    [...valid].reverse(),
+  ]) await assert.rejects(run(rows), /S25 migration registry verification failed closed/);
+  // The 025 surface itself is proved, not assumed from the last filename.
+  await assert.rejects(run(valid, { objects: S25_KEY_OBJECTS.length - 1 }), /S25 schema verification failed closed/);
+  await assert.rejects(run(valid, { installed: false }), /S25 schema verification failed closed/);
+  await assert.rejects(run(valid, { triggers: S25_KEY_TRIGGERS.length - 1 }), /S25 trigger verification failed closed/);
+});
+
+test('template and fixture registries expose S25 and still no S26 baseline', async () => {
   // Restored gate (RULING I): explicit and mutation-sensitive, not implied elsewhere.
   const records = await prepareTemplates(stubbedTemplateContext());
-  assert.deepEqual([...records.keys()], ['empty', 'S24']);
-  for (const baseline of ['S25', 'S26']) assert.equal(records.has(baseline), false);
-  assert.deepEqual(FIXTURE_IDS, ['import-schema', 'identity-empty', 'auth-schema-018', 'authority-main-ubuntu', 'authority-main-firebase', 'replica-admin', 'replica-empty-stream-cursors']);
+  assert.deepEqual([...records.keys()], ['empty', 'S24', 'S25']);
+  assert.equal(records.get('S25').version, 25);
+  assert.equal(records.get('S25').registryHash, EXPECTED_S25_HASH);
+  assert.equal(records.get('S25').source, records.get('S24').database);
+  assert.equal(records.has('S26'), false);
+  assert.deepEqual(FIXTURE_IDS, ['import-schema', 'identity-empty', 'auth-schema-018', 'authority-main-ubuntu', 'authority-main-firebase', 'replica-admin', 'replica-empty-stream-cursors', 'parallel-shift-legacy-unresolved', 'parallel-shift-v2-night', 'parallel-shift-cutover-report', 'parallel-shift-restored-contexts', 'archive-immutable-revisions', 'restore-bootstrap-boundary', 'parallel-shift-runtime-role']);
   for (const entry of manifest.entries) {
-    for (const fixture of entry.fixtures ?? []) assert.ok(FIXTURE_IDS.includes(fixture), `manifest fixture outside the closed pre-S25 registry: ${fixture}`);
-    assert.ok(!/S25|S26/.test(entry.baseline ?? ''), `S25/S26 baseline in manifest: ${entry.file}`);
+    for (const fixture of entry.fixtures ?? []) assert.ok(FIXTURE_IDS.includes(fixture), `manifest fixture outside the closed registry: ${fixture}`);
+    assert.ok(!/S26/.test(entry.baseline ?? ''), `S26 baseline in manifest: ${entry.file}`);
+    if (entry.kind === 'db') assert.ok(['empty', 'S24', 'S25'].includes(entry.baseline), `unknown baseline in manifest: ${entry.file}`);
   }
+  assert.equal(manifest.entries.filter(entry => entry.baseline === 'S25').length, 0);
+  const s25Root = manifest.entries.find(entry => entry.file === 'tests/isolated-db-s25-fixtures.test.mjs');
+  assert.equal(s25Root?.kind, 'harness-contract');
+  assert.deepEqual(s25Root?.env, ['bootstrap-url']);
   // Product 025/026 files exist and stay product-owned; the I3 registries above must not reference them.
 });
 
