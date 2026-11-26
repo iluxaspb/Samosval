@@ -58,6 +58,19 @@ jobs:
           const client = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
           await client.connect();
           try {
+            // Migration 025 requires the parallel-shift role boundary, exactly as
+            // scripts/parallel-shifts-role-bootstrap.mjs creates it in production.
+            // Idempotent: existing roles are only re-asserted, never dropped.
+            await client.query(`DO $roles$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_schema_owner') THEN CREATE ROLE samosval_schema_owner NOLOGIN; END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_migration_evidence_owner') THEN CREATE ROLE samosval_migration_evidence_owner NOLOGIN; END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_runtime') THEN CREATE ROLE samosval_runtime LOGIN; END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_maintenance') THEN CREATE ROLE samosval_maintenance LOGIN; END IF;
+            END $roles$`);
+            await client.query(`ALTER ROLE samosval_schema_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+              ALTER ROLE samosval_migration_evidence_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+              ALTER ROLE samosval_runtime LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+              ALTER ROLE samosval_maintenance LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION`);
             await client.query(readFileSync('sql/001_init.sql','utf8'));
             await client.query(readFileSync('sql/002_tabel.sql','utf8'));
             await client.query(readFileSync('sql/003_shift_close.sql','utf8'));

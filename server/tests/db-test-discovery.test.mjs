@@ -30,6 +30,11 @@ test('discovered_equals_manifest_including_existing_replica_root', async () => {
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-env.test.mjs' && item.kind === 'harness-contract'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-process.test.mjs' && item.kind === 'harness-contract'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-lifecycle.test.mjs' && item.kind === 'harness-contract' && item.discovery === 'harness-contract'));
+  // migration-registry needs CREATE DATABASE/TEMPLATE and the 025 role boundary,
+  // which a db child (samosval_test_app, DML only) never receives: it is a
+  // harness contract, not a db root. The root count itself is unchanged.
+  assert.ok(discovery.roots.some(item => item.file === 'tests/migration-registry.test.mjs' && item.kind === 'harness-contract' && item.discovery === 'harness-contract'));
+  assert.deepEqual(manifest.entries.find(item => item.file === 'tests/migration-registry.test.mjs').env, ['bootstrap-url']);
 });
 
 test('recursive discovery reports an unexpected nested root but excludes only a registered fixture', async () => {
