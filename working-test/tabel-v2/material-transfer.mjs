@@ -5,12 +5,16 @@ import {storageScope,tableRemote,sameTableSession,isNasProvider} from './backend
 import {migrate,normalizedObject} from './migration.mjs';
 import {dialog,field,input} from './messages.mjs';
 
+// Доказанный тип смены: только явный workShift/kind. Час открытия не
+// доказательство типа — сервер (linePeriod) так же не выводит день/ночь из
+// startedAt и отвечает unknown-shift-period (D4 в 025).
+export function shiftHasProvenKind(shift) {
+  return ['day','night'].includes(shift?.workShift || shift?.kind);
+}
 export function sourcePeriod(shift) {
   const date=lineCalendarDate(shift.startDate);
   const kind=shift.workShift || shift.kind;
-  // Час открытия не доказательство типа: сервер (linePeriod) так же не выводит
-  // день/ночь из startedAt и отвечает unknown-shift-period (D4 в 025).
-  if(!['day','night'].includes(kind)) throw Error('Не определён тип смены Линии (дневная или ночная): тип не был указан при открытии смены');
+  if(!shiftHasProvenKind(shift)) throw Error('Не определён тип смены Линии (дневная или ночная): тип не был указан при открытии смены');
   return {date,shift:kind};
 }
 export function materialRecord(c,name,direction) {

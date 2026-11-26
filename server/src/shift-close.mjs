@@ -44,14 +44,24 @@ export async function closeShiftOperation(pool,uid,input) {
       if(row.is_active||!shift.closing)throw fail('shift-not-prepared',409);
       // Восстановленная архивная смена уже переносила материал при исходном
       // закрытии: повторного подтверждения табеля не требуется.
+      let materialImport=null;
       if(archive?.totalTrips&&!shift.restored){
-        if(!/^[A-Za-z0-9_-]+$/.test(shift.objectId||''))throw fail('missing-shift-object',409);
-        const period=linePeriod(shift),key=shift.objectId+'/day:'+period.date+':'+period.kind;
-        // Serialize with Tabel commits, so a simultaneous material correction cannot pass unnoticed.
-        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['tabel:'+WS]);
-        if(!(await client.query('SELECT enabled FROM tabel_policy WHERE workspace_id=$1 FOR SHARE',[WS])).rows[0]?.enabled)throw fail('tabel-not-ready',409);
-        const material=(await client.query('SELECT payload FROM tabel_records WHERE workspace_id=$1 AND record_id=$2',[WS,parseKey(key).recordId])).rows[0]?.payload;
-        requireMaterialImport(shift,archive,material);
+        const kind=shift.workShift||shift.kind;
+        if(!['day','night'].includes(kind)){
+          // Legacy-смена, открытая до обязательного выбора типа: день/ночь не
+          // доказан, класть объём некуда. Закрываем без вопросов, архив
+          // сохраняем целиком, перенос пропускаем и помечаем это в результате
+          // (решение владельца 26.11.2026).
+          materialImport='skipped-unresolved-type';
+        }else{
+          if(!/^[A-Za-z0-9_-]+$/.test(shift.objectId||''))throw fail('missing-shift-object',409);
+          const period=linePeriod(shift),key=shift.objectId+'/day:'+period.date+':'+period.kind;
+          // Serialize with Tabel commits, so a simultaneous material correction cannot pass unnoticed.
+          await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['tabel:'+WS]);
+          if(!(await client.query('SELECT enabled FROM tabel_policy WHERE workspace_id=$1 FOR SHARE',[WS])).rows[0]?.enabled)throw fail('tabel-not-ready',409);
+          const material=(await client.query('SELECT payload FROM tabel_records WHERE workspace_id=$1 AND record_id=$2',[WS,parseKey(key).recordId])).rows[0]?.payload;
+          requireMaterialImport(shift,archive,material);
+        }
       }
       const logs=(await client.query('SELECT log_id,payload FROM line_logs WHERE workspace_id=$1 AND shift_id=$2 ORDER BY log_id',[WS,op.shiftId])).rows.map(r=>({...r.payload,id:r.log_id}));
       const statuses=Object.fromEntries((await client.query('SELECT truck_id,payload FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id=$2 ORDER BY truck_id',[WS,op.shiftId])).rows.map(r=>[r.truck_id,r.payload]));
@@ -60,8 +70,10 @@ export async function closeShiftOperation(pool,uid,input) {
       await client.query('DELETE FROM line_logs WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId]);
       await client.query('DELETE FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId]);
       shift={...shift,isActive:false,closing:false,closedAt:Date.now(),closedBy:profile.display_name};
+      if(materialImport)shift={...shift,materialImport};
       await client.query('UPDATE shifts SET is_active=false,payload=$3 WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId,shift]);
       result={outcome:'confirmed',phase:'closed',shift,archiveId:archive?archiveId:null};
+      if(materialImport)result.materialImport=materialImport;
     }
     await client.query('UPDATE shift_operation_receipts SET result=$3 WHERE workspace_id=$1 AND operation_id=$2',[WS,op.id,result]);
     await client.query('COMMIT');return result;

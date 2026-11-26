@@ -785,6 +785,7 @@
   }
 
   function loadNasMaterialTransfer(){return import(new URL('./working-test/tabel-v2/material-transfer.mjs',document.baseURI).href);}
+  const unresolvedShiftTypeNotice='Смена открыта без выбранного типа (дневная/ночная). Закрыто без переноса в табель — объёмы остались в архиве.';
   async function nasCloseCurrentShift(shiftId){
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch;if(!client)throw Error('Сеанс Ubuntu не загружен');
     const guard=()=>{if(epoch!==nasRuntimeEpoch||client!==nasRuntimeClient||currentUid!==client.uid)throw Error('Учётная запись изменилась');};
@@ -796,8 +797,18 @@
     // Восстановленная архивная смена уже переносила материал при исходном
     // закрытии: повторного переноса в табель не делаем, только архивация.
     const restoredShift=(state.restoredShifts||[]).some(r=>r.shift.id===shiftId);
-    if(prepared.archive&&!restoredShift){const module=await loadNasMaterialTransfer();guard();await module.transferClosedLine(nasTabelHost(),prepared.shift,prepared.archive);guard();}
+    let skippedUnresolvedType=false;
+    if(prepared.archive&&!restoredShift){
+      const module=await loadNasMaterialTransfer();guard();
+      // Legacy-смена, открытая до обязательного выбора типа: день/ночь не
+      // доказан, класть объём некуда. Закрываем штатно, материал не переносим
+      // и предупреждаем (решение владельца 26.11.2026).
+      if(module.shiftHasProvenKind(prepared.shift))await module.transferClosedLine(nasTabelHost(),prepared.shift,prepared.archive);
+      else skippedUnresolvedType=true;
+      guard();
+    }
     await nasBusinessCommand('close',shiftId+':finish',{type:'finish',shiftId});guard();
     localStorage.removeItem(key);
     await nasRefreshLine().catch(error=>reportSyncError('nas',error));guard();
+    if(skippedUnresolvedType)appNotice(unresolvedShiftTypeNotice);
   }

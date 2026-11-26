@@ -63,7 +63,7 @@ test('shell.html + 15-shifts.js: выбранная кнопка типа сме
 
 // sourcePeriod (material-transfer.mjs): добыча попадает в день/ночь по типу смены,
 // а не по времени записей/закрытия. Тест падает, если workShift игнорируется.
-const {sourcePeriod} = await import('../../tabel-v2/material-transfer.mjs');
+const {sourcePeriod, shiftHasProvenKind} = await import('../../tabel-v2/material-transfer.mjs');
 
 test('sourcePeriod: workShift day — вечерние записи 20:00-21:00 остаются дневной сменой', () => {
   const startedAt = Date.parse('2026-11-18T07:00:00Z'); // 10:00 МСК 18.11
@@ -84,4 +84,27 @@ test('sourcePeriod: без workShift тип не выводится из час�
     assert.throws(() => sourcePeriod({startDate:'18.11.2026', startedAt}), /Не определён тип смены/, 'час открытия не доказательство типа');
   }
   assert.equal(sourcePeriod({startDate:'18.11.2026', kind:'night'}).shift, 'night', 'доказанный kind остаётся доказательством');
+});
+
+// Решение владельца 26.11.2026: legacy-смену, открытую до обязательного выбора
+// типа, закрываем без вопросов — но материал не переносим, а предупреждаем.
+// Предикат «тип доказан» должен быть переиспользуемым и проверяемым.
+test('shiftHasProvenKind: доказанный тип → true, отсутствие и мусор → false', () => {
+  assert.equal(shiftHasProvenKind({workShift:'day'}), true);
+  assert.equal(shiftHasProvenKind({workShift:'night'}), true);
+  assert.equal(shiftHasProvenKind({kind:'day'}), true);
+  assert.equal(shiftHasProvenKind({kind:'night'}), true);
+  assert.equal(shiftHasProvenKind({startDate:'18.11.2026', startedAt:Date.parse('2026-11-18T07:00:00Z')}), false, 'час открытия не доказательство типа');
+  assert.equal(shiftHasProvenKind({startDate:'18.11.2026', startedAt:Date.parse('2026-11-18T19:00:00Z')}), false);
+  assert.equal(shiftHasProvenKind({workShift:'evening'}), false, 'мусорный тип — не тип');
+  assert.equal(shiftHasProvenKind({workShift:''}), false);
+  assert.equal(shiftHasProvenKind({kind:null}), false);
+  assert.equal(shiftHasProvenKind(null), false);
+});
+
+test('21-nas-runtime.js: legacy-смена без типа закрывается с предупреждением и без переноса в табель', () => {
+  const runtimeSource = readFileSync(join(here, '21-nas-runtime.js'), 'utf8');
+  assert.match(runtimeSource, /if\(module\.shiftHasProvenKind\(prepared\.shift\)\)await module\.transferClosedLine\(nasTabelHost\(\),prepared\.shift,prepared\.archive\)/, 'перенос вызывается только при доказанном типе смены');
+  assert.match(runtimeSource, /'Смена открыта без выбранного типа \(дневная\/ночная\)\. Закрыто без переноса в табель — объёмы остались в архиве\.'/, 'понятный текст предупреждения по-русски');
+  assert.match(runtimeSource, /if\(skippedUnresolvedType\)appNotice\(/, 'предупреждение показывается через appNotice, а не как ошибка');
 });
