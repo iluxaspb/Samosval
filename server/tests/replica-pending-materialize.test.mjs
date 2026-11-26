@@ -4,7 +4,11 @@ import pg from 'pg';
 
 import { appendReplicaBatch } from '../src/replica-store.mjs';
 import { normalizeReplicaOperation } from '../src/replica-materialize.mjs';
-import { applyReplicaHeadTransition, verifyReplicaHeads } from '../src/replica-heads.mjs';
+import {
+  applyReplicaHeadTransition,
+  promoteReplicaPending,
+  verifyReplicaHeads,
+} from '../src/replica-heads.mjs';
 import {
   applyMigrationsThrough,
   requireIsolatedDatabase,
@@ -109,11 +113,32 @@ async function append(pool, ws, baseSeq, operations) {
 
 async function head(pool, ws, collection, documentId) {
   return (await pool.query(
-    `SELECT head_seq,head_kind,canonical_present,applied_seq,shift_id,truck_id,object_id,user_uid
+    `SELECT head_seq,head_kind,canonical_present,applied_seq,shift_id,truck_id,object_id,user_uid,updated_at
        FROM replica_document_heads
       WHERE workspace_id=$1 AND collection=$2 AND document_id=$3`,
     [ws, collection, documentId],
   )).rows[0];
+}
+
+async function objectRow(pool, ws, objectId) {
+  return (await pool.query(
+    'SELECT payload,revision FROM workspace_objects WHERE workspace_id=$1 AND object_id=$2',
+    [ws, objectId],
+  )).rows[0];
+}
+
+async function userRow(pool, uid) {
+  return (await pool.query(
+    'SELECT uid,email,display_name,role,status,profile,revision FROM app_users WHERE uid=$1',
+    [uid],
+  )).rows[0];
+}
+
+async function streamHash(pool, ws, seq) {
+  return (await pool.query(
+    "SELECT sha256 FROM replica_stream WHERE workspace_id=$1 AND direction='f2s' AND seq=$2",
+    [ws, seq],
+  )).rows[0]?.sha256;
 }
 
 async function pending(pool, ws, collection, documentId) {
@@ -726,5 +751,466 @@ test('a failure at each transaction boundary leaves no partial replica state', {
       },
     });
     await assertEmpty(ws, 'before cursor');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Task 14 — objects/users tombstones and the collection-specific verifier.
+//
+// Design §4.10: `canonical_present=false` on a settled delete means "no live
+// canonical projection", not "no physical row". objects keep a soft archive row
+// and users keep a soft-disabled account row so provenance FKs stay valid; the
+// verifier therefore dispatches by collection and never applies the forbidden
+// generic rule "physical row exists iff canonical_present".
+// ---------------------------------------------------------------------------
+function shiftWithOpener(shiftId, objectId, openerUid) {
+  return {
+    ...shiftData(shiftId, objectId),
+    startedByUid: openerUid,
+    startedBy: openerUid,
+  };
+}
+
+test('object and user tombstones keep collection provenance and a replay changes nothing', { skip: !approved }, async () => {
+  const pool = poolForTest();
+  const ws = await newWorkspace(pool, 'tombstone_provenance');
+  const objectId = 'object_tombstone';
+  const userUid = 'user_tombstone_replica';
+  const objectSet = setOp(ws, 'op-obj-tomb-1', 'objects', objectId, { name: 'Object' });
+  const userSet = setOp(ws, 'op-user-tomb-1', 'users', userUid, {
+    email: 'tombstone@example.invalid', role: 'driver', status: 'active', nickname: 'Tombstone',
+  });
+  const objectDelete = deleteOp(ws, 'op-obj-tomb-2', 'objects', objectId);
+  const userDelete = deleteOp(ws, 'op-user-tomb-2', 'users', userUid);
+  try {
+    await append(pool, ws, 0, [objectSet, userSet]);
+    await append(pool, ws, 2, [objectDelete, userDelete]);
+
+    const objectHead = await head(pool, ws, 'objects', objectId);
+    const userHead = await head(pool, ws, 'users', userUid);
+    assert.equal(objectHead.head_kind, 'doc.delete');
+    assert.equal(objectHead.canonical_present, false);
+    assert.equal(Number(objectHead.applied_seq), Number(objectHead.head_seq));
+    assert.equal(userHead.head_kind, 'doc.delete');
+    assert.equal(userHead.canonical_present, false);
+    assert.equal(Number(userHead.applied_seq), Number(userHead.head_seq));
+
+    const object = await objectRow(pool, ws, objectId);
+    assert.ok(object, 'the object physical row survives as a soft tombstone');
+    assert.equal(object.payload.deleted, true);
+    assert.equal(Number(object.payload.deletedSeq), Number(objectHead.head_seq));
+    assert.equal(object.payload.deletedSha256, await streamHash(pool, ws, objectHead.head_seq));
+    assert.equal(Number(object.revision), 2, 'the tombstone archives one revision');
+
+    const user = await userRow(pool, userUid);
+    assert.ok(user, 'the app_users row survives so every uid FK stays valid');
+    assert.equal(user.status, 'disabled');
+    assert.equal(user.profile.deleted, true);
+    assert.equal(Number(user.profile.deletedSeq), Number(userHead.head_seq));
+    assert.equal(user.profile.deletedSha256, await streamHash(pool, ws, userHead.head_seq));
+    assert.equal(user.email, 'tombstone@example.invalid', 'provenance keeps the account identity');
+    assert.equal(Number(user.revision), 2);
+
+    const report = await verifyReplicaHeads(pool, ws);
+    assert.equal(report.ok, true, JSON.stringify(report.violations));
+    assert.equal(report.policyVersion, 1);
+
+    // Same delete batch resent: duplicate operation ids are an idempotent no-op,
+    // so revision, tombstone payload and head timestamp stay byte-identical.
+    const resend = await append(pool, ws, 2, [objectDelete, userDelete]);
+    assert.equal(resend.applied, 0);
+    assert.equal(Number((await objectRow(pool, ws, objectId)).revision), 2);
+    assert.equal(Number((await userRow(pool, userUid)).revision), 2);
+    assert.deepEqual((await objectRow(pool, ws, objectId)).payload, object.payload);
+    assert.deepEqual((await userRow(pool, userUid)).profile, user.profile);
+    assert.deepEqual((await head(pool, ws, 'objects', objectId)).updated_at, objectHead.updated_at);
+    assert.deepEqual((await head(pool, ws, 'users', userUid)).updated_at, userHead.updated_at);
+
+    // The equal-seq/equal-hash transition is a replay, not a second tombstone.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const replay = await applyReplicaHeadTransition(client, ws, objectDelete, {
+        seq: Number(objectHead.head_seq),
+        normalized: normalizeReplicaOperation(objectDelete),
+      });
+      assert.equal(replay.status, 'replay');
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
+    assert.equal(Number((await objectRow(pool, ws, objectId)).revision), 2);
+  } finally {
+    await pool.end();
+  }
+});
+
+test('a recreate and a newer delete create a new tombstone generation', { skip: !approved }, async () => {
+  const pool = poolForTest();
+  const ws = await newWorkspace(pool, 'tombstone_generations');
+  const objectId = 'object_generation';
+  const userUid = 'user_generation_replica';
+  try {
+    await append(pool, ws, 0, [
+      setOp(ws, 'op-gen-obj-1', 'objects', objectId, { name: 'First' }),
+      setOp(ws, 'op-gen-user-1', 'users', userUid, {
+        email: 'generation@example.invalid', role: 'driver', status: 'active', nickname: 'Gen',
+      }),
+    ]);
+    await append(pool, ws, 2, [
+      deleteOp(ws, 'op-gen-obj-2', 'objects', objectId),
+      deleteOp(ws, 'op-gen-user-2', 'users', userUid),
+    ]);
+    const firstObjectHead = await head(pool, ws, 'objects', objectId);
+    const firstUserHead = await head(pool, ws, 'users', userUid);
+    const firstObject = await objectRow(pool, ws, objectId);
+    const firstUser = await userRow(pool, userUid);
+
+    await append(pool, ws, 4, [
+      setOp(ws, 'op-gen-obj-3', 'objects', objectId, { name: 'Second' }),
+      setOp(ws, 'op-gen-user-3', 'users', userUid, {
+        email: 'generation@example.invalid', role: 'foreman', status: 'active', nickname: 'Gen',
+      }),
+    ]);
+    const liveObject = await objectRow(pool, ws, objectId);
+    assert.notEqual(liveObject.payload.deleted, true, 'a recreate restores the live projection');
+    assert.equal(liveObject.payload.name, 'Second');
+    const liveUser = await userRow(pool, userUid);
+    assert.equal(liveUser.status, 'active');
+    assert.equal(liveUser.profile.deleted, undefined);
+    assert.equal(liveUser.role, 'foreman');
+
+    await append(pool, ws, 6, [
+      deleteOp(ws, 'op-gen-obj-4', 'objects', objectId),
+      deleteOp(ws, 'op-gen-user-4', 'users', userUid),
+    ]);
+    const objectHead = await head(pool, ws, 'objects', objectId);
+    const userHead = await head(pool, ws, 'users', userUid);
+    assert.ok(Number(objectHead.head_seq) > Number(firstObjectHead.head_seq));
+    assert.ok(Number(userHead.head_seq) > Number(firstUserHead.head_seq));
+
+    const object = await objectRow(pool, ws, objectId);
+    assert.equal(Number(object.payload.deletedSeq), Number(objectHead.head_seq));
+    assert.notEqual(Number(object.payload.deletedSeq), Number(firstObject.payload.deletedSeq));
+    assert.equal(object.payload.deletedSha256, await streamHash(pool, ws, objectHead.head_seq));
+    assert.ok(Number(object.revision) > Number(firstObject.revision));
+    const user = await userRow(pool, userUid);
+    assert.equal(Number(user.profile.deletedSeq), Number(userHead.head_seq));
+    assert.notEqual(Number(user.profile.deletedSeq), Number(firstUser.profile.deletedSeq));
+    assert.equal(user.profile.deletedSha256, await streamHash(pool, ws, userHead.head_seq));
+    assert.equal(user.status, 'disabled');
+    assert.ok(Number(user.revision) > Number(firstUser.revision));
+
+    const report = await verifyReplicaHeads(pool, ws);
+    assert.equal(report.ok, true, JSON.stringify(report.violations));
+  } finally {
+    await pool.end();
+  }
+});
+
+test('deleting an object referenced by a shift fails parent-in-use and rolls back', { skip: !approved }, async () => {
+  const pool = poolForTest();
+  const ws = await newWorkspace(pool, 'object_in_use');
+  const objectId = 'object_in_use';
+  const shiftId = 'shift_in_use';
+  try {
+    await append(pool, ws, 0, [
+      setOp(ws, 'op-inuse-obj-1', 'objects', objectId, { name: 'Object' }),
+      setOp(ws, 'op-inuse-shift-1', 'shift', shiftId, shiftData(shiftId, objectId)),
+    ]);
+    const streamBefore = await streamCount(pool, ws);
+    const cursorBefore = await cursor(pool, ws);
+
+    await assert.rejects(
+      () => append(pool, ws, 2, [deleteOp(ws, 'op-inuse-obj-2', 'objects', objectId)]),
+      error => error.code === 'parent-in-use' && error.status === 409,
+      'a referenced object must be refused with the stable parent-in-use code',
+    );
+    assert.equal(await streamCount(pool, ws), streamBefore, 'the refused batch leaves no stream row');
+    assert.equal(await cursor(pool, ws), cursorBefore);
+    const live = await objectRow(pool, ws, objectId);
+    assert.notEqual(live.payload.deleted, true, 'the object stays live after the rollback');
+    const objectHead = await head(pool, ws, 'objects', objectId);
+    assert.equal(objectHead.head_kind, 'doc.set');
+    assert.equal(Number(objectHead.head_seq), 1);
+    assert.equal(await verifyReplicaHeads(pool, ws).then(report => report.ok), true);
+
+    // Once the referencing shift is gone the soft tombstone is allowed.
+    await append(pool, ws, 2, [deleteOp(ws, 'op-inuse-shift-2', 'shift', shiftId)]);
+    await append(pool, ws, 3, [deleteOp(ws, 'op-inuse-obj-3', 'objects', objectId)]);
+    const archived = await objectRow(pool, ws, objectId);
+    assert.equal(archived.payload.deleted, true);
+    assert.equal(Number((await head(pool, ws, 'objects', objectId)).head_seq), 4);
+    assert.equal(await verifyReplicaHeads(pool, ws).then(report => report.ok), true);
+
+    // A tombstoned object is not a canonical parent: a new shift cannot bind to it.
+    await assert.rejects(
+      () => append(pool, ws, 4, [
+        setOp(ws, 'op-inuse-shift-3', 'shift', 'shift_after_tombstone', shiftData('shift_after_tombstone', objectId)),
+      ]),
+      error => error.code === 'replica-shift-object-missing',
+      'a deleted object must not become a live shift parent',
+    );
+  } finally {
+    await pool.end();
+  }
+});
+
+test('a user tombstone soft-disables the account and a physical delete is refused by FK', { skip: !approved }, async () => {
+  const pool = poolForTest();
+  const ws = await newWorkspace(pool, 'user_soft_disable');
+  const objectId = 'object_user_fk';
+  const shiftId = 'shift_user_fk';
+  const userUid = 'user_fk_replica';
+  try {
+    await append(pool, ws, 0, [
+      setOp(ws, 'op-userfk-obj-1', 'objects', objectId, { name: 'Object' }),
+      setOp(ws, 'op-userfk-user-1', 'users', userUid, {
+        email: 'fk@example.invalid', role: 'foreman', status: 'active', nickname: 'FK',
+      }),
+      setOp(ws, 'op-userfk-shift-1', 'shift', shiftId, shiftWithOpener(shiftId, objectId, userUid)),
+    ]);
+    // The shift opener and a membership both reference the uid.
+    await pool.query(
+      'INSERT INTO shift_members(workspace_id,shift_id,uid,assigned_at,assigned_by_uid) VALUES($1,$2,$3,now(),$4)',
+      [ws, shiftId, userUid, ids.adminUid],
+    );
+    const opener = (await pool.query(
+      'SELECT opened_by_uid FROM shifts WHERE workspace_id=$1 AND shift_id=$2', [ws, shiftId],
+    )).rows[0];
+    assert.equal(opener.opened_by_uid, userUid);
+
+    await append(pool, ws, 3, [deleteOp(ws, 'op-userfk-user-2', 'users', userUid)]);
+    const user = await userRow(pool, userUid);
+    assert.ok(user, 'the app_users row is never physically removed');
+    assert.equal(user.status, 'disabled');
+    assert.equal(user.profile.deleted, true);
+    assert.equal(Number((await head(pool, ws, 'users', userUid)).head_seq), 4);
+
+    // Every uid FK still resolves to the tombstoned row.
+    const references = (await pool.query(
+      `SELECT s.opened_by_uid, m.uid AS member_uid
+         FROM shifts s JOIN shift_members m
+           ON m.workspace_id=s.workspace_id AND m.shift_id=s.shift_id
+        WHERE s.workspace_id=$1 AND s.shift_id=$2`,
+      [ws, shiftId],
+    )).rows[0];
+    assert.equal(references.opened_by_uid, userUid);
+    assert.equal(references.member_uid, userUid);
+
+    // Online physical delete is refused by the declared FK closure.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await assert.rejects(
+        () => client.query('DELETE FROM app_users WHERE uid=$1', [userUid]),
+        error => error.code === '23503',
+        'physical user delete must violate a provenance FK',
+      );
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
+    assert.ok(await userRow(pool, userUid), 'the rolled back delete leaves the account row');
+    assert.equal(await verifyReplicaHeads(pool, ws).then(report => report.ok), true);
+  } finally {
+    await pool.end();
+  }
+});
+
+test('stale parent or concurrent promotion cannot resurrect a deleted document', { skip: !approved }, async () => {
+  const pool = poolForTest();
+  const observer = poolForTest();
+  const waiterPool = new pg.Pool({ connectionString, max: 1, application_name: 'zz_stale_promote' });
+  const ws = await newWorkspace(pool, 'no_resurrect');
+  const objectId = 'object_no_resurrect';
+  const shiftId = 'shift_no_resurrect';
+  const truckId = 'truck_no_resurrect';
+  const statusId = 'status_no_resurrect';
+  const oldStatus = setOp(ws, 'op-res-status-1', 'truckStatus', statusId, { shiftId, onLine: true });
+  try {
+    // A delete settles before any parent exists: a later parent cannot revive it.
+    await append(pool, ws, 0, [oldStatus, deleteOp(ws, 'op-res-status-2', 'truckStatus', statusId)]);
+    let statusHead = await head(pool, ws, 'truckStatus', statusId);
+    assert.equal(statusHead.head_kind, 'doc.delete');
+    assert.equal(Number(statusHead.head_seq), 2);
+    assert.equal(await statusRow(pool, ws, statusId), undefined);
+
+    await append(pool, ws, 2, [
+      setOp(ws, 'op-res-obj-1', 'objects', objectId, { name: 'Object' }),
+      setOp(ws, 'op-res-shift-1', 'shift', shiftId, shiftData(shiftId, objectId)),
+      setOp(ws, 'op-res-truck-1', 'trucks', truckId, { name: 'Truck' }),
+    ]);
+    assert.equal(await statusRow(pool, ws, statusId), undefined, 'parent arrival must not resurrect');
+    assert.equal(await pending(pool, ws, 'truckStatus', statusId), undefined);
+    assert.equal(Number((await head(pool, ws, 'truckStatus', statusId)).head_seq), 2);
+    assert.equal(await promoteReplicaPending(pool, ws, { truckId }), 0);
+
+    // Replaying the old set is a no-op; a lower generation is stale.
+    const replay = await append(pool, ws, 5, [oldStatus]);
+    assert.equal(replay.applied, 0);
+    const stale = await applyReplicaHeadTransition(pool, ws, oldStatus, {
+      seq: 1,
+      normalized: normalizeReplicaOperation(oldStatus),
+    });
+    assert.equal(stale.status, 'stale');
+    assert.equal(await statusRow(pool, ws, statusId), undefined);
+    assert.equal(Number((await head(pool, ws, 'truckStatus', statusId)).head_seq), 2);
+
+    // Concurrent promotion: a second writer blocked on the head lock observes the
+    // settled tombstone and cannot materialize the stale generation.
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query("SELECT pg_advisory_xact_lock(hashtext($1))", ['replica:' + ws + ':f2s']);
+      await holder.query('SELECT f2s_seq FROM replica_cursor WHERE workspace_id=$1 FOR UPDATE', [ws]);
+      await holder.query(
+        `INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256,protocol_version,hash_version)
+         VALUES($1,6,'f2s','op-res-status-3','doc.delete',$2,$3,2,2)`,
+        [ws, JSON.stringify(normalizeReplicaOperation(deleteOp(ws, 'op-res-status-3', 'truckStatus', statusId)).payload),
+          normalizeReplicaOperation(deleteOp(ws, 'op-res-status-3', 'truckStatus', statusId)).hash],
+      );
+      await applyReplicaHeadTransition(holder, ws, deleteOp(ws, 'op-res-status-3', 'truckStatus', statusId), {
+        seq: 6,
+        normalized: normalizeReplicaOperation(deleteOp(ws, 'op-res-status-3', 'truckStatus', statusId)),
+      });
+      const blocked = applyReplicaHeadTransition(waiterPool, ws, oldStatus, {
+        seq: 1,
+        normalized: normalizeReplicaOperation(oldStatus),
+      });
+      const waiting = await waitForLockedBackend(observer, 'zz_stale_promote');
+      assert.equal(waiting, true, 'the stale writer must wait on the head row lock');
+      await holder.query('UPDATE replica_cursor SET f2s_seq=6,updated_at=now() WHERE workspace_id=$1', [ws]);
+      await holder.query('COMMIT');
+      assert.equal((await blocked).status, 'stale');
+    } finally {
+      await holder.query('ROLLBACK').catch(() => {});
+      holder.release();
+    }
+    statusHead = await head(pool, ws, 'truckStatus', statusId);
+    assert.equal(statusHead.head_kind, 'doc.delete');
+    assert.equal(Number(statusHead.head_seq), 6);
+    assert.equal(await statusRow(pool, ws, statusId), undefined);
+    assert.equal(await pending(pool, ws, 'truckStatus', statusId), undefined);
+
+    // The same CAS protects object/user tombstones from a stale recreate.
+    const staleObjectId = 'object_stale_resurrect';
+    await append(pool, ws, 6, [
+      setOp(ws, 'op-res-obj-stale-1', 'objects', staleObjectId, { name: 'Stale' }),
+      deleteOp(ws, 'op-res-obj-stale-2', 'objects', staleObjectId),
+    ]);
+    const staleObjectHead = await head(pool, ws, 'objects', staleObjectId);
+    assert.equal(staleObjectHead.head_kind, 'doc.delete');
+    assert.equal(Number(staleObjectHead.head_seq), 8);
+    const staleObject = await applyReplicaHeadTransition(pool, ws,
+      setOp(ws, 'op-res-obj-stale-1', 'objects', staleObjectId, { name: 'Stale' }),
+      {
+        seq: 7,
+        normalized: normalizeReplicaOperation(setOp(ws, 'op-res-obj-stale-1', 'objects', staleObjectId, { name: 'Stale' })),
+      });
+    assert.equal(staleObject.status, 'stale');
+    assert.equal((await objectRow(pool, ws, staleObjectId)).payload.deleted, true);
+    assert.equal(Number((await head(pool, ws, 'objects', staleObjectId)).head_seq), 8);
+    assert.equal(await verifyReplicaHeads(pool, ws).then(report => report.ok), true);
+  } finally {
+    await waiterPool.end();
+    await observer.end();
+    await pool.end();
+  }
+});
+
+test('the verifier dispatches each collection declared set and delete policy', { skip: !approved }, async () => {
+  const pool = poolForTest();
+  const ws = await newWorkspace(pool, 'policy_dispatch');
+  const objectLive = 'object_policy_live';
+  const objectMissing = 'object_policy_missing';
+  const objectFlag = 'object_policy_flag';
+  const objectSha = 'object_policy_sha';
+  const userLive = 'user_policy_live';
+  const userTomb = 'user_policy_tomb';
+  const shiftId = 'shift_policy';
+  const truckId = 'truck_policy';
+  const logId = 'log_policy';
+  try {
+    await append(pool, ws, 0, [
+      setOp(ws, 'op-pol-obj-live', 'objects', objectLive, { name: 'Live' }),
+      setOp(ws, 'op-pol-obj-miss', 'objects', objectMissing, { name: 'Missing' }),
+      setOp(ws, 'op-pol-obj-flag', 'objects', objectFlag, { name: 'Flag' }),
+      setOp(ws, 'op-pol-obj-sha', 'objects', objectSha, { name: 'Sha' }),
+      setOp(ws, 'op-pol-user-live', 'users', userLive, {
+        email: 'live@example.invalid', role: 'driver', status: 'active', nickname: 'Live',
+      }),
+      setOp(ws, 'op-pol-user-tomb', 'users', userTomb, {
+        email: 'tomb@example.invalid', role: 'driver', status: 'active', nickname: 'Tomb',
+      }),
+      setOp(ws, 'op-pol-shift', 'shift', shiftId, shiftData(shiftId, objectLive)),
+      setOp(ws, 'op-pol-truck', 'trucks', truckId, { name: 'Truck' }),
+      setOp(ws, 'op-pol-status', 'truckStatus', truckId, { shiftId, onLine: true }),
+      setOp(ws, 'op-pol-log', 'logs', logId, { shiftId, truckId, volume: 5 }),
+    ]);
+    // Physical deletes need children first: status/log, then truck/shift.
+    await append(pool, ws, 10, [
+      deleteOp(ws, 'op-pol-del-status', 'truckStatus', truckId),
+      deleteOp(ws, 'op-pol-del-log', 'logs', logId),
+    ]);
+    await append(pool, ws, 12, [
+      deleteOp(ws, 'op-pol-del-truck', 'trucks', truckId),
+      deleteOp(ws, 'op-pol-del-shift', 'shift', shiftId),
+    ]);
+    await append(pool, ws, 14, [
+      deleteOp(ws, 'op-pol-del-obj-miss', 'objects', objectMissing),
+      deleteOp(ws, 'op-pol-del-obj-flag', 'objects', objectFlag),
+      deleteOp(ws, 'op-pol-del-obj-sha', 'objects', objectSha),
+      deleteOp(ws, 'op-pol-del-user-tomb', 'users', userTomb),
+    ]);
+
+    // The declared physical policies: those four collections leave no row, while
+    // objects/users keep their documented tombstone row.
+    assert.equal(await statusRow(pool, ws, truckId), undefined);
+    assert.equal(await logRow(pool, ws, logId), undefined);
+    assert.equal((await pool.query(
+      'SELECT count(*)::int AS n FROM line_trucks WHERE workspace_id=$1 AND truck_id=$2', [ws, truckId],
+    )).rows[0].n, 0);
+    assert.equal((await pool.query(
+      'SELECT count(*)::int AS n FROM shifts WHERE workspace_id=$1 AND shift_id=$2', [ws, shiftId],
+    )).rows[0].n, 0);
+    assert.equal((await objectRow(pool, ws, objectMissing)).payload.deleted, true);
+    assert.equal((await userRow(pool, userTomb)).status, 'disabled');
+    assert.ok(await objectRow(pool, ws, objectLive), 'the untouched object stays live');
+
+    let report = await verifyReplicaHeads(pool, ws);
+    assert.equal(report.ok, true, JSON.stringify(report.violations));
+    assert.equal(report.policyVersion, 1);
+
+    // Each documented violation is reported by its collection-specific code.
+    await pool.query('DELETE FROM workspace_objects WHERE workspace_id=$1 AND object_id=$2', [ws, objectMissing]);
+    await pool.query(
+      `UPDATE workspace_objects SET payload=jsonb_set(payload,'{deleted}','false'::jsonb)
+        WHERE workspace_id=$1 AND object_id=$2`,
+      [ws, objectFlag],
+    );
+    await pool.query(
+      `UPDATE workspace_objects SET payload=jsonb_set(payload,'{deletedSha256}','"deadbeef"'::jsonb)
+        WHERE workspace_id=$1 AND object_id=$2`,
+      [ws, objectSha],
+    );
+    await pool.query("UPDATE app_users SET status='active' WHERE uid=$1", [userTomb]);
+    await pool.query('DELETE FROM workspace_objects WHERE workspace_id=$1 AND object_id=$2', [ws, objectLive]);
+    await pool.query(
+      `INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES($1,$2,'{}'::jsonb)`,
+      [ws, truckId],
+    );
+
+    report = await verifyReplicaHeads(pool, ws);
+    assert.equal(report.ok, false);
+    const codes = new Map(report.violations.map(item => [`${item.documentId}:${item.code}`, item]));
+    assert.ok(codes.has(`${objectMissing}:object-tombstone-missing`), JSON.stringify(report.violations));
+    assert.ok(codes.has(`${objectFlag}:object-tombstone-invalid`), JSON.stringify(report.violations));
+    assert.ok(codes.has(`${objectSha}:tombstone-provenance-mismatch`), JSON.stringify(report.violations));
+    assert.ok(codes.has(`${userTomb}:user-tombstone-invalid`), JSON.stringify(report.violations));
+    assert.ok(codes.has(`${objectLive}:canonical-missing`), JSON.stringify(report.violations));
+    assert.ok(codes.has(`${truckId}:canonical-present-after-delete`), JSON.stringify(report.violations));
+  } finally {
+    await pool.end();
   }
 });
