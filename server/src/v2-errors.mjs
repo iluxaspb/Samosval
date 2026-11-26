@@ -15,6 +15,9 @@ const CODES = Object.freeze({
   'invalid-command': 400,
   'invalid-shift-v2-provenance': 400,
   'archive-operation-not-allowed': 400,
+  // §3.2/§6: only an active senior_foreman/foreman is a member. A worker,
+  // driver, disabled or unknown uid is a schema refusal, never a 500.
+  'member-not-eligible': 400,
   // auth
   'unauthenticated': 401,
   'forbidden': 403,
@@ -33,6 +36,7 @@ const CODES = Object.freeze({
   'shift-changed': 409,
   'shift-closing': 409,
   'shift-duplicate': 409,
+  'object-not-available': 409,
   'object-locked': 409,
   'membership-changed': 409,
   'last-shift-member': 409,

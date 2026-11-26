@@ -21,11 +21,15 @@ function fakeResponse() {
   return { status: 0, body: undefined };
 }
 
-function harness({ method = 'GET', path = '/api/v2/shifts', search = '', headers = {}, authenticate, services } = {}) {
+function commandEnvelope(operationId, result) {
+  return { protocolVersion: 2, operationId, replayed: false, result };
+}
+
+function harness({ method = 'GET', path = '/api/v2/shifts', search = '', headers = {}, authenticate, services, body } = {}) {
   const req = fakeRequest({ method, headers });
   const res = fakeResponse();
   const sent = [];
-  const calls = { list: [], snapshot: [], loadActor: 0 };
+  const calls = { list: [], snapshot: [], loadActor: 0, create: [], object: [], memberAdd: [], memberRemove: [] };
   const defaultActor = { uid: 'uid_reader', displayName: 'Reader', role: 'foreman', status: 'active' };
   const options = {
     pool: { connect() { throw new Error('the router must not open a connection itself'); } },
@@ -35,7 +39,8 @@ function harness({ method = 'GET', path = '/api/v2/shifts', search = '', headers
     url: new URL(`http://localhost${path}${search}`),
     workspaceId: WORKSPACE,
     authenticate: authenticate ?? (async () => 'uid_reader'),
-    send: (target, status, body) => { target.status = status; target.body = body; sent.push({ status, body }); },
+    send: (target, status, payload) => { target.status = status; target.body = payload; sent.push({ status, body: payload }); },
+    ...(body === undefined ? {} : { body }),
     services: {
       loadActor: async (pool, uid) => { calls.loadActor += 1; return { ...defaultActor, uid }; },
       listVisibleShifts: async (pool, actor, query) => {
@@ -46,24 +51,59 @@ function harness({ method = 'GET', path = '/api/v2/shifts', search = '', headers
         calls.snapshot.push({ pool, actor, query });
         return { protocolVersion: 2, workspaceId: WORKSPACE, shiftId: query.shiftId };
       },
+      createShift: async (pool, actor, command) => {
+        calls.create.push({ pool, actor, command });
+        return commandEnvelope(command.operationId, { shift: { shiftId: `shift_${command.operationId}` } });
+      },
+      changeShiftObject: async (pool, actor, command) => {
+        calls.object.push({ actor, command });
+        return commandEnvelope(command.operationId, { shift: { shiftId: command.shiftId } });
+      },
+      addShiftMember: async (pool, actor, command) => {
+        calls.memberAdd.push({ actor, command });
+        return commandEnvelope(command.operationId, { membership: { uid: command.uid } });
+      },
+      removeShiftMember: async (pool, actor, command) => {
+        calls.memberRemove.push({ actor, command });
+        return commandEnvelope(command.operationId, { membership: { uid: command.uid } });
+      },
       ...services,
     },
   };
   return { req, res, sent, calls, options };
 }
 
-test('matchV2Route recognises exactly the two Task 18 read routes', () => {
+test('matchV2Route recognises the read and command routes per method', () => {
   assert.deepEqual(matchV2Route('/api/v2/shifts'), { kind: 'list' });
+  assert.deepEqual(matchV2Route('/api/v2/shifts', 'POST'), { kind: 'create' });
   assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/snapshot'), { kind: 'snapshot', shiftId: 'shift_a1' });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/object', 'PATCH'), { kind: 'shift-object', shiftId: 'shift_a1' });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/members', 'POST'), { kind: 'member-add', shiftId: 'shift_a1' });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/members/uid_member', 'DELETE'), {
+    kind: 'member-remove', shiftId: 'shift_a1', uid: 'uid_member',
+  });
+  // A known path with a wrong method is not a route (the handler answers 405).
+  for (const [path, method] of [
+    ['/api/v2/shifts', 'PUT'], ['/api/v2/shifts', 'PATCH'], ['/api/v2/shifts', 'DELETE'],
+    ['/api/v2/shifts/a/snapshot', 'POST'], ['/api/v2/shifts/a/object', 'GET'],
+    ['/api/v2/shifts/a/object', 'POST'], ['/api/v2/shifts/a/members', 'GET'],
+    ['/api/v2/shifts/a/members', 'DELETE'], ['/api/v2/shifts/a/members/u', 'POST'],
+    ['/api/v2/shifts/a/members/u', 'PATCH'],
+  ]) {
+    assert.equal(matchV2Route(path, method), null, `${method} ${path}`);
+  }
   for (const path of [
     '/api/v2', '/api/v2/', '/api/v2/shifts/', '/api/v2/shifts/a/b', '/api/v2/shifts/a/snapshot/',
     '/api/v2/archives', '/api/v1/shifts', '/api/v2/shifts/a/snapshotx',
+    '/api/v2/shifts/a/object/x', '/api/v2/shifts/a/members/', '/api/v2/shifts/a/members/u/x',
   ]) {
     assert.equal(matchV2Route(path), null, path);
   }
   // An id that is not a plain token is not a route (never a crash, never SQL).
   assert.equal(matchV2Route('/api/v2/shifts/a%20b/snapshot'), null);
   assert.equal(matchV2Route(`/api/v2/shifts/${'x'.repeat(161)}/snapshot`), null);
+  assert.equal(matchV2Route('/api/v2/shifts/a%20b/object', 'PATCH'), null);
+  assert.equal(matchV2Route('/api/v2/shifts/a/members/a%20b', 'DELETE'), null);
 });
 
 test('unknown v2 path answers 404 with the stable v2 body', async () => {
@@ -74,11 +114,16 @@ test('unknown v2 path answers 404 with the stable v2 body', async () => {
   assert.equal(calls.loadActor, 0);
 });
 
-test('a non-GET method on a known v2 path answers 405', async () => {
-  for (const method of ['POST', 'PATCH', 'DELETE', 'PUT']) {
-    const { sent, options } = harness({ method });
+test('a known v2 path with a wrong method answers 405', async () => {
+  for (const [method, path] of [
+    ['PUT', '/api/v2/shifts'], ['PATCH', '/api/v2/shifts'], ['DELETE', '/api/v2/shifts'],
+    ['POST', '/api/v2/shifts/shift_a1/snapshot'], ['GET', '/api/v2/shifts/shift_a1/object'],
+    ['GET', '/api/v2/shifts/shift_a1/members'], ['POST', '/api/v2/shifts/shift_a1/members/uid_member'],
+  ]) {
+    const { sent, calls, options } = harness({ method, path });
     assert.equal(await handleV2Request(options), true);
     assert.deepEqual(sent, [{ status: 405, body: { protocolVersion: 2, error: 'method-not-allowed', details: {} } }]);
+    assert.equal(calls.loadActor, 0);
   }
 });
 
@@ -173,4 +218,119 @@ test('shift cursors are opaque, versioned and strictly validated', () => {
       return true;
     }, String(value));
   }
+});
+
+test('POST /api/v2/shifts creates with 201 and a replay answers 200', async () => {
+  const body = {operationId: 'op_create_1', protocolVersion: 2, objectId: 'object_a', workDate: '2026-11-23', shiftType: 'day'};
+  const created = harness({method: 'POST', body});
+  await handleV2Request(created.options);
+  assert.equal(created.res.status, 201);
+  assert.equal(created.res.body.replayed, false);
+  assert.equal(created.res.body.operationId, 'op_create_1');
+  assert.equal(created.calls.create.length, 1);
+  assert.equal(created.calls.create[0].actor.uid, 'uid_reader');
+  assert.deepEqual(created.calls.create[0].command, {...body, workspaceId: WORKSPACE});
+
+  // A persisted replay keeps the same body and only the status changes.
+  const replay = harness({
+    method: 'POST',
+    body,
+    services: {createShift: async (pool, actor, command) => ({protocolVersion: 2, operationId: command.operationId, replayed: true, result: {shift: {}}})},
+  });
+  await handleV2Request(replay.options);
+  assert.equal(replay.res.status, 200);
+  assert.equal(replay.res.body.replayed, true);
+});
+
+test('command routes take the shift and the uid from the path, never from the body', async () => {
+  const object = harness({
+    method: 'PATCH',
+    path: '/api/v2/shifts/shift_path/object',
+    body: {operationId: 'op_object_1', protocolVersion: 2, objectId: 'object_b', expectedShiftRevision: 3, shiftId: 'shift_body'},
+  });
+  await handleV2Request(object.options);
+  assert.equal(object.res.status, 200);
+  assert.equal(object.calls.object[0].command.shiftId, 'shift_path');
+  assert.equal(object.calls.object[0].command.objectId, 'object_b');
+  assert.equal(object.calls.object[0].command.expectedShiftRevision, 3);
+
+  const add = harness({
+    method: 'POST',
+    path: '/api/v2/shifts/shift_path/members',
+    body: {operationId: 'op_member_add', protocolVersion: 2, uid: 'uid_new', expectedShiftRevision: 4, expectedMembershipRevision: null},
+  });
+  await handleV2Request(add.options);
+  assert.equal(add.res.status, 200);
+  assert.equal(add.calls.memberAdd[0].command.shiftId, 'shift_path');
+  assert.equal(add.calls.memberAdd[0].command.uid, 'uid_new');
+  assert.equal(add.calls.memberAdd[0].command.expectedMembershipRevision, null);
+
+  const remove = harness({
+    method: 'DELETE',
+    path: '/api/v2/shifts/shift_path/members/uid_path',
+    body: {operationId: 'op_member_remove', protocolVersion: 2, uid: 'uid_body', expectedShiftRevision: 5, expectedMembershipRevision: 2},
+  });
+  await handleV2Request(remove.options);
+  assert.equal(remove.res.status, 200);
+  assert.equal(remove.calls.memberRemove[0].command.uid, 'uid_path');
+  assert.equal(remove.calls.memberRemove[0].command.shiftId, 'shift_path');
+});
+
+test('the workspace comes from the server configuration, not from the command body', async () => {
+  const { calls, options } = harness({
+    method: 'POST',
+    body: {operationId: 'op_create_evil', protocolVersion: 2, objectId: 'object_a', shiftType: 'day', workspaceId: 'evil_workspace'},
+  });
+  await handleV2Request(options);
+  assert.equal(calls.create[0].command.workspaceId, WORKSPACE);
+});
+
+test('a malformed or unreadable command body is a 400 invalid-command', async () => {
+  for (const body of [[], 'text', 42, null]) {
+    const { sent, calls, options } = harness({method: 'POST', body});
+    await handleV2Request(options);
+    assert.deepEqual(sent, [{
+      status: 400,
+      body: {protocolVersion: 2, error: 'invalid-command', details: {field: 'body'}},
+    }], String(body));
+    assert.deepEqual(calls.create, []);
+  }
+  // No reader at all: the router refuses instead of guessing an empty body.
+  const missing = harness({method: 'POST'});
+  await handleV2Request(missing.options);
+  assert.equal(missing.res.status, 400);
+  assert.equal(missing.res.body.error, 'invalid-command');
+  // A reader that throws (invalid JSON / too large) is the same schema refusal.
+  const broken = harness({
+    method: 'POST',
+    services: {},
+  });
+  broken.options.readBody = async () => { throw new Error('invalid-json'); };
+  await handleV2Request(broken.options);
+  assert.equal(broken.res.status, 400);
+  assert.equal(broken.res.body.error, 'invalid-command');
+});
+
+test('a command V2Error keeps its stable status and body', async () => {
+  const { sent, options } = harness({
+    method: 'POST',
+    body: {operationId: 'op_dup', protocolVersion: 2, objectId: 'object_a', shiftType: 'day'},
+    services: {
+      createShift: async () => { throw v2Error('shift-duplicate', 409, {objectId: 'object_a', workDate: '2026-11-23', shiftType: 'day'}); },
+    },
+  });
+  await handleV2Request(options);
+  assert.deepEqual(sent, [{
+    status: 409,
+    body: {protocolVersion: 2, error: 'shift-duplicate', details: {objectId: 'object_a', workDate: '2026-11-23', shiftType: 'day'}},
+  }]);
+  // A v1 client on a command route is refused before authentication.
+  const oldClient = harness({
+    method: 'POST',
+    body: {operationId: 'op_dup', protocolVersion: 2},
+    headers: {'x-samosval-protocol': '1'},
+  });
+  await handleV2Request(oldClient.options);
+  assert.equal(oldClient.res.status, 426);
+  assert.deepEqual(oldClient.calls.create, []);
 });

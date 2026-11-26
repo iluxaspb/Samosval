@@ -110,7 +110,11 @@ async function loadMembership(client, workspaceId, shiftId, uid) {
 // Any of the listed rights is enough (the matrix offers alternatives such as
 // manage_trucks OR edit_line). FOR SHARE keeps a concurrent permissions.replace
 // from changing the answer in the middle of the command transaction.
-async function hasAnyRight(client, role, rights) {
+//
+// Exported because a command that creates a shift has no shift row to authorize
+// yet (§6 create row: admin or прораб + `start_shift`) and must use this exact
+// matrix lookup instead of a second copy of it.
+export async function hasAnyRight(client, role, rights) {
   if (rights.length === 0) return true;
   const rows = (await client.query(
     `SELECT allowed FROM role_permissions

@@ -131,13 +131,13 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
   }
-  // v2 tree: only the two Task 18 reads are wired here. Everything else under
-  // `/api/v2` is answered by the router itself (stable 404/405/426) and never
-  // falls through to the v1 routes below.
+  // v2 tree: reads (Task 18) and shift metadata/membership commands (Task 19).
+  // Everything else under `/api/v2` is answered by the router itself (stable
+  // 404/405/426) and never falls through to the v1 routes below.
   if(path.startsWith('/api/v2')){
     await handleV2Request({
       pool, req, res, url:requestUrl, method:req.method,
-      authenticate:verifyRequestUser, send,
+      authenticate:verifyRequestUser, send, readBody:readJson,
       workspaceId:process.env.WORKSPACE_ID||'main_workspace'
     });
     return;
