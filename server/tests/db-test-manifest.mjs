@@ -10,7 +10,7 @@ const unitFiles = [
 ];
 
 const dbFiles = [
-  'archive-consumers-latest', 'archive-parallel-restore', 'archive-read', 'archive-schema-025', 'archive-store', 'auxiliary-store',
+  'archive-consumers-latest', 'archive-parallel-restore', 'archive-read', 'archive-revisions', 'archive-schema-025', 'archive-store', 'auxiliary-store',
   'backup-store', 'control-store', 'game-store', 'history-store',
   'identity-store', 'legacy-shift-resolution', 'line-read', 'line-store',
   'migration-registry', 'notification-store',
@@ -45,6 +45,14 @@ const consumersByFile = {
   "archive-read": [
     "tests/archive-read.test.mjs:db-env",
     "tests/archive-read.test.mjs:pg"
+  ],
+  "archive-revisions": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/archive-revisions.test.mjs:db-env",
+    "tests/archive-revisions.test.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg"
   ],
   "restored-context-migration": [
     "scripts/apply-migrations.mjs:pg",
@@ -289,6 +297,7 @@ const unitReasons = {
 
 const dbReasons = {
   'archive-consumers-latest': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for latest-finalized archive consumers and exact revision history',
+  'archive-revisions': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for restored context finalize into immutable archive revisions',
   'restored-context-migration': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact legacy restored copy-verify-delete migration',
   'restored-context-store': 'Imports pg and reads TEST_DATABASE_URL for restored context corrections with CAS, receipt and audit',
   'migration-registry': 'Imports pg and apply-migrations, and reads TEST_DATABASE_URL to verify the migration registry',
@@ -336,7 +345,7 @@ const dbEntries = dbFiles.map(name => ({
   reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   baseline: 'S24',
-migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' ? 25 : null,
+migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],

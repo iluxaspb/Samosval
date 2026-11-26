@@ -5,6 +5,7 @@ import pg from 'pg';
 import {submitArchive} from '../src/archive-store.mjs';
 import {readArchiveSnapshot} from '../src/archive-read.mjs';
 import {submitRestoredCorrection} from '../src/restored-context-store.mjs';
+import {finalizeRestoredContext} from '../src/archive-revisions.mjs';
 test('PostgreSQL archive mutations keep original snapshots, serialize concurrent editors, and restore the complete line atomically',{skip:!process.env.TEST_DATABASE_URL},async t=>{
   const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL,max:6}),sha=randomBytes(32).toString('hex'),ws='arc_'+sha.slice(0,20),uid=ws+'_a',worker=ws+'_w';let originalState;
   const archive={objectId:'site',objectName:'Site',date:'30.10.2026',activeLineIds:['truck','empty'],ttnStatus:{truck:'pending'},paper:{width:900},logs:[{id:'late',truckId:'truck',timestamp:20,volume:24,comment:'late'},{id:'early',truckId:'truck',timestamp:10,volume:24,comment:'early'}]};
@@ -72,5 +73,26 @@ test('restored correction domain refuses every non trip/TTN operation before tou
       assert.equal(error.code,'archive-operation-not-allowed');assert.equal(error.status,400);return true;
     });
   }
+  assert.equal(connects,0);
+});
+// Гейт finalize: сессия и команда проверяются до соединения с БД, поэтому
+// некорректный запрос не может оставить ни ревизии, ни receipt.
+test('restored finalize refuses an invalid session or command before touching the database',async()=>{
+  let connects=0;
+  const pool={connect(){connects+=1;throw new Error('the database must not be touched');}};
+  const valid={operationId:'op_fin',protocolVersion:2,expectedContextRevision:1,expectedBaseArchiveRevision:1,expectedBaseSha256:'a'.repeat(64)};
+  await assert.rejects(finalizeRestoredContext(pool,{uid:''},'ctx_fin',valid),{code:'forbidden',status:403});
+  await assert.rejects(finalizeRestoredContext(pool,{},'ctx_fin',valid),{code:'forbidden',status:403});
+  await assert.rejects(finalizeRestoredContext(pool,{uid:'gate_user'},'bad ctx',valid),{code:'invalid-restored-context'});
+  for(const bad of [
+    {...valid,operationId:'bad id'},
+    {...valid,protocolVersion:1},
+    {...valid,expectedContextRevision:0},
+    {...valid,expectedContextRevision:1.5},
+    {...valid,expectedBaseArchiveRevision:null},
+    {...valid,expectedBaseSha256:'A'.repeat(64)},
+    {...valid,expectedBaseSha256:undefined},
+    null,
+  ])await assert.rejects(finalizeRestoredContext(pool,{uid:'gate_user'},'ctx_fin',bad),{code:'invalid-archive-operation'});
   assert.equal(connects,0);
 });

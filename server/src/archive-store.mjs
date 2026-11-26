@@ -1,7 +1,13 @@
+import {createHash} from 'node:crypto';
 import {fail,map} from './tabel-access.mjs';
 import {serviceActor,serviceCommand,validId} from './service-command.mjs';
 import {readArchiveEntries} from './archive-read.mjs';
 const WS=process.env.WORKSPACE_ID||'main_workspace';
+// Hash нормализованной архивной команды — ровно то же правило, что применяет
+// serviceCommand к своим receipt'ам: sha256 от JSON нормализованной команды (без
+// полей тела вроде uid). Нужен вызывающим, которые пишут receipt/publication сами
+// (finalize в archive-revisions), чтобы hash совпадал с остальным доменом.
+export function archiveCommandHash(op){return createHash('sha256').update(JSON.stringify(op)).digest('hex');}
 export function normalizeArchive(input){
   if(!map(input)||!validId(input.id)||typeof input.recordId!=='string'||!input.recordId||input.recordId.length>200||input.recordId.includes('/')||!['archive.trash','archive.restore','trash.purge','archive.gai.delete'].includes(input.type)||!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<1)throw fail('invalid-archive-operation');
   return {id:input.id,type:input.type,recordId:input.recordId,expectedRevision:input.expectedRevision};
