@@ -19,11 +19,32 @@ import { fail } from './tabel-access.mjs';
 // canonical row. Every call runs inside the caller's transaction, so a failure
 // at any boundary rolls stream, head, canonical, pending and cursor back
 // together.
+//
+// Delete policy is versioned per collection (replica_collection_policy_v1).
+// `canonical_present=false` on a settled delete means "no live canonical
+// projection", NOT "no physical row": objects keep a soft archive row and users
+// keep a soft-disabled account row so provenance FKs stay valid. The verifier
+// therefore dispatches by collection; the generic rule "physical row exists iff
+// canonical_present" is forbidden for objects/users.
+export const REPLICA_COLLECTION_POLICY_VERSION = 1;
 
-const MATERIALIZABLE = new Set(['objects', 'users', 'shift', 'trucks', 'truckStatus', 'logs']);
-const PENDING_COLLECTIONS = new Set(['truckStatus', 'logs']);
-const COLLECTION_VALUES = new Set(['objects', 'users', 'shift', 'trucks', 'truckStatus', 'logs']);
-const DELETABLE_PHYSICAL = new Set(['shift', 'trucks', 'truckStatus', 'logs']);
+const COLLECTION_POLICY = Object.freeze({
+  objects: { deletePolicy: 'soft-archive', pending: false },
+  users: { deletePolicy: 'soft-disable', pending: false },
+  shift: { deletePolicy: 'physical', pending: false },
+  trucks: { deletePolicy: 'physical', pending: false },
+  truckStatus: { deletePolicy: 'physical', pending: true },
+  logs: { deletePolicy: 'physical', pending: true },
+});
+
+const MATERIALIZABLE = new Set(Object.keys(COLLECTION_POLICY));
+const PENDING_COLLECTIONS = new Set(
+  Object.entries(COLLECTION_POLICY).filter(([, policy]) => policy.pending).map(([collection]) => collection),
+);
+const COLLECTION_VALUES = MATERIALIZABLE;
+
+const TOMBSTONE_DISPLAY_NAME = 'Удалённый пользователь';
+const tombstoneEmail = uid => `deleted+${createHash('md5').update(String(uid)).digest('hex').slice(0, 12)}@local.invalid`;
 
 const isMap = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const lastSegment = path => String(path || '').split('/').filter(Boolean).pop() || '';
@@ -234,7 +255,9 @@ async function deletePending(client, ws, collection, documentId) {
 async function parentState(client, ws, collection, routing) {
   if (collection === 'shift') {
     const row = (await client.query(
-      `SELECT EXISTS(SELECT 1 FROM workspace_objects WHERE workspace_id=$1 AND object_id=$2) AS object_exists,
+      `SELECT EXISTS(SELECT 1 FROM workspace_objects
+                      WHERE workspace_id=$1 AND object_id=$2
+                        AND payload->>'deleted' IS DISTINCT FROM 'true') AS object_exists,
               EXISTS(SELECT 1 FROM app_users WHERE uid=$3) AS user_exists`,
       [ws, routing.objectId, routing.userUid],
     )).rows[0];
@@ -325,17 +348,67 @@ async function materializeCanonical(client, ws, normalized) {
   }
 }
 
-async function deleteCanonical(client, ws, collection, documentId) {
+/**
+ * `objects doc.delete`: soft-archive, never physical delete. The live catalog
+ * projection disappears (`payload.deleted=true`) but the row keeps its data,
+ * its revision history and the delete provenance (source seq/hash of the head).
+ * A referenced object is refused with `parent-in-use` so the whole batch rolls
+ * back; hard delete is retention maintenance, never an online replica command.
+ */
+async function archiveObject(client, ws, objectId, seq, hash) {
+  const referenced = (await client.query(
+    'SELECT 1 FROM shifts WHERE workspace_id=$1 AND object_id=$2 LIMIT 1',
+    [ws, objectId],
+  )).rowCount > 0;
+  if (referenced) throw fail('parent-in-use', 409);
+  await client.query(
+    `INSERT INTO workspace_objects(workspace_id,object_id,payload)
+     VALUES($1,$2,$3::jsonb)
+     ON CONFLICT (workspace_id,object_id) DO UPDATE SET
+       payload=(workspace_objects.payload - 'deletedSeq' - 'deletedSha256')
+               || jsonb_build_object('deleted',true,'deletedSeq',$4::bigint,'deletedSha256',$5::text),
+       revision=workspace_objects.revision+1`,
+    [
+      ws, objectId,
+      JSON.stringify({ id: objectId, deleted: true, deletedSeq: seq, deletedSha256: hash }),
+      seq, hash,
+    ],
+  );
+}
+
+/**
+ * `users doc.delete`: soft-disable, never physical delete. `app_users` is the
+ * provenance anchor of every uid FK (`shifts.opened_by_uid`, `shift_members.uid`,
+ * `line_logs`, archive actors), so the row keeps uid/email/display_name and only
+ * loses its live projection: `status='disabled'` plus `profile.deleted=true`
+ * with the deleting source seq/hash.
+ */
+async function softDisableUser(client, uid, seq, hash) {
+  await client.query(
+    `INSERT INTO app_users(uid,email,display_name,role,status,profile)
+     VALUES($1,$2,$3,'driver','disabled',$4::jsonb)
+     ON CONFLICT (uid) DO UPDATE SET
+       status='disabled',
+       profile=(app_users.profile - 'deletedSeq' - 'deletedSha256')
+               || jsonb_build_object('deleted',true,'deletedSeq',$5::bigint,'deletedSha256',$6::text),
+       revision=app_users.revision+1`,
+    [
+      uid, tombstoneEmail(uid), TOMBSTONE_DISPLAY_NAME,
+      JSON.stringify({ deleted: true, deletedSeq: seq, deletedSha256: hash }),
+      seq, hash,
+    ],
+  );
+}
+
+async function deleteCanonical(client, ws, collection, documentId, provenance = {}) {
   switch (collection) {
     case 'objects':
-      // Task 14 replaces this physical delete with the documented soft tombstone.
-      await client.query(
-        'DELETE FROM workspace_objects WHERE workspace_id=$1 AND object_id=$2', [ws, documentId],
-      );
+      if (!provenance.hash) throw fail('invalid-replica-delete-provenance');
+      await archiveObject(client, ws, documentId, provenance.seq, provenance.hash);
       return;
     case 'users':
-      // Task 14 replaces this physical delete with soft-disable/tombstone.
-      await client.query('DELETE FROM app_users WHERE uid=$1', [documentId]);
+      if (!provenance.hash) throw fail('invalid-replica-delete-provenance');
+      await softDisableUser(client, documentId, provenance.seq, provenance.hash);
       return;
     case 'shift':
       await client.query('DELETE FROM shifts WHERE workspace_id=$1 AND shift_id=$2', [ws, documentId]);
@@ -401,7 +474,7 @@ export async function applyReplicaHeadTransition(client, ws, operation, options 
   const routing = routingColumns(collection, documentId, normalized.routing, existing);
 
   if (normalized.kind === 'doc.delete') {
-    await deleteCanonical(client, ws, collection, documentId);
+    await deleteCanonical(client, ws, collection, documentId, { seq, hash: normalized.hash });
     await deletePending(client, ws, collection, documentId);
     await upsertHead(client, ws, {
       collection, documentId, seq, kind: 'doc.delete', routing,
@@ -547,7 +620,7 @@ async function canonicalExists(client, ws, head) {
     case 'users':
       return (await client.query(
         `SELECT 1 FROM app_users
-          WHERE uid=$1 AND status <> 'disabled' AND profile->>'deleted' IS DISTINCT FROM 'true'`,
+          WHERE uid=$1 AND profile->>'deleted' IS DISTINCT FROM 'true'`,
         [documentId],
       )).rowCount > 0;
     case 'shift':
@@ -572,9 +645,53 @@ async function canonicalExists(client, ws, head) {
 }
 
 /**
+ * Collection-specific delete verifier (replica_collection_policy_v1).
+ *
+ * A settled delete head means the live projection is gone. For the physical
+ * collections that is exactly "no canonical row". objects/users are the
+ * documented exception: the physical row is the tombstone, so the verifier
+ * proves its exact shape and the deleting source seq/hash instead of asserting
+ * absence. The generic physical-presence rule is never applied to them.
+ */
+async function objectTombstoneViolation(client, ws, head) {
+  const row = (await client.query(
+    `SELECT payload->>'deleted' AS deleted,
+            payload->>'deletedSeq' AS deleted_seq,
+            payload->>'deletedSha256' AS deleted_sha
+       FROM workspace_objects
+      WHERE workspace_id=$1 AND object_id=$2`,
+    [ws, head.document_id],
+  )).rows[0];
+  if (!row) return 'object-tombstone-missing';
+  if (row.deleted !== 'true') return 'object-tombstone-invalid';
+  if (number(row.deleted_seq) !== number(head.head_seq) || row.deleted_sha !== head.sha256) {
+    return 'tombstone-provenance-mismatch';
+  }
+  return null;
+}
+
+async function userTombstoneViolation(client, head) {
+  const row = (await client.query(
+    `SELECT status,
+            profile->>'deleted' AS deleted,
+            profile->>'deletedSeq' AS deleted_seq,
+            profile->>'deletedSha256' AS deleted_sha
+       FROM app_users
+      WHERE uid=$1`,
+    [head.document_id],
+  )).rows[0];
+  if (!row) return 'user-tombstone-missing';
+  if (row.status !== 'disabled' || row.deleted !== 'true') return 'user-tombstone-invalid';
+  if (number(row.deleted_seq) !== number(head.head_seq) || row.deleted_sha !== head.sha256) {
+    return 'tombstone-provenance-mismatch';
+  }
+  return null;
+}
+
+/**
  * Proves the head ledger against the immutable stream and the canonical rows.
- * objects/users tombstones are deferred to Task 14: the report marks them
- * explicitly instead of applying the forbidden generic physical-presence rule.
+ * The presence check dispatches by collection: objects/users settled deletes are
+ * proven by their exact soft tombstone, the other four by physical absence.
  */
 export async function verifyReplicaHeads(client, ws, options = {}) {
   const heads = (await client.query(
@@ -595,7 +712,6 @@ export async function verifyReplicaHeads(client, ws, options = {}) {
   )).rows;
   const pendingByKey = new Map(pendingRows.map(row => [`${row.collection}\u0000${row.document_id}`, row]));
   const violations = [];
-  const deferred = [];
   let pendingCount = 0;
 
   const push = (code, head, detail = {}) => violations.push({
@@ -643,11 +759,18 @@ export async function verifyReplicaHeads(client, ws, options = {}) {
         push('unknown-collection', head);
         continue;
       }
-      if (!DELETABLE_PHYSICAL.has(head.collection)) {
-        // objects/users keep a physical soft tombstone; Task 14 owns its verifier.
-        deferred.push({ collection: head.collection, documentId: head.document_id });
+      const policy = COLLECTION_POLICY[head.collection];
+      if (policy.deletePolicy === 'soft-archive') {
+        const code = await objectTombstoneViolation(client, ws, head);
+        if (code) push(code, head);
         continue;
       }
+      if (policy.deletePolicy === 'soft-disable') {
+        const code = await userTombstoneViolation(client, head);
+        if (code) push(code, head);
+        continue;
+      }
+      // Declared physical policy: the canonical row must be gone.
       if (await canonicalExists(client, ws, head)) push('canonical-present-after-delete', head);
     }
   }
@@ -663,9 +786,9 @@ export async function verifyReplicaHeads(client, ws, options = {}) {
   const report = {
     workspaceId: ws,
     ok: violations.length === 0,
+    policyVersion: REPLICA_COLLECTION_POLICY_VERSION,
     checked: heads.length,
     pending: pendingCount,
-    deferred,
     violations,
   };
   if (!report.ok && options.throw) throw fail('replica-head-verify-failed', 409);
