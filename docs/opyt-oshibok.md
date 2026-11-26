@@ -609,3 +609,21 @@ file-watcher по `/`, `/etc`, `/home`, `/home/iluxa`, ответ `503` на `/a
 **Симптом:** `docker-compose -f compose.test.yaml --profile test up -d` в worktree задачи завершается трейсбеком python-compose в `merge_volume_bindings`/`get_container_data_volumes`, `KeyError: 'ContainerConfig'`. В `docker ps -a` виден чужой `server_postgres_1` из другого worktree.
 **Причина:** имя compose-проекта по умолчанию — имя каталога (`server`), а оно у всех worktree одинаковое. Compose v1 пытается пересоздать контейнер другого агента и не умеет читать его конфиг. На 55432 при этом уже слушает общий изолированный кластер.
 **Что делать:** не поднимать второй кластер из каталога с тем же именем. Если общий кластер на 55432 жив (`ss -ltn | grep 55432`), работать на нём: раннер создаёт отдельные цели `samosval_parallel_shifts_test_<run>_<hash>`, параллельные агенты не мешают друг другу. Если кластер нерабочий — поднимать со своим именем проекта: `docker-compose -p stage4-t14tomb -f compose.test.yaml --profile test up -d`. `down -v` на общем кластере не выполнять.
+
+## 45. Урок 26.11.2026 (Task 15): точный restore упирается в immediate-FK указателя серии, identity-колонки, триггер эпохи и строгий мост смен
+
+**Симптом 1:** восстановление пачки в порядке «series → revisions» падает `shift_archive_series_latest_revision_fk`: `Key (workspace_id, archive_id, latest_finalized_revision, latest_finalized_sha256)=(…, 2, ff49…) is not present in table "shift_archive_revisions"`.
+**Причина:** `latest_finalized_*` — не «мягкий» указатель, а обычный (не DEFERRABLE) composite FK на конкретную ревизию. Вставка строки серии с уже заполненным указателем требует, чтобы ревизия существовала раньше, а ревизия требует серию раньше.
+**Что делать:** вставлять серию с `latest_finalized_revision/latest_finalized_sha256 = NULL`, затем все ревизии, затем точечным `UPDATE` вернуть точный указатель. `SET CONSTRAINTS ALL IMMEDIATE` этого не решает: FK не объявлен DEFERRABLE, и откладывать его нельзя.
+
+**Симптом 2:** точное восстановление surrogate-ключей `GENERATED ALWAYS AS IDENTITY` (`restored_context_audit.audit_id`, `archive_audit.audit_id`, `legacy_line_status_snapshots.snapshot_id`, `legacy_cutover_historicalization_audit.audit_id`, `shift_legacy_resolution_audit.audit_id`) либо падает, либо мешает восстановлению в другую workspace той же БД.
+**Причина:** identity-значения не являются провенансом: на них никто не ссылается по смыслу, а перенос в другой workspace в той же базе даёт конфликт последовательности.
+**Что делать:** identity-колонки не вставлять (пусть генерирует sequence цели) и исключать их из digest манифеста; после вставки делать `setval` на max. Всё остальное (включая `text`-идентификаторы операций/ревизий) вставлять байт-в-байт.
+
+**Симптом 3:** после восстановления `line_history.dataset_epoch` и `workspace_service_audit.dataset_epoch` не равны снятым в бандле.
+**Причина:** `BEFORE INSERT` триггер `set_history_epoch()` принудительно ставит `dataset_epoch = workspaces.restore_epoch`, то есть перезаписывает точное значение при вставке.
+**Что делать:** сразу после вставки этих строк в той же транзакции вернуть снятое значение точечным `UPDATE` (до verifier). Иначе verifier честно упадёт на расхождении digest.
+
+**Симптом 4:** вставка смены с payload, расширенным жизненным циклом (prepare/close добавляют ключи сверх опубликованных 14), отклоняется `invalid-shift-v2-provenance: start payload is not the exact published v2 document`.
+**Причина:** `shifts_legacy_bridge()` на INSERT требует ровно 14 опубликованных ключей, а на UPDATE — те же 14 обязательных плюс запрет ключей `restored*`/`originalSourceShiftId`. Историческая v2-строка одновременно не проходит ни как «старт», ни как чистый UPDATE.
+**Что делать:** вставлять смену с усечённым published-подмножеством payload (14 ключей), затем в той же транзакции переписать строку точными значениями. `shifts_manual_provenance_guard` при этом не мешает: он сравнивает OLD/NEW и пропускает запись, где `identity_resolution`/`shift_type_resolution` и их значения не меняются. Legacy v1-строку (`payload_schema_version <> 2`) так восстановить нельзя — это отдельный блокер схемы 028, а не повод ослабить мост.
