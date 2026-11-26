@@ -13,7 +13,7 @@
 | I — legacy provenance и redesigned 025 | 1–5 | 1–4 ГОТОВО, 5 ЧАСТИЧНО (домен есть, HTTP-маршрут не подключён; отложено решением владельца 26.11.2026) |
 | II — archive/restored S25 | 6–10 | ГОТОВО |
 | III — 026, replica generations, exact restore | 11–15 | 11–12 ГОТОВО, 13–15 НЕ НАЧАТО |
-| IV — v2 API и core domains | 16–22 | 16 ГОТОВО, 17–22 НЕ НАЧАТО |
+| IV — v2 API и core domains | 16–22 | 16–17 ГОТОВО, 18–22 НЕ НАЧАТО |
 | V — client contexts и UX | 23–26 | 23 ГОТОВО, 24 ЧАСТИЧНО (транспорт готов, офлайн-журнал нет), 25–26 НЕ НАЧАТО |
 | VI — cross-domain и acceptance | 27–29 | НЕ НАЧАТО |
 | VII — rehearsal и release gates | 30–31 | НЕ НАЧАТО |
@@ -39,7 +39,7 @@
 | 15 | Full exact provenance backup/restore | НЕ НАЧАТО | нет `restore-bootstrap.mjs`, `replica-exact-backup.test.mjs` |
 | I7 | Immutable S26 template + fixtures | НЕ НАЧАТО | гейт после 15 |
 | 16 | V2 errors, JCS hash, receipts | ГОТОВО | `server/src/v2-errors.mjs`, `server/src/v2-command.mjs`, `server/tests/v2-command.test.mjs` (16 тестов, db-корень `v2-command`, вектор `1179ba8a…6a64`); конверт `{protocolVersion:2,operationId,replayed,result}`, авторизация до replay, откат receipt/audit/mutation |
-| 17 | Permissions и shift ACL | НЕ НАЧАТО | — |
+| 17 | Permissions и shift ACL | ГОТОВО | коммит `feat: add parallel shift permissions and acl` (ветка `feat/t17-shift-acl`): `sql/027_parallel_shift_permissions.sql`, `src/shift-access-v2.mjs` (`loadActor`/`authorizeShift`/`visibleShiftPredicate`), `identity-rules.mjs` (+2 action). Тест `tests/v2-shift-access.test.mjs` — 13 подтестов, db-корень `v2-shift-access` (первый на baseline S25, применяет 026/027 сам), `--list`: `discovered=84 manifest=84`. Покрыто: дефолты матрицы (manage_shift_members — foreman+senior, force_transfer_truck — только senior), admin без membership, hidden=404 / команда=403, closing=409 и closed=410, detached source∨destination, отзыв membership между вызовами не выдаёт receipt |
 | 18 | Visible list/snapshot + router | НЕ НАЧАТО | в `server/src/index.mjs` только `/api/v1` |
 | 19 | Shift create/object/members | НЕ НАЧАТО | — |
 | 20 | Truck assignment/force transfer/detached | НЕ НАЧАТО | — |
@@ -66,7 +66,9 @@
 
 Схема 025/026 не содержит generic-таблицы аудита v2 и не расширяет
 `shift_operation_receipts`. Задача 16 (только модули и тесты) закрыта на
-существующих таблицах; перенос в нормативные — в 027 вместе с ACL:
+существующих таблицах. **027 (задача 17) эти долги НЕ закрывает** — она
+добавляет только права ACL. Перенос остаётся открытым (кандидат — миграция 028
+вместе с задачей 20/22, где появляются force transfer и двухфазное закрытие):
 
 | Долг | Сейчас | Нужно в 027 |
 |---|---|---|
