@@ -20,7 +20,7 @@ const dbFiles = [
   'replica-store', 'replica-stream-026', 'report-store', 'restored-context-store', 'seed-identity-db', 'seed-objects-db',
   'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
   'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store',
-  'v2-command'
+  'v2-command', 'v2-shift-access'
 ];
 
 const harnessFiles = [
@@ -314,6 +314,14 @@ const consumersByFile = {
     "tests/v2-command.test.mjs:db-env",
     "tests/v2-command.test.mjs:pg"
   ],
+  "v2-shift-access": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/v2-shift-access.test.mjs:db-env",
+    "tests/v2-shift-access.test.mjs:pg"
+  ],
   "updater": [
     "audit:updater-release-only"
   ]
@@ -417,7 +425,8 @@ const bootstrapEnvByFile = {
   'replica-materialize-parallel-shifts': ['bootstrap-url'],
   'replica-stream-026': ['bootstrap-url'],
   'restored-context-migration': ['bootstrap-url', 'runtime-password', 'maintenance-password'],
-  'restored-context-store': ['bootstrap-url']
+  'restored-context-store': ['bootstrap-url'],
+  'v2-shift-access': ['bootstrap-url']
 };
 
 // Roots that start the real src/index.mjs child on a fixed port are discovered
@@ -431,7 +440,7 @@ const dbEntries = dbFiles.map(name => ({
   reason: `${httpDbRoots.has(name) ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   env: bootstrapEnvByFile[name] ?? [],
-  // No db root is on S25 yet: the S25 contract is proved by the
+  // Until Task 17 no db root ran on S25: the S25 contract is proved by the
   // `isolated-db-s25-fixtures` harness contract. Nine roots build through 025;
   // five of them build pre-025 state and then apply 025 as their actual subject
   // (`parallel-shifts-migration-core`, `replica-materialize-parallel-shifts`,
@@ -450,8 +459,11 @@ const dbEntries = dbFiles.map(name => ({
   // `archive-store`, `archive-parallel-restore` and `replica-materialize` are
   // old-line scenarios that fail on S25 by nature (docs/opyt-oshibok.md,
   // lesson 23.1).
-  baseline: 'S24',
-migrationsThrough: name === 'replica-stream-026' ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
+  // `v2-shift-access` is the first db root on S25: the ACL needs the 025
+  // membership table from the frozen template and applies 026/027 itself on the
+  // privileged bootstrap connection.
+  baseline: name === 'v2-shift-access' ? 'S25' : 'S24',
+migrationsThrough: name === 'v2-shift-access' ? 27 : name === 'replica-stream-026' ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],
