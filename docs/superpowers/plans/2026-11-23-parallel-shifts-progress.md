@@ -13,7 +13,7 @@
 | I — legacy provenance и redesigned 025 | 1–5 | 1–4 ГОТОВО, 5 ЧАСТИЧНО (домен есть, HTTP-маршрут не подключён; отложено решением владельца 26.11.2026) |
 | II — archive/restored S25 | 6–10 | ГОТОВО |
 | III — 026, replica generations, exact restore | 11–15 | 11–12 ГОТОВО, 13–15 НЕ НАЧАТО |
-| IV — v2 API и core domains | 16–22 | НЕ НАЧАТО |
+| IV — v2 API и core domains | 16–22 | 16 ГОТОВО, 17–22 НЕ НАЧАТО |
 | V — client contexts и UX | 23–26 | 23 ГОТОВО, 24 ЧАСТИЧНО (транспорт готов, офлайн-журнал нет), 25–26 НЕ НАЧАТО |
 | VI — cross-domain и acceptance | 27–29 | НЕ НАЧАТО |
 | VII — rehearsal и release gates | 30–31 | НЕ НАЧАТО |
@@ -38,7 +38,7 @@
 | 14 | Objects/users tombstones + collection verifier | НЕ НАЧАТО | зависит от 13 |
 | 15 | Full exact provenance backup/restore | НЕ НАЧАТО | нет `restore-bootstrap.mjs`, `replica-exact-backup.test.mjs` |
 | I7 | Immutable S26 template + fixtures | НЕ НАЧАТО | гейт после 15 |
-| 16 | V2 errors, JCS hash, receipts | НЕ НАЧАТО | нет v2-модулей в `server/src` |
+| 16 | V2 errors, JCS hash, receipts | ГОТОВО | `server/src/v2-errors.mjs`, `server/src/v2-command.mjs`, `server/tests/v2-command.test.mjs` (16 тестов, db-корень `v2-command`, вектор `1179ba8a…6a64`); конверт `{protocolVersion:2,operationId,replayed,result}`, авторизация до replay, откат receipt/audit/mutation |
 | 17 | Permissions и shift ACL | НЕ НАЧАТО | — |
 | 18 | Visible list/snapshot + router | НЕ НАЧАТО | в `server/src/index.mjs` только `/api/v1` |
 | 19 | Shift create/object/members | НЕ НАЧАТО | — |
@@ -61,6 +61,18 @@
 | `pool.on('error')` отсутствовал — terminate сессии ронял API | ГОТОВО | `79223b1` |
 | Legacy-смену без типа нельзя было закрыть | ГОТОВО | `ad85594` |
 | Сборка `working-test` не воспроизводится байт-в-байт | расследование | см. отчёт |
+
+## Долги по схеме, открытые задачей 16 (для 027)
+
+Схема 025/026 не содержит generic-таблицы аудита v2 и не расширяет
+`shift_operation_receipts`. Задача 16 (только модули и тесты) закрыта на
+существующих таблицах; перенос в нормативные — в 027 вместе с ACL:
+
+| Долг | Сейчас | Нужно в 027 |
+|---|---|---|
+| `shift_operation_receipts` без `protocol_version`/`command_hash`/`shift_id` (§4.5) | `request_hash` = `commandHash` (SHA-256 JCS), протокол связан хешем | добавить `protocol_version smallint NOT NULL`, `command_hash text NOT NULL`, `shift_id text` + FK `(workspace_id,shift_id)` |
+| Нет shift-scoped audit для v2-команд | `workspace_service_audit` (operation_id/uid/type/before/after), `shiftId` внутри before/after | `shift_command_audit(workspace_id,shift_id,operation_id,uid,type,before_state,after_state,recorded_at)` + append-only guard; перевести `V2_AUDIT_TABLE` |
+| `workspace_service_audit` не имеет `shift_id` | фильтрация только по `before_data->>'shiftId'` | при появлении таблицы из строки выше — миграция существующих строк |
 
 ## Правило порядка (нарушено один раз, не повторять)
 
