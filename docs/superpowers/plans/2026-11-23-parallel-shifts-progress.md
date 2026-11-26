@@ -1,0 +1,67 @@
+# Реестр выполнения плана «параллельные смены» (этап 4)
+
+Живой файл. Обновляется тем же коммитом, что и закрытие задачи. Источник требований — `2026-11-23-parallel-shifts.md` **в этой ветке** (31 задача). В корневой копии `/home/iluxa/Samosval-repo-main` лежит УСТАРЕВШАЯ версия того же плана на 27 задач с другой нумерацией — см. `docs/opyt-oshibok.md`, п.37.
+
+Статусы: **ГОТОВО** (есть код + тесты + зелёный прогон), **ЧАСТИЧНО**, **НЕ НАЧАТО**, **ОТЛОЖЕНО** (решение владельца).
+
+Актуализация: 26.11.2026, ветка `feature/wtest-parallel-shifts-20261123`.
+
+## Сводка
+
+| Фаза | Задачи | Состояние |
+|---|---|---|
+| I — legacy provenance и redesigned 025 | 1–5 | 1–4 ГОТОВО, 5 ЧАСТИЧНО (домен есть, HTTP-маршрут не подключён; отложено решением владельца 26.11.2026) |
+| II — archive/restored S25 | 6–10 | ГОТОВО |
+| III — 026, replica generations, exact restore | 11–15 | 11–12 ГОТОВО, 13–15 НЕ НАЧАТО |
+| IV — v2 API и core domains | 16–22 | НЕ НАЧАТО |
+| V — client contexts и UX | 23–26 | 23 ГОТОВО, 24 ЧАСТИЧНО (транспорт готов, офлайн-журнал нет), 25–26 НЕ НАЧАТО |
+| VI — cross-domain и acceptance | 27–29 | НЕ НАЧАТО |
+| VII — rehearsal и release gates | 30–31 | НЕ НАЧАТО |
+
+## По задачам
+
+| # | Задача | Статус | Доказательство |
+|---|---|---|---|
+| 1 | Exact client/source shift payload v2 | ГОТОВО | `working-test/source/core/15-shifts.js:6`, `shift-payload-v2.test.mjs` |
+| 2 | Migration/runtime/maintenance role boundary | ГОТОВО | `parallel-shifts-runtime-roles.test.mjs`, `scripts/parallel-shifts-role-bootstrap.mjs` |
+| 3 | Migration 025 provenance schema/classifier/backfill | ГОТОВО | `server/sql/025_parallel_shifts_core.sql`, `parallel-shifts-migration-core.test.mjs` |
+| 4 | Historicalization preflight/confirmation/audit | ГОТОВО | `server/src/legacy-historicalization.mjs`, `parallel-shifts-historicalization.test.mjs` |
+| 5 | Admin-only manual legacy resolution | ЧАСТИЧНО | домен `legacy-shift-resolution.mjs` + `legacy-shift-resolution-route.mjs` есть; в `server/src/index.mjs` маршрут НЕ подключён. Владелец 26.11.2026: legacy-смену просто закрываем без вопросов (`materialImport:'skipped-unresolved-type'`), поэтому UI/маршрут не блокирует |
+| 6 | Immutable archive schema + restored contexts | ГОТОВО | `archive-schema-025.test.mjs`, `restored-context-store.mjs` |
+| 7 | Static legacy restored copy-verify-delete | ГОТОВО | `restored-context-migration.mjs`, `restored-context-migration.test.mjs` |
+| 8 | Restored context correction domain | ГОТОВО | `restored-context-store.test.mjs` |
+| 9 | Archive revision finalize + one-winner CAS | ГОТОВО | `archive-revisions.mjs`, `archive-revisions.test.mjs` |
+| 10 | Latest-finalized consumers | ГОТОВО | `archive-latest.mjs`, `archive-consumers-latest.test.mjs` |
+| 11 | Migration 026 stream/heads/pending | ГОТОВО | `server/sql/026_parallel_shift_dependencies.sql`, `replica-stream-026.test.mjs` |
+| 12 | Replica v2 normalization/hash, parents | ГОТОВО | `replica-store.mjs`, `replica-materialize.mjs`, `replica-materialize-parallel-shifts.test.mjs` |
+| 13 | Head/pending/delete materializer | НЕ НАЧАТО | нет `replica-heads.mjs`, `replica-pending-materialize.test.mjs` |
+| 14 | Objects/users tombstones + collection verifier | НЕ НАЧАТО | зависит от 13 |
+| 15 | Full exact provenance backup/restore | НЕ НАЧАТО | нет `restore-bootstrap.mjs`, `replica-exact-backup.test.mjs` |
+| I7 | Immutable S26 template + fixtures | НЕ НАЧАТО | гейт после 15 |
+| 16 | V2 errors, JCS hash, receipts | НЕ НАЧАТО | нет v2-модулей в `server/src` |
+| 17 | Permissions и shift ACL | НЕ НАЧАТО | — |
+| 18 | Visible list/snapshot + router | НЕ НАЧАТО | в `server/src/index.mjs` только `/api/v1` |
+| 19 | Shift create/object/members | НЕ НАЧАТО | — |
+| 20 | Truck assignment/force transfer/detached | НЕ НАЧАТО | — |
+| 21 | Scoped line operations, object lock | НЕ НАЧАТО | — |
+| 22 | Two-phase close + material marker | НЕ НАЧАТО | — |
+| 23 | Shift contexts и generation guards | ГОТОВО | коммит `38c89eb`, `40-shift-contexts.js` + 19 тестов |
+| 24 | V2 transport и offline journal | ЧАСТИЧНО | транспорт — коммит `11c76a0`, `41-v2-transport.js` + 26 тестов; офлайн-журнал `42-offline-v2.js` не начат |
+| 25 | Selector и management UI | НЕ НАЧАТО | — |
+| 26 | Restored mode/archive history/unresolved wording | НЕ НАЧАТО | — |
+| 27–29 | Cross-domain, inventory, protocol gate + acceptance | НЕ НАЧАТО | — |
+| 30–31 | Rehearsal/runbook, release gate | НЕ НАЧАТО | — |
+
+## Долги вне плана (закрыты 26.11.2026)
+
+| Долг | Статус | Коммит |
+|---|---|---|
+| Упавший тест-файл оставлял живыми потомков (вешал следующий прогон) | ГОТОВО | `abd66b2` |
+| Клиент выводил день/ночь из часа, сервер — нет | ГОТОВО | `195be0c` |
+| `pool.on('error')` отсутствовал — terminate сессии ронял API | ГОТОВО | `79223b1` |
+| Legacy-смену без типа нельзя было закрыть | ГОТОВО | `ad85594` |
+| Сборка `working-test` не воспроизводится байт-в-байт | расследование | см. отчёт |
+
+## Правило порядка (нарушено один раз, не повторять)
+
+План требует: фазы I–III → гейт I7 → фазы IV (16–22) → V (23–26). Задачи 23–24 были выполнены ДО фазы IV из-за устаревшей копии плана в корневом checkout (нумерация «Task 13/14» вместо «Task 23/24»). Клиентские модули самостоятельные и в UI не подключены, но транспорт писался по спецификации, а не по живым ответам сервера — контракт перепроверяется в задаче 29 (acceptance) после появления v2 API. Дальше строго по порядку плана этой ветки.
