@@ -13,7 +13,7 @@ const dbFiles = [
   'archive-consumers-latest', 'archive-parallel-restore', 'archive-read', 'archive-revisions', 'archive-schema-025', 'archive-store', 'auxiliary-store',
   'backup-store', 'control-store', 'game-store', 'history-store',
   'identity-store', 'legacy-shift-resolution', 'line-read', 'line-store',
-  'migration-registry', 'notification-store',
+  'notification-store',
   'parallel-shifts-historicalization', 'parallel-shifts-migration-core',
   'refresh-source', 'replica-materialize-parallel-shifts', 'replica-materialize',
 'restored-context-migration',
@@ -25,7 +25,7 @@ const dbFiles = [
 const harnessFiles = [
   'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-env', 'isolated-db-fixtures', 'isolated-db-guard',
   'isolated-db-integration', 'isolated-db-lifecycle', 'isolated-db-process', 'isolated-db-runner',
-  'isolated-db-s25-fixtures', 'isolated-db-templates', 'parallel-shifts-runtime-roles'
+  'isolated-db-s25-fixtures', 'isolated-db-templates', 'migration-registry', 'parallel-shifts-runtime-roles'
 ];
 
 const consumersByFile = {
@@ -166,9 +166,6 @@ const consumersByFile = {
   "migration-import": [],
   "migration-registry": [
     "scripts/apply-migrations.mjs:pg",
-    "tests/helpers/isolated-db.mjs:db-env",
-    "tests/helpers/isolated-db.mjs:db-helper",
-    "tests/helpers/isolated-db.mjs:pg",
     "tests/migration-registry.test.mjs:db-env",
     "tests/migration-registry.test.mjs:pg"
   ],
@@ -312,7 +309,6 @@ const dbReasons = {
   'archive-revisions': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for restored context finalize into immutable archive revisions',
   'restored-context-migration': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact legacy restored copy-verify-delete migration',
   'restored-context-store': 'Imports pg and reads TEST_DATABASE_URL for restored context corrections with CAS, receipt and audit',
-  'migration-registry': 'Imports pg and apply-migrations, and reads TEST_DATABASE_URL to verify the migration registry',
   'parallel-shifts-historicalization': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact-report legacy historicalization cutover',
   'parallel-shifts-migration-core': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for destructive migration 025 integration',
   'refresh-source': 'Imports pg and reads TEST_DATABASE_URL for source refresh with import tables',
@@ -396,6 +392,12 @@ const harnessEntries = harnessFiles.map(name => ({
     // never receives: it runs as samosval_test_app, so this is a harness
     // contract like isolated-db-fixtures.
     'isolated-db-s25-fixtures': ['bootstrap-url'],
+    // Verifies apply-migrations the way production runs it: on a fresh EMPTY
+    // database, never in a decoy schema (025/026 are fully qualified on purpose).
+    // That needs CREATE DATABASE/TEMPLATE and pg_authid-adjacent role checks,
+    // which a db child never gets as samosval_test_app, so the root is a
+    // harness contract like isolated-db-fixtures.
+    'migration-registry': ['bootstrap-url'],
     'parallel-shifts-runtime-roles': ['bootstrap-url', 'runtime-password', 'maintenance-password']
   }[name] ?? []
 }));
