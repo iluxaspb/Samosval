@@ -5,7 +5,13 @@ const VERSION = 1;
 const TOP_FIELDS = new Set(['manifestVersion', 'entries', 'harnessFixtures']);
 const COMMON_FIELDS = new Set(['file', 'kind', 'discovery', 'reason', 'consumers']);
 const HARNESS_FIELDS = new Set([...COMMON_FIELDS, 'env']);
-const DB_FIELDS = new Set([...COMMON_FIELDS, 'baseline', 'migrationsThrough', 'customSchema', 'importTables', 'fixtures', 'timeoutMs', 'serial', 'exclusive', 'allowedSkips']);
+// Closed set of run-scoped dependencies a child may receive, mirroring
+// scripts/isolated-db/env.mjs. `env` never names a raw variable or URL.
+const ENV_NAMES = new Set([
+  'admin-url', 'bootstrap-url', 'app-password', 'runtime-password',
+  'maintenance-password', 'target-url', 'isolated-marker'
+]);
+const DB_FIELDS = new Set([...COMMON_FIELDS, 'env', 'baseline', 'migrationsThrough', 'customSchema', 'importTables', 'fixtures', 'timeoutMs', 'serial', 'exclusive', 'allowedSkips']);
 const KINDS = new Set(['unit', 'db', 'harness-contract']);
 const DISCOVERY = new Set(['pure-import', 'direct', 'indirect-http', 'harness-contract']);
 const BASELINE_VERSIONS = new Map([['empty', 0], ['S24', 24], ['S25', 25]]);
@@ -68,6 +74,7 @@ async function validateEntry(entry, serverDirectory) {
   if (entry.reason !== canonicalReason(entry)) fail(`reason drift in ${entry.file}`);
   if (entry.kind === 'unit' && (entry.discovery !== 'pure-import' || entry.consumers.some(value => !value.startsWith('audit:')))) fail(`unit consumer mismatch for ${entry.file}`);
   if (entry.kind === 'harness-contract' && entry.discovery !== 'harness-contract') fail(`harness discovery mismatch for ${entry.file}`);
+  if ('env' in entry) validateRegistry('env', entry.env, ENV_NAMES, entry.file);
   if (entry.kind !== 'db') return;
   if (!BASELINE_VERSIONS.has(entry.baseline)) fail(`unsupported baseline for ${entry.file}`);
   if (!entry.consumers.length) fail(`DB consumer signature required for ${entry.file}`);

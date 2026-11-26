@@ -3,7 +3,15 @@ import { applyMigrations } from '../../scripts/apply-migrations.mjs';
 import { transformLegacyMigrationGuard } from '../../scripts/isolated-db/legacy-guards.mjs';
 
 const APPROVED_DATABASE = 'samosval_parallel_shifts_test';
+// The harness clones each db root into a generated target
+// `samosval_parallel_shifts_test_<runid>_<hash>`, so a db child must accept
+// both the exact legacy name and that exact generated shape.
+export const HARNESS_DATABASE = /^samosval_parallel_shifts_test_[a-f0-9]{12,20}_[a-f0-9]{12}$/;
 const APPROVED_HOSTS = new Set(['postgres', 'localhost', '127.0.0.1', '[::1]']);
+
+export function isApprovedIsolatedDatabase(name) {
+  return name === APPROVED_DATABASE || HARNESS_DATABASE.test(name);
+}
 
 export function requireIsolatedDatabase(url) {
   if (process.env.SAMOSVAL_ISOLATED_TEST !== '1') {
@@ -26,7 +34,7 @@ export function requireIsolatedDatabase(url) {
   if (
     !['postgres:', 'postgresql:'].includes(parsed.protocol)
     || !APPROVED_HOSTS.has(parsed.hostname)
-    || database !== APPROVED_DATABASE
+    || !isApprovedIsolatedDatabase(database)
     || parsed.search !== ''
     || parsed.hash !== ''
   ) {
@@ -40,32 +48,130 @@ function isolatedPool() {
   return new pg.Pool({ connectionString: url.href, max: 2 });
 }
 
+function databaseOf(parsed) {
+  try {
+    return decodeURIComponent(parsed.pathname.slice(1));
+  } catch {
+    throw new Error('isolated database target is not approved');
+  }
+}
+
+/**
+ * Connection used for schema DDL (spec 3.10/§6). A db child runs as
+ * `samosval_test_app`, which holds only USAGE on `public` plus DML and can
+ * never DROP/CREATE SCHEMA, CREATE TABLE, transfer ownership or switch to a
+ * runtime role. When the manifest declared `bootstrap-url`, the child receives
+ * the bootstrap-admin connection already scoped to its own generated target and
+ * every DDL step runs there; the assertions keep running on
+ * `TEST_DATABASE_URL`. Without `bootstrap-url` the legacy single-connection
+ * path is preserved unchanged.
+ */
+export function adminUrl() {
+  const target = requireIsolatedDatabase(process.env.TEST_DATABASE_URL);
+  const targetDatabase = databaseOf(target);
+  const raw = process.env.SAMOSVAL_TEST_BOOTSTRAP_URL;
+  if (raw === undefined || raw === '') return target;
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('isolated bootstrap target is not approved');
+  }
+  if (
+    !['postgres:', 'postgresql:'].includes(parsed.protocol)
+    || !APPROVED_HOSTS.has(parsed.hostname)
+    || parsed.search !== ''
+    || parsed.hash !== ''
+  ) {
+    throw new Error('isolated bootstrap target is not approved');
+  }
+  const adminDatabase = databaseOf(parsed);
+  // The bootstrap connection is scoped to the child's own generated target: it
+  // may neither name a shared/common database nor a different run's target.
+  if (!isApprovedIsolatedDatabase(adminDatabase) || adminDatabase !== targetDatabase) {
+    throw new Error('isolated bootstrap target is not approved');
+  }
+  return parsed;
+}
+
+export function hasPrivilegedSetup() {
+  const raw = process.env.SAMOSVAL_TEST_BOOTSTRAP_URL;
+  return raw !== undefined && raw !== '';
+}
+
+function setupPool() {
+  return new pg.Pool({ connectionString: adminUrl().href, max: 1 });
+}
+
+/**
+ * Fixture DDL a test performs itself (extra import tables, simulated schema
+ * drift, session-authorization probes) cannot run as `samosval_test_app`.
+ * Those statements use this privileged connection; the assertions keep using
+ * `TEST_DATABASE_URL`. Without a bootstrap URL it is the legacy connection.
+ *
+ * Pass `{ grant: true }` when the statements create tables the app connection
+ * must then use: the helper refreshes the app/runtime grants afterwards, the
+ * same way the runner does between provisioning and the child process. Probes
+ * that intentionally inspect privilege boundaries leave it off.
+ */
+export async function withAdminClient(fn, { grant = false } = {}) {
+  const client = new pg.Client({ connectionString: adminUrl().href });
+  await client.connect();
+  try {
+    const result = await fn(client);
+    if (grant && hasPrivilegedSetup()) await grantUnprivilegedAccess(client);
+    return result;
+  } finally {
+    await client.end();
+  }
+}
+
+// Migration DDL is executed by the privileged connection, so objects it creates
+// are owned by that role. The unprivileged roles the assertions and the runtime
+// probes use need explicit grants afterwards.
+async function grantUnprivilegedAccess(pool) {
+  await pool.query('GRANT USAGE ON SCHEMA public TO samosval_test_app, samosval_test_runtime');
+  await pool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO samosval_test_app');
+  await pool.query('GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO samosval_test_app');
+  await pool.query('GRANT SELECT ON ALL TABLES IN SCHEMA public TO samosval_test_runtime');
+}
+
 export async function resetIsolatedDatabase() {
-  const pool = isolatedPool();
+  const pool = setupPool();
+  const privileged = hasPrivilegedSetup();
   try {
     await pool.query('DROP SCHEMA IF EXISTS public CASCADE');
     await pool.query('CREATE SCHEMA public');
+    if (privileged) await grantUnprivilegedAccess(pool);
   } finally {
     await pool.end();
   }
 }
 
 export function retargetLegacyGuard(sql, filename) {
-  requireIsolatedDatabase(process.env.TEST_DATABASE_URL);
-  return transformLegacyMigrationGuard(sql, filename, APPROVED_DATABASE, {
-    legacyHelper: true,
+  const url = requireIsolatedDatabase(process.env.TEST_DATABASE_URL);
+  const database = decodeURIComponent(url.pathname.slice(1));
+  return transformLegacyMigrationGuard(sql, filename, database, {
+    // The legacy helper exemption exists only for the exact legacy name; a
+    // generated harness target is validated as a normal generated identifier
+    // and the guard is retargeted to that target's own name.
+    legacyHelper: database === APPROVED_DATABASE,
     isolated: process.env.SAMOSVAL_ISOLATED_TEST === '1',
   });
 }
 
 export async function applyMigrationsThrough(number) {
   if (!Number.isInteger(number) || number < 1) throw new TypeError('migration number must be a positive integer');
-  const pool = isolatedPool();
+  const pool = setupPool();
+  const privileged = hasPrivilegedSetup();
   try {
-    return await applyMigrations(pool, {
+    const applied = await applyMigrations(pool, {
       through: number,
       transformSource: retargetLegacyGuard,
     });
+    if (privileged) await grantUnprivilegedAccess(pool);
+    return applied;
   } finally {
     await pool.end();
   }

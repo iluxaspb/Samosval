@@ -21,6 +21,7 @@ import {
   targetUrl,
 } from './isolated-db/database.mjs';
 import { prepareTemplates } from './isolated-db/templates.mjs';
+import { applyFixtures } from './isolated-db/fixtures.mjs';
 import manifest from '../tests/db-test-manifest.mjs';
 import { loadManifest } from './isolated-db/manifest.mjs';
 import { discoverTests } from './isolated-db/discovery.mjs';
@@ -74,12 +75,25 @@ function urlWithCredentials(base, database, username, password) {
   return url.href;
 }
 
-function envValues(source, generatedTarget) {
+function envValues(source, generatedTarget, { bootstrapDatabase } = {}) {
   const values = Object.fromEntries(Object.entries(HARNESS_ENV_REGISTRY)
     .filter(([, variable]) => source[variable] !== undefined)
     .map(([name, variable]) => [name, source[variable]]));
   if (generatedTarget) values['target-url'] = generatedTarget;
   if (generatedTarget) values['isolated-marker'] = '1';
+  // A child that owns a generated target receives a bootstrap connection scoped
+  // to that exact target, so the helper can never run DDL in a shared or
+  // foreign database. Harness contracts that provision databases themselves
+  // (no generated target) keep the maintenance-scoped bootstrap URL.
+  if (generatedTarget && bootstrapDatabase && values['bootstrap-url'] !== undefined) {
+    const base = new URL(source.SAMOSVAL_TEST_BOOTSTRAP_URL);
+    values['bootstrap-url'] = urlWithCredentials(
+      source.SAMOSVAL_TEST_BOOTSTRAP_URL,
+      bootstrapDatabase,
+      base.username,
+      base.password,
+    );
+  }
   return values;
 }
 
@@ -189,6 +203,24 @@ async function dropTemplates(context) {
   }
 }
 
+// Fixtures run as the bootstrap role on the freshly cloned target: several of
+// them need table ownership or DDL, which the db child (samosval_test_app)
+// never gets. They must land before grantTargetAccess so the app role also
+// receives DML on every table a fixture creates.
+async function applyTargetFixtures(context, database, fixtures) {
+  const base = new URL(context.bootstrapUrl);
+  const client = new Client({
+    connectionString: urlWithCredentials(context.bootstrapUrl, database, base.username, base.password),
+    application_name: 'samosval_i5_fixtures',
+  });
+  await client.connect();
+  try {
+    return await applyFixtures({ query: (text, values) => client.query(text, values) }, fixtures);
+  } finally {
+    await client.end();
+  }
+}
+
 async function grantTargetAccess(context, database) {
   const client = new Client({
     connectionString: urlWithCredentials(
@@ -245,6 +277,10 @@ async function main() {
   if (needsPrivileged && !process.env.SAMOSVAL_TEST_ADMIN_URL && !process.env.SAMOSVAL_TEST_BOOTSTRAP_URL) {
     fail('privileged isolated database URL is required for non-unit selection', 1);
   }
+  const declaresBootstrap = selected.some(entry => (entry.env ?? []).includes('bootstrap-url'));
+  if (declaresBootstrap && !process.env.SAMOSVAL_TEST_BOOTSTRAP_URL) {
+    fail('SAMOSVAL_TEST_BOOTSTRAP_URL is required by the selected entries', 1);
+  }
 
   let context;
   let setupFailure = null;
@@ -286,6 +322,11 @@ async function main() {
           };
           record = await provisionTarget(context.lifecycle, { file: entry.metadata.file, baseline });
           context.tracked.push(record);
+          if (entry.metadata?.fixtures?.length) {
+            phase = 'fixtures';
+            await applyTargetFixtures(context, record.database, entry.metadata.fixtures);
+            phase = 'setup';
+          }
           await grantTargetAccess(context, record.database);
           childTarget = urlWithCredentials(
             targetUrl(record, { host: context.host, port: context.port }),
@@ -296,12 +337,16 @@ async function main() {
           phase = 'running';
         }
         const childEnv = entry.metadata?.kind === 'db'
-          ? buildDbEnv(process.env, { targetUrl: childTarget })
+          ? buildDbEnv(process.env, {
+              targetUrl: childTarget,
+              env: entry.metadata?.env ?? [],
+              values: envValues(process.env, childTarget, { bootstrapDatabase: record?.database }),
+            })
           : entry.metadata?.kind === 'harness-contract'
             ? buildHarnessEnv(process.env, {
                 env: (entry.metadata?.env ?? [])
                   .filter(name => name === 'target-url' ? childTarget !== undefined : process.env[HARNESS_ENV_REGISTRY[name]] !== undefined),
-                values: envValues(process.env, childTarget),
+                values: envValues(process.env, childTarget, { bootstrapDatabase: record?.database }),
               })
             : buildUnitEnv(process.env);
         const result = await runProcessGroup({

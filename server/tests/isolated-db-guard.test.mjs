@@ -7,6 +7,7 @@ import {
 } from './helpers/isolated-db.mjs';
 
 const isolatedUrl = 'postgresql://fixture-user:fixture-password@postgres:5432/samosval_parallel_shifts_test';
+const harnessUrl = 'postgresql://fixture-user:fixture-password@postgres:5432/samosval_parallel_shifts_test_abcdef012345_0123456789ab';
 
 function withIsolatedEnvironment(values, operation) {
   const previous = Object.fromEntries(
@@ -32,9 +33,24 @@ test('rejects_reserved_and_live_database_names', async () => {
       'postgresql://fixture@postgres:5432/samosval_test',
       'postgresql://fixture@postgres:5432/samosval_working_test_reserve',
       'postgresql://fixture@samosval-test.iluxa.pro:5432/samosval_parallel_shifts_test',
+      'postgresql://fixture@postgres:5432/samosval_parallel_shifts_test_deadbeef',
+      'postgresql://fixture@postgres:5432/samosval_parallel_shifts_test_abcdef012345_0123456789a',
+      'postgresql://fixture@postgres:5432/samosval_parallel_shifts_test_abcdef01234_0123456789ab',
+      'postgresql://fixture@postgres:5432/samosval_parallel_shifts_test_abcdef012345_0123456789ab_extra',
+      'postgresql://fixture@postgres:5432/samosval_parallel_shifts_test_ABCDEF012345_0123456789ab',
+      'postgresql://fixture@postgres:5432/samosval_parallel_shifts_test_abcdef012345_tpl_s24',
     ]) {
       assert.throws(() => requireIsolatedDatabase(url), /isolated database target is not approved/i);
     }
+  });
+});
+
+test('accepts_generated_harness_target', async () => {
+  await withIsolatedEnvironment({ SAMOSVAL_ISOLATED_TEST: '1' }, () => {
+    const approved = requireIsolatedDatabase(harnessUrl);
+    assert.ok(approved instanceof URL);
+    assert.equal(approved.hostname, 'postgres');
+    assert.equal(approved.pathname, '/samosval_parallel_shifts_test_abcdef012345_0123456789ab');
   });
 });
 
@@ -52,6 +68,10 @@ test('rejects_connection_query_overrides', async () => {
     ]) {
       assert.throws(
         () => requireIsolatedDatabase(`${isolatedUrl}?${query}`),
+        /isolated database target is not approved/i
+      );
+      assert.throws(
+        () => requireIsolatedDatabase(`${harnessUrl}?${query}`),
         /isolated database target is not approved/i
       );
     }

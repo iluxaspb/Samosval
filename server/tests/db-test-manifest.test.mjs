@@ -10,7 +10,7 @@ const unit = (file = 'tests/a.test.mjs') => withReason({ file, kind: 'unit', dis
 const db = (file = 'tests/a.test.mjs') => {
   const entry = {
     file, kind: 'db', discovery: 'direct', consumers: [`${file}:pg`],
-    baseline: 'S24', migrationsThrough: null, customSchema: [], importTables: [], fixtures: [], timeoutMs: 30_000, serial: false, exclusive: false, allowedSkips: []
+    baseline: 'S24', migrationsThrough: null, customSchema: [], importTables: [], fixtures: [], env: [], timeoutMs: 30_000, serial: false, exclusive: false, allowedSkips: []
   };
   return withReason(entry);
 };
@@ -55,6 +55,13 @@ test('manifest rejects unknown closed-registry references', async () => {
     await assert.rejects(loadManifest(valid([{ ...db(), [field]: value }]), { serverDirectory: root }), new RegExp(`unknown ${field}`));
   }
   await assert.rejects(loadManifest(valid([{ ...db(), allowedSkips: [{ name: 'skip', reason: '' }] }]), { serverDirectory: root }), /invalid allowedSkips/i);
+});
+
+test('manifest rejects env dependencies outside the closed harness registry', async () => {
+  const root = await tree();
+  await assert.rejects(loadManifest(valid([{ ...db(), env: ['raw-password'] }]), { serverDirectory: root }), /unknown env/i);
+  await assert.rejects(loadManifest(valid([{ ...db(), env: ['bootstrap-url', 'bootstrap-url'] }]), { serverDirectory: root }), /duplicate env/i);
+  await loadManifest(valid([{ ...db(), env: ['bootstrap-url'] }]), { serverDirectory: root });
 });
 
 test('manifest validates migration chain against baseline', async () => {

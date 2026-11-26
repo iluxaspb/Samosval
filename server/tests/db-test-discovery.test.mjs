@@ -72,7 +72,7 @@ test('consumer signature drift blocks manifest preflight independently of kind e
   const [scanned] = (await discoverTests(root)).roots;
   const entry = {
     file: 'tests/a.test.mjs', kind: 'db', discovery: 'direct', consumers: ['tests/a.test.mjs:db-env'],
-    baseline: 'S24', migrationsThrough: null, customSchema: [], importTables: [], fixtures: [], timeoutMs: 30_000, serial: false, exclusive: false, allowedSkips: []
+    baseline: 'S24', migrationsThrough: null, customSchema: [], importTables: [], fixtures: [], env: [], timeoutMs: 30_000, serial: false, exclusive: false, allowedSkips: []
   };
   entry.reason = canonicalReason(entry);
   await assert.rejects(loadManifest({ manifestVersion: 1, entries: [entry], harnessFixtures: [] }, { serverDirectory: root, discovered: [scanned] }), /consumer drift.*pg/i);

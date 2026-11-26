@@ -74,13 +74,32 @@ function requireApprovedTargetUrl(targetUrl) {
 }
 
 /**
- * Environment for a db child: the unit allowlist plus exactly one generated
- * target URL and the isolated marker. No admin URL, no other credentials.
+ * Environment for a db child: the unit allowlist, exactly one generated target
+ * URL, the isolated marker and only the harness dependencies the manifest
+ * entry declared (spec 3.10: schema setup runs on a privileged bootstrap
+ * connection while the assertions run as the unprivileged app role). No
+ * orchestration/admin URL is ever implied here; it must be declared by name.
  */
-export function buildDbEnv(source, { targetUrl }) {
+export function buildDbEnv(source, { targetUrl, env = [], values = {} } = {}) {
   const child = buildUnitEnv(source);
   child.TEST_DATABASE_URL = requireApprovedTargetUrl(targetUrl);
   child.SAMOSVAL_ISOLATED_TEST = '1';
+  if (!Array.isArray(env)) {
+    throw new Error(`environment dependency list is not approved: ${typeof env}`);
+  }
+  for (const name of env) {
+    // `target-url` and `isolated-marker` are always set above; declaring them
+    // again is harmless and resolves to the same values.
+    if (name === 'target-url' || name === 'isolated-marker') continue;
+    const variable = HARNESS_ENV_REGISTRY[name];
+    if (variable === undefined) {
+      throw new Error(`environment dependency is not approved: ${String(name)}`);
+    }
+    if (!values || !Object.prototype.hasOwnProperty.call(values, name)) {
+      throw new Error(`no run value: ${name}`);
+    }
+    child[variable] = values[name];
+  }
   return child;
 }
 
