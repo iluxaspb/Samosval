@@ -4,6 +4,7 @@ on:
     branches:
       - "feature/synology-**"
       - "fix/nas-ticker-plate-20261030"
+      - "feature/wtest-parallel-shifts-20261123"
     paths:
       - "server/**"
       - "test-app/synology/**"
@@ -13,6 +14,7 @@ on:
       - "feature/synology-**"
       - root
       - "fix/nas-ticker-plate-20261030"
+      - "feature/wtest-parallel-shifts-20261123"
     paths:
       - "server/**"
       - "test-app/synology/**"
@@ -25,23 +27,11 @@ permissions:
 jobs:
   verify-server:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: samosval_test
-          POSTGRES_PASSWORD: ci_only_password
-          POSTGRES_DB: samosval_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U samosval_test -d samosval_test"
-          --health-interval 5s --health-timeout 5s --health-retries 10
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: server
     env:
-      TEST_DATABASE_URL: postgres://samosval_test:ci_only_password@localhost:5432/samosval_test
       FIREBASE_PROJECT_ID: samosval-test
     steps:
       - uses: actions/checkout@v4
@@ -50,54 +40,82 @@ jobs:
           node-version: "22"
       - run: npm install --no-audit --no-fund
       - run: npm run check
-      - name: Apply SQL to isolated CI database
+      # The isolated DB harness (scripts/test-isolated-db.mjs) requires a real
+      # PostgreSQL 16 on 127.0.0.1:55432 with database `postgres`, role
+      # samosval_test_orchestrator and the samosval.isolated_db_bootstrap marker.
+      # server/compose.test.yaml + scripts/isolated-db/bootstrap.sh create all of
+      # that during initdb, so no manual SQL step is needed here any more.
+      - name: Generate isolated database passwords
         run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          import pg from 'pg';
-          const client = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
-          await client.connect();
-          try {
-            // Migration 025 requires the parallel-shift role boundary, exactly as
-            // scripts/parallel-shifts-role-bootstrap.mjs creates it in production.
-            // Idempotent: existing roles are only re-asserted, never dropped.
-            await client.query(`DO $roles$ BEGIN
-              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_schema_owner') THEN CREATE ROLE samosval_schema_owner NOLOGIN; END IF;
-              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_migration_evidence_owner') THEN CREATE ROLE samosval_migration_evidence_owner NOLOGIN; END IF;
-              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_runtime') THEN CREATE ROLE samosval_runtime LOGIN; END IF;
-              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='samosval_maintenance') THEN CREATE ROLE samosval_maintenance LOGIN; END IF;
-            END $roles$`);
-            await client.query(`ALTER ROLE samosval_schema_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
-              ALTER ROLE samosval_migration_evidence_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
-              ALTER ROLE samosval_runtime LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
-              ALTER ROLE samosval_maintenance LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION`);
-            await client.query(readFileSync('sql/001_init.sql','utf8'));
-            await client.query(readFileSync('sql/002_tabel.sql','utf8'));
-            await client.query(readFileSync('sql/003_shift_close.sql','utf8'));
-            await client.query(readFileSync('sql/004_objects.sql','utf8'));
-            await client.query(readFileSync('sql/005_controls.sql','utf8'));
-            await client.query(readFileSync('sql/006_identity.sql','utf8'));
-            await client.query(readFileSync('sql/007_line_history.sql','utf8'));
-            await client.query(readFileSync('sql/008_workspace_services.sql','utf8'));
-            await client.query(readFileSync('sql/009_auxiliary.sql','utf8'));
-            await client.query(readFileSync('sql/010_reports.sql','utf8'));
-            await client.query(readFileSync('sql/011_backups.sql','utf8'));
-            await client.query(readFileSync('sql/012_notifications.sql','utf8'));
-            await client.query(readFileSync('sql/013_server_control.sql','utf8'));
-            await client.query(readFileSync('sql/014_authority.sql','utf8'));
-            await client.query(readFileSync('sql/017_replica_stream.sql','utf8'));
-            await client.query(readFileSync('sql/019_line_timer_reset.sql','utf8'));
-            await client.query(readFileSync('sql/020_senior_foreman.sql','utf8'));
-            await client.query(readFileSync('sql/021_migration_registry.sql','utf8'));
-            await client.query(readFileSync('sql/022_truck_phones.sql','utf8'));
-            await client.query(readFileSync('sql/023_truck_phone_delete.sql','utf8'));
-            await client.query(readFileSync('sql/024_truck_phone_driver.sql','utf8'));
-          } finally {
-            await client.end();
-          }
-          NODE
+          set -eu
+          for name in POSTGRES_PASSWORD \
+                      SAMOSVAL_ORCHESTRATOR_PASSWORD \
+                      SAMOSVAL_TEST_APP_PASSWORD \
+                      SAMOSVAL_TEST_RUNTIME_PASSWORD \
+                      SAMOSVAL_TEST_MAINTENANCE_PASSWORD; do
+            value="$(openssl rand -hex 24)"
+            echo "::add-mask::$value"
+            printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+          done
+          echo "POSTGRES_TEST_PORT=55432" >> "$GITHUB_ENV"
+      - name: Start isolated PostgreSQL 16 (docker compose)
+        run: |
+          set -eu
+          if docker compose version >/dev/null 2>&1; then
+            compose="docker compose"
+          else
+            compose="docker-compose"
+          fi
+          if $compose -f compose.test.yaml --profile test up -d --wait; then
+            exit 0
+          fi
+          echo "::warning::compose --wait unavailable or failed, falling back to health polling"
+          $compose -f compose.test.yaml --profile test up -d
+          container="$($compose -f compose.test.yaml --profile test ps -q postgres)"
+          if [ -z "$container" ]; then
+            echo "::error::the isolated postgres container was not created"
+            exit 1
+          fi
+          status=unknown
+          attempt=1
+          while [ "$attempt" -le 60 ]; do
+            status="$(docker inspect -f '{{.State.Health.Status}}' "$container" 2>/dev/null || echo unknown)"
+            if [ "$status" = "healthy" ]; then
+              exit 0
+            fi
+            if [ "$status" = "unhealthy" ]; then
+              break
+            fi
+            sleep 2
+            attempt=$((attempt + 1))
+          done
+          echo "::error::the isolated postgres container did not become healthy (status: $status)"
+          $compose -f compose.test.yaml --profile test logs postgres
+          exit 1
+      - name: Run isolated database suite
+        # TEST_DATABASE_URL must stay unset: the harness generates the per-test
+        # target URL itself and fails closed if a runner supplies one.
+        run: |
+          set -eu
+          export SAMOSVAL_ISOLATED_TEST=1
+          export SAMOSVAL_TEST_ADMIN_URL="postgresql://samosval_test_orchestrator:${SAMOSVAL_ORCHESTRATOR_PASSWORD}@localhost:55432/postgres"
+          export SAMOSVAL_TEST_BOOTSTRAP_URL="postgresql://samosval_test_bootstrap_admin:${POSTGRES_PASSWORD}@localhost:55432/postgres"
+          export SAMOSVAL_ISOLATED_REPORT="$PWD/isolated-report.json"
+          sh scripts/test-isolated-db.sh
+      - name: Upload isolated database report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolated-db-report
+          path: server/isolated-report.json
+          if-no-files-found: ignore
+      - name: Stop isolated PostgreSQL
+        if: always()
+        working-directory: server
+        run: |
+          docker compose -f compose.test.yaml --profile test down -v --remove-orphans \
+            || echo "::warning::isolated database cleanup failed"
       # verify-test-modules.py удалён вместе с мёртвым каналом test-app (ревизия 22.11.2026)
-      - run: npm test
       - name: Tabel calculation and queue regressions
         working-directory: .
         run: node --test tests/tabel-v2/*.test.mjs
