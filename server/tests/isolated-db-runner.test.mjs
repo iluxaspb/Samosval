@@ -147,6 +147,13 @@ test('a nested child SIGTERM is a failed file, not an external runner interrupti
     assert.equal(saved.interrupted, false);
     assert.equal(saved.originalSignal, null);
     assert.equal(saved.files[0].status, 'failed');
+    // The artifact must prove completeness on its own (Task 12): a reader
+    // compares discovered/manifest/attempted/passed without the run log.
+    assert.equal(typeof saved.discovered, 'number');
+    assert.equal(typeof saved.manifest, 'number');
+    assert.equal(saved.discovered, saved.manifest);
+    assert.equal(saved.attempted, saved.files.length);
+    assert.equal(saved.passed, saved.files.filter(file => file.status === 'passed').length);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

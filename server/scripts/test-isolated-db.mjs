@@ -432,9 +432,17 @@ async function main() {
 
   const reportPath = process.env.SAMOSVAL_ISOLATED_REPORT ?? process.env.ISOLATED_DB_REPORT;
   if (reportPath) {
+    // Completeness is part of the evidence, not just of the run log: a reader of
+    // the artifact alone must be able to check discovered == manifest and
+    // attempted == manifest with passed == attempted (plan Task 12).
     await writeAtomicReport(reportPath, {
       runid: context?.lifecycle.runid ?? null,
       selection: requested.length ? 'filtered' : 'full',
+      discovered: discovery.roots.length,
+      manifest: manifest.entries.length,
+      attempted: results.length,
+      passed: results.filter(result => result.status === 'passed').length,
+      failed: results.filter(result => result.status !== 'passed').length,
       files: results.map(result => ({
         file: result.file,
         status: result.status,
