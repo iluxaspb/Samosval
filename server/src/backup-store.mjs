@@ -2,6 +2,7 @@ import {fail,map} from './tabel-access.mjs';
 import {serviceActor,serviceCommand,validId} from './service-command.mjs';
 import {auxiliaryEntries} from './auxiliary-store.mjs';
 import {readArchiveEntries} from './archive-read.mjs';
+import {listArchiveSeries,readArchiveHistory} from './archive-latest.mjs';
 const WS=process.env.WORKSPACE_ID||'main_workspace';
 const workspaceTables=['truck_phones','line_trucks','workspace_objects','shifts','line_truck_statuses','line_logs','shift_archives','archive_overrides','workspace_settings','workspace_aux_records','tabel_records'];
 const globalTables=['app_users','role_permissions','role_permission_versions','registration_requests'];
@@ -15,6 +16,24 @@ export function normalizeBackup(input){
   if(input.type==='backup.restore'){if(!map(input.sections)||!Object.values(input.sections).some(Boolean)||Object.entries(input.sections).some(([k,v])=>!Object.hasOwn(sectionTables,k)||typeof v!=='boolean'))throw fail('invalid-backup-sections');op.sections=input.sections;}
  }return op;
 }
+// Read-only экспорт цепочки: серия → все ревизии по возрастанию, точные байты в
+// base64 и их sha256. Восстановление ревизий не входит в backup.restore (это
+// owner/migration путь), но full backup обязан сохранить сами байты.
+async function archiveRevisionChain(c,ws){
+ const chain=[];
+ for(const series of await listArchiveSeries(c,ws)){
+  const history=await readArchiveHistory(c,ws,series.archiveId);
+  if(!history)continue;
+  chain.push({id:history.archiveId,archiveId:history.archiveId,sourceShiftId:history.sourceShiftId,
+   currentLocation:history.currentLocation,latestFinalizedRevision:history.latestFinalizedRevision,
+   latestFinalizedSha256:history.latestFinalizedSha256,
+   revisions:history.revisions.map(r=>({revision:r.revision,sha256:r.sha256,previousRevision:r.previousRevision,
+    previousSha256:r.previousSha256,payloadSchemaVersion:r.payloadSchemaVersion,sourceKind:r.sourceKind,
+    sourceLocator:r.sourceLocator,createdAt:r.createdAt,createdByUid:r.createdByUid,
+    payloadBase64:r.payloadBytes.toString('base64')}))});
+ }
+ return chain;
+}
 async function capture(c,ws){
  const native={};for(const table of workspaceTables)native[table]=(await c.query(`SELECT * FROM ${table} WHERE workspace_id=$1`,[ws])).rows;
  for(const table of globalTables)native[table]=(await c.query(`SELECT * FROM ${table}`)).rows;
@@ -22,6 +41,9 @@ async function capture(c,ws){
  const archives=await readArchiveEntries(c,ws),aux=await auxiliaryEntries(c,ws),data={};
  for(const [name,table,key] of [['trucks','line_trucks','truck_id'],['objects','workspace_objects','object_id'],['logs','line_logs','log_id'],['truckStatus','line_truck_statuses','truck_id']])data[name]=native[table].map(r=>({id:r[key],data:r.payload}));
  for(const name of ['archive','trash'])data[name]=(name==='archive'?archives.archives:archives.trash).map(r=>({id:r.id,data:r}));
+ // Immutable revision chain: original + каждая ревизия, точные байты. Trash
+ // placement не скрывает цепочку от full backup (design §4.6).
+ data.archiveRevisions=await archiveRevisionChain(c,ws);
  for(const name of ['plugins','patches','audit','notifications'])data[name]=[...aux[name].values()].map(r=>({id:r.id,data:r}));
  data.shift=native.shifts.filter(r=>r.is_active||r.payload.closing).map(r=>({id:'current',data:r.payload}));
  data.appConfig_test=native.workspace_settings.map(r=>({id:'appConfig_test',data:r.payload}));

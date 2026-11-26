@@ -364,3 +364,23 @@ file-watcher по `/`, `/etc`, `/home`, `/home/iluxa`, ответ `503` на `/a
 **Попутно (фикстуры прямого SQL по схеме P6):** `restored_shift_contexts.original_opened_by_uid` и `restored_by_uid` — FK на `app_users(uid)` `ON DELETE RESTRICT`, поэтому «старого автора» надо завести в `app_users` (можно `disabled`), иначе seed падает на 23503. Живой `shifts` требует строку `workspace_objects(workspace_id,object_id)` (`shifts_object_fk`), а `line_trucks` — до `line_truck_statuses`.
 
 **Про прогон:** официальный harness (`scripts/test-isolated-db.mjs`) принимает только порт 55432 (`validateAdminUrl`), а задачи выделяют свои порты (55433/55434/55435). Эквивалентный прогон без обхода harness: `resetIsolatedDatabase()` + `applyMigrationsThrough(25)` из `tests/helpers/isolated-db.mjs` на своей БД, затем `node --test <файл>` с `TEST_DATABASE_URL` и `SAMOSVAL_ISOLATED_TEST=1`. Для нового DB-теста не забыть манифест: имя в `dbFiles`, точные consumers (иначе `loadManifest` краснеет), `migrationsThrough: 25` и +1 к счётчику в `db-test-discovery.test.mjs`.
+
+## 25. Урок 26.11.2026 (P10): «последняя ревизия» — только указатель серии, и тест обязан это доказывать
+
+**1. `readArchiveEntries` до P6 брал архив из legacy-таблиц, и это молча подменяло latest.**
+**Симптом:** после появления `shift_archive_series` список архива/снимок/бэкап отдавали ревизию 1 (или payload из `archive_overrides` с ревизией 9), хотя финализирована ревизия 2. RED-тест P10 на старом коде: `1 !== 2` и `9 !== 2`, а `override_trap` попадал в выдачу.
+**Причина:** приоритет источников был «документ импорта → `shift_archives` → `archive_overrides`», а серия с указателем `latest_finalized_*` вообще не читалась. Для серии override задаёт только размещение (архив/корзина), но не байты.
+**Что делать:** единственный default-резолвер — `server/src/archive-latest.mjs` (`readLatestFinalizedArchive`): `shift_archive_series.latest_finalized_revision/sha256` + точная ревизия по ним, без `max(revision)` и «первой строки». Override у серии меняет только `current_location`. Явная история/ревизия — отдельные read-only функции, указатель не двигают.
+
+**2. Мутация «взять max(revision)» проходит часть тестов — нужен фикстур с более новой НЕфинализированной ревизией.**
+**Симптом:** подмена `r.archive_revision=s.latest_finalized_revision` на `max(m.archive_revision)` оставляла зелёным кейс «latest = 2», если ревизия 2 и была максимальной.
+**Что делать:** в тесте держать ревизию 3 в цепочке при указателе 2 и отдельную серию без указателя, но с legacy-строкой `shift_archives`. Тогда мутация краснеет (`expected 2, actual 3`), а «нет latest» не подменяется старой копией.
+
+**3. `backup-store` DB-тест падает `relation "migration_documents" does not exist` — это не регрессия, а среда.**
+**Симптом:** после `resetIsolatedDatabase()` + `applyMigrationsThrough(24)` файл `tests/backup-store.test.mjs` краснеет на первом `capture`.
+**Причина:** таблицы `migration_imports`/`migration_documents` создаёт фикстура `import-schema` официального harness, а не SQL-миграции; ручной сброс их сносит.
+**Что делать:** перед прогоном такого файла применять канонический DDL `import-schema` (тот же, что в `scripts/isolated-db/fixtures.mjs` и `scripts/prepare-test-import.mjs`). Проверено: на исходном коде и с правкой P10 файл даёт `3/3`.
+
+**4. Резолвер должен переживать baseline S24.**
+**Симптом:** `archive-store`/`replica-materialize`/`archive-read` в манифесте живут на S24, где таблиц ревизий ещё нет.
+**Что делать:** `hasRevisionChain(client)` (`to_regclass('public.shift_archive_series')`) возвращает `false` → резолвер отдаёт `null`/пусто, а legacy-путь остаётся как был. Это не «догадка по старым строкам», а честное «ревизий нет».
