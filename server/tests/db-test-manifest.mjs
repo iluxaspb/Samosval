@@ -17,7 +17,7 @@ const dbFiles = [
   'parallel-shifts-historicalization', 'parallel-shifts-migration-core',
   'refresh-source', 'replica-materialize-parallel-shifts', 'replica-materialize',
 'restored-context-migration',
-  'replica-store', 'report-store', 'restored-context-store', 'seed-identity-db', 'seed-objects-db',
+  'replica-store', 'replica-stream-026', 'report-store', 'restored-context-store', 'seed-identity-db', 'seed-objects-db',
   'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
   'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store'
 ];
@@ -212,6 +212,14 @@ const consumersByFile = {
     "tests/replica-store.test.mjs:db-env",
     "tests/replica-store.test.mjs:pg"
   ],
+  "replica-stream-026": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/replica-stream-026.test.mjs:db-env",
+    "tests/replica-stream-026.test.mjs:pg"
+  ],
   "report-store": [
     "tests/report-store.test.mjs:db-env",
     "tests/report-store.test.mjs:pg"
@@ -307,6 +315,7 @@ const dbReasons = {
   'replica-materialize-parallel-shifts': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for atomic S24 to migration 025 replica behavior',
   'replica-materialize': 'Imports pg and reads TEST_DATABASE_URL for replica materialization',
   'replica-store': 'Imports pg and reads TEST_DATABASE_URL for replica stream and cursor storage',
+  'replica-stream-026': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the fail-closed replica stream 026 preflight',
   'seed-identity-db': 'Imports pg and reads TEST_DATABASE_URL for identity promotion from explicit import tables',
   'seed-objects-db': 'Imports pg and reads TEST_DATABASE_URL for object promotion from explicit import tables',
   'truck-phone-http': 'Starts the real src/index.mjs API child and imports pg; the child inherits its generated TEST_DATABASE_URL'
@@ -345,7 +354,7 @@ const dbEntries = dbFiles.map(name => ({
   reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   baseline: 'S24',
-migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
+migrationsThrough: name === 'replica-stream-026' ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],
