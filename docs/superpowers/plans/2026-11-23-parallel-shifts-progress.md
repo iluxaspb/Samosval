@@ -12,8 +12,8 @@
 |---|---|---|
 | I — legacy provenance и redesigned 025 | 1–5 | 1–4 ГОТОВО, 5 ЧАСТИЧНО (домен есть, HTTP-маршрут не подключён; отложено решением владельца 26.11.2026) |
 | II — archive/restored S25 | 6–10 | ГОТОВО |
-| III — 026, replica generations, exact restore | 11–15 | 11 ГОТОВО, 12 ЧАСТИЧНО (код от 13, тесты провенанса не написаны), 13 ГОТОВО, 14–15 НЕ НАЧАТО |
-| IV — v2 API и core domains | 16–22 | 16–17 ГОТОВО, 18–22 НЕ НАЧАТО |
+| III — 026, replica generations, exact restore | 11–15 | 11 ГОТОВО, 12 ЧАСТИЧНО, 13 ГОТОВО, 14–15 НЕ НАЧАТО |
+| IV — v2 API и core domains | 16–22 | 16–18 ГОТОВО, 19–22 НЕ НАЧАТО |
 | V — client contexts и UX | 23–26 | 23 ГОТОВО, 24 ЧАСТИЧНО (транспорт готов, офлайн-журнал нет), 25–26 НЕ НАЧАТО |
 | VI — cross-domain и acceptance | 27–29 | НЕ НАЧАТО |
 | VII — rehearsal и release gates | 30–31 | НЕ НАЧАТО |
@@ -40,7 +40,7 @@
 | I7 | Immutable S26 template + fixtures | НЕ НАЧАТО | гейт после 15 |
 | 16 | V2 errors, JCS hash, receipts | ГОТОВО | `server/src/v2-errors.mjs`, `server/src/v2-command.mjs`, `server/tests/v2-command.test.mjs` (16 тестов, db-корень `v2-command`, вектор `1179ba8a…6a64`); конверт `{protocolVersion:2,operationId,replayed,result}`, авторизация до replay, откат receipt/audit/mutation |
 | 17 | Permissions и shift ACL | ГОТОВО | коммит `feat: add parallel shift permissions and acl` (ветка `feat/t17-shift-acl`): `sql/027_parallel_shift_permissions.sql`, `src/shift-access-v2.mjs` (`loadActor`/`authorizeShift`/`visibleShiftPredicate`), `identity-rules.mjs` (+2 action). Тест `tests/v2-shift-access.test.mjs` — 13 подтестов, db-корень `v2-shift-access` (первый на baseline S25, применяет 026/027 сам), `--list`: `discovered=84 manifest=84`. Покрыто: дефолты матрицы (manage_shift_members — foreman+senior, force_transfer_truck — только senior), admin без membership, hidden=404 / команда=403, closing=409 и closed=410, detached source∨destination, отзыв membership между вызовами не выдаёт receipt |
-| 18 | Visible list/snapshot + router | НЕ НАЧАТО | в `server/src/index.mjs` только `/api/v1` |
+| 18 | Visible list/snapshot + router | ГОТОВО | коммит `feat: add visible shift list and scoped snapshots` (ветка `feat/t18-v2-router`): `src/shift-read-v2.mjs` (`listVisibleShifts`, `readShiftSnapshot`, `encode/decodeShiftCursor`), `src/v2-router.mjs` (`matchV2Route`/`handleV2Request`), `src/index.mjs` — `/api/v2/*` отвечает роутер, `/api/v1` и health не тронуты; `v2-errors.mjs` +2 кода (`not-found` 404, `method-not-allowed` 405, статус 405 в списке). Тесты: db-корень `v2-shift-read-db` (baseline S24 → сам применяет 025/026/027, 9 подтестов: только active/closing, `historical`/`restored`/`unresolved` не листятся, keyset `opened_at DESC, shift_id ASC` с непрозрачным курсором `v2.1.<base64url>`, limit 1..100 default 50, admin — все смены workspace, прочие — membership; snapshot с `shiftId` у каждой status/log, `detachedOpenTrips` с обеими метками, 404 `shift-not-visible`, `closed` читается участником; trap B — отпечаток B (count/revision/checksum) до и после чтений A) + unit-корень `v2-router` (10 тестов: 404/405/426/401 до ридеров, парсинг query, стабильное тело ошибки, отказ вне `/api/v2`); `--list`: `discovered=86 manifest=86`. Живая проверка реального `src/index.mjs` на одноразовой БД: 8/8 (v2 404/405/426/401 + `/api/v1/authority` 401 и `/api/v1/nope` 404 без изменений). Осталось задачам 19–22: подключить command-маршруты через `matchV2Route` и `runV2Command` |
 | 19 | Shift create/object/members | НЕ НАЧАТО | — |
 | 20 | Truck assignment/force transfer/detached | НЕ НАЧАТО | — |
 | 21 | Scoped line operations, object lock | НЕ НАЧАТО | — |
@@ -77,11 +77,18 @@
 | Нет shift-scoped audit для v2-команд | `workspace_service_audit` (operation_id/uid/type/before/after), `shiftId` внутри before/after | `shift_command_audit(workspace_id,shift_id,operation_id,uid,type,before_state,after_state,recorded_at)` + append-only guard; перевести `V2_AUDIT_TABLE` |
 | `workspace_service_audit` не имеет `shift_id` | фильтрация только по `before_data->>'shiftId'` | при появлении таблицы из строки выше — миграция существующих строк |
 
+Следствие для чтения (задача 18): пока у `shift_operation_receipts` нет
+`shift_id`, `pendingServerReceipts` в видимом списке честно равен `0` —
+привязать незавершённый receipt к смене нельзя. `listVisibleShifts` уже
+проверяет наличие колонки и без неё не считает; как только `shift_id`
+появится, тот же запрос начнёт отдавать реальные числа без правки чтения.
+
 ## Открытые наблюдения (причина не доказана, следить)
 
 | Наблюдение | Факт | Что проверить |
 |---|---|---|
 | Один прогон `--file tests/v2-shift-access.test.mjs` завершился `exit=1` с **нулевым** выводом (0 байт, ни TAP, ни stderr), сразу повторный — 14/14 зелёный, код между прогонами не менялся | задача 17, 26.11.2026; в тот момент на том же кластере шёл DB-прогон другого агента | если повторится — снять `--report` и проверить, не теряется ли вывод при одновременных прогонах на общем кластере. Контрольный прогон главного после слияния: `exit=0`, stdout 3148 байт, 14/14 — не воспроизвелось |
+| **Повторилось** (задача 18): два подряд прогона `--file tests/v2-shift-read-db.test.mjs` дали `exit=1` и ровно 0 байт вывода, при этом следующие запуски **той же команды** дали полный TAP (сначала 3 падения по существу, потом 9/9 `exit=0`, 2000 байт) | 26.11.2026 ~21:51 MSK, тот же изолированный кластер на 55432; между «пустыми» и рабочими прогонами код не менялся, менялось только перенаправление вывода (`> файл`, `\| tee`, `\| head`) — и последний прогон с `> файл` прошёл | похоже на потерю вывода раннера, а не на падение теста: сам тест-процесс при повторном прогоне отдаёт полный TAP. Проверять при следующем случае: `--report <файл>` и наличие отчёта при пустом stdout; не считать «0 байт + exit=1» доказательством падения теста — обязателен повторный прогон |
 
 ## Правило порядка (нарушено один раз, не повторять)
 

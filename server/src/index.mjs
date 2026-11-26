@@ -28,6 +28,7 @@ import {submitArchive} from './archive-store.mjs';
 import {readGames,submitGame} from './game-store.mjs';
 import {readAuxiliary,submitAuxiliary} from './auxiliary-store.mjs';
 import {handleHealthRequest} from './health.mjs';
+import {handleV2Request} from './v2-router.mjs';
 import {readAuthorityState,switchAuthority,assertWriteAuthority,touchPresence} from './authority.mjs';
 import {appendReplicaBatch,readReplicaJournal} from './replica-store.mjs';
 
@@ -129,6 +130,17 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
   if(req.method==='GET' && path==='/health/ready'){
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
+  }
+  // v2 tree: only the two Task 18 reads are wired here. Everything else under
+  // `/api/v2` is answered by the router itself (stable 404/405/426) and never
+  // falls through to the v1 routes below.
+  if(path.startsWith('/api/v2')){
+    await handleV2Request({
+      pool, req, res, url:requestUrl, method:req.method,
+      authenticate:verifyRequestUser, send,
+      workspaceId:process.env.WORKSPACE_ID||'main_workspace'
+    });
+    return;
   }
   if(path==='/api/v1/authority'&&['GET','POST'].includes(req.method)){
     const uid=await verifyRequestUser(req);if(!uid)return send(res,401,{error:'unauthorized'});

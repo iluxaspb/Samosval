@@ -6,7 +6,7 @@ const unitFiles = [
   'presence-ui', 'seed-identity-unit', 'seed-objects-unit', 'service-rules',
   'session-client-background', 'session-client', 'shift-archive',
   'shift-start-rules', 'tabel-access', 'tabel-backend', 'tabel-remote',
-  'truck-phone', 'updater'
+  'truck-phone', 'updater', 'v2-router'
 ];
 
 const dbFiles = [
@@ -20,7 +20,7 @@ const dbFiles = [
   'replica-store', 'replica-stream-026', 'report-store', 'restored-context-store', 'seed-identity-db', 'seed-objects-db',
   'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
   'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store',
-  'v2-command', 'v2-shift-access'
+  'v2-command', 'v2-shift-access', 'v2-shift-read-db'
 ];
 
 const harnessFiles = [
@@ -334,6 +334,15 @@ const consumersByFile = {
     "tests/v2-shift-access.test.mjs:db-env",
     "tests/v2-shift-access.test.mjs:pg"
   ],
+  "v2-shift-read-db": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/v2-shift-read-db.test.mjs:db-env",
+    "tests/v2-shift-read-db.test.mjs:pg"
+  ],
+  "v2-router": [],
   "updater": [
     "audit:updater-release-only"
   ]
@@ -364,6 +373,8 @@ const dbReasons = {
   'replica-stream-026': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the fail-closed replica stream 026 preflight',
   'seed-identity-db': 'Imports pg and reads TEST_DATABASE_URL for identity promotion from explicit import tables',
   'seed-objects-db': 'Imports pg and reads TEST_DATABASE_URL for object promotion from explicit import tables',
+  'v2-command': 'Imports pg and reads TEST_DATABASE_URL for v2 receipt/audit atomicity and replay',
+  'v2-shift-read-db': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the visible shift list, scoped snapshot and trap B on the S24 baseline',
   'truck-phone-http': 'Starts the real src/index.mjs API child and imports pg; the child inherits its generated TEST_DATABASE_URL'
 };
 
@@ -383,7 +394,8 @@ const timeoutsByFile = {
   'replica-stream-026': 240_000,
   'replica-store': 180_000,
   'restored-context-migration': 240_000,
-  'restored-context-store': 180_000
+  'restored-context-store': 180_000,
+  'v2-shift-read-db': 240_000
 };
 
 const fixturesByFile = {
@@ -443,7 +455,8 @@ const bootstrapEnvByFile = {
   'replica-stream-026': ['bootstrap-url'],
   'restored-context-migration': ['bootstrap-url', 'runtime-password', 'maintenance-password'],
   'restored-context-store': ['bootstrap-url'],
-  'v2-shift-access': ['bootstrap-url']
+  'v2-shift-access': ['bootstrap-url'],
+  'v2-shift-read-db': ['bootstrap-url']
 };
 
 // Roots that start the real src/index.mjs child on a fixed port are discovered
@@ -479,8 +492,11 @@ const dbEntries = dbFiles.map(name => ({
   // `v2-shift-access` is the first db root on S25: the ACL needs the 025
   // membership table from the frozen template and applies 026/027 itself on the
   // privileged bootstrap connection.
+  // `v2-shift-read-db` stays on S24 on purpose: an unresolved historical row and
+  // a restored copy can only be legacy v1 rows inserted before 025, so the root
+  // applies 025/026/027 itself (docs/opyt-oshibok.md, lesson 19).
   baseline: name === 'v2-shift-access' ? 'S25' : 'S24',
-migrationsThrough: name === 'v2-shift-access' ? 27 : name === 'replica-stream-026' || name === 'replica-store' || name === 'replica-pending-materialize' ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
+migrationsThrough: ['v2-shift-access', 'v2-shift-read-db'].includes(name) ? 27 : name === 'replica-stream-026' || name === 'replica-store' || name === 'replica-pending-materialize' ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],
