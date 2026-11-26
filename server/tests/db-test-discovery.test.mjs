@@ -23,9 +23,9 @@ async function fixture(files) {
 test('discovered_equals_manifest_including_existing_replica_root', async () => {
   const discovery = await discoverTests(serverDirectory, { harnessFixtures: manifest.harnessFixtures });
   await loadManifest(manifest, { serverDirectory, discovered: discovery.roots });
-  // 84 roots: the inventory count is part of the contract, so adding a root
+  // 86 roots: the inventory count is part of the contract, so adding a root
   // means updating it in the same commit as the manifest entry.
-  assert.equal(discovery.roots.length, 84);
+  assert.equal(discovery.roots.length, 86);
   assert.ok(discovery.roots.some(item => item.file === 'tests/replica-materialize-parallel-shifts.test.mjs'));
   assert.ok(manifest.harnessFixtures.includes('tests/fixtures/marker-tamper.test.mjs'));
   assert.ok(manifest.harnessFixtures.includes('tests/fixtures/isolated-db-process.test.mjs'));

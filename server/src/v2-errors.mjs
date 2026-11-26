@@ -19,6 +19,10 @@ const CODES = Object.freeze({
   'unauthenticated': 401,
   'forbidden': 403,
   'not-shift-member': 403,
+  // routing (Task 18): an unknown `/api/v2` path or a wrong method is a stable
+  // refusal, never a fall-through to the v1 tree and never a crash.
+  'not-found': 404,
+  'method-not-allowed': 405,
   // visibility
   'shift-not-visible': 404,
   'detached-trip-not-found': 404,
@@ -68,7 +72,7 @@ const DETAIL_KEYS = Object.freeze(new Set([
   'retryAfterSeconds', 'replayed'
 ]));
 
-const STATUSES = Object.freeze(new Set([400, 401, 403, 404, 409, 410, 426, 500, 503]));
+const STATUSES = Object.freeze(new Set([400, 401, 403, 404, 405, 409, 410, 426, 500, 503]));
 const MAX_DETAIL_STRING = 200;
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
