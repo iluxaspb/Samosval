@@ -20,6 +20,12 @@ const SHA_RE=/^[0-9a-f]{64}$/;
 const PERMISSION='archive_edit';
 // Версия источника новой ревизии: она создана finalize, а не close/import.
 export const FINALIZE_SOURCE_KIND='restored-context-finalize';
+// `payload_schema_version` описывает схему самого документа, а не исходной
+// смены: finalize всегда строит конверт v2 (`archiveRevision`, `previous*`,
+// `restoredContext`), поэтому новая ревизия объявляет 2 независимо от того,
+// какая схема была у базовой. Копировать значение базы нельзя — колонка
+// перестала бы соответствовать своим байтам.
+export const FINALIZE_PAYLOAD_SCHEMA_VERSION=2;
 
 const sha256Hex=value=>createHash('sha256').update(value).digest('hex');
 const num=value=>Number(value);
@@ -169,8 +175,6 @@ export async function finalizeRestoredContext(pool,session,restoredContextId,com
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
-    // ACL — только по текущей session, повторно в этой транзакции (design §4.6).
-    await serviceActor(client,session.uid,PERMISSION);
     // Контекст адресуется только внутри своего workspace: чужой/неизвестный — 404
     // до любой записи. archive_id читается без блокировки лишь чтобы выбрать series.
     const known=(await client.query(
@@ -183,8 +187,10 @@ export async function finalizeRestoredContext(pool,session,restoredContextId,com
     const replayed=await replayReceipt(client,workspaceId,op.id,{archiveId,contextId:restoredContextId,uid:session.uid,commandHash});
     if(replayed){await client.query('COMMIT');return {...replayed,replayed:true};}
 
-    // Порядок блокировок строго series → context: обратный даёт deadlock с
-    // коррекциями P8, которые берут только контекст.
+    // Порядок блокировок строго series → context: так его зафиксировал дизайн
+    // (§4.6), и этот же порядок возьмёт будущий restore/purge, который трогает
+    // серию и контекст вместе. Обратный порядок тогда дал бы deadlock; P8-коррекции
+    // берут только контекст и с этим порядком не конфликтуют.
     const series=(await client.query(
       'SELECT source_shift_id,latest_finalized_revision,latest_finalized_sha256 FROM shift_archive_series WHERE workspace_id=$1 AND archive_id=$2 FOR UPDATE',
       [workspaceId,archiveId],
@@ -197,6 +203,11 @@ export async function finalizeRestoredContext(pool,session,restoredContextId,com
     )).rows[0];
     if(!ctx)throw fail('archive-context-not-found',404);
 
+    // ACL — только по текущей session, и только теперь, под series/context lock
+    // (design §4.6): отзыв права, закоммиченный пока мы ждали лок, обязан быть
+    // виден, а наш FOR SHARE не должен блокировать сам отзыв заранее.
+    await serviceActor(client,session.uid,PERMISSION);
+
     // Конкурентная идентичная операция уже закоммитила receipt, пока мы ждали
     // блокировку: возвращаем её результат, а не archive-changed.
     const raced=await replayReceipt(client,workspaceId,op.id,{archiveId,contextId:restoredContextId,uid:session.uid,commandHash});
@@ -206,7 +217,7 @@ export async function finalizeRestoredContext(pool,session,restoredContextId,com
     const latestRevision=series.latest_finalized_revision===null?null:num(series.latest_finalized_revision);
     const latestSha256=series.latest_finalized_sha256;
     const base=(await client.query(
-      'SELECT archive_revision,payload_bytes,payload_sha256,payload_schema_version FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 AND archive_revision=$3',
+      'SELECT archive_revision,payload_bytes,payload_sha256 FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 AND archive_revision=$3',
       [workspaceId,archiveId,baseRevision],
     )).rows[0];
     if(!base)throw fail('archive-changed',409);
@@ -244,7 +255,7 @@ export async function finalizeRestoredContext(pool,session,restoredContextId,com
          payload_bytes,payload_sha256,payload_schema_version,source_kind,source_locator,created_by_uid)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [workspaceId,archiveId,nextRevision,baseRevision,baseSha256,payloadBytes,payloadSha256,
-        num(base.payload_schema_version),FINALIZE_SOURCE_KIND,
+        FINALIZE_PAYLOAD_SCHEMA_VERSION,FINALIZE_SOURCE_KIND,
         `finalize:${archiveId}:${restoredContextId}:${nextRevision}`,session.uid],
     );
     // publication вставляется ДО своего receipt: оба FK на archive_operation_receipts

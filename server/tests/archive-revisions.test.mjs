@@ -57,6 +57,8 @@ const ARC_REPLAY = 'arc_replay';
 const ARC_REUSE = 'arc_reuse';
 const ARC_ACL = 'arc_acl';
 const ARC_NORECEIPT = 'arc_noreceipt';
+const ARC_SCHEMA1 = 'arc_schema1';
+const ARC_REVOKE = 'arc_revoke';
 
 const ctxOf = archiveId => `ctx_${archiveId}`;
 const restoreOpOf = archiveId => `op_restore_${archiveId}`;
@@ -147,7 +149,7 @@ function expectedMainPayload(baseSha) {
 
 const seededSha = new Map();
 
-async function seedArchive(client, {archiveId, state = 'open', contextRevision = 1, withReceipt = true, withHistory = false}) {
+async function seedArchive(client, {archiveId, state = 'open', contextRevision = 1, withReceipt = true, withHistory = false, schemaVersion = 2}) {
   const contextId = ctxOf(archiveId);
   const payload = archivePayload(archiveId);
   const bytes = bytesOf(payload);
@@ -161,8 +163,8 @@ async function seedArchive(client, {archiveId, state = 'open', contextRevision =
     `INSERT INTO shift_archive_revisions(
        workspace_id,archive_id,archive_revision,payload_bytes,payload_sha256,
        payload_schema_version,source_kind,source_locator,created_by_uid)
-     VALUES($1,$2,1,$3,$4,2,'legacy-import',$5,$6)`,
-    [WS, archiveId, bytes, digest, `legacy:${archiveId}:1`, ADMIN],
+     VALUES($1,$2,1,$3,$4,$5,'legacy-import',$6,$7)`,
+    [WS, archiveId, bytes, digest, schemaVersion, `legacy:${archiveId}:1`, ADMIN],
   );
   await client.query(
     'UPDATE shift_archive_series SET latest_finalized_revision=1,latest_finalized_sha256=$3 WHERE workspace_id=$1 AND archive_id=$2',
@@ -313,6 +315,20 @@ const rejected = (promise, code, status) => assert.rejects(promise, error => {
   return true;
 });
 
+// Ждём, пока в этом кластере появится сессия, заблокированная на локе: так тест
+// доказывает, что finalize действительно стоит в очереди за series-локом.
+async function waitForLockWait(probe, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const waiting = (await probe.query(
+      "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND state='active' AND wait_event_type='Lock'",
+    )).rows[0].n;
+    if (waiting > 0) return true;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  return false;
+}
+
 let pool;
 let outsideBefore = '';
 let mainResult;
@@ -355,6 +371,11 @@ test.before(async () => {
     await seedArchive(client, {archiveId: ARC_REUSE});
     await seedArchive(client, {archiveId: ARC_ACL});
     await seedArchive(client, {archiveId: ARC_NORECEIPT, withReceipt: false});
+    // Базовая ревизия с legacy-схемой 1: колонка новой ревизии обязана описывать
+    // её собственный документ (конверт finalize), а не копировать базу.
+    await seedArchive(client, {archiveId: ARC_SCHEMA1, schemaVersion: 1});
+    // Отдельная серия для проверки, что ACL читается уже под локами.
+    await seedArchive(client, {archiveId: ARC_REVOKE});
 
     // Живая линия живёт параллельно: её данные не должны измениться ни на байт.
     // Пишется полный v2 payload: 025 запрещает новые legacy-v1 строки.
@@ -664,6 +685,77 @@ test('restored context finalize publishes one immutable archive revision', {skip
       assert.equal(context.context_revision, '1');
       assert.equal((await seriesRow(client, ARC_NORECEIPT)).latest_finalized_revision, '1');
     });
+  });
+
+  await t.test('a finalize revision declares the schema of its own document, not a copy of the base', async () => {
+    const baseSha = seededSha.get(ARC_SCHEMA1);
+    const result = await finalizeRestoredContext(pool, {uid: ARCHIVIST, workspaceId: WS},
+      ctxOf(ARC_SCHEMA1), finalizeCommand('fin_schema1', 1, 1, baseSha));
+    assert.equal(result.revision, 2);
+    await withClient(async client => {
+      const rows = (await client.query(
+        `SELECT archive_revision::text AS archive_revision,payload_schema_version,payload_bytes
+           FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 ORDER BY archive_revision`,
+        [WS, ARC_SCHEMA1],
+      )).rows;
+      // Фикстура действительно legacy-схема 1: иначе тест ничего не различает.
+      assert.equal(rows[0].payload_schema_version, 1);
+      // Колонка описывает сам документ: байты finalize всегда несут конверт
+      // archiveRevision/previous*/restoredContext, то есть схему 2.
+      assert.equal(rows[1].payload_schema_version, 2);
+      const payload = JSON.parse(rows[1].payload_bytes.toString('utf8'));
+      assert.equal(payload.archiveRevision, 2);
+      assert.equal(payload.previousRevision, 1);
+      assert.ok(payload.restoredContext, 'the finalize envelope is what makes the document schema 2');
+    });
+  });
+
+  await t.test('ACL is rechecked under the series/context locks, never before them', {timeout: 30000}, async () => {
+    const baseSha = seededSha.get(ARC_REVOKE);
+    const ctx = ctxOf(ARC_REVOKE);
+    const holder = await pool.connect();
+    const revoker = await pool.connect();
+    let finalize = null;
+    let revoke = null;
+    try {
+      // Держим series-лок в отдельной транзакции: finalize обязан ждать его до ACL.
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM shift_archive_series WHERE workspace_id=$1 AND archive_id=$2 FOR UPDATE', [WS, ARC_REVOKE]);
+      finalize = finalizeRestoredContext(pool, {uid: ARCHIVIST, workspaceId: WS}, ctx,
+        finalizeCommand('fin_revoke', 1, 1, baseSha));
+      finalize.catch(() => {});
+      assert.equal(await waitForLockWait(revoker), true, 'finalize waits for the archive series lock');
+      // Отзыв права не должен блокироваться: ACL ещё не читался и FOR SHARE не взят.
+      revoke = revoker.query(
+        "UPDATE role_permissions SET allowed=false WHERE role='archivist' AND action='archive_edit'",
+      ).then(() => 'revoked');
+      const raced = await Promise.race([
+        revoke,
+        new Promise(resolve => setTimeout(() => resolve('blocked'), 1000)),
+      ]);
+      assert.equal(raced, 'revoked', 'the ACL revoke is not blocked by a lock taken before the series lock');
+      await holder.query('COMMIT');
+      // Теперь finalize получает лок и обязан увидеть уже отозванное право.
+      await rejected(finalize, 'forbidden', 403);
+      await withClient(async client => {
+        assert.deepEqual(await archiveCounts(client, ARC_REVOKE), {revisions: 1, publications: 0, receipts: 1, audits: 0});
+        const context = await contextRow(client, ARC_REVOKE);
+        assert.equal(context.context_state, 'open');
+        assert.equal(context.context_revision, '1');
+        assert.equal((await seriesRow(client, ARC_REVOKE)).latest_finalized_revision, '1');
+      });
+    } finally {
+      // Порядок важен: сначала отпускаем series-лок, иначе отзыв права (и его
+      // откат) останутся в очереди за транзакцией finalize.
+      await holder.query('ROLLBACK').catch(() => {});
+      holder.release();
+      if (finalize) await finalize.catch(() => {});
+      if (revoke) await revoke.catch(() => {});
+      await revoker.query(
+        "UPDATE role_permissions SET allowed=true WHERE role='archivist' AND action='archive_edit'",
+      ).catch(() => {});
+      revoker.release();
+    }
   });
 
   await t.test('finalize has no active shift, material, tabel, reward or game side effects', async () => {

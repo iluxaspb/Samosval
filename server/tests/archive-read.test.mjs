@@ -26,7 +26,10 @@ test('PostgreSQL archive retains imported sheet fields, isolates source and enfo
     await t.test('import field values and trip ordering are unchanged',async()=>{
       const result=await readArchiveSnapshot(pool,uid,ws);
       assert.equal(result.source,'ubuntu');assert.equal(result.importedAt,1000);
-      assert.equal(result.archives.length,2);assert.deepEqual(result.archives.find(a=>a.id==='legacy'),{...legacy,id:'legacy',revision:1});
+      assert.equal(result.archives.length,2);
+      // T10-5: провенанс присутствует всегда; у legacy-документа его нет, и это
+      // выражено явным null, а не отсутствием ключа.
+      assert.deepEqual(result.archives.find(a=>a.id==='legacy'),{...legacy,id:'legacy',revision:1,archiveId:null,archiveSha256:null});
       assert.equal(JSON.stringify(result).includes('must not leak'),false);
       assert.deepEqual(result.trash,[]);
     });

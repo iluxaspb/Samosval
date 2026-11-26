@@ -9,6 +9,7 @@
 import {createHash} from 'node:crypto';
 import {fail,map} from './tabel-access.mjs';
 import {serviceActor,validId} from './service-command.mjs';
+import {readLatestFinalizedArchive} from './archive-latest.mjs';
 
 const WS=process.env.WORKSPACE_ID||'main_workspace';
 
@@ -92,7 +93,10 @@ export async function readRestoredContext(client,{workspaceId=WS,restoredContext
     [workspaceId,restoredContextId],
   )).rows[0];
   if(!ctx)throw fail('archive-context-not-found',404);
-  const series=(await client.query('SELECT latest_finalized_revision,latest_finalized_sha256 FROM shift_archive_series WHERE workspace_id=$1 AND archive_id=$2',[workspaceId,ctx.archive_id])).rows[0];
+  // Справочный latest — только через единый резолвер: он делает JOIN с точной
+  // ревизией, поэтому «указатель на несуществующую ревизию» даёт null, а не
+  // выдуманную latest.
+  const latest=await readLatestFinalizedArchive(client,workspaceId,ctx.archive_id);
   // Контекст читается ровно со своей базовой ревизии (той, из которой восстановлен):
   // это его собственные байты, они immutable. Явно запрошенная другая ревизия —
   // не этот контекст (`archive-changed`), а не «похожий» архив. Указатель latest
@@ -148,9 +152,9 @@ export async function readRestoredContext(client,{workspaceId=WS,restoredContext
     archiveRevision:num(revision.archive_revision),archiveSha256:revision.payload_sha256,
     baseArchiveRevision:num(ctx.archive_revision),baseArchiveSha256:revision.payload_sha256,
     // Справочно для finalize/UI: актуальна ли ещё база контекста.
-    latestFinalizedRevision:series?.latest_finalized_revision!=null?num(series.latest_finalized_revision):null,
-    latestFinalizedSha256:series?.latest_finalized_sha256??null,
-    baseIsLatest:series?.latest_finalized_revision!=null?num(series.latest_finalized_revision)===num(ctx.archive_revision):null,
+    latestFinalizedRevision:latest?.revision??null,
+    latestFinalizedSha256:latest?.sha256??null,
+    baseIsLatest:latest?latest.revision===num(ctx.archive_revision):null,
     contextRevision:num(ctx.context_revision),contextState:ctx.context_state,mode:ctx.mode,
     shiftSnapshot:{
       objectId:ctx.object_id,objectName:ctx.object_name,workDate:ctx.work_date,
