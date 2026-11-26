@@ -1,7 +1,7 @@
 const unitFiles = [
   'auth-local', 'connection-check', 'control-rules', 'db-test-discovery',
   'db-test-manifest', 'firebase-scrypt', 'game-transfer', 'health',
-  'identity-rules', 'json-response', 'line-rules', 'line-transport',
+  'identity-rules', 'isolated-db-cli', 'json-response', 'line-rules', 'line-transport',
   'migration-import', 'migration-snapshot', 'nas-runtime', 'opencode-smoke',
   'presence-ui', 'seed-identity-unit', 'seed-objects-unit', 'service-rules',
   'session-client-background', 'session-client', 'shift-archive',

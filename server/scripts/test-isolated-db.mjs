@@ -30,11 +30,14 @@ import { runProcessGroup } from './isolated-db/process.mjs';
 import { parseNodeEvents } from './isolated-db/reporter.mjs';
 import { writeAtomicReport } from './isolated-db/report.mjs';
 import { scheduleManifestJobs } from './isolated-db/scheduler.mjs';
+import { parseRunnerArgs, exitCodeForError } from './isolated-db/cli.mjs';
 
 const { Client, Pool } = pg;
 const serverDirectory = realpathSync(join(dirname(fileURLToPath(import.meta.url)), '..'));
 const testsDirectory = realpathSync(join(serverDirectory, 'tests'));
-const requested = process.argv.slice(2);
+// Parsed inside main() so every contract violation becomes exit 2 with a single
+// usage line instead of an uncaught stack trace.
+let cli = { list: false, jobs: 1, files: [], report: null };
 
 
 
@@ -242,7 +245,8 @@ async function grantTargetAccess(context, database) {
 }
 
 async function main() {
-  if (requested.length === 1 && requested[0] === '--list') {
+  cli = parseRunnerArgs(process.argv.slice(2));
+  if (cli.list) {
     const discovery = await discoverTests(serverDirectory, { harnessFixtures: manifest.harnessFixtures });
     await loadManifest(manifest, { serverDirectory, discovered: discovery.roots });
     for (const entry of manifest.entries) console.log(`${entry.kind}\t${entry.discovery}\t${entry.file}`);
@@ -251,35 +255,40 @@ async function main() {
   }
 
   if (process.env.SAMOSVAL_ISOLATED_TEST !== '1') {
-    fail('SAMOSVAL_ISOLATED_TEST=1 is required', 1);
+    fail('SAMOSVAL_ISOLATED_TEST=1 is required', 2);
   }
   if (process.env.TEST_DATABASE_URL !== undefined) {
-    fail('TEST_DATABASE_URL is runner-generated and must not be supplied', 1);
+    fail('TEST_DATABASE_URL is runner-generated and must not be supplied', 2);
   }
 
   const discovery = await discoverTests(serverDirectory, { harnessFixtures: manifest.harnessFixtures });
   await loadManifest(manifest, { serverDirectory, discovered: discovery.roots });
   let testFiles;
   try {
-    testFiles = requested.length
-      ? requested.map(approvedTestPath)
+    testFiles = cli.files.length
+      ? cli.files.map(approvedTestPath)
       : readdirSync(testsDirectory).filter(name => name.endsWith('.test.mjs')).sort().map(name => approvedTestPath(join(testsDirectory, name)));
   } catch (error) {
-    fail(error.message, 1);
+    // A rejected path is a configuration error, not a test outcome.
+    fail(error.message, 2);
   }
 
   const { createSignalController } = await import('./isolated-db/process.mjs');
   const signalController = createSignalController();
   const manifestByPath = new Map(manifest.entries.map(entry => [realpathSync(join(serverDirectory, entry.file)), entry]));
   const selected = testFiles.map(file => manifestByPath.get(file)).filter(Boolean);
+  // A filtered run executes only db and harness-contract roots; the unit phase is
+  // not part of `--file`, and asking for a unit root is a configuration error.
+  const unitSelection = cli.files.length ? selected.find(entry => entry.kind === 'unit') : undefined;
+  if (unitSelection) fail(`${unitSelection.file} is a unit root, not a db or harness-contract entry`, 2);
   const needsTarget = selected.some(entry => entry.kind === 'db' || entry.file === 'tests/isolated-db-integration.test.mjs');
   const needsPrivileged = selected.some(entry => entry.kind !== 'unit');
   if (needsPrivileged && !process.env.SAMOSVAL_TEST_ADMIN_URL && !process.env.SAMOSVAL_TEST_BOOTSTRAP_URL) {
-    fail('privileged isolated database URL is required for non-unit selection', 1);
+    fail('privileged isolated database URL is required for non-unit selection', 2);
   }
   const declaresBootstrap = selected.some(entry => (entry.env ?? []).includes('bootstrap-url'));
   if (declaresBootstrap && !process.env.SAMOSVAL_TEST_BOOTSTRAP_URL) {
-    fail('SAMOSVAL_TEST_BOOTSTRAP_URL is required by the selected entries', 1);
+    fail('SAMOSVAL_TEST_BOOTSTRAP_URL is required by the selected entries', 2);
   }
 
   let context;
@@ -304,7 +313,7 @@ async function main() {
 
   const results = await scheduleManifestJobs({
     entries,
-    jobs: 1,
+    jobs: cli.jobs,
     runJob: async entry => {
       if ((await signalController.wait()).signal) throw Object.assign(new Error('run interrupted'), { code: 'EINTERRUPTED' });
       if (provisioningStopped && (entry.metadata?.kind === 'db' || entry.metadata?.file === 'tests/isolated-db-integration.test.mjs')) {
@@ -430,14 +439,14 @@ async function main() {
     await context.admin.end().catch(error => { cleanupFailure ??= error; });
   }
 
-  const reportPath = process.env.SAMOSVAL_ISOLATED_REPORT ?? process.env.ISOLATED_DB_REPORT;
+  const reportPath = cli.report ?? process.env.SAMOSVAL_ISOLATED_REPORT ?? process.env.ISOLATED_DB_REPORT;
   if (reportPath) {
     // Completeness is part of the evidence, not just of the run log: a reader of
     // the artifact alone must be able to check discovered == manifest and
     // attempted == manifest with passed == attempted (plan Task 12).
     await writeAtomicReport(reportPath, {
       runid: context?.lifecycle.runid ?? null,
-      selection: requested.length ? 'filtered' : 'full',
+      selection: cli.files.length ? 'filtered' : 'full',
       discovered: discovery.roots.length,
       manifest: manifest.entries.length,
       attempted: results.length,
@@ -475,5 +484,5 @@ try {
   process.exitCode = await main();
 } catch (error) {
   console.error(redact(error.message));
-  process.exitCode = error.exitCode ?? 1;
+  process.exitCode = exitCodeForError(error);
 }

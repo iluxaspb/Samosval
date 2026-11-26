@@ -161,16 +161,18 @@ test('a nested child SIGTERM is a failed file, not an external runner interrupti
 
 
 test('runner rejects options and traversal before child tests load', () => {
-  for (const arg of [
-    `--import=${injectionFixture.href}`,
-    '--require=./tests/fixtures/node-options-injection.mjs',
-    '--test-reporter=spec',
-    '../outside.test.mjs',
+  // Both classes are configuration errors, so the documented exit is 2: no
+  // child ever loads and nothing touches a database.
+  for (const [arg, expected] of [
+    [`--import=${injectionFixture.href}`, /unknown option/],
+    ['--require=./tests/fixtures/node-options-injection.mjs', /unknown option/],
+    ['--test-reporter=spec', /unknown option/],
+    ['../outside.test.mjs', /test path is not approved/],
   ]) {
     const result = run({ SAMOSVAL_ISOLATED_TEST: '1' }, [arg]);
-    assert.notEqual(result.status, 0, arg);
+    assert.equal(result.status, 2, arg);
     assert.equal(result.loaded, false, arg);
-    assert.match(`${result.stdout}${result.stderr}`, /test path is not approved/i, arg);
+    assert.match(`${result.stdout}${result.stderr}`, expected, arg);
   }
 });
 
@@ -407,6 +409,68 @@ test('atomic report is stable, redacted, and replaces only a regular report file
     assert.equal(lstatSync(reportPath).isFile(), true);
     await writeAtomicReport(reportPath, { selection: 'full', files: [] });
     assert.equal(JSON.parse(readFileSync(reportPath, 'utf8')).selection, 'full');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('--list validates the manifest and needs no database configuration', () => {
+  const result = spawnSync(process.execPath, [runner.pathname, '--list'], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      SAMOSVAL_ISOLATED_TEST: undefined,
+      SAMOSVAL_TEST_ADMIN_URL: undefined,
+      SAMOSVAL_TEST_BOOTSTRAP_URL: undefined,
+      TEST_DATABASE_URL: undefined,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const counts = result.stdout.match(/discovered=(\d+) manifest=(\d+)/);
+  assert.ok(counts, result.stdout);
+  assert.equal(counts[1], counts[2], 'discovered must equal manifest');
+});
+
+test('--file runs only db and harness-contract roots and rejects a unit root as configuration', () => {
+  const result = run({ SAMOSVAL_ISOLATED_TEST: '1' }, ['--file', 'tests/isolated-db-cli.test.mjs']);
+  assert.equal(result.status, 2, `${result.stdout}${result.stderr}`);
+  assert.equal(result.loaded, false);
+  assert.match(`${result.stdout}${result.stderr}`, /unit root/);
+});
+
+test('--report overrides the environment report path and records the completeness counts', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'samosval-isolated-report-'));
+  const fromEnvironment = join(directory, 'env.json');
+  const fromOption = join(directory, 'cli.json');
+  try {
+    const result = spawnSync(process.execPath, [
+      runner.pathname,
+      '--file', 'tests/isolated-db-guard.test.mjs',
+      '--report', fromOption,
+    ], {
+      cwd: new URL('..', import.meta.url),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`,
+        NODE_TEST_CONTEXT: undefined,
+        SAMOSVAL_ISOLATED_TEST: '1',
+        SAMOSVAL_ISOLATED_REPORT: fromEnvironment,
+        // A harness-contract root never connects, but the runner still requires
+        // the orchestrator URL for a non-unit selection.
+        SAMOSVAL_TEST_ADMIN_URL: approvedUrl,
+        TEST_DATABASE_URL: undefined,
+      },
+    });
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.equal(existsSync(fromEnvironment), false, 'the option wins over the environment');
+    const report = JSON.parse(readFileSync(fromOption, 'utf8'));
+    assert.equal(report.selection, 'filtered');
+    assert.equal(report.attempted, 1);
+    assert.equal(report.passed, 1);
+    assert.equal(report.discovered, report.manifest);
+    assert.deepEqual(report.files.map(file => file.status), ['passed']);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
