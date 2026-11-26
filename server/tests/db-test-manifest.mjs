@@ -10,7 +10,7 @@ const unitFiles = [
 ];
 
 const dbFiles = [
-  'archive-consumers-latest', 'archive-parallel-restore', 'archive-read', 'archive-revisions', 'archive-schema-025', 'archive-store', 'auxiliary-store',
+  'api-pool-resilience', 'archive-consumers-latest', 'archive-parallel-restore', 'archive-read', 'archive-revisions', 'archive-schema-025', 'archive-store', 'auxiliary-store',
   'backup-store', 'control-store', 'game-store', 'history-store',
   'identity-store', 'legacy-shift-resolution', 'line-read', 'line-store',
   'notification-store',
@@ -29,6 +29,11 @@ const harnessFiles = [
 ];
 
 const consumersByFile = {
+  'api-pool-resilience': [
+    'tests/api-pool-resilience.test.mjs:db-env',
+    'tests/api-pool-resilience.test.mjs:http-child',
+    'tests/api-pool-resilience.test.mjs:pg'
+  ],
   'parallel-shifts-runtime-roles': ['scripts/parallel-shifts-role-bootstrap.mjs:pg', 'tests/parallel-shifts-runtime-roles.test.mjs:pg'],
   'isolated-db-s25-fixtures': [
     'scripts/apply-migrations.mjs:pg',
@@ -391,6 +396,10 @@ const bootstrapEnvByFile = {
   // connection while every assertion still runs on the app connection
   // (spec 3.10/§6). The extra passwords exist for the legacy restored-context
   // probes that must switch to the real runtime/maintenance role.
+  // `api-pool-resilience` needs it for a different reason: it terminates every
+  // other backend of its own target with pg_terminate_backend, which the
+  // unprivileged app role is not allowed to do.
+  'api-pool-resilience': ['bootstrap-url'],
   'archive-consumers-latest': ['bootstrap-url'],
   'archive-parallel-restore': ['bootstrap-url'],
   'archive-read': ['bootstrap-url'],
@@ -406,11 +415,15 @@ const bootstrapEnvByFile = {
   'restored-context-store': ['bootstrap-url']
 };
 
+// Roots that start the real src/index.mjs child on a fixed port are discovered
+// as indirect-http and need the longer wall-clock budget.
+const httpDbRoots = new Set(['api-pool-resilience', 'truck-phone-http']);
+
 const dbEntries = dbFiles.map(name => ({
   file: `tests/${name}.test.mjs`,
   kind: 'db',
-  discovery: name === 'truck-phone-http' ? 'indirect-http' : 'direct',
-  reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
+  discovery: httpDbRoots.has(name) ? 'indirect-http' : 'direct',
+  reason: `${httpDbRoots.has(name) ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   env: bootstrapEnvByFile[name] ?? [],
   // No db root is on S25 yet: the S25 contract is proved by the
@@ -437,7 +450,7 @@ migrationsThrough: name === 'replica-stream-026' ? 26 : name === 'parallel-shift
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],
-  timeoutMs: timeoutsByFile[name] ?? (name === 'truck-phone-http' ? 120_000 : 60_000),
+  timeoutMs: timeoutsByFile[name] ?? (httpDbRoots.has(name) ? 120_000 : 60_000),
   serial: false,
   exclusive: name === 'truck-phone-http',
   allowedSkips: []
