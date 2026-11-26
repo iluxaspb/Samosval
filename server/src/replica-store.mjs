@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto';
 import { fail, map } from './tabel-access.mjs';
 import { serviceActor } from './service-command.mjs';
 import { readAuthority } from './authority.mjs';
-import { applyReplicaDocument } from './replica-materialize.mjs';
+import { applyReplicaDocument, normalizeReplicaOperation } from './replica-materialize.mjs';
 
 // Минутная репликация «основная Firebase -> резерв Ubuntu» и обратное чтение
 // журнала для восстановления. Журнал хранит только изменённые операции,
@@ -11,8 +10,6 @@ const WS = () => process.env.WORKSPACE_ID || 'main_workspace';
 const MAX_OPERATIONS = 500;
 const MAX_PAYLOAD_BYTES = 262144;
 const OPERATION_ID = /^[A-Za-z0-9_.:-]{8,160}$/;
-
-const digest = value => createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex');
 
 // Применение пачки изменений Firebase -> Ubuntu.
 // Разрешено ТОЛЬКО пока владелец записи — Firebase: если Ubuntu объявлена
@@ -43,22 +40,60 @@ export async function appendReplicaBatch(pool, uid, input, ws = WS()) {
     // Сначала отбрасываем уже применённые операции: повтор всей пачки — это
     // успешная идемпотентная повторная отправка, а не пропуск. Пропуск
     // проверяется только для действительно новых операций.
+    // 026 хранит protocol/hash version рядом с immutable stream row, поэтому
+    // duplicate-сравнение учитывает версию: v1 и v2 с одним id всегда конфликт.
+    const supportsV2 = Boolean((await client.query(
+      "SELECT to_regclass('public.replica_document_heads') AS relation",
+    )).rows[0].relation);
     const known = new Map((await client.query(
-      'SELECT operation_id, sha256 FROM replica_stream WHERE workspace_id=$1 AND direction=$2', [ws, 'f2s']
-    )).rows.map(r => [r.operation_id, r.sha256]));
+      supportsV2
+        ? `SELECT operation_id, sha256, protocol_version, hash_version, kind
+             FROM replica_stream WHERE workspace_id=$1 AND direction=$2`
+        : `SELECT operation_id, sha256, kind
+             FROM replica_stream WHERE workspace_id=$1 AND direction=$2`,
+      [ws, 'f2s']
+    )).rows.map(r => [r.operation_id, r]));
     const fresh = [];
+    const inBatch = new Map();
     for (const operation of operations) {
       if (!map(operation) || !OPERATION_ID.test(String(operation.id || ''))) throw fail('invalid-replica-operation');
-      if (typeof operation.kind !== 'string' || !operation.kind || operation.kind.length > 120) throw fail('invalid-replica-kind');
-      const payload = operation.payload === undefined ? null : operation.payload;
-      if (Buffer.byteLength(JSON.stringify(payload)) > MAX_PAYLOAD_BYTES) throw fail('replica-payload-too-large', 413);
-      const hash = digest(payload);
-      if (known.has(operation.id)) {
-        // Тот же id с другим содержимым — не повтор, а конфликт.
-        if (known.get(operation.id) !== hash) throw fail('replica-operation-conflict', 409);
+      const normalized = normalizeReplicaOperation(operation);
+      const payloadText = normalized.protocolVersion === 1
+        ? (operation.payload === undefined ? null : JSON.stringify(operation.payload))
+        : JSON.stringify(normalized.payload);
+      if (Buffer.byteLength(payloadText ?? 'null') > MAX_PAYLOAD_BYTES) throw fail('replica-payload-too-large', 413);
+      const identity = `${normalized.protocolVersion}:${normalized.kind}:${normalized.hash}`;
+      const prior = known.get(operation.id);
+      if (prior) {
+        // Тот же id с другим содержимым/версией — не повтор, а конфликт.
+        // До 026 в строке нет версий: сравниваем только kind и sha256, ровно
+        // как старый журнал.
+        const sameEnvelope = supportsV2
+          ? Number(prior.protocol_version) === normalized.protocolVersion
+            && Number(prior.hash_version) === normalized.hashVersion
+            && prior.kind === normalized.kind
+            && prior.sha256 === normalized.hash
+          : prior.kind === normalized.kind && prior.sha256 === normalized.hash;
+        if (!sameEnvelope) throw fail('replica-operation-conflict', 409);
         continue;
       }
-      fresh.push({ id: operation.id, kind: operation.kind, payload, hash });
+      const duplicate = inBatch.get(operation.id);
+      if (duplicate) {
+        if (duplicate.identity !== identity) throw fail('replica-operation-conflict', 409);
+        continue;
+      }
+      const entry = {
+        id: operation.id,
+        kind: normalized.kind,
+        hash: normalized.hash,
+        protocolVersion: normalized.protocolVersion,
+        hashVersion: normalized.hashVersion,
+        normalized,
+        identity,
+        payloadText,
+      };
+      inBatch.set(operation.id, entry);
+      fresh.push(entry);
     }
     if (fresh.length === 0) {
       await client.query('COMMIT');
@@ -68,14 +103,27 @@ export async function appendReplicaBatch(pool, uid, input, ws = WS()) {
     if (seq !== baseSeq) throw fail('replica-sequence-gap', 409);
     let applied = 0, materialized = 0;
     for (const operation of fresh) {
-      // Сначала данные, затем журнал: обе записи в одной транзакции, поэтому
-      // резерв не может подтвердить операцию, которую не применил.
-      if (await applyReplicaDocument(client, ws, operation)) materialized += 1;
+      // Нормативный порядок §4.10: сначала immutable stream row (head FK
+      // ссылается на неё), затем head CAS, canonical/pending, cursor последним.
+      // Обе записи в одной транзакции, поэтому резерв не может подтвердить
+      // операцию, которую не применил.
       seq += 1;
-      await client.query(
-        'INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [ws, seq, 'f2s', operation.id, operation.kind, JSON.stringify(operation.payload), operation.hash]
-      );
+      if (supportsV2) {
+        await client.query(
+          `INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256,protocol_version,hash_version)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [ws, seq, 'f2s', operation.id, operation.kind, operation.payloadText, operation.hash,
+            operation.protocolVersion, operation.hashVersion]
+        );
+      } else {
+        await client.query(
+          'INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+          [ws, seq, 'f2s', operation.id, operation.kind, operation.payloadText, operation.hash]
+        );
+      }
+      if (await applyReplicaDocument(client, ws, operation.normalized, {
+        seq, normalized: operation.normalized,
+      })) materialized += 1;
       applied += 1;
     }
     if (applied > 0) {
