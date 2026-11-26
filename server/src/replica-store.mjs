@@ -11,6 +11,16 @@ const MAX_OPERATIONS = 500;
 const MAX_PAYLOAD_BYTES = 262144;
 const OPERATION_ID = /^[A-Za-z0-9_.:-]{8,160}$/;
 
+// §4.10 parent policy: objects/users → shift/trucks → truckStatus/logs. A batch
+// is materialized in this order regardless of arrival order; journal-only events
+// touch neither heads nor canonical rows, so they are written last. The sort in
+// appendReplicaBatch is stable, so repeated operations on one document keep
+// their arrival order and the head CAS still decides the generation.
+const MATERIALIZE_RANK = { objects: 0, users: 0, shift: 1, trucks: 1, truckStatus: 2, logs: 2 };
+const materializeRank = normalized => (normalized.materializable
+  ? MATERIALIZE_RANK[normalized.collection] ?? 3
+  : 3);
+
 // Применение пачки изменений Firebase -> Ubuntu.
 // Разрешено ТОЛЬКО пока владелец записи — Firebase: если Ubuntu объявлена
 // владельцем, резерв не принимает зеркало, иначе базы разойдутся.
@@ -102,27 +112,33 @@ export async function appendReplicaBatch(pool, uid, input, ws = WS()) {
     // Пропуск в последовательности блокирует применение до восстановления.
     if (seq !== baseSeq) throw fail('replica-sequence-gap', 409);
     let applied = 0, materialized = 0;
-    for (const operation of fresh) {
+    // The immutable stream keeps arrival order: each fresh operation gets the
+    // sequence of its position in the batch. Only materialization is reordered,
+    // so a parent that shares the batch with its child is already written.
+    const ordered = fresh
+      .map((entry, index) => ({ entry, seq: seq + index + 1 }))
+      .sort((left, right) => materializeRank(left.entry.normalized) - materializeRank(right.entry.normalized));
+    seq += fresh.length;
+    for (const { entry: operation, seq: operationSeq } of ordered) {
       // Нормативный порядок §4.10: сначала immutable stream row (head FK
       // ссылается на неё), затем head CAS, canonical/pending, cursor последним.
       // Обе записи в одной транзакции, поэтому резерв не может подтвердить
       // операцию, которую не применил.
-      seq += 1;
       if (supportsV2) {
         await client.query(
           `INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256,protocol_version,hash_version)
            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [ws, seq, 'f2s', operation.id, operation.kind, operation.payloadText, operation.hash,
+          [ws, operationSeq, 'f2s', operation.id, operation.kind, operation.payloadText, operation.hash,
             operation.protocolVersion, operation.hashVersion]
         );
       } else {
         await client.query(
           'INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-          [ws, seq, 'f2s', operation.id, operation.kind, operation.payloadText, operation.hash]
+          [ws, operationSeq, 'f2s', operation.id, operation.kind, operation.payloadText, operation.hash]
         );
       }
       if (await applyReplicaDocument(client, ws, operation.normalized, {
-        seq, normalized: operation.normalized,
+        seq: operationSeq, normalized: operation.normalized,
       })) materialized += 1;
       applied += 1;
     }
