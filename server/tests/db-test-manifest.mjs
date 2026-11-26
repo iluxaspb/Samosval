@@ -17,7 +17,8 @@ const dbFiles = [
   'parallel-shifts-historicalization', 'parallel-shifts-migration-core',
   'refresh-source', 'replica-materialize-parallel-shifts', 'replica-materialize',
 'restored-context-migration', 'replica-pending-materialize',
-  'replica-store', 'replica-stream-026', 'report-store', 'restored-context-store', 'seed-identity-db', 'seed-objects-db',
+  'replica-exact-backup', 'replica-store', 'replica-stream-026', 'report-store',
+  'restored-context-store', 'seed-identity-db', 'seed-objects-db',
   'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
   'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store',
   'v2-command', 'v2-shift-access', 'v2-shift-read-db'
@@ -230,6 +231,14 @@ const consumersByFile = {
     "tests/replica-materialize.test.mjs:db-env",
     "tests/replica-materialize.test.mjs:pg"
   ],
+  "replica-exact-backup": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/replica-exact-backup.test.mjs:db-env",
+    "tests/replica-exact-backup.test.mjs:pg"
+  ],
   "replica-pending-materialize": [
     "scripts/apply-migrations.mjs:pg",
     "tests/helpers/isolated-db.mjs:db-env",
@@ -366,6 +375,7 @@ const dbReasons = {
   'parallel-shifts-historicalization': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact-report legacy historicalization cutover',
   'parallel-shifts-migration-core': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for destructive migration 025 integration',
   'refresh-source': 'Imports pg and reads TEST_DATABASE_URL for source refresh with import tables',
+  'replica-exact-backup': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact provenance bundle normalization, bootstrap fingerprint and replica restore',
   'replica-materialize-parallel-shifts': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for atomic S24 to migration 025 replica behavior',
   'replica-pending-materialize': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the 026 head/pending/delete materializer state machine',
   'replica-materialize': 'Imports pg and reads TEST_DATABASE_URL for replica materialization',
@@ -389,6 +399,7 @@ const timeoutsByFile = {
   'legacy-shift-resolution': 180_000,
   'parallel-shifts-historicalization': 240_000,
   'parallel-shifts-migration-core': 240_000,
+  'replica-exact-backup': 240_000,
   'replica-materialize-parallel-shifts': 180_000,
   'replica-pending-materialize': 240_000,
   'replica-stream-026': 240_000,
@@ -449,6 +460,7 @@ const bootstrapEnvByFile = {
   'legacy-shift-resolution': ['bootstrap-url'],
   'parallel-shifts-historicalization': ['bootstrap-url'],
   'parallel-shifts-migration-core': ['bootstrap-url'],
+  'replica-exact-backup': ['bootstrap-url'],
   'replica-materialize-parallel-shifts': ['bootstrap-url'],
   'replica-pending-materialize': ['bootstrap-url'],
   'replica-store': ['bootstrap-url'],
@@ -496,7 +508,7 @@ const dbEntries = dbFiles.map(name => ({
   // a restored copy can only be legacy v1 rows inserted before 025, so the root
   // applies 025/026/027 itself (docs/opyt-oshibok.md, lesson 19).
   baseline: name === 'v2-shift-access' ? 'S25' : 'S24',
-migrationsThrough: ['v2-shift-access', 'v2-shift-read-db'].includes(name) ? 27 : name === 'replica-stream-026' || name === 'replica-store' || name === 'replica-pending-materialize' ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
+migrationsThrough: ['v2-shift-access', 'v2-shift-read-db'].includes(name) ? 27 : name === 'replica-stream-026' || name === 'replica-store' || name === 'replica-pending-materialize' || name === 'replica-exact-backup' ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],

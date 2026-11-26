@@ -1,7 +1,16 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {randomBytes} from 'node:crypto';import pg from 'pg';
-import {normalizeBackup,readBackups,submitBackup} from '../src/backup-store.mjs';
+import {normalizeBackup,normalizeBackupSelection,readBackups,submitBackup} from '../src/backup-store.mjs';
 import {installDatasetGuard,datasetRequest} from '../src/dataset-guard.mjs';
 test('backup operations reject arbitrary tables and malformed IDs',()=>{for(const op of [{id:'x',type:'backup.restore',backupId:'b',sections:{sql:true}},{id:'x',type:'backup.restore',backupId:'b',sections:{}},{id:'x',type:'backup.create',backupType:'sql',description:''}])assert.throws(()=>normalizeBackup(op));});
+// The exact provenance bundle is a separate, indivisible contract. The legacy
+// selective API must stay exactly as it was and must never expose replica/
+// archive/restored groups as selectable sections.
+test('legacy backup sections stay selective and never expose the exact provenance bundle',()=>{
+  assert.equal(typeof normalizeBackupSelection,'function');
+  for(const key of ['replica','provenance','restored','historical','replicaHeads','replicaPending'])assert.throws(()=>normalizeBackup({id:'x',type:'backup.restore',backupId:'b',sections:{[key]:true}}),{code:'invalid-backup-sections'});
+  assert.doesNotThrow(()=>normalizeBackup({id:'x',type:'backup.restore',backupId:'b',sections:{base:true}}));
+  assert.throws(()=>normalizeBackupSelection({base:true},{archive:{series:0},replicaOwned:{parents:1},replica:{stream:0,heads:0},restored:{contexts:0},historical:{}}),{code:'backup-selection-replica-required'});
+});
 test('PostgreSQL native checkpoints preserve Tabel, source import, atomic before-restore and protected access',{skip:!process.env.TEST_DATABASE_URL},async()=>{
  const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL,max:4}),sha=randomBytes(32).toString('hex'),ws='backup_'+sha.slice(0,16),uid=ws+'_a',viewer=ws+'_v';let identity;
  try{identity=(await pool.query('SELECT * FROM identity_state WHERE id=1')).rows[0];await pool.query('INSERT INTO workspaces(id) VALUES ($1)',[ws]);for(const [id,role]of[[uid,'admin'],[viewer,'viewer']])await pool.query("INSERT INTO app_users(uid,email,display_name,role,status) VALUES ($1,$1,$1,$2,'active')",[id,role]);

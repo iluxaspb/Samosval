@@ -12,7 +12,7 @@
 |---|---|---|
 | I — legacy provenance и redesigned 025 | 1–5 | 1–4 ГОТОВО, 5 ЧАСТИЧНО (домен есть, HTTP-маршрут не подключён; отложено решением владельца 26.11.2026) |
 | II — archive/restored S25 | 6–10 | ГОТОВО |
-| III — 026, replica generations, exact restore | 11–15 | 11–13 ГОТОВО, 14–15 НЕ НАЧАТО |
+| III — 026, replica generations, exact restore | 11–15 | 11–13, 15 ГОТОВО (15 — с открытым блокером схемы), 14 НЕ НАЧАТО (идёт параллельно в отдельной ветке) |
 | IV — v2 API и core domains | 16–22 | 16–18 ГОТОВО, 19–22 НЕ НАЧАТО |
 | V — client contexts и UX | 23–26 | 23 ГОТОВО, 24 ЧАСТИЧНО (транспорт готов, офлайн-журнал нет), 25–26 НЕ НАЧАТО |
 | VI — cross-domain и acceptance | 27–29 | НЕ НАЧАТО |
@@ -36,7 +36,7 @@
 | 12 | Replica v2 normalization/hash, parents | ГОТОВО | Код: `server/src/replica-heads.mjs` (`normalizeReplicaOperation`, `hashReplicaOperationV2`, строгая `protocolVersion !== 2 → protocol-upgrade-required`, `parentState` object/user/shift/truck) + реэкспорт из `replica-materialize.mjs`; в `replica-store.mjs` добавлен deterministic topological batch order §4.10. Доказательства в `server/tests/replica-store.test.mjs` (19/19): golden-вектор v2 `37bfd01e…017d` и независимость от порядка ключей; v1 byte stability `a1c1c014…f671` (protocol/hash version 1, повтор не переписывает); точный Firebase v1 shift `{id,objectName,objectId,startDate,startedAt,startedBy,isActive}` → `protocol-upgrade-required` без записей; sender≠creator (`opened_by_uid` = creator из документа, не uid пачки); delete `data:null` ≡ отсутствие `data` (один hash, в stream нет `data`), иное `data` → `invalid-replica-delete-payload`; `data.id` ≠ path → `replica-document-id-mismatch`; heads для objects/users с routing-колонками; missing object/user → полный откат пачки вместе с уже материализованным родителем; same-batch order «shift раньше object, status раньше truck» проходит, head сохраняет arrival-seq |
 | 13 | Head/pending/delete materializer | ГОТОВО | коммит `2b8a8b6`: `server/src/replica-heads.mjs` (CAS/stale/replay, pending staging+promotion с перечитыванием immutable stream, `verifyReplicaHeads`), `replica-pending-materialize.test.mjs` 10/10, `replica-store.test.mjs` 10/10; соседние корни `replica-materialize` 5/5, `replica-materialize-parallel-shifts` 4/4, `replica-stream-026` 20/20 |
 | 14 | Objects/users tombstones + collection verifier | НЕ НАЧАТО | зависит от 13 |
-| 15 | Full exact provenance backup/restore | НЕ НАЧАТО | нет `restore-bootstrap.mjs`, `replica-exact-backup.test.mjs` |
+| 15 | Full exact provenance backup/restore | ГОТОВО (кроме ролевой границы БД) | ветка `feat/t15-exact-restore2`: `server/src/restore-bootstrap.mjs` (`BOOTSTRAP_VERSION=1`, digest по roles/relations/functions/extensions/grants/registry, `verifyRestoreBootstrap`, `restore-bootstrap-required`), `server/src/backup-store.mjs` (`bundleFacts`, `captureProvenanceBundle`, `checkpointReplicaBundle`, `normalizeBackupSelection`, `resealBundle`, `verifyBundleManifest`, `restoreReplicaExact`), `server/tests/replica-exact-backup.test.mjs` (7 подтестов, db-корень `replica-exact-backup`, baseline S24 + сам применяет 025/026, `bootstrapEnvByFile:['bootstrap-url']`, `migrationsThrough:26`), `server/tests/backup-store.test.mjs` (+1 регрессия: легаси-выбор остаётся выборочным). Прогоны: 7/7, `backup-store` 4/4, `replica-store`/`replica-stream-026`/`archive-parallel-restore`/`archive-schema-025`/`archive-revisions`/`restored-context-store`/`restored-context-migration`/`replica-materialize` — все зелёные; `npm run check` + `node --check` новых файлов; `--list` 88 корней, `discovered == manifest`. Покрыто: нормализация отклоняет любой provenance/archive/restored/historical-член и неполный closure до checkpoint; bootstrap-required до мутации; data path без DDL/CREATE ROLE/регистрации (Proxy-guard); publication-before-receipt падает на `SET CONSTRAINTS ALL IMMEDIATE` (`fk_archive_publication_(restore|finalize)_receipt`); отсутствующие/чужие receipts откатывают транзакцию до verifier и `restore_epoch`; точный перенос pending/tombstone с однократным promotion; расширенный lifecycle-payload смены round-trip. **Открыто:** `SECURITY DEFINER restore_replica_exact(...)` + временный `EXECUTE`/`REVOKE` + пробы effective privilege — нет DDL в 025/026, кандидат в 028 (см. ниже) |
 | I7 | Immutable S26 template + fixtures | НЕ НАЧАТО | гейт после 15 |
 | 16 | V2 errors, JCS hash, receipts | ГОТОВО | `server/src/v2-errors.mjs`, `server/src/v2-command.mjs`, `server/tests/v2-command.test.mjs` (16 тестов, db-корень `v2-command`, вектор `1179ba8a…6a64`); конверт `{protocolVersion:2,operationId,replayed,result}`, авторизация до replay, откат receipt/audit/mutation |
 | 17 | Permissions и shift ACL | ГОТОВО | коммит `feat: add parallel shift permissions and acl` (ветка `feat/t17-shift-acl`): `sql/027_parallel_shift_permissions.sql`, `src/shift-access-v2.mjs` (`loadActor`/`authorizeShift`/`visibleShiftPredicate`), `identity-rules.mjs` (+2 action). Тест `tests/v2-shift-access.test.mjs` — 13 подтестов, db-корень `v2-shift-access` (первый на baseline S25, применяет 026/027 сам), `--list`: `discovered=84 manifest=84`. Покрыто: дефолты матрицы (manage_shift_members — foreman+senior, force_transfer_truck — только senior), admin без membership, hidden=404 / команда=403, closing=409 и closed=410, detached source∨destination, отзыв membership между вызовами не выдаёт receipt |
@@ -82,6 +82,33 @@
 привязать незавершённый receipt к смене нельзя. `listVisibleShifts` уже
 проверяет наличие колонки и без неё не считает; как только `shift_id`
 появится, тот же запрос начнёт отдавать реальные числа без правки чтения.
+
+## Долги по схеме, открытые задачей 15 (кандидат — 028)
+
+Спецификация §4.10 требует для exact restore отдельный NOLOGIN restore owner и
+узкий `SECURITY DEFINER restore_replica_exact(...)` (фиксированный `search_path`,
+owner-qualified объекты, входные temp-таблицы, без динамического SQL), причём
+`PUBLIC`/runtime не имеют `EXECUTE`, а отдельный maintenance executor получает
+временный `EXECUTE` только после destructive approval и проверки
+owner/signature/body-checksum, после чего grant отзывается и effective privilege
+проверяется. Ни 025, ни 026, ни 027 такого объекта не создают.
+
+Задача 15 реализовала нормализацию, bootstrap-fingerprint, checkpoint и сам
+restore как серверный модуль (`server/src/backup-store.mjs`) на клиенте БД: все
+вставки идут в одной транзакции в нормативном порядке, data path не содержит
+DDL/`CREATE ROLE`/регистрации, а тест 3 это доказывает Proxy-guard'ом. Чего
+нельзя доказать без DDL:
+
+| Долг | Нужно в 028 |
+|---|---|
+| Нет `restore_replica_exact(...)` и restore owner | создать NOLOGIN owner, `SECURITY DEFINER` функцию с фиксированным `search_path`, `REVOKE EXECUTE FROM PUBLIC`, ownership таблиц/триггеров |
+| Нет временного `EXECUTE`/`REVOKE` для maintenance executor | отдельная не-runtime login-роль, grant после preflight, revoke после транзакции, пробы effective privilege до/после |
+| Не проверяются `proowner`/`prosecdef`/body checksum | preflight по `pg_proc`/`pg_roles`/`pg_auth_members` + checksum тела функции |
+| Legacy v1-смена (`payload_schema_version <> 2`) не восстанавливается | точный путь вставки v1-строки под owner-функцией; сейчас restore честно возвращает `restore-legacy-shift-blocked` |
+
+До появления 028 задача 15 закрыта как «домен и тесты ГОТОВО, ролевая граница
+БД ОТКРЫТА»: приложение не должно выпускать restore в рабочую БД, пока
+`EXECUTE` не ограничен владельцем функции.
 
 ## Открытые наблюдения (причина не доказана, следить)
 
