@@ -1,4 +1,13 @@
 import { fail, map } from './tabel-access.mjs';
+import {
+  applyReplicaHeadTransition,
+  hashReplicaOperationV2,
+  normalizeReplicaOperation,
+} from './replica-heads.mjs';
+
+// Task 12 interfaces live with the head state machine so the append path and the
+// promotion path share one canonical hash and one envelope normalizer.
+export { hashReplicaOperationV2, normalizeReplicaOperation };
 
 // Материализация изменений Firebase -> PostgreSQL.
 //
@@ -29,11 +38,32 @@ function permissionRows(payload) {
   return rows;
 }
 
+async function replicaHeadsPresent(client) {
+  if (client.__samosvalReplicaHeads !== undefined) return client.__samosvalReplicaHeads;
+  const present = Boolean((await client.query(
+    "SELECT to_regclass('public.replica_document_heads') AS relation",
+  )).rows[0].relation);
+  client.__samosvalReplicaHeads = present;
+  return present;
+}
+
 /**
  * Применяет одну операцию зеркала к рабочим таблицам резерва.
  * Возвращает true, если операция относится к известной коллекции.
  */
-export async function applyReplicaDocument(client, ws, operation) {
+export async function applyReplicaDocument(client, ws, operation, options = {}) {
+  const normalized = options.normalized ?? normalizeReplicaOperation(operation);
+  // Migration 026 turns the six materializable collections into a generation
+  // ledger. Before 026 the legacy path stays byte-compatible with S24.
+  if (await replicaHeadsPresent(client)) {
+    if (normalized.materializable) {
+      const result = await applyReplicaHeadTransition(client, ws, operation, {
+        ...options,
+        normalized,
+      });
+      return result.applied;
+    }
+  }
   const payload = asObject(operation.payload);
   const collection = String(payload.collection || '');
   const path = String(payload.path || '');
