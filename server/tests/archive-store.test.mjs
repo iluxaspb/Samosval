@@ -6,14 +6,20 @@ import {submitArchive} from '../src/archive-store.mjs';
 import {readArchiveSnapshot} from '../src/archive-read.mjs';
 import {submitRestoredCorrection} from '../src/restored-context-store.mjs';
 import {finalizeRestoredContext} from '../src/archive-revisions.mjs';
+import {withAdminClient} from './helpers/isolated-db.mjs';
 test('PostgreSQL archive mutations keep original snapshots, serialize concurrent editors, and restore the complete line atomically',{skip:!process.env.TEST_DATABASE_URL},async t=>{
   const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL,max:6}),sha=randomBytes(32).toString('hex'),ws='arc_'+sha.slice(0,20),uid=ws+'_a',worker=ws+'_w';let originalState;
   const archive={objectId:'site',objectName:'Site',date:'30.10.2026',activeLineIds:['truck','empty'],ttnStatus:{truck:'pending'},paper:{width:900},logs:[{id:'late',truckId:'truck',timestamp:20,volume:24,comment:'late'},{id:'early',truckId:'truck',timestamp:10,volume:24,comment:'early'}]};
   const send=(id,type,recordId,expectedRevision,user=uid)=>submitArchive(pool,user,{id,type,recordId,expectedRevision},ws);
   try{
     originalState=(await pool.query('SELECT initialized,owner_uid,import_sha256 FROM identity_state WHERE id=1')).rows[0];
-    await pool.query('CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL)');
-    await pool.query('CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))');
+    // import-таблицы создаёт привилегированное соединение: у app-роли нет
+    // CREATE на schema public. `grant: true` выдаёт app-роли DML на созданное,
+    // как это делает runner между провижинингом и стартом ребёнка.
+    await withAdminClient(async admin=>{
+      await admin.query('CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL)');
+      await admin.query('CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))');
+    },{grant:true});
     await pool.query('INSERT INTO workspaces(id) VALUES ($1)',[ws]);
     for(const [id,role] of [[uid,'admin'],[worker,'viewer']])await pool.query("INSERT INTO app_users(uid,email,display_name,role,status) VALUES ($1,'fixture@example.test',$1,$2,'active')",[id,role]);
     await pool.query("INSERT INTO migration_imports(sha256,workspace_id,source_project,exported_at,counts) VALUES ($1,$2,'samosval-offline',1000,'{}')",[sha,ws]);

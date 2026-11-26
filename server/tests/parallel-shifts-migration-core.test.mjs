@@ -11,10 +11,12 @@ import { shiftStartPayload } from '../src/shift-start.mjs';
 import { restoredLine } from '../src/archive-store.mjs';
 import { applyLineOperation } from '../src/line-rules.mjs';
 import {
+  adminUrl,
   applyMigrationsThrough,
   requireIsolatedDatabase,
   resetIsolatedDatabase,
   seedParallelShiftFixture,
+  withAdminClient,
 } from './helpers/isolated-db.mjs';
 
 const connectionString = process.env.TEST_DATABASE_URL;
@@ -28,6 +30,9 @@ if (connectionString && process.env.SAMOSVAL_ISOLATED_TEST === '1') {
 
 const migrationUrl = new URL('../sql/025_parallel_shifts_core.sql', import.meta.url);
 const poolForTest = (max = 1) => new pg.Pool({ connectionString, max });
+// Миграционный раннер сам создаёт реестр и таблицы, поэтому прямые вызовы
+// applyMigrations и фикстурный DDL идут привилегированным соединением.
+const adminPoolForTest = (max = 1) => new pg.Pool({ connectionString: adminUrl().href, max });
 
 test('025 validates confirmed timestamps before its first schema ALTER', async () => {
   const source = await readFile(migrationUrl, 'utf8');
@@ -94,7 +99,7 @@ test('migration runner rolls schema back when registry insert fails and validate
   skip: !approved,
 }, async () => {
   await resetIsolatedDatabase();
-  const pool = poolForTest();
+  const pool = adminPoolForTest();
   const directory = await mkdtemp(join(tmpdir(), 'samosval-migration-atomicity-'));
   try {
     await writeFile(join(directory, '001_atomic.sql'), 'BEGIN;\nCREATE TABLE atomic_probe(id integer);\nCOMMIT;\n');
@@ -1941,10 +1946,10 @@ test('025 backfills canonical shift fields and installs the exact core schema', 
       `SELECT count(*)::int AS n FROM schema_migrations
         WHERE filename='025_parallel_shifts_core.sql'`,
     )).rows[0].n, 1, 'repeat runner must be a no-op');
-    const registryRun = await applyMigrations(pool, {
+    const registryRun = await withAdminClient(admin => applyMigrations(admin, {
       exclude: ['018_auth_credentials.sql'],
       through: 25,
-    });
+    }));
     assert.deepEqual(
       registryRun.find(result => result.filename === '025_parallel_shifts_core.sql'),
       { filename: '025_parallel_shifts_core.sql', status: 'skipped' },

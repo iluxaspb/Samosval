@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import pg from 'pg';
 
-import {applyMigrationsThrough,requireIsolatedDatabase,resetIsolatedDatabase} from './helpers/isolated-db.mjs';
+import {applyMigrationsThrough,requireIsolatedDatabase,resetIsolatedDatabase,withAdminClient} from './helpers/isolated-db.mjs';
 import {listArchiveSeries,readArchiveHistory,readArchiveRevision,readLatestFinalizedArchive} from '../src/archive-latest.mjs';
 import {readArchiveEntries,readArchiveSnapshot} from '../src/archive-read.mjs';
 import {submitArchive} from '../src/archive-store.mjs';
@@ -136,9 +136,13 @@ test.before(async()=>{
   await resetIsolatedDatabase();
   await applyMigrationsThrough(25);
   pool=new pg.Pool({connectionString,max:4});
+  // Фикстурные import-таблицы создаёт привилегированное соединение: db-ребёнок
+  // работает как samosval_test_app и не имеет CREATE на schema public.
+  await withAdminClient(async admin=>{
+    await admin.query('CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL)');
+    await admin.query('CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))');
+  },{grant:true});
   await withClient(async client=>{
-    await client.query('CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL)');
-    await client.query('CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))');
     await client.query('INSERT INTO workspaces(id) VALUES($1)',[WS]);
     for(const [uid,role] of [[ADMIN,'admin'],[EDITOR,'archivist']]){
       await client.query("INSERT INTO app_users(uid,email,display_name,role,status) VALUES($1,$2,$1,$3,'active')",[uid,`${uid}@example.test`,role]);

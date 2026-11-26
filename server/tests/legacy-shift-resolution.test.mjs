@@ -20,6 +20,7 @@ import {
 } from '../src/legacy-shift-resolution-route.mjs';
 import { ACTIONS, roleView } from '../src/identity-rules.mjs';
 import {
+  adminUrl,
   applyMigrationsThrough,
   requireIsolatedDatabase,
   resetIsolatedDatabase,
@@ -591,20 +592,25 @@ test('a closed legacy row keeps its proven close fields while the type is resolv
 test('the resolution audit is append-only: update, delete and truncate are refused', { skip: !approved }, async () => {
   const ids = await prepare('resolve_audit', [{ shiftId: 'shift_audit' }]);
   const pool = db();
+  // Предмет пробы — сами append-only триггеры. db-ребёнок работает как
+  // samosval_test_app, у которого нет UPDATE/DELETE/TRUNCATE на аудите, и запрос
+  // упал бы с 42501 раньше триггера. Поэтому мутации пишем привилегированным
+  // соединением (суперпользователь не обходит триггеры), а запись аудита — app.
+  const guard = new pg.Pool({ connectionString: adminUrl().href, max: 1 });
   try {
     await call(pool, ids, 'shift_audit');
-    await assert.rejects(() => pool.query("UPDATE shift_legacy_resolution_audit SET evidence_note='подмена'"), { code: '23514' });
-    await assert.rejects(() => pool.query('DELETE FROM shift_legacy_resolution_audit'), { code: '23514' });
-    await assert.rejects(() => pool.query('TRUNCATE shift_legacy_resolution_audit'), { code: '23514' });
+    await assert.rejects(() => guard.query("UPDATE shift_legacy_resolution_audit SET evidence_note='подмена'"), { code: '23514' });
+    await assert.rejects(() => guard.query('DELETE FROM shift_legacy_resolution_audit'), { code: '23514' });
+    await assert.rejects(() => guard.query('TRUNCATE shift_legacy_resolution_audit'), { code: '23514' });
     // The receipt is the other half of the idempotency guarantee and is immutable too.
-    await assert.rejects(() => pool.query("UPDATE shift_legacy_resolution_receipts SET command_hash=repeat('a',64)"), { code: '23514' });
-    await assert.rejects(() => pool.query('DELETE FROM shift_legacy_resolution_receipts'), { code: '23514' });
-    await assert.rejects(() => pool.query('TRUNCATE shift_legacy_resolution_receipts'), { code: '23514' });
+    await assert.rejects(() => guard.query("UPDATE shift_legacy_resolution_receipts SET command_hash=repeat('a',64)"), { code: '23514' });
+    await assert.rejects(() => guard.query('DELETE FROM shift_legacy_resolution_receipts'), { code: '23514' });
+    await assert.rejects(() => guard.query('TRUNCATE shift_legacy_resolution_receipts'), { code: '23514' });
     assert.equal(await auditCount(pool), 1);
     assert.equal(await receiptCount(pool), 1);
     const note = (await pool.query('SELECT evidence_note FROM shift_legacy_resolution_audit')).rows[0].evidence_note;
     assert.equal(note, NOTE);
-  } finally { await pool.end(); }
+  } finally { await pool.end(); await guard.end(); }
 });
 
 // ---------- DB: the D12 gate is enforced by the schema, not only by the writer ----------

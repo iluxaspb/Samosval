@@ -8,7 +8,12 @@ const text=x=>`convert_from(decode('${Buffer.from(String(x)).toString('hex')}','
 const json=x=>text(JSON.stringify(x))+'::jsonb';
 // Match the original prepare-test-import hash convention exactly.
 export const snapshotHash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
-export function prepareRefresh(before,after){
+// expectedDatabase — имя БД, на которой разрешён TEST-разлив. По умолчанию
+// сохраняется исторический guard `samosval_test`; изолированный harness
+// передаёт фактическое имя своей generated-цели, поэтому guard остаётся
+// реальной проверкой, а не отключается.
+export function prepareRefresh(before,after,expectedDatabase='samosval_test'){
+ const guardDatabase=String(expectedDatabase).replaceAll("'","''");
  const oldCounts=validateMigrationSnapshot(before),counts=validateMigrationSnapshot(after),oldSha=snapshotHash(before),sha256=snapshotHash(after),changes={};
  if(!Number.isSafeInteger(after.exportedAt)||after.exportedAt<before.exportedAt||before.exportedBy!==after.exportedBy||oldSha===sha256)throw Error('invalid-refresh-source');
  for(const name of Object.keys(before.data)){
@@ -19,7 +24,7 @@ export function prepareRefresh(before,after){
  }
  const rows=after.data.tabelNextRecords;
  for(const r of rows){const p=r.data,{objectId,recordId}=parseKey(p.key);if(p.objectId!==objectId||p.recordId!==recordId||p.recordId!==r.id||!Number.isSafeInteger(p.revision)||p.revision<1||!map(p.data))throw Error('invalid-tabel-refresh');}
- const sql=['\\set ON_ERROR_STOP on','BEGIN;',"DO $guard$ BEGIN IF current_database()<>'samosval_test' THEN RAISE EXCEPTION 'TEST database required'; END IF; END $guard$;", "SELECT pg_advisory_xact_lock(hashtext('tabel:main_workspace'));", "SELECT id FROM workspaces WHERE id='main_workspace' FOR NO KEY UPDATE;", 'LOCK TABLE tabel_records,tabel_receipts,tabel_policy IN EXCLUSIVE MODE;',
+ const sql=['\\set ON_ERROR_STOP on','BEGIN;',`DO $guard$ BEGIN IF current_database()<>'${guardDatabase}' THEN RAISE EXCEPTION 'TEST database required'; END IF; END $guard$;`, "SELECT pg_advisory_xact_lock(hashtext('tabel:main_workspace'));", "SELECT id FROM workspaces WHERE id='main_workspace' FOR NO KEY UPDATE;", 'LOCK TABLE tabel_records,tabel_receipts,tabel_policy IN EXCLUSIVE MODE;',
   `DO $guard$ BEGIN IF NOT EXISTS(SELECT 1 FROM identity_state WHERE id=1 AND initialized AND import_sha256=${text(oldSha)}) OR NOT EXISTS(SELECT 1 FROM tabel_policy WHERE workspace_id='main_workspace' AND import_sha256=${text(oldSha)}) OR EXISTS(SELECT 1 FROM tabel_receipts WHERE workspace_id='main_workspace') OR (SELECT count(*) FROM tabel_records WHERE workspace_id='main_workspace')<>${oldCounts.tabelNextRecords} THEN RAISE EXCEPTION 'refresh target changed'; END IF; END $guard$;`];
  for(const r of before.data.tabelNextRecords)sql.push(`DO $guard$ BEGIN IF NOT EXISTS(SELECT 1 FROM tabel_records WHERE workspace_id='main_workspace' AND record_id=${text(r.id)} AND payload=${json(r.data)} AND baseline_payload=${json(r.data)}) THEN RAISE EXCEPTION 'NAS table differs from inspected baseline'; END IF; END $guard$;`);
  sql.push(`INSERT INTO migration_imports(sha256,workspace_id,source_project,exported_at,counts) VALUES (${text(sha256)},'main_workspace','samosval-offline',${after.exportedAt},${json(counts)});`);

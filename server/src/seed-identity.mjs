@@ -1,10 +1,10 @@
 import {fail,map} from './tabel-access.mjs';
-export async function seedIdentity(pool,{sha256,ownerUid}={}){
+export async function seedIdentity(pool,{sha256,ownerUid,expectedDatabase='samosval_working_test_reserve'}={}){
   if(!/^[a-f0-9]{64}$/.test(sha256||'')||ownerUid!==undefined&&(typeof ownerUid!=='string'||!ownerUid||ownerUid.length>128))throw fail('inspected-test-import-required');
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
-    if((await client.query('SELECT current_database() AS name')).rows[0].name!=='samosval_working_test_reserve')throw fail('test-database-required');
+    if((await client.query('SELECT current_database() AS name')).rows[0].name!==expectedDatabase)throw fail('test-database-required');
     const state=(await client.query('SELECT initialized FROM identity_state WHERE id=1 FOR UPDATE')).rows[0];
     if(!state||state.initialized)throw fail('identity-already-initialized',409);
     await client.query('LOCK TABLE registration_requests,identity_receipts,identity_audit IN EXCLUSIVE MODE');

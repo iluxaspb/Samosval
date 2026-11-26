@@ -11,6 +11,7 @@ import {
   applyMigrationsThrough,
   requireIsolatedDatabase,
   resetIsolatedDatabase,
+  withAdminClient,
 } from './helpers/isolated-db.mjs';
 
 const connectionString = process.env.TEST_DATABASE_URL;
@@ -40,6 +41,12 @@ async function withClient(fn) {
     await pool.end();
   }
 }
+
+// DDL и role-пробы этого файла (создание marker-таблицы, снятие constraint,
+// прямой прогон 026, SET LOCAL ROLE) требуют привилегированного соединения:
+// db-ребёнок работает как samosval_test_app. Данные и утверждения остаются на
+// TEST_DATABASE_URL; после DDL привилегированное соединение обновляет гранты.
+const withAdmin = fn => withAdminClient(fn, { grant: true });
 
 async function prepareThrough25() {
   await resetIsolatedDatabase();
@@ -126,7 +133,10 @@ async function schemaFingerprint(client) {
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         JOIN pg_roles r ON r.oid=c.relowner WHERE n.nspname='public'
       UNION ALL
-      SELECT 'acl', c.relname, COALESCE(c.relacl::text,'')
+      -- ACL сравниваем как множество, а не как массив: порядок элементов в
+      -- relacl зависит от истории REVOKE/GRANT и не является частью контракта.
+      SELECT 'acl', c.relname,
+             COALESCE((SELECT string_agg(a::text, ',' ORDER BY a::text) FROM unnest(c.relacl) a), '')
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
       UNION ALL
       SELECT 'migration', filename, COALESCE(checksum,'') FROM schema_migrations
@@ -194,8 +204,8 @@ function preflightAbort(name, { fixture, code, legacyKey = true }) {
   });
 }
 
-async function createMarkerTable(client) {
-  await client.query(`
+async function createMarkerTable() {
+  await withAdmin(client => client.query(`
     CREATE TABLE public.replica_stream_markers (
       workspace_id   text NOT NULL,
       direction      text NOT NULL,
@@ -204,7 +214,7 @@ async function createMarkerTable(client) {
       from_seq       bigint NOT NULL,
       to_seq         bigint NOT NULL,
       recorded_at    timestamptz NOT NULL DEFAULT now()
-    )`);
+    )`));
 }
 
 async function insertMarker(client, { direction = 'f2s', from, to, version = 1, kind = 'legacy-import' }) {
@@ -348,7 +358,7 @@ preflightAbort('026 aborts on a duplicated legacy (workspace_id,seq) key', {
   code: 'replica-preflight-seq-duplicate',
   legacyKey: false,
   fixture: async client => {
-    await client.query('ALTER TABLE replica_stream DROP CONSTRAINT replica_stream_pkey');
+    await withAdmin(admin => admin.query('ALTER TABLE replica_stream DROP CONSTRAINT replica_stream_pkey'));
     await setCursor(client, 1, 0);
     await insertStream(client, [
       { seq: 1, operationId: 'op-duplicate-key-1' },
@@ -360,7 +370,7 @@ preflightAbort('026 aborts on a duplicated legacy (workspace_id,seq) key', {
 preflightAbort('026 aborts on an ambiguous operation identity', {
   code: 'replica-preflight-operation-duplicate',
   fixture: async client => {
-    await client.query('ALTER TABLE replica_stream DROP CONSTRAINT replica_stream_workspace_id_direction_operation_id_key');
+    await withAdmin(admin => admin.query('ALTER TABLE replica_stream DROP CONSTRAINT replica_stream_workspace_id_direction_operation_id_key'));
     await setCursor(client, 2, 0);
     await insertStream(client, [{ seq: 1, operationId: 'op-ambiguous-1' }, { seq: 2, operationId: 'op-ambiguous-1' }]);
   },
@@ -373,7 +383,7 @@ preflightAbort('026 aborts on a cross-direction seq collision before the PK chan
   code: 'replica-preflight-direction-collision',
   legacyKey: false,
   fixture: async client => {
-    await client.query('ALTER TABLE replica_stream DROP CONSTRAINT replica_stream_pkey');
+    await withAdmin(admin => admin.query('ALTER TABLE replica_stream DROP CONSTRAINT replica_stream_pkey'));
     await setCursor(client, 1, 1);
     await insertStream(client, [{ seq: 1 }, { seq: 1, direction: 's2f' }]);
   },
@@ -401,7 +411,7 @@ preflightAbort('026 aborts on an s2f gap without a marker', {
 test('026 accepts a marker-covered s2f subsequence', { skip: !approved }, async () => {
   await prepareThrough25();
   await withClient(async client => {
-    await createMarkerTable(client);
+    await createMarkerTable();
     await setCursor(client, 0, 4);
     await insertStream(client, [
       { seq: 1, direction: 's2f' },
@@ -424,7 +434,7 @@ test('026 accepts a marker-covered f2s legacy import and still rejects a row out
   // Marker covers 3..4: rows 1,2,4 are the exact native prefix plus one retained row.
   await prepareThrough25();
   await withClient(async client => {
-    await createMarkerTable(client);
+    await createMarkerTable();
     await setCursor(client, 4, 0);
     await insertStream(client, [{ seq: 1 }, { seq: 2 }, { seq: 4 }]);
     await insertMarker(client, { direction: 'f2s', from: 3, to: 4, kind: 'legacy-import' });
@@ -438,7 +448,7 @@ test('026 accepts a marker-covered f2s legacy import and still rejects a row out
 preflightAbort('026 aborts when a row falls outside every declared marker range', {
   code: 'replica-preflight-f2s-row-outside-marker',
   fixture: async client => {
-    await createMarkerTable(client);
+    await createMarkerTable();
     await setCursor(client, 4, 0);
     await insertStream(client, [{ seq: 1 }, { seq: 2 }, { seq: 4 }]);
     await insertMarker(client, { direction: 'f2s', from: 3, to: 3 });
@@ -448,7 +458,7 @@ preflightAbort('026 aborts when a row falls outside every declared marker range'
 preflightAbort('026 aborts when a marker claims a range beyond the cursor', {
   code: 'replica-preflight-f2s-marker-invalid',
   fixture: async client => {
-    await createMarkerTable(client);
+    await createMarkerTable();
     await setCursor(client, 4, 0);
     await insertStream(client, [{ seq: 1 }, { seq: 2 }, { seq: 4 }]);
     await insertMarker(client, { direction: 'f2s', from: 3, to: 5 });
@@ -497,7 +507,7 @@ test('026 is idempotent: a second run keeps data, versions and the new PK', { sk
     );
   });
   const source = readFileSync(fileURLToPath(migrationPath), 'utf8');
-  await withClient(client => client.query(source));
+  await withAdmin(admin => admin.query(source));
 
   const second = await withClient(async client => {
     const { rows } = await client.query(
@@ -510,7 +520,7 @@ test('026 is idempotent: a second run keeps data, versions and the new PK', { sk
   assert.deepEqual(second.rows, first.rows, 'a re-run must not change historical rows');
 
   // The registry path stays a no-op as well.
-  const results = await withClient(client => applyMigrations(client, { through: 26 }));
+  const results = await withAdmin(admin => applyMigrations(admin, { through: 26 }));
   assert.equal(results.every(result => result.status === 'skipped'), true);
   const afterRegistry = await withClient(client => schemaFingerprint(client));
   assert.equal(afterRegistry, first.fingerprint);
@@ -550,7 +560,9 @@ test('026 rejects unknown versions and makes the stream append-only for every ro
     await insertStream(client, [{ seq: 1 }]);
   });
   await applyMigrationsThrough(26);
-  await withClient(async client => {
+  // SET LOCAL ROLE для NOLOGIN-владельца и проверка «триггер держит и владельца»
+  // возможны только на привилегированном соединении.
+  await withAdmin(async client => {
     for (const [column, value] of [['protocol_version', 3], ['hash_version', 0], ['protocol_version', 0]]) {
       await assert.rejects(
         () => client.query(
@@ -817,7 +829,8 @@ test('026 extends the role boundary: NOLOGIN owner, no runtime mutation path', {
     await insertStream(client, [{ seq: 1 }]);
   });
   await applyMigrationsThrough(26);
-  await withClient(async client => {
+  // GRANT/REVOKE и SET LOCAL ROLE выполняет только привилегированное соединение.
+  await withAdmin(async client => {
     const roles = await client.query(
       `SELECT rolname FROM pg_roles WHERE rolname IN
         ('samosval_migration_evidence_owner','samosval_runtime','samosval_maintenance')`,

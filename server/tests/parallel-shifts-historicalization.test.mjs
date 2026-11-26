@@ -14,6 +14,7 @@ import {
   REPORT_SCHEMA,
 } from '../src/legacy-historicalization.mjs';
 import {
+  adminUrl,
   applyMigrationsThrough,
   requireIsolatedDatabase,
   resetIsolatedDatabase,
@@ -26,6 +27,9 @@ if (connectionString && process.env.SAMOSVAL_ISOLATED_TEST === '1') {
   try { requireIsolatedDatabase(connectionString); approved = true; } catch {}
 }
 const db = (max = 1) => new pg.Pool({ connectionString, max });
+// DDL/role probes need the privileged connection: samosval_test_app owns nothing
+// and cannot CREATE ROLE or mutate append-only tables.
+const adminDb = (max = 1) => new pg.Pool({ connectionString: adminUrl().href, max });
 const sha = s => createHash('sha256').update(s).digest('hex');
 const FP = 'fp-test-1';
 const MANIFEST = sha('backup-manifest-test');
@@ -409,7 +413,10 @@ test('the fingerprint does not depend on the session TimeZone or DateStyle', { s
 
 test('the fingerprint does not depend on the privileges of the executing role', { skip: !approved }, async () => {
   const ids = await prepare('env_role', [{ shiftId: 'shift_env_role' }]);
-  const pool = db();
+  // Проба создаёт временную роль и правит ACL pg_proc — это возможно только
+  // привилегированным соединением; предмет пробы (независимость fingerprint от
+  // роли) от этого не меняется, ниже идёт SET LOCAL ROLE.
+  const pool = adminDb();
   const client = await pool.connect();
   const probe = 'samosval_fingerprint_probe';
   let revoked = false;
@@ -755,9 +762,15 @@ test('successful historicalization: historical state, no synthetic close, assign
     assert.equal(snapshot.payload_sha256, sha(snapshot.payload_canonical), 'hash is bound to the stored canonical bytes');
     assert.equal((await client.query('SELECT count(*)::int AS n FROM legacy_cutover_historicalization_audit')).rows[0].n, 2);
     assert.equal((await client.query("SELECT count(*)::int AS n FROM line_logs WHERE shift_id='shift_ok'")).rows[0].n, 1);
-    await assert.rejects(() => client.query("UPDATE legacy_line_status_snapshots SET payload='{}'::jsonb"), { code: '23514' });
-    await assert.rejects(() => client.query('TRUNCATE legacy_line_status_snapshots'), { code: '23514' });
-    await assert.rejects(() => client.query('TRUNCATE legacy_cutover_historicalization_audit'), { code: '23514' });
+    // Неизменяемость доказываем триггерами, а не выданными правами: у
+    // samosval_test_app нет UPDATE/TRUNCATE на immutable-таблицах, поэтому
+    // мутации пишем привилегированным соединением.
+    const guard = adminDb();
+    try {
+      await assert.rejects(() => guard.query("UPDATE legacy_line_status_snapshots SET payload='{}'::jsonb"), { code: '23514' });
+      await assert.rejects(() => guard.query('TRUNCATE legacy_line_status_snapshots'), { code: '23514' });
+      await assert.rejects(() => guard.query('TRUNCATE legacy_cutover_historicalization_audit'), { code: '23514' });
+    } finally { await guard.end(); }
     await assert.rejects(() => client.query("UPDATE shifts SET historicalized_by_uid=NULL WHERE shift_id='shift_ok'"), { code: '23514' });
   } finally { client.release(); await pool.end(); }
 });
@@ -818,8 +831,12 @@ test('fault injection after the snapshot step rolls the whole transaction back',
     const built = await buildFor(client, ids);
     await confirm(client, ids, built, 'conf_fault');
     // Make the audit insert fail after snapshot, removal and marker already ran.
-    await client.query('ALTER TABLE legacy_cutover_historicalization_audit DROP CONSTRAINT legacy_cutover_historicalization_audit_reason_check');
-    await client.query("ALTER TABLE legacy_cutover_historicalization_audit ADD CONSTRAINT legacy_cutover_historicalization_audit_reason_check CHECK (reason = 'never')");
+    // Фикстурный DDL (подмена CHECK) выполняется привилегированным соединением.
+    const guard = adminDb();
+    try {
+      await guard.query('ALTER TABLE legacy_cutover_historicalization_audit DROP CONSTRAINT legacy_cutover_historicalization_audit_reason_check');
+      await guard.query("ALTER TABLE legacy_cutover_historicalization_audit ADD CONSTRAINT legacy_cutover_historicalization_audit_reason_check CHECK (reason = 'never')");
+    } finally { await guard.end(); }
     await assert.rejects(() => consume(client, ids, built, 'conf_fault'));
     const shift = (await client.query("SELECT state, historicalized_at FROM shifts WHERE shift_id='shift_fault'")).rows[0];
     assert.equal(shift.state, 'historical');

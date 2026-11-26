@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import pg from 'pg';
 import {readArchiveSnapshot} from '../src/archive-read.mjs';
+import {withAdminClient} from './helpers/isolated-db.mjs';
 
 test('PostgreSQL archive retains imported sheet fields, isolates source and enforces access',{skip:!process.env.TEST_DATABASE_URL},async t=>{
   const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL});
@@ -10,8 +11,12 @@ test('PostgreSQL archive retains imported sheet fields, isolates source and enfo
   const q=(sql,args)=>pool.query(sql,args);
   try{
     originalState=(await q('SELECT initialized,owner_uid,import_sha256 FROM identity_state WHERE id=1')).rows[0];
-    await q('CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL)');
-    await q('CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))');
+    // import-таблицы создаёт привилегированное соединение: у app-роли нет
+    // CREATE на schema public. `grant: true` выдаёт app-роли DML на созданное.
+    await withAdminClient(async admin=>{
+      await admin.query('CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL)');
+      await admin.query('CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))');
+    },{grant:true});
     await q('INSERT INTO workspaces(id) VALUES ($1)',[ws]);
     for(const [id,r,status] of [[uid,role,'active'],[admin,'admin','active'],[disabled,'admin','disabled']])await q('INSERT INTO app_users(uid,email,display_name,role,status) VALUES ($1,$2,$1,$3,$4)',[id,'fixture@example.test',r,status]);
     await q("INSERT INTO migration_imports(sha256,workspace_id,source_project,exported_at,counts) VALUES ($1,$2,'samosval-offline',1000,'{}')",[sha,ws]);

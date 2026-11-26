@@ -14,7 +14,9 @@ test('PostgreSQL shift close freezes loads, preserves source until material conf
   try {
     await pool.query("INSERT INTO workspaces(id) VALUES ('main_workspace') ON CONFLICT DO NOTHING");
     await pool.query("INSERT INTO app_users(uid,email,display_name,role,status) VALUES ($1,'fixture@example.test','Fixture','admin','active')",[uid]);
-    await pool.query("INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ('main_workspace',$1,true,$2)",[shiftId,{id:shiftId,objectId,objectName:'Fixture',startDate:'30.10.2026',startedAt}]);
+    // workShift обязателен: linePeriod не выводит день/ночь из времени старта
+// (D4 в 025), и без доказанного типа закрытие обязано падать unknown-shift-period.
+    await pool.query("INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ('main_workspace',$1,true,$2)",[shiftId,{id:shiftId,objectId,objectName:'Fixture',startDate:'30.10.2026',startedAt,workShift:'day'}]);
     await pool.query("INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES ('main_workspace',$1,$2)",[truck,{number:'TEST',defaultVol:24}]);
     await pool.query("INSERT INTO line_truck_statuses(workspace_id,truck_id,shift_id,payload) VALUES ('main_workspace',$1,$2,$3)",[truck,shiftId,{id:truck,shiftId,onLine:true,cycleRevision:1,arriveStatus:'10:00',arriveTimestamp:arrival,lastLoadTimestamp:null}]);
     await pool.query("INSERT INTO line_logs(workspace_id,log_id,shift_id,truck_id,payload) VALUES ('main_workspace',$1,$2,$3,$4)",[prefix+'_log',shiftId,truck,{shiftId,truckId:truck,timestamp:arrival-1000,volume:24}]);

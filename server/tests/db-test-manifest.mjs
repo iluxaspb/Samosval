@@ -43,12 +43,20 @@ const consumersByFile = {
     'tests/helpers/isolated-db.mjs:pg'
   ],
   "archive-parallel-restore": [
+    "scripts/apply-migrations.mjs:pg",
     "tests/archive-parallel-restore.test.mjs:db-env",
-    "tests/archive-parallel-restore.test.mjs:pg"
+    "tests/archive-parallel-restore.test.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg"
   ],
   "archive-read": [
+    "scripts/apply-migrations.mjs:pg",
     "tests/archive-read.test.mjs:db-env",
-    "tests/archive-read.test.mjs:pg"
+    "tests/archive-read.test.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg"
   ],
   "archive-revisions": [
     "scripts/apply-migrations.mjs:pg",
@@ -75,8 +83,12 @@ const consumersByFile = {
     "tests/helpers/isolated-db.mjs:pg"
   ],
   "archive-store": [
+    "scripts/apply-migrations.mjs:pg",
     "tests/archive-store.test.mjs:db-env",
-    "tests/archive-store.test.mjs:pg"
+    "tests/archive-store.test.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg"
   ],
   "auth-local": [],
   "auxiliary-store": [
@@ -321,8 +333,27 @@ const dbReasons = {
   'truck-phone-http': 'Starts the real src/index.mjs API child and imports pg; the child inherits its generated TEST_DATABASE_URL'
 };
 
+// Per-file wall-clock budget. These legacy roots reset the target and replay the
+// migration chain inside their own hooks, several times per file, so the default
+// 60s is not a realistic ceiling for the heaviest ones. Measured locally on the
+// isolated harness; kept generous to absorb slower CI disks.
+const timeoutsByFile = {
+  'archive-consumers-latest': 180_000,
+  'archive-revisions': 180_000,
+  'archive-schema-025': 180_000,
+  'legacy-shift-resolution': 180_000,
+  'parallel-shifts-historicalization': 240_000,
+  'parallel-shifts-migration-core': 240_000,
+  'replica-materialize-parallel-shifts': 180_000,
+  'replica-stream-026': 240_000,
+  'restored-context-migration': 240_000,
+  'restored-context-store': 180_000
+};
+
 const fixturesByFile = {
-  'identity-store': ['identity-empty'],
+  'auxiliary-store': ['import-schema'],
+  'backup-store': ['import-schema'],
+  'identity-store': ['identity-empty', 'auth-schema-018'],
   'refresh-source': ['import-schema'],
   'replica-materialize-parallel-shifts': ['replica-admin', 'replica-empty-stream-cursors'],
   'replica-materialize': ['replica-admin', 'replica-empty-stream-cursors'],
@@ -334,6 +365,8 @@ const fixturesByFile = {
 };
 
 const importTablesByFile = {
+  'auxiliary-store': ['import-schema'],
+  'backup-store': ['import-schema'],
   'refresh-source': ['import-schema'],
   'seed-identity-db': ['import-schema'],
   'seed-objects-db': ['import-schema']
@@ -347,12 +380,36 @@ const unitEntries = unitFiles.map(name => ({
   consumers: consumersByFile[name] ?? []
 }));
 
+const bootstrapEnvByFile = {
+  // These db roots reset the target and replay migrations through 025 (or 026)
+  // inside their own setup hook. DDL — DROP/CREATE SCHEMA, CREATE TABLE, the 025
+  // owner transfers and the SET SESSION AUTHORIZATION probes — cannot run as
+  // `samosval_test_app`, so the helper performs it on a privileged bootstrap
+  // connection while every assertion still runs on the app connection
+  // (spec 3.10/§6). The extra passwords exist for the legacy restored-context
+  // probes that must switch to the real runtime/maintenance role.
+  'archive-consumers-latest': ['bootstrap-url'],
+  'archive-parallel-restore': ['bootstrap-url'],
+  'archive-read': ['bootstrap-url'],
+  'archive-store': ['bootstrap-url'],
+  'archive-revisions': ['bootstrap-url'],
+  'archive-schema-025': ['bootstrap-url'],
+  'legacy-shift-resolution': ['bootstrap-url'],
+  'parallel-shifts-historicalization': ['bootstrap-url'],
+  'parallel-shifts-migration-core': ['bootstrap-url'],
+  'replica-materialize-parallel-shifts': ['bootstrap-url'],
+  'replica-stream-026': ['bootstrap-url'],
+  'restored-context-migration': ['bootstrap-url', 'runtime-password', 'maintenance-password'],
+  'restored-context-store': ['bootstrap-url']
+};
+
 const dbEntries = dbFiles.map(name => ({
   file: `tests/${name}.test.mjs`,
   kind: 'db',
   discovery: name === 'truck-phone-http' ? 'indirect-http' : 'direct',
   reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
+  env: bootstrapEnvByFile[name] ?? [],
   // No db root is on S25 yet: the S25 contract is proved by the
   // `isolated-db-s25-fixtures` harness contract. Nine roots build through 025;
   // five of them build pre-025 state and then apply 025 as their actual subject
@@ -377,7 +434,7 @@ migrationsThrough: name === 'replica-stream-026' ? 26 : name === 'parallel-shift
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],
-  timeoutMs: name === 'truck-phone-http' ? 120_000 : 60_000,
+  timeoutMs: timeoutsByFile[name] ?? (name === 'truck-phone-http' ? 120_000 : 60_000),
   serial: false,
   exclusive: name === 'truck-phone-http',
   allowedSkips: []
@@ -397,7 +454,10 @@ const harnessEntries = harnessFiles.map(name => ({
     'isolated-db-fixtures': ['bootstrap-url'],
     'isolated-db-templates': ['bootstrap-url', 'app-password'],
     'isolated-db-lifecycle': ['bootstrap-url', 'app-password', 'runtime-password'],
-     'isolated-db-integration': ['target-url', 'isolated-marker'],
+     // The integration root resets the target and replays migrations 001–024
+     // inside its own setup hook, so it needs the same privileged bootstrap
+     // connection the db helper uses; the assertions still run as the app role.
+     'isolated-db-integration': ['target-url', 'isolated-marker', 'bootstrap-url'],
     // Applies the 025 provenance/archive fixtures on clones of the run's sealed
     // S25 template. Two fixtures need table ownership (the pre-025 legacy row
     // behind the named v2 bridge and the fixture registry), which a db child

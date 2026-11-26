@@ -1,10 +1,10 @@
 import {fail,map} from './tabel-access.mjs';
-export async function seedServices(pool,{workspaceId='main_workspace',sha256}={}){
+export async function seedServices(pool,{workspaceId='main_workspace',sha256,expectedDatabase='samosval_working_test_reserve'}={}){
   if(workspaceId!=='main_workspace'||!/^[a-f0-9]{64}$/.test(sha256||''))throw fail('inspected-test-import-required');
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
-    if((await client.query('SELECT current_database() AS name')).rows[0].name!=='samosval_working_test_reserve')throw fail('test-database-required');
+    if((await client.query('SELECT current_database() AS name')).rows[0].name!==expectedDatabase)throw fail('test-database-required');
     await client.query('SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE',[workspaceId]);
     for(const table of ['workspace_settings','game_records','workspace_services_state']){
       await client.query(`LOCK TABLE ${table} IN EXCLUSIVE MODE`);

@@ -7,7 +7,11 @@ import { validateMigrationSnapshot } from '../../test-app/synology/migration-sna
 
 const json=value=>`convert_from(decode('${Buffer.from(JSON.stringify(value),'utf8').toString('hex')}','hex'),'UTF8')::jsonb`;
 const str=value=>`convert_from(decode('${Buffer.from(String(value),'utf8').toString('hex')}','hex'),'UTF8')`;
-export function prepareImport(payload,{cycleMinutes}={}){
+// expectedDatabases — точный список БД, где разрешён импорт. По умолчанию
+// сохраняется исторический guard; изолированный harness передаёт фактическое
+// имя своей generated-цели, поэтому проверка не отключается.
+export function prepareImport(payload,{cycleMinutes,expectedDatabases=['samosval_test','samosval_working_test_reserve']}={}){
+  const guardDatabases=expectedDatabases.map(name=>`'${String(name).replaceAll("'","''")}'`).join(',');
   const counts=validateMigrationSnapshot(payload),data=payload.data;
   if(!Number.isSafeInteger(payload.exportedAt)||payload.exportedAt<=0)throw new Error('Export timestamp is required');
   const shift=data.shift[0].data, workspace=payload.workspaceId;
@@ -25,7 +29,7 @@ export function prepareImport(payload,{cycleMinutes}={}){
   }
   const hash=createHash('sha256').update(JSON.stringify(payload)).digest('hex');
   const sql=[String.raw`\set ON_ERROR_STOP on`, 'BEGIN;',
-    `DO $guard$ BEGIN IF current_database() NOT IN ('samosval_test','samosval_working_test_reserve') THEN RAISE EXCEPTION 'Import allowed only in samosval_test'; END IF; END $guard$;`,
+    `DO $guard$ BEGIN IF current_database() NOT IN (${guardDatabases}) THEN RAISE EXCEPTION 'Import allowed only in samosval_test'; END IF; END $guard$;`,
     `SELECT pg_advisory_xact_lock(hashtext('samosval-test-initial-import'));`,
     'LOCK TABLE app_users, role_permissions, shifts, line_trucks, line_truck_statuses, line_logs, line_operation_receipts, line_audit IN EXCLUSIVE MODE;',
     `DO $guard$ BEGIN IF EXISTS(SELECT 1 FROM app_users) OR EXISTS(SELECT 1 FROM role_permissions) OR EXISTS(SELECT 1 FROM shifts) OR EXISTS(SELECT 1 FROM line_trucks) OR EXISTS(SELECT 1 FROM line_truck_statuses) OR EXISTS(SELECT 1 FROM line_logs) OR EXISTS(SELECT 1 FROM line_operation_receipts) OR EXISTS(SELECT 1 FROM line_audit) THEN RAISE EXCEPTION 'Target is not empty; refusing to overwrite'; END IF; END $guard$;`,

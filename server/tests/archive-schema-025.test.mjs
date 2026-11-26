@@ -8,6 +8,7 @@ import {
   applyMigrationsThrough,
   requireIsolatedDatabase,
   resetIsolatedDatabase,
+  withAdminClient,
 } from './helpers/isolated-db.mjs';
 
 const connectionString = process.env.TEST_DATABASE_URL;
@@ -734,7 +735,12 @@ test('migration evidence is one manifest per context, legacy shift and locator',
 // ---------- 9. append-only tables ----------
 
 test('every append-only archive table rejects UPDATE, DELETE and TRUNCATE', { skip: !approved }, async () => {
-  await withClient(async client => {
+  // Предмет пробы — сами guard-триггеры, а не выдача прав: db-ребёнок работает
+  // как samosval_test_app без DML на append-only таблицах, и тогда UPDATE падает
+  // с 42501 раньше триггера. Поэтому пробу пишем привилегированным соединением
+  // (суперпользователь не обходит триггеры), а права ролей проверяет отдельный
+  // тест 13.
+  await withAdminClient(async client => {
     const series = await createSeries(client, 'archive_append');
     const base = await addRevision(client, series, { revision: 1 });
     const next = await addRevision(client, series, { revision: 2, previous: base });

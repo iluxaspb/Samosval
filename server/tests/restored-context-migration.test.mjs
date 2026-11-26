@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import pg from 'pg';
 
 import {
+  adminUrl,
   applyMigrationsThrough,
   requireIsolatedDatabase,
   resetIsolatedDatabase,
@@ -250,7 +251,13 @@ test('restored-context migration', { skip: !approved }, async t => {
       await seed.end();
     }
   }
-  pool = new pg.Pool({ connectionString, max: 4 });
+  // Предмет этого файла — миграционная власть и роли: manifest читает только
+  // maintenance-исполнитель, `withMigrationMaintenanceWindow` выдаёт и отзывает
+  // EXECUTE, а пробы идут «настоящей» сессией через SET SESSION AUTHORIZATION.
+  // Всё это возможно только на привилегированном соединении; db-ребёнок как
+  // samosval_test_app не имеет ни одного из этих прав. Фикстуры по-прежнему
+  // пишутся app-соединением.
+  pool = new pg.Pool({ connectionString: adminUrl().href, max: 4 });
 
   try {
     await runCases(t);

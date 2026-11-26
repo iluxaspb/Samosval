@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import pg from 'pg';
+import {withAdminClient} from './helpers/isolated-db.mjs';
 // Параллельное восстановление архива (решение владельца 23.11.2026): архивную
 // смену можно восстановить для редактирования, не закрывая активную смену
 // линии. Восстановленная смена существует параллельно: свои line_logs, свой
@@ -25,8 +26,13 @@ test('PostgreSQL archive restore runs in parallel with the live line',{skip:!pro
   let originalState;
   try{
     originalState=(await pool.query('SELECT initialized,owner_uid,import_sha256 FROM identity_state WHERE id=1')).rows[0];
-    await pool.query('CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL)');
-    await pool.query('CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))');
+    // import-таблицы создаёт привилегированное соединение: у app-роли нет
+    // CREATE на schema public. `grant: true` выдаёт app-роли DML на созданное,
+    // как это делает runner между провижинингом и стартом ребёнка.
+    await withAdminClient(async admin=>{
+      await admin.query('CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL)');
+      await admin.query('CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))');
+    },{grant:true});
     await pool.query('INSERT INTO workspaces(id) VALUES ($1)',[ws]);
     await pool.query("INSERT INTO app_users(uid,email,display_name,role,status) VALUES ($1,'fixture@example.test',$1,'admin','active')",[uid]);
     await pool.query("INSERT INTO migration_imports(sha256,workspace_id,source_project,exported_at,counts) VALUES ($1,$2,'samosval-offline',1000,'{}')",[sha,ws]);

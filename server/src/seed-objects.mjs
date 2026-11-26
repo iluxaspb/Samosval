@@ -1,11 +1,11 @@
 // Promote the inspected TEST snapshot once; never overwrite a live dictionary.
 import {fail,map} from './tabel-access.mjs';
-export async function seedObjects(pool,{workspaceId='main_workspace',sha256}={}) {
+export async function seedObjects(pool,{workspaceId='main_workspace',sha256,expectedDatabase='samosval_working_test_reserve'}={}) {
   if(workspaceId!=='main_workspace'||!/^[a-f0-9]{64}$/.test(sha256||''))throw fail('inspected-test-import-required');
   const client=await pool.connect();
   try {
     await client.query('BEGIN');
-    if((await client.query('SELECT current_database() AS name')).rows[0].name!=='samosval_working_test_reserve')throw fail('test-database-required');
+    if((await client.query('SELECT current_database() AS name')).rows[0].name!==expectedDatabase)throw fail('test-database-required');
     await client.query('SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE',[workspaceId]);
     await client.query('LOCK TABLE workspace_objects IN EXCLUSIVE MODE');
     if((await client.query('SELECT 1 FROM workspace_objects WHERE workspace_id=$1 LIMIT 1',[workspaceId])).rowCount)throw fail('target-not-empty',409);

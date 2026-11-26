@@ -16,7 +16,11 @@ test('refresh accepts only inspected table/notification changes and keeps the or
  const broken=structuredClone(after);broken.data.tabelNextRecords[0].data.recordId='other';assert.throws(()=>prepareRefresh(before,broken),/invalid-tabel-refresh/);
 });
 test('PostgreSQL source refresh checks the complete NAS baseline and commits fresh rows atomically',{skip:!process.env.TEST_DATABASE_URL},async t=>{
- const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL,max:2}),{before,after}=fixture(),r=prepareRefresh(before,after);let state;
+ const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL,max:2}),{before,after}=fixture();let state;
+ // Guard в SQL остаётся реальной проверкой: тест передаёт фактическое имя
+ // сгенерированной цели, а не отключает сравнение.
+ const database=(await pool.query('SELECT current_database() AS name')).rows[0].name;
+ const r=prepareRefresh(before,after,database);
  const execute=async()=>{const c=await pool.connect();try{await c.query(r.sql.replace(/^\\set[^\n]*\n/,''));}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}};
  try{
   assert.equal((await pool.query("SELECT count(*)::int n FROM tabel_records WHERE workspace_id='main_workspace'")).rows[0].n,0,'isolated TEST database required');

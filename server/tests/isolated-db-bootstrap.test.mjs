@@ -441,6 +441,9 @@ test('per-run capability isolates two registered targets and direct identity mut
   } finally {
     for (const [database, runid, capability] of [[targetA,runA,capabilities.a],[targetB,runB,capabilities.b]]) {
       await broker.run({ operation:'dropReservedTarget', database, runid, capability }).catch(() => {});
+      // Receipt cleanup keeps this fixed-name contract re-runnable: a leftover
+      // `marked` receipt makes the next reserve_target reject the same name.
+      await bootstrap.query('DELETE FROM samosval_isolated_admin.target_receipts WHERE target_name=$1::name', [database]).catch(() => {});
     }
     await admin.end(); await bootstrap.end();
   }
@@ -466,5 +469,11 @@ test('owner mismatch and reserved/template cleanup negatives preserve sessions',
       await assert.rejects(admin.query('SELECT samosval_isolated_admin.mark_reserved_target($1,$2)',[name,capabilities.c]), /identity mismatch/i);
       assert.equal((await session.query('SELECT 1 AS alive')).rows[0].alive,1);
     } finally { await session.end(); }
-  } finally { await bootstrap.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`); await admin.end(); await bootstrap.end(); }
+  } finally {
+    await bootstrap.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+    // The reserved receipt must not outlive the contract: the name is fixed and
+    // a leftover `reserved` row blocks every later run in the same cluster.
+    await bootstrap.query('DELETE FROM samosval_isolated_admin.target_receipts WHERE target_name=$1::name', [name]).catch(() => {});
+    await admin.end(); await bootstrap.end();
+  }
 });

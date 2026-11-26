@@ -7,6 +7,7 @@ import {
   applyMigrationsThrough,
   requireIsolatedDatabase,
   resetIsolatedDatabase,
+  withAdminClient,
 } from './helpers/isolated-db.mjs';
 import {
   CORRECTION_TYPES,
@@ -316,7 +317,9 @@ test('restored context corrections are isolated, CAS-guarded and append-only', {
       // Указатель серии, называющий несуществующую ревизию, возможен только без
       // FK (он и запрещает такое состояние). Убираем FK на время проверки, чтобы
       // доказать: справочные поля не показывают «latest», которого нет.
-      await client.query('ALTER TABLE shift_archive_series DROP CONSTRAINT shift_archive_series_latest_revision_fk');
+      // Снятие/возврат FK — фикстурный DDL, он идёт привилегированным
+      // соединением: samosval_test_app не владеет таблицей.
+      await withAdminClient(admin => admin.query('ALTER TABLE shift_archive_series DROP CONSTRAINT shift_archive_series_latest_revision_fk'));
       try {
         await client.query(
           'UPDATE shift_archive_series SET latest_finalized_revision=2,latest_finalized_sha256=$3 WHERE workspace_id=$1 AND archive_id=$2',
@@ -334,12 +337,12 @@ test('restored context corrections are isolated, CAS-guarded and append-only', {
           'UPDATE shift_archive_series SET latest_finalized_revision=1,latest_finalized_sha256=$3 WHERE workspace_id=$1 AND archive_id=$2',
           [WS, ARCHIVE_OPEN, openSha],
         );
-        await client.query(
+        await withAdminClient(admin => admin.query(
           `ALTER TABLE shift_archive_series ADD CONSTRAINT shift_archive_series_latest_revision_fk
              FOREIGN KEY (workspace_id,archive_id,latest_finalized_revision,latest_finalized_sha256)
              REFERENCES shift_archive_revisions(workspace_id,archive_id,archive_revision,payload_sha256)
              ON UPDATE RESTRICT ON DELETE RESTRICT`,
-        );
+        ));
       }
       const again = await readRestoredContext(client, { workspaceId: WS, restoredContextId: OPEN_CTX });
       assert.equal(again.latestFinalizedRevision, 1);

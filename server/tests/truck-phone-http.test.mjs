@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {once} from 'node:events';import pg from 'pg';import {signSession} from '../src/auth-local.mjs';
+import test from 'node:test';import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {once} from 'node:events';import {fileURLToPath} from 'node:url';import pg from 'pg';import {signSession} from '../src/auth-local.mjs';
 test('real HTTP phone auth, ACL, epoch, authority, legacy read and field isolation',{skip:!process.env.TEST_DATABASE_URL},async()=>{
  const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL});const secret='89'.repeat(32),origin='http://127.0.0.1:18099';let child;
  const tokens={};const ids=['http_admin','http_viewer','http_disabled'];
@@ -10,7 +10,15 @@ test('real HTTP phone auth, ACL, epoch, authority, legacy read and field isolati
  await pool.query("INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES('main_workspace','http_truck','{}')");
  await pool.query("UPDATE workspaces SET restore_epoch=7 WHERE id='main_workspace'");
  await pool.query("UPDATE server_authority SET provider='ubuntu',generation=3 WHERE workspace_id='main_workspace'");
- child=spawn(process.execPath,['server/src/index.mjs'],{env:{...process.env,AUTH_SESSION_SECRET:secret,FIREBASE_PROJECT_ID:'synthetic-phone-qa',WORKSPACE_ID:'main_workspace',PORT:'18099',ALLOWED_ORIGINS:origin},stdio:'ignore'});
+ // Сервер запускается из каталога server/ (cwd), поэтому путь 'src/index.mjs'
+ // корректен и в старом прогоне из корня репозитория, и в harness (cwd=server/).
+ const serverDirectory=fileURLToPath(new URL('..',import.meta.url));
+ // Реальный сервер требует POSTGRES_*; в harness ребёнок получает только
+ // TEST_DATABASE_URL, поэтому параметры подключения выводим из него. Сам
+ // сервер по-прежнему требует явной конфигурации (guard не ослаблен).
+ const dbUrl=new URL(process.env.TEST_DATABASE_URL);
+ const dbEnv={POSTGRES_DB:decodeURIComponent(dbUrl.pathname.slice(1)),POSTGRES_USER:decodeURIComponent(dbUrl.username),POSTGRES_PASSWORD:decodeURIComponent(dbUrl.password),PGHOST:dbUrl.hostname,PGPORT:dbUrl.port||'5432'};
+ child=spawn(process.execPath,['src/index.mjs'],{cwd:serverDirectory,env:{...process.env,...dbEnv,AUTH_SESSION_SECRET:secret,FIREBASE_PROJECT_ID:'synthetic-phone-qa',WORKSPACE_ID:'main_workspace',PORT:'18099',ALLOWED_ORIGINS:origin},stdio:'ignore'});
  for(let i=0;i<100;i++){try{await fetch(origin+'/health/live');break;}catch{await new Promise(r=>setTimeout(r,50));}}
  const req=(uid,body,extra={},path='/api/v1/truck-phones')=>fetch(origin+path,{method:body?'POST':'GET',headers:{Origin:origin,...(uid?{Authorization:'Bearer '+tokens[uid]}:{}),'X-Samosval-Epoch':'7','X-Samosval-Generation':'3','Content-Type':'application/json',...extra},...(body?{body:JSON.stringify(body)}:{})});
  assert.equal((await req(null)).status,401);assert.equal((await req(ids[2])).status,401);
