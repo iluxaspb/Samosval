@@ -4,7 +4,11 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 const VERSION = 1;
 const TOP_FIELDS = new Set(['manifestVersion', 'entries', 'harnessFixtures']);
 const COMMON_FIELDS = new Set(['file', 'kind', 'discovery', 'reason', 'consumers']);
-const HARNESS_FIELDS = new Set([...COMMON_FIELDS, 'env']);
+const HARNESS_FIELDS = new Set([...COMMON_FIELDS, 'env', 'timeoutMs']);
+// `timeoutMs` is optional for a harness contract: the pure registry checks keep
+// the runner's 60s default, while a root that drives the real runner as a
+// nested child declares its own budget inside the same shared range.
+const HARNESS_REQUIRED_FIELDS = new Set([...COMMON_FIELDS, 'env']);
 // Closed set of run-scoped dependencies a child may receive, mirroring
 // scripts/isolated-db/env.mjs. `env` never names a raw variable or URL.
 const ENV_NAMES = new Set([
@@ -67,7 +71,8 @@ async function validateEntry(entry, serverDirectory) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail('entry must be an object');
   const allowed = entry.kind === 'db' ? DB_FIELDS : entry.kind === 'harness-contract' ? HARNESS_FIELDS : COMMON_FIELDS;
   for (const field of Object.keys(entry)) if (!allowed.has(field)) fail(`unknown field ${field} in ${entry.file ?? '<unknown>'}`);
-  for (const field of allowed) if (!(field in entry)) fail(`missing ${field} in ${entry.file ?? '<unknown>'}`);
+  const required = entry.kind === 'harness-contract' ? HARNESS_REQUIRED_FIELDS : allowed;
+  for (const field of required) if (!(field in entry)) fail(`missing ${field} in ${entry.file ?? '<unknown>'}`);
   await canonicalPath(serverDirectory, entry.file);
   if (!KINDS.has(entry.kind) || !DISCOVERY.has(entry.discovery)) fail(`unknown classification for ${entry.file}`);
   if (!Array.isArray(entry.consumers) || !entry.consumers.every(value => typeof value === 'string') || new Set(entry.consumers).size !== entry.consumers.length) fail(`invalid consumers in ${entry.file}`);
@@ -75,6 +80,7 @@ async function validateEntry(entry, serverDirectory) {
   if (entry.kind === 'unit' && (entry.discovery !== 'pure-import' || entry.consumers.some(value => !value.startsWith('audit:')))) fail(`unit consumer mismatch for ${entry.file}`);
   if (entry.kind === 'harness-contract' && entry.discovery !== 'harness-contract') fail(`harness discovery mismatch for ${entry.file}`);
   if ('env' in entry) validateRegistry('env', entry.env, ENV_NAMES, entry.file);
+  if ('timeoutMs' in entry && (!Number.isInteger(entry.timeoutMs) || entry.timeoutMs < 1_000 || entry.timeoutMs > 300_000)) fail(`invalid timeoutMs in ${entry.file}`);
   if (entry.kind !== 'db') return;
   if (!BASELINE_VERSIONS.has(entry.baseline)) fail(`unsupported baseline for ${entry.file}`);
   if (!entry.consumers.length) fail(`DB consumer signature required for ${entry.file}`);

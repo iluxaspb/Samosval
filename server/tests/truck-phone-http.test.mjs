@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {once} from 'node:events';import {fileURLToPath} from 'node:url';import pg from 'pg';import {signSession} from '../src/auth-local.mjs';
+import test from 'node:test';import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {appendFileSync} from 'node:fs';import {once} from 'node:events';import {fileURLToPath} from 'node:url';import pg from 'pg';import {signSession} from '../src/auth-local.mjs';
 test('real HTTP phone auth, ACL, epoch, authority, legacy read and field isolation',{skip:!process.env.TEST_DATABASE_URL},async()=>{
  const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL});const secret='89'.repeat(32),origin='http://127.0.0.1:18099';let child;
  const tokens={};const ids=['http_admin','http_viewer','http_disabled'];
@@ -20,6 +20,14 @@ test('real HTTP phone auth, ACL, epoch, authority, legacy read and field isolati
  const dbEnv={POSTGRES_DB:decodeURIComponent(dbUrl.pathname.slice(1)),POSTGRES_USER:decodeURIComponent(dbUrl.username),POSTGRES_PASSWORD:decodeURIComponent(dbUrl.password),PGHOST:dbUrl.hostname,PGPORT:dbUrl.port||'5432'};
  child=spawn(process.execPath,['src/index.mjs'],{cwd:serverDirectory,env:{...process.env,...dbEnv,AUTH_SESSION_SECRET:secret,FIREBASE_PROJECT_ID:'synthetic-phone-qa',WORKSPACE_ID:'main_workspace',PORT:'18099',ALLOWED_ORIGINS:origin},stdio:'ignore'});
  for(let i=0;i<100;i++){try{await fetch(origin+'/health/live');break;}catch{await new Promise(r=>setTimeout(r,50));}}
+ // Фикстура для tests/isolated-db-http-tree.test.mjs: при маркере файл падает
+ // жёстко (ненулевой код, без finally) при живом API-потомке, чтобы раннер
+ // доказал, что снимает всю группу и дропает сгенерированную БД. Без маркера
+ // поведение файла не меняется. Сам API после падения файла умирает от
+ // terminate backends в очистке раннера (у пула сервера нет обработчика
+ // 'error'), поэтому снятие группы доказывает ещё один потомок без БД: его pid
+ // пишется в ISOLATED_DB_PROCESS_LOG.
+ if(process.env.ISOLATED_DB_HTTP_FORCED_FAILURE==='1'){const live=await fetch(origin+'/health/live').catch(()=>null);if(!live||live.status!==200)throw new Error('forced-failure fixture requires a live API child');const orphan=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});if(process.env.ISOLATED_DB_PROCESS_LOG)appendFileSync(process.env.ISOLATED_DB_PROCESS_LOG,`${orphan.pid}\n`);process.exit(9);}
  const req=(uid,body,extra={},path='/api/v1/truck-phones')=>fetch(origin+path,{method:body?'POST':'GET',headers:{Origin:origin,...(uid?{Authorization:'Bearer '+tokens[uid]}:{}),'X-Samosval-Epoch':'7','X-Samosval-Generation':'3','Content-Type':'application/json',...extra},...(body?{body:JSON.stringify(body)}:{})});
  assert.equal((await req(null)).status,401);assert.equal((await req(ids[2])).status,401);
  assert.equal((await req(ids[0],null,{Origin:'https://evil.invalid'})).status,403);

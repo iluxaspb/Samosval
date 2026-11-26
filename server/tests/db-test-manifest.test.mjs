@@ -75,6 +75,18 @@ test('manifest keeps registered fixture paths separate and canonical', async () 
   await assert.rejects(loadManifest({ ...valid([unit()]), harnessFixtures: ['tests/a.test.mjs'] }, { serverDirectory: root }), /fixture.*root|fixture path/i);
 });
 
+test('manifest accepts an optional harness budget inside the shared range', async () => {
+  const root = await tree();
+  const harness = withReason({ file: 'tests/a.test.mjs', kind: 'harness-contract', discovery: 'harness-contract', consumers: [], env: [] });
+  // The default stays implicit for the pure registry checks...
+  await loadManifest(valid([harness]), { serverDirectory: root });
+  // ...while a root that drives the runner as a nested child may declare a
+  // budget, and only inside the same 1s..300s range as every other entry.
+  await loadManifest(valid([{ ...harness, timeoutMs: 300_000 }]), { serverDirectory: root });
+  await assert.rejects(loadManifest(valid([{ ...harness, timeoutMs: 600_000 }]), { serverDirectory: root }), /invalid timeoutMs/i);
+  await assert.rejects(loadManifest(valid([{ ...harness, timeoutMs: 0 }]), { serverDirectory: root }), /invalid timeoutMs/i);
+});
+
 test('manifest reason is canonical for exact classification and consumers', async () => {
   const root = await tree();
   await assert.rejects(loadManifest(valid([{ ...unit(), reason: 'Stale authored prose that is long enough' }]), { serverDirectory: root }), /reason drift/i);

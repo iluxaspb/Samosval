@@ -101,6 +101,13 @@ function signalGroup(child, signal) {
   try { process.kill(-child.pid, signal); } catch { /* the group is already gone */ }
 }
 
+function groupEmpty(pid) {
+  // ESRCH means no member of the group is left. A zombie leader does not keep
+  // the group alive once it has been reaped by libuv, so this also settles a
+  // clean, well-behaved exit immediately.
+  try { process.kill(-pid, 0); return false; } catch { return true; }
+}
+
 /**
  * Run one command as its own process group and resolve only after the group
  * leader is reaped. Options:
@@ -203,6 +210,23 @@ export async function runProcessGroup(request) {
     outcome = await Promise.race([exited, failed]);
   } finally {
     cleanup();
+  }
+
+  // Descendants outlive their leader: a test file that spawns an API server can
+  // die with a non-zero exit and leave that server (and its own children) in the
+  // group. The leader is already reaped at this point, so a plain -pid signal
+  // still reaches every surviving member. Do this before resolving: the caller
+  // drops the target database right after, and a live client would either keep
+  // the drop from succeeding or poison the next run.
+  if (typeof child.pid === 'number' && !groupEmpty(child.pid)) {
+    signalGroup(child, 'SIGTERM');
+    const termDeadline = Date.now() + graceMs;
+    while (!groupEmpty(child.pid) && Date.now() < termDeadline) await delay(25);
+    if (!groupEmpty(child.pid)) {
+      signalGroup(child, 'SIGKILL');
+      const killDeadline = Date.now() + DEFAULT_GRACE_MS;
+      while (!groupEmpty(child.pid) && Date.now() < killDeadline) await delay(25);
+    }
   }
 
   return {

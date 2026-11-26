@@ -23,14 +23,15 @@ async function fixture(files) {
 test('discovered_equals_manifest_including_existing_replica_root', async () => {
   const discovery = await discoverTests(serverDirectory, { harnessFixtures: manifest.harnessFixtures });
   await loadManifest(manifest, { serverDirectory, discovered: discovery.roots });
-  // 80 roots: the inventory count is part of the contract, so adding a root
+  // 81 roots: the inventory count is part of the contract, so adding a root
   // means updating it in the same commit as the manifest entry.
-  assert.equal(discovery.roots.length, 80);
+  assert.equal(discovery.roots.length, 81);
   assert.ok(discovery.roots.some(item => item.file === 'tests/replica-materialize-parallel-shifts.test.mjs'));
   assert.ok(manifest.harnessFixtures.includes('tests/fixtures/marker-tamper.test.mjs'));
   assert.ok(manifest.harnessFixtures.includes('tests/fixtures/isolated-db-process.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-env.test.mjs' && item.kind === 'harness-contract'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-process.test.mjs' && item.kind === 'harness-contract'));
+  assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-http-tree.test.mjs' && item.kind === 'harness-contract' && item.discovery === 'harness-contract'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-lifecycle.test.mjs' && item.kind === 'harness-contract' && item.discovery === 'harness-contract'));
   // migration-registry needs CREATE DATABASE/TEMPLATE and the 025 role boundary,
   // which a db child (samosval_test_app, DML only) never receives: it is a

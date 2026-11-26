@@ -274,3 +274,39 @@ test('a missing command fails fast and the request surface is validated', { time
     await assert.rejects(() => runProcessGroup(invalid), /not approved/i, JSON.stringify(invalid));
   }
 });
+
+test('a non-zero leader exit still reaps surviving descendants before resolution', { timeout: 15000 }, async () => {
+  // Regression for the real defect found on 26.11: the group was only signalled
+  // on timeout or on an external signal, so a test file that spawns an API
+  // child and then fails left that child (and its own children) alive. The
+  // runner drops the target database right after this call, so an orphaned
+  // client kept the drop from succeeding or poisoned the next run.
+  const workspace = makeWorkspace();
+  try {
+    const pidsFile = workspace.path('orphan-pids');
+    const leader = writeScript(workspace, 'orphan-leader.mjs', `
+import { writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+const grandchild = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' });
+writeFileSync(process.env.ORPHAN_PIDS, process.pid + '\\n' + grandchild.pid + '\\n');
+setTimeout(() => process.exit(3), 150);
+`);
+    const outcome = await runProcessGroup({
+      command: process.execPath,
+      args: [leader],
+      cwd: serverDirectory,
+      env: { PATH: process.env.PATH, ORPHAN_PIDS: pidsFile },
+      timeoutMs: 8000,
+      graceMs: 500,
+    });
+    assert.equal(outcome.timedOut, false);
+    assert.equal(outcome.exitCode, 3);
+    const [leaderPid, grandchildPid] = readFileSync(pidsFile, 'utf8').trim().split('\n').map(Number);
+    assert.ok(leaderPid > 0 && grandchildPid > 0);
+    assert.equal(alive(leaderPid), false, 'the leader is reaped');
+    await waitForGone([grandchildPid], 3000);
+    assert.equal(alive(grandchildPid), false, 'surviving descendants are terminated before resolution');
+  } finally {
+    workspace.cleanup();
+  }
+});

@@ -24,7 +24,7 @@ const dbFiles = [
 
 const harnessFiles = [
   'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-env', 'isolated-db-fixtures', 'isolated-db-guard',
-  'isolated-db-integration', 'isolated-db-lifecycle', 'isolated-db-process', 'isolated-db-runner',
+  'isolated-db-http-tree', 'isolated-db-integration', 'isolated-db-lifecycle', 'isolated-db-process', 'isolated-db-runner',
   'isolated-db-s25-fixtures', 'isolated-db-templates', 'migration-registry', 'parallel-shifts-runtime-roles'
 ];
 
@@ -133,6 +133,9 @@ const consumersByFile = {
     "tests/helpers/isolated-db.mjs:db-env",
     "tests/helpers/isolated-db.mjs:db-helper",
     "tests/helpers/isolated-db.mjs:pg"
+  ],
+  "isolated-db-http-tree": [
+    "tests/isolated-db-http-tree.test.mjs:pg"
   ],
   "isolated-db-integration": [
     "scripts/apply-migrations.mjs:pg",
@@ -440,17 +443,33 @@ migrationsThrough: name === 'replica-stream-026' ? 26 : name === 'parallel-shift
   allowedSkips: []
 }));
 
+// Harness roots that run the shipped runner as a nested child pay for a second
+// set of templates and target clones, so they need their own wall-clock budget.
+// The value stays inside the manifest's shared timeout range (1s..300s).
+const harnessTimeoutsByFile = {
+  'isolated-db-http-tree': 300_000
+};
+
 const harnessEntries = harnessFiles.map(name => ({
   file: `tests/${name}.test.mjs`,
   kind: 'harness-contract',
   discovery: 'harness-contract',
   reason: `harness-contract/harness-contract tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ') || 'no typed database consumer'}` ,
   consumers: consumersByFile[name] ?? [],
+  // Optional per-root budget: the pure registry checks keep the 60s default,
+  // while a root that drives the real runner as a nested child declares its own.
+  ...(harnessTimeoutsByFile[name] ? { timeoutMs: harnessTimeoutsByFile[name] } : {}),
   env: {
     // This harness contract deliberately receives admin-url: it verifies that
     // the orchestrator credential is distinct from bootstrap-admin credentials.
     // No other child receives this privileged URL.
     'isolated-db-bootstrap': ['admin-url', 'bootstrap-url', 'app-password', 'runtime-password'],
+    // Drives the real runner twice on tests/truck-phone-http.test.mjs, so it
+    // needs the orchestrator URL to read the generated targets around the runs
+    // plus exactly the bootstrap/app credentials a nested runner invocation
+    // requires, and the isolated marker it asserts on. No raw variable names
+    // are declared here.
+    'isolated-db-http-tree': ['admin-url', 'bootstrap-url', 'app-password', 'isolated-marker'],
     'isolated-db-fixtures': ['bootstrap-url'],
     'isolated-db-templates': ['bootstrap-url', 'app-password'],
     'isolated-db-lifecycle': ['bootstrap-url', 'app-password', 'runtime-password'],

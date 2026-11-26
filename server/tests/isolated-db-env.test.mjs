@@ -17,6 +17,7 @@ function hostileSource() {
     TZ: 'Europe/Moscow',
     ISOLATED_DB_SENTINEL: '/tmp/samosval-sentinel',
     ISOLATED_DB_SIGNAL_FIXTURE: '1',
+    ISOLATED_DB_HTTP_FORCED_FAILURE: '1',
     ISOLATED_DB_PROCESS_LOG: '/tmp/samosval-process-log',
     NODE_OPTIONS: '--import=hostile.mjs',
     NODE_PATH: '/hostile/node-path',
@@ -50,6 +51,16 @@ test('unit_env_is_positive_allowlist_without_any_database_alias', () => {
   assert.doesNotMatch(JSON.stringify(childEnv), /legacy-secret|orchestrator-secret|bootstrap-secret|db\.example\.test|POSTGRES_/, 'no database alias or credential reaches a unit child');
   assert.equal(buildUnitEnv({}).PATH, undefined);
   assert.throws(() => buildUnitEnv(null), /not approved/i);
+});
+
+test('unit_env_carries_the_http_forced_failure_fixture_marker', () => {
+  // tests/truck-phone-http.test.mjs dies hard on this marker while its API
+  // grandchild is alive, so tests/isolated-db-http-tree.test.mjs can prove the
+  // runner reaps the whole group. Like ISOLATED_DB_SIGNAL_FIXTURE it is a
+  // fixture marker, not a credential, and it must reach the db child.
+  assert.ok(UNIT_ENV_ALLOWLIST.includes('ISOLATED_DB_HTTP_FORCED_FAILURE'));
+  assert.equal(buildUnitEnv(hostileSource()).ISOLATED_DB_HTTP_FORCED_FAILURE, '1');
+  assert.equal(buildDbEnv(hostileSource(), { targetUrl: generatedTargetUrl }).ISOLATED_DB_HTTP_FORCED_FAILURE, '1');
 });
 
 test('db_env_extends_the_unit_allowlist_with_only_the_generated_target_and_marker', () => {
