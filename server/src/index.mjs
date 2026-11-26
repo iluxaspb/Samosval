@@ -47,6 +47,9 @@ const pool = new Pool({
   password:process.env.POSTGRES_PASSWORD, max:5,
   connectionTimeoutMillis:2000, idleTimeoutMillis:30000
 });
+// Обслуживание БД может оборвать простаивающее соединение пула: одиночный
+// разрыв логируем и продолжаем — pg создаст новое соединение по запросу.
+pool.on('error',error=>console.error('[pg-pool] idle client error',error?.code||error?.name||'unknown'));
 installDatasetGuard(pool);
 const tabelPresence=createPresenceService({authorize:(uid,target)=>authorizeTabelPresence(pool,uid,target),workspaceId:process.env.WORKSPACE_ID||'main_workspace'});
 function readJson(req,limit=262144) {
