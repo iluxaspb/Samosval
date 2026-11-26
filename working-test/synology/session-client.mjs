@@ -66,9 +66,12 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     const tracked=work.finally(()=>{if(backgroundReads.get(path)===tracked)backgroundReads.delete(path);});
     backgroundReads.set(path,tracked);return tracked;
   }
-  async function request(path,{operation,validate}={}) {
+  // method задаётся явно: v2 использует GET/POST/PATCH/DELETE, причём DELETE
+  // несёт тело команды. Без operation тело не отправляется никогда.
+  async function request(path,{operation,validate,method}={}) {
     guard();
     const write=operation!==undefined;
+    const httpMethod=method||(write?'POST':'GET');
     // Capture before awaiting credentials. Never regenerate an ID on retry.
     const body=write?JSON.stringify(operation):undefined;
     const controller=new AbortController(); controllers.add(controller);
@@ -91,7 +94,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
         if(typeof token!=='string'||!token)throw new NasClientError('authentication-required');
         const previous=write?null:readCache.get(path);
         phase='response-headers';
-        const response=await abortable(fetchImpl(apiRoot+path,{method:write?'POST':'GET',
+        const response=await abortable(fetchImpl(apiRoot+path,{method:httpMethod,
           headers:write?{'X-Samosval-Epoch':String(datasetEpoch),'X-Samosval-Generation':String(authorityGeneration),Authorization:'Bearer '+token,'Content-Type':'application/json'}:{Authorization:'Bearer '+token,'X-Samosval-Epoch':String(datasetEpoch),...(previous?{'If-None-Match':previous.etag}:{})},
           ...(write?{body}:{}),signal:controller.signal,redirect:'error',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'}),controller.signal);
         guard();checkEpoch(response);httpStatus=response.status;
@@ -103,14 +106,18 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
         if(!response.ok){
           // The single-writer refusal carries a stable code. It is a deliberate
           // answer, not a transport failure: never retry it as if it were noise.
-          let code='';
-          try{const payload=await response.clone().json();code=typeof payload?.error==='string'?payload.error:'';}catch{}
+          let code='',serverDetails;let payload=null;
+          try{payload=await response.clone().json();code=typeof payload?.error==='string'?payload.error:'';serverDetails=payload?.details;}catch{}
           if(code==='not-authoritative'||code==='authority-generation-mismatch'){
             if(code==='authority-generation-mismatch')authorityGeneration=0;
             throw new NasClientError(code,{status:response.status,retryable:false,uncertain:false});
           }
           const retryable=[408,425,429].includes(response.status)||response.status>=500;
-          throw new NasClientError('api-http-'+response.status,{status:response.status,retryable,uncertain:write&&retryable});}
+          const failure=new NasClientError('api-http-'+response.status,{status:response.status,retryable,uncertain:write&&retryable});
+          // v2 отвечает стабильным кодом и безопасными details. Не теряем их:
+          // разбор в структурированный результат делает вызывающий слой.
+          if(code){failure.serverCode=code;failure.serverDetails=serverDetails;}
+          throw failure;}
         const mime=String(response.headers?.get?.('Content-Type')||'').split(';')[0].trim().toLowerCase();
         responseType=['application/json','text/html','text/plain'].includes(mime)?mime:mime?'other':'';
         phase='response-body';
@@ -150,6 +157,10 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     applyAuthority({authority:result.authority});return result;}
   const writeAuthorityPresence=(input)=>request('/api/v1/presence',{operation:{provider:authorityProvider,generation:authorityGeneration,...(record(input)?input:{})},validate:x=>record(x)&&x.outcome==='confirmed'&&Number.isSafeInteger(x.phones)});
   const authority=()=>({provider:authorityProvider,generation:authorityGeneration});
+  // Общий вход транспорта v2: GET/POST/PATCH/DELETE, тело передаётся только
+  // вместе с method и только для команд. Валидацию v2-конверта делает
+  // вызывающий слой (41-v2-transport.js), здесь — только запрос и ответ.
+  const requestV2=({method='GET',path,body,validate}={})=>request(path,{method,operation:body,validate:typeof validate==='function'?validate:record});
   const readLine=()=>request('/api/v1/line/snapshot',{validate:x=>envelope(x,'samosval-line-snapshot',workspaceId)&&ids(x.trucks)&&ids(x.statuses)&&ids(x.logs)&&
     Number.isInteger(x.cycleMinutes)&&x.cycleMinutes>=15&&x.cycleMinutes<=10080&&
     (x.restoredShifts===undefined||Array.isArray(x.restoredShifts)&&x.restoredShifts.every(r=>record(r)&&record(r.shift)&&r.shift.restored===true&&typeof r.shift.id==='string'&&ids(r.logs)&&r.logs.every(l=>l.shiftId===r.shift.id&&typeof l.truckId==='string')))&&
@@ -331,5 +342,5 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   const validatePhones=x=>record(x)&&x.source==='ubuntu'&&Array.isArray(x.phones)&&x.phones.every(r=>record(r)&&typeof r.truckId==='string'&&/^\+[1-9][0-9]{7,14}$/.test(r.phone)&&(r.driverName===undefined||r.driverName===null||typeof r.driverName==='string'));
   const readTruckPhones=()=>request('/api/v1/truck-phones',{validate:validatePhones});
   const submitTruckPhone=operation=>request('/api/v1/truck-phones',{operation,validate:validatePhones});
-  return Object.freeze({readTruckPhones,submitTruckPhone,scope,datasetEpoch,uid,workspaceId,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,probe,stop,wake,abortInflight,readAuthority,submitAuthority,writeAuthorityPresence,authority});
+  return Object.freeze({readTruckPhones,submitTruckPhone,scope,datasetEpoch,uid,workspaceId,requestV2,readServerControl,submitServerCommand,readBackups,submitBackup,readNotifications,submitNotificationTest,readSession,readLine,readArchive,submitArchive,submitReport,readHistory,readCatalog,readMembers,readAuxiliary,submitAuxiliary,readSettings,submitSettings,readGames,submitGame,readPresence,writePresence,removePresence,submitControl,startShift,closeShift,readAdministration,registerPending,submitAdministration,submitLine,submitHistory,subscribeLine,probe,stop,wake,abortInflight,readAuthority,submitAuthority,writeAuthorityPresence,authority});
 }

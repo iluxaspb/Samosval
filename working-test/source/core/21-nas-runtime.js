@@ -10,6 +10,8 @@
   function nasApiBase() { return UBUNTU_API_BASE; }
   function nasStorageScope() { const base=nasApiBase();let datasetEpoch=0;try{datasetEpoch=Number(localStorage.getItem('samosval-working-test-nas-epoch:'+JSON.stringify([base,WORKSPACE_ID,currentUid]))||0)||0;}catch{}return JSON.stringify([nasProvider(),base,WORKSPACE_ID,currentUid,...(datasetEpoch?[datasetEpoch]:[])]); }
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0, nasPresenceTimer=null, nasGamesTimer=null;
+  // Мост параллельных смен v2 (40-shift-contexts.js + 41-v2-transport.js).
+  let nasV2Bridge = null;
   // Пробуждение после смены сети: обработчики событий и защита от наложения.
   let nasWakeStop=null, nasWakeInFlight=false, nasWakeAt=0;
   // Активное обновление: пока приложение на экране, данные читаются сами.
@@ -46,6 +48,7 @@
   const nasCommandFlights=new Map();
   function stopNasRuntime() {
     if(typeof resetTruckPhones==='function')resetTruckPhones();
+    nasStopV2Shifts();
     nasRuntimeEpoch++;nasReadGeneration++;nasResumePolling=null;nasPollHolds=0;
     nasConnectionStop();
     nasWakeStop?.();nasWakeStop=null;nasWakeInFlight=false;nasWakeAt=0;
@@ -362,6 +365,43 @@
     // Долгая тишина в подписке: поднимаем её и проверяем связь принудительно.
     if(now-nasLastSessionAt>20000&&!nasWakeInFlight){nasLastSessionAt=now;nasResumePolling?.();void nasNetworkWake(epoch,client,{force:true});}
   }
+  // Мост параллельных смен v2: сервер v2 ↔ store контекстов (задача 13).
+  // Каждый ответ несёт generation-токен, поэтому поздний ответ не публикуется и
+  // не меняет выбранную смену. Пока сервер v2 не включён флагом
+  // WORKING_TEST_V2_SHIFTS, мост молчит: v1-рантайм работает как раньше.
+  function nasV2ShiftsEnabled(){
+    return typeof WORKING_TEST_V2_SHIFTS!=='undefined'&&WORKING_TEST_V2_SHIFTS===true;
+  }
+  function nasV2Shifts(){return nasV2Bridge;}
+  function nasStopV2Shifts(){
+    try{nasV2Bridge?.handle?.close?.();}catch(_){}
+    nasV2Bridge=null;
+  }
+  function nasStartV2Shifts(epoch,client){
+    nasStopV2Shifts();
+    if(!nasV2ShiftsEnabled())return null;
+    if(typeof WorkingTestV2Transport==='undefined'||typeof WorkingTestShiftContexts==='undefined')return null;
+    if(typeof client?.requestV2!=='function')return null;
+    let storage=null;try{storage=localStorage;}catch(_){}
+    const store=WorkingTestShiftContexts.createShiftContextStore({uid:client.uid,workspaceId:client.workspaceId,storage});
+    const transport=WorkingTestV2Transport.createV2Transport({
+      request:(path,options)=>client.requestV2({method:options?.method,path,body:options?.operation,validate:options?.validate}),
+      uid:client.uid,workspaceId:client.workspaceId,store
+    });
+    const live=()=>epoch===nasRuntimeEpoch&&client===nasRuntimeClient;
+    const handle=transport.subscribeShifts({
+      intervalMs:4000,
+      onList:list=>{if(!live())return;
+        try{window.dispatchEvent(new CustomEvent('samosval-working-test-shifts',{detail:{generation:list.listGeneration,items:list.items,nextCursor:list.nextCursor}}));}catch(_){}
+      },
+      onSnapshot:result=>{if(!live())return;
+        try{window.dispatchEvent(new CustomEvent('samosval-working-test-shift-snapshot',{detail:{generation:result.generation,shiftId:result.shiftId,revision:result.revision,applied:result.applied,visible:result.visible}}));}catch(_){}
+      },
+      onError:error=>{if(!live())return;reportSyncError('nas-shifts',error);}
+    });
+    nasV2Bridge={store,transport,handle,epoch};
+    return nasV2Bridge;
+  }
   async function startNasRuntime(user) {
     const epoch=nasRuntimeEpoch;
     // Nothing is server-confirmed until the first NAS session arrives.
@@ -371,6 +411,7 @@
       if(epoch!==nasRuntimeEpoch||wtAuthUser()!==user||currentUid!==user.uid)return;
       const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>wtAuthUser(),workspaceId:WORKSPACE_ID,timeoutMs:15000});nasRuntimeClient=client;
       nasStartConnection(client,epoch);
+      nasStartV2Shifts(epoch,client);
       // Pulse: proves this phone is alive and tells the servers how many phones
       // still see the primary. Failover needs many phones, not one.
       const pulse=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;if(typeof client.writeAuthorityPresence!=='function')return;try{client.writeAuthorityPresence({}).catch(()=>{});}catch(_){}};
