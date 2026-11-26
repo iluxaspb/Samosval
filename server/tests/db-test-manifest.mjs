@@ -354,12 +354,24 @@ const dbEntries = dbFiles.map(name => ({
   reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
   // No db root is on S25 yet: the S25 contract is proved by the
-  // `isolated-db-s25-fixtures` harness contract, and every migration-owned root
-  // below stays on S24 because its subject is the 024->025 transition itself
-  // (it builds pre-025 state and then applies 025), which an S25 clone has
-  // already consumed. `archive-store`, `archive-parallel-restore` and
-  // `replica-materialize` are old-line scenarios that fail on S25 by nature
-  // (docs/opyt-oshibok.md, lesson 23.1).
+  // `isolated-db-s25-fixtures` harness contract. Nine roots build through 025;
+  // five of them build pre-025 state and then apply 025 as their actual subject
+  // (`parallel-shifts-migration-core`, `replica-materialize-parallel-shifts`,
+  // `parallel-shifts-historicalization`, `legacy-shift-resolution`,
+  // `restored-context-migration`), and an S25 clone has already consumed that
+  // transition, so those stay on S24 by nature. `isolated-db-integration` stops
+  // at 024 by design. The other four (`archive-schema-025`, `archive-revisions`,
+  // `restored-context-store`, `archive-consumers-latest`) only reset the
+  // database and apply everything through 25 — they are the ones that can move
+  // to `baseline:'S25'`. The real blocker is the helper, not their subject:
+  // `tests/helpers/isolated-db.mjs` accepts only the exact name
+  // `samosval_parallel_shifts_test`, so a harness target
+  // `..._<runid>_<hash>` skips and the run fails — verified on the unmodified
+  // baseline: `archive-schema-025` as its own harness root gives
+  // `# pass 1 # skipped 13`, `EXIT=1` (docs/opyt-oshibok.md §27.2).
+  // `archive-store`, `archive-parallel-restore` and `replica-materialize` are
+  // old-line scenarios that fail on S25 by nature (docs/opyt-oshibok.md,
+  // lesson 23.1).
   baseline: 'S24',
 migrationsThrough: name === 'replica-stream-026' ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
   customSchema: [],

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import pg from 'pg';
 
@@ -65,7 +66,9 @@ test('legacy guard exact checksum/count and separate helper compatibility', () =
 test('trusted S24 verifier rejects missing, duplicate, extra, checksum, order and schema drift', async () => {
   const validSchema = { workspaces: true, users: true, authority: true, placeholder: true, replica: true, phones: true };
   const run = async (rows, schema = validSchema) => verifyS24Target(async sql => ({ rows: sql.includes('schema_migrations') ? rows : [schema] }));
-  assert.equal((await run(EXPECTED_S24_REGISTRY.map(x => ({ ...x })))).registryHash, EXPECTED_S24_HASH);
+  // Same label contract as S25 below: the returned hash names the rows that were
+  // actually verified and is not a second gate, so it is pinned to that content.
+  assert.equal((await run(EXPECTED_S24_REGISTRY.map(x => ({ ...x })))).registryHash, createHash('sha256').update(JSON.stringify(EXPECTED_S24_REGISTRY)).digest('hex'));
   for (const rows of [
     EXPECTED_S24_REGISTRY.slice(1),
     [...EXPECTED_S24_REGISTRY, EXPECTED_S24_REGISTRY[0]],
@@ -189,7 +192,11 @@ test('trusted S25 verifier rejects missing, drifted, extra and 026 registry rows
   const valid = EXPECTED_S25_REGISTRY.map(x => ({ ...x }));
   const verified = await run(valid);
   assert.equal(verified.version, 25);
-  assert.equal(verified.registryHash, EXPECTED_S25_HASH);
+  // `registryHash` is a label for the sealed COMMENT and the log, not a second
+  // registry gate: the gate is the throw inside the verifier, and the rejection
+  // cases below are what prove it. Pin the label to the content it names so the
+  // assertion is about the registry rows, not about the constant itself.
+  assert.equal(verified.registryHash, createHash('sha256').update(JSON.stringify(valid)).digest('hex'));
   assert.equal(verified.count, valid.length);
   // The registry is the fact, not the version: every one of these is rejected.
   for (const rows of [

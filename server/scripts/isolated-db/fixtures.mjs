@@ -25,6 +25,12 @@ const REGISTRY_DDL=`CREATE TABLE IF NOT EXISTS samosval_fixture_registry(id text
 // ---------------------------------------------------------------------------
 const sha256Hex=value=>createHash('sha256').update(value).digest('hex');
 const canonicalSha256=value=>sha256Hex(Buffer.from(canonicalJson(value),'utf8'));
+// The live v1 replica writer hashes `JSON.stringify(payload)` of the operation
+// it received (`digest` at src/replica-store.mjs:15, applied at :55, stored at
+// :77). Design §4.10 requires JCS only for the v2 envelope
+// `{protocolVersion:2,kind,payload}`, which a `replica_stream` v1 row is not, so
+// the golden journal row below must use this legacy algorithm.
+const legacySha256=value=>sha256Hex(JSON.stringify(value??null));
 const hex64=value=>typeof value==='string'&&/^[0-9a-f]{64}$/.test(value);
 const recordFixture=(q,id,hash)=>q('INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)',[id,hash]);
 const insertUser=(q,uid,displayName,role)=>q(`INSERT INTO app_users(uid,email,display_name,role,status,revision,profile,protected) VALUES ($1,$2,$3,$4,'active',1,'{}',false)`,[uid,`${uid}@example.invalid`,displayName,role]);
@@ -48,14 +54,33 @@ async function insertLegacyV1(q,{workspaceId,shiftId,objectId,objectName,payload
 }
 
 // Runs a statement that must fail closed and rolls the savepoint back, so a
-// fixture verifier can prove a refusal without leaving any trace.
-async function rejectsWith(q,sql,values,pattern){
+// fixture verifier can prove a refusal without leaving any trace. When `code`
+// is given the refusal must carry exactly that SQLSTATE.
+async function rejectsWith(q,sql,values,pattern,code){
   await q('SAVEPOINT fixture_expectation');
   let error=null;
   try{await q(sql,values);}catch(caught){error=caught;}
   await q('ROLLBACK TO SAVEPOINT fixture_expectation');
   if(!error)throw new Error(`expected refusal was accepted: ${pattern}`);
   if(!pattern.test(String(error.message??'')))throw new Error(`unexpected refusal: ${error.message}`);
+  if(code!==undefined&&error.code!==code)throw new Error(`expected SQLSTATE ${code}, got ${error.code}: ${error.message}`);
+  return true;
+}
+
+// Runs a statement under a real unprivileged role and rolls the savepoint back,
+// so a fixture proves a write is refused by actual grants, not merely by an
+// `has_table_privilege` flag. `role` is always a closed literal from this file.
+async function rejectsAsRole(q,role,sql,values,pattern){
+  await q('SAVEPOINT fixture_role_expectation');
+  let error=null;
+  try{
+    await q(`SET LOCAL ROLE ${role}`);
+    await q(sql,values);
+  }catch(caught){error=caught;}
+  await q('ROLLBACK TO SAVEPOINT fixture_role_expectation');
+  await q('RESET ROLE');
+  if(!error)throw new Error(`expected refusal was accepted under ${role}: ${pattern}`);
+  if(!pattern.test(String(error.message??'')))throw new Error(`unexpected refusal under ${role}: ${error.message}`);
   return true;
 }
 
@@ -133,6 +158,42 @@ const ARCHIVE_OBJECT_ID='fixture_archive_object';
 const ARCHIVE_TRUCK_ID='fixture_archive_truck';
 const ARCHIVE_REVISION_ONE=Buffer.from(canonicalJson({schema:'samosval.archive/v1',shiftId:'shift_fixture_archive_source',revision:1,objectId:ARCHIVE_OBJECT_ID}),'utf8');
 const ARCHIVE_REVISION_TWO=Buffer.from(canonicalJson({schema:'samosval.archive/v1',shiftId:'shift_fixture_archive_source',revision:2,objectId:ARCHIVE_OBJECT_ID}),'utf8');
+// Design §4.6: a restored context's `original_*` columns are copied only from
+// the source archive revision provenance, and archive schema v2 carries the
+// original `shift_type`, `shift_type_resolution`, `opened_by_uid`,
+// `opened_by_name_snapshot`, `identity_resolution` and `payload_schema_version`.
+// This fixture therefore stores that provenance inside the revision bytes — the
+// only place a writer may read it from — and its verifier re-derives the
+// expected `original_*` from the bytes it reads back out of the database, never
+// from the literal it inserted. A restored-context writer does not exist yet
+// (`INSERT INTO restored_shift_contexts` is absent from src/), so the fixture
+// fixes the shape that writer must implement and proves the copy is checked at
+// its source, not against a constant.
+const ARCHIVE_SOURCE_PROVENANCE=Object.freeze({
+  openedByUid:ARCHIVE_ORIGINAL_UID,
+  openedByNameSnapshot:'Оригинальный мастер',
+  identityResolution:'source',
+  shiftType:'night',
+  shiftTypeResolution:'source',
+  payloadSchemaVersion:2,
+  sourceShiftRevision:1,
+});
+const ARCHIVE_REVISION_CONTEXT=Buffer.from(canonicalJson({
+  schema:'samosval.archive/v1',
+  shiftId:'shift_fixture_context_source',
+  revision:1,
+  objectId:ARCHIVE_OBJECT_ID,
+  provenance:ARCHIVE_SOURCE_PROVENANCE,
+}),'utf8');
+// Source provenance of stored revision bytes, or `null` when the bytes carry
+// none: a missing provenance is a failed expectation, never a silent pass.
+function archiveProvenance(bytes){
+  try{
+    const parsed=JSON.parse(Buffer.isBuffer(bytes)?bytes.toString('utf8'):String(bytes??''));
+    const provenance=parsed?.provenance;
+    return provenance&&typeof provenance==='object'&&!Array.isArray(provenance)?provenance:null;
+  }catch{return null;}
+}
 const CHAIN_EDITOR_UID='fixture_chain_editor';
 const CHAIN_OBJECT_ID='fixture_chain_object';
 
@@ -190,19 +251,31 @@ const registry=new Map([
    await insertObject(q,V2_WORKSPACE,V2_OBJECT_ID,'Ночной объект фикстуры');
    await q('INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES ($1,$2,true,$3)',[V2_WORKSPACE,V2_SHIFT_ID,V2_PAYLOAD]);
    await q(`INSERT INTO replica_cursor(workspace_id,f2s_seq,s2f_seq) VALUES ($1,1,0) ON CONFLICT (workspace_id) DO UPDATE SET f2s_seq=GREATEST(replica_cursor.f2s_seq,1),updated_at=now()`,[V2_WORKSPACE]);
-   await q(`INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256) VALUES ($1,1,'f2s',$2,'doc.set',$3,$4)`,[V2_WORKSPACE,'fixture_v2_night_operation',V2_JOURNAL,canonicalSha256(V2_JOURNAL)]);
+   await q(`INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256) VALUES ($1,1,'f2s',$2,'doc.set',$3,$4)`,[V2_WORKSPACE,'fixture_v2_night_operation',V2_JOURNAL,legacySha256(V2_JOURNAL)]);
    await recordFixture(q,'parallel-shift-v2-night','golden-v2-night-sender-ne-creator');
   },
   async verify(q){
    const row=(await q(`SELECT opened_by_uid,opened_by_name_snapshot,shift_type,shift_type_resolution,identity_resolution,payload_schema_version::int AS version,state,is_active FROM shifts WHERE workspace_id=$1 AND shift_id=$2`,[V2_WORKSPACE,V2_SHIFT_ID])).rows[0];
    const payload=(await q('SELECT payload=$3::jsonb AS same FROM shifts WHERE workspace_id=$1 AND shift_id=$2',[V2_WORKSPACE,V2_SHIFT_ID,V2_PAYLOAD])).rows[0];
-   const journal=(await q(`SELECT payload->>'senderUid' AS sender,payload->'data'->>'startedByUid' AS creator,sha256 FROM replica_stream WHERE workspace_id=$1 AND operation_id=$2`,[V2_WORKSPACE,'fixture_v2_night_operation'])).rows[0];
+   const journal=(await q(`SELECT payload->>'senderUid' AS sender,payload->'data'->>'startedByUid' AS creator,payload=$3::jsonb AS same,sha256 FROM replica_stream WHERE workspace_id=$1 AND operation_id=$2`,[V2_WORKSPACE,'fixture_v2_night_operation',V2_JOURNAL])).rows[0];
    const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='parallel-shift-v2-night'")).rows[0];
    return {
     exact:row?.opened_by_uid===V2_CREATOR_UID&&row?.opened_by_name_snapshot==='Ночной мастер'&&row?.shift_type==='night'&&row?.shift_type_resolution==='source'&&row?.identity_resolution==='source'&&row?.version===2&&row?.state==='active'&&row?.is_active===true,
     payloadBytes:payload?.same===true,
     senderIsTransportOnly:journal?.sender===V2_SENDER_UID&&journal?.creator===V2_CREATOR_UID&&journal.sender!==journal.creator&&row?.opened_by_uid!==journal.sender,
-    journalHash:journal?.sha256===canonicalSha256(V2_JOURNAL),
+    // The stored hash must be the one the live v1 writer computes, i.e.
+    // sha256(JSON.stringify(payload)) over the exact payload it received.
+    journalHashLegacy:journal?.sha256===legacySha256(V2_JOURNAL),
+    // ... and it must not be the JCS hash: §4.10 defines that only for the v2
+    // envelope `{protocolVersion:2,kind,payload}`, so a v1 row that carried a
+    // JCS hash would not be byte-true to the real stream. One line, two
+    // algorithms, no ambiguity about which one this fixture pins.
+    journalHashIsNotJcs:journal?.sha256!==canonicalSha256(V2_JOURNAL),
+    // The hash is bound to the payload row that is actually stored. `payload` is
+    // `jsonb`, which does not preserve key order, so the legacy hash cannot be
+    // recomputed byte-wise from the row; identity is proved as jsonb equality
+    // plus the legacy hash of the exact payload the writer received.
+    journalPayloadUnchanged:journal?.same===true,
     registry:registry?.source_hash==='golden-v2-night-sender-ne-creator',
    };
   }}],
@@ -247,7 +320,7 @@ const registry=new Map([
    await q(`INSERT INTO shift_archive_series(workspace_id,archive_id,source_shift_id,current_location,series_revision) VALUES ($1,$2,$3,'archive',1)`,['main_workspace','fixture_archive_context','shift_fixture_context_source']);
    await q(`INSERT INTO shift_archive_revisions(workspace_id,archive_id,archive_revision,previous_revision,previous_sha256,payload_bytes,payload_sha256,payload_schema_version,source_kind,source_locator,created_by_uid)
             VALUES ($1,$2,1,NULL,NULL,$3,$4,2,'firebase',$5,$6)`,
-     ['main_workspace','fixture_archive_context',ARCHIVE_REVISION_ONE,sha256Hex(ARCHIVE_REVISION_ONE),'fixture://shift/shift_fixture_context_source',ARCHIVE_EDITOR_UID]);
+     ['main_workspace','fixture_archive_context',ARCHIVE_REVISION_CONTEXT,sha256Hex(ARCHIVE_REVISION_CONTEXT),'fixture://shift/shift_fixture_context_source',ARCHIVE_EDITOR_UID]);
    await q(`INSERT INTO restored_shift_contexts(workspace_id,restored_context_id,archive_id,source_shift_id,mode,context_state,original_opened_by_uid,original_opened_by_name_snapshot,original_identity_resolution,original_shift_type,original_shift_type_resolution,restored_by_uid,restored_by_name_snapshot,restored_at,archive_revision,context_revision,restore_operation_id,source_state_snapshot,source_shift_revision,opened_at_snapshot,object_id,object_name,work_date)
             VALUES ($1,$2,$3,$4,'parallel','open',$5,'Оригинальный мастер','source','night','source',$6,'Редактор архива',to_timestamp(($7::double precision)/1000.0),1,1,$8,$9,1,to_timestamp(($10::double precision)/1000.0),$11,$12,to_date($13,'DD.MM.YYYY'))`,
      ['main_workspace','fixture_restored_context','fixture_archive_context','shift_fixture_context_source',ARCHIVE_ORIGINAL_UID,ARCHIVE_EDITOR_UID,1795496400000,'fixture_restore_context_operation',{state:'closed',objectId:ARCHIVE_OBJECT_ID},1795420800000,ARCHIVE_OBJECT_ID,'Архивный объект','23.11.2026']);
@@ -265,14 +338,17 @@ const registry=new Map([
   async verify(q){
    const context=(await q(`SELECT original_opened_by_uid,original_opened_by_name_snapshot,original_identity_resolution,original_shift_type,original_shift_type_resolution,restored_by_uid,context_state,mode,archive_revision::int AS archive_revision,context_revision::int AS context_revision FROM restored_shift_contexts WHERE workspace_id=$1 AND restored_context_id=$2`,['main_workspace','fixture_restored_context'])).rows[0];
    const series=(await q(`SELECT latest_finalized_revision,latest_finalized_sha256,series_revision::int AS series_revision FROM shift_archive_series WHERE workspace_id=$1 AND archive_id=$2`,['main_workspace','fixture_archive_context'])).rows[0];
-   const revision=(await q(`SELECT encode(payload_bytes,'hex') AS bytes_hex,payload_sha256 FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 AND archive_revision=1`,['main_workspace','fixture_archive_context'])).rows[0];
+   const revision=(await q(`SELECT payload_bytes,payload_sha256 FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 AND archive_revision=1`,['main_workspace','fixture_archive_context'])).rows[0];
    const children=(await q(`SELECT (SELECT count(*)::int FROM restored_context_logs WHERE workspace_id=$1 AND restored_context_id=$2) AS logs,(SELECT count(*)::int FROM restored_context_status_snapshots WHERE workspace_id=$1 AND restored_context_id=$2) AS snapshots,(SELECT count(*)::int FROM restored_context_history WHERE workspace_id=$1 AND restored_context_id=$2) AS history` ,['main_workspace','fixture_restored_context'])).rows[0];
    const snapshot=(await q(`SELECT payload->>'arriveTimestamp' AS arrive,payload->>'ttnStatus' AS ttn FROM restored_context_status_snapshots WHERE workspace_id=$1 AND restored_context_id=$2 AND truck_id=$3`,['main_workspace','fixture_restored_context',ARCHIVE_TRUCK_ID])).rows[0];
    const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='parallel-shift-restored-contexts'")).rows[0];
+   // The expectation is recomputed from the revision bytes stored in the
+   // database, so a context that did not copy its source provenance fails here.
+   const source=archiveProvenance(revision?.payload_bytes);
    return {
-    provenancePreserved:context?.original_identity_resolution==='source'&&context?.original_shift_type==='night'&&context?.original_shift_type_resolution==='source'&&context?.original_opened_by_uid===ARCHIVE_ORIGINAL_UID&&context?.original_opened_by_name_snapshot==='Оригинальный мастер',
+    provenancePreserved:source!==null&&context?.original_opened_by_uid===source.openedByUid&&context?.original_opened_by_name_snapshot===source.openedByNameSnapshot&&context?.original_identity_resolution===source.identityResolution&&context?.original_shift_type===source.shiftType&&context?.original_shift_type_resolution===source.shiftTypeResolution,
     distinctRestorer:context?.restored_by_uid===ARCHIVE_EDITOR_UID&&context?.restored_by_uid!==context?.original_opened_by_uid,
-    snapshotBytes:revision?.bytes_hex===ARCHIVE_REVISION_ONE.toString('hex')&&revision?.payload_sha256===sha256Hex(ARCHIVE_REVISION_ONE),
+    snapshotBytes:Buffer.isBuffer(revision?.payload_bytes)&&revision.payload_bytes.equals(ARCHIVE_REVISION_CONTEXT)&&hex64(revision?.payload_sha256)&&revision?.payload_sha256===sha256Hex(revision.payload_bytes),
     seriesNotAdvanced:series?.latest_finalized_revision===null&&series?.latest_finalized_sha256===null&&series?.series_revision===1,
     children:children?.logs===1&&children?.snapshots===1&&children?.history===1,
     statusSnapshot:snapshot?.arrive==='1795424400000'&&snapshot?.ttn==='true',
@@ -369,6 +445,22 @@ const registry=new Map([
        (SELECT has_table_privilege('samosval_runtime','public.archive_overrides','UPDATE') AND has_table_privilege('samosval_runtime','public.archive_overrides','DELETE')) AS receipt_catalog`,
     [RUNTIME_PROBE_TABLES,RUNTIME_PROBE_SOURCE_TABLES,RUNTIME_PROBE_FUNCTIONS[2],RUNTIME_PROBE_FUNCTIONS[0],RUNTIME_PROBE_FUNCTIONS[1]])).rows[0];
    const registry=(await q("SELECT source_hash FROM samosval_fixture_registry WHERE id='parallel-shift-runtime-role'")).rows[0];
+   // Three cheap facts of the evidence matrix (design §4.6): the parent/child FK
+   // exists with RESTRICT on both actions, an orphan child row is refused with
+   // 23503, and neither runtime nor maintenance may write evidence. The full
+   // matrix (double authority, trigger rollback, counts) stays in P8 —
+   // `tests/restored-context-migration.test.mjs` — and is not duplicated here.
+   const evidenceFk=(await q(`SELECT con.conname,con.confdeltype::text AS delete_rule,con.confupdtype::text AS update_rule FROM pg_constraint con
+     WHERE con.contype='f' AND con.conrelid=to_regclass('public.restored_context_migration_evidence_rows')
+       AND con.confrelid=to_regclass('public.restored_context_migration_evidence')`)).rows;
+   const orphanPk='{"auditId":1}';
+   const orphanRejected=await rejectsWith(q,`INSERT INTO restored_context_migration_evidence_rows(workspace_id,evidence_id,source_table,source_pk_canonical_jcs,source_pk_hash,source_row_sha256,representation_kind,target_table,target_pk_canonical_jcs)
+     VALUES ($1,'00000000-0000-0000-0000-000000000000','line_audit',$2,$3,$4,'exact','line_audit',$2)`,
+     ['main_workspace',orphanPk,sha256Hex(orphanPk),'e'.repeat(64)],/fk_restored_evidence_rows_parent|violates foreign key constraint/i,'23503');
+   const evidenceInsert=`INSERT INTO restored_context_migration_evidence(workspace_id,evidence_id,legacy_shift_id,archive_id,base_archive_revision,source_locator,source_bytes_sha256,source_counts,source_table_roots,closure_hash,migrated_context_id,migration_operation_id)
+     VALUES ($1,gen_random_uuid(),'legacy_fixture','archive_fixture',1,'fixture://evidence',$2,'{}','{}',$2,'context_fixture','fixture_evidence_operation')`;
+   const evidenceWriteRefused=await rejectsAsRole(q,'samosval_runtime',evidenceInsert,['main_workspace','f'.repeat(64)],/permission denied for table restored_context_migration_evidence/i)
+     &&await rejectsAsRole(q,'samosval_maintenance',evidenceInsert,['main_workspace','f'.repeat(64)],/permission denied for table restored_context_migration_evidence/i);
    return {
     appendOnlyClosed:probes?.archive_privileges===0,
     sourceMutationsClosed:probes?.source_mutations===0,
@@ -376,6 +468,9 @@ const registry=new Map([
     mutationRevoked:probes?.mutation_revoked===true,
     readOnlyGrants:probes?.read_only_grants===true,
     receiptCatalog:probes?.receipt_catalog===true,
+    evidenceParentFk:evidenceFk.length===1&&evidenceFk[0].conname==='fk_restored_evidence_rows_parent'&&evidenceFk[0].delete_rule==='r'&&evidenceFk[0].update_rule==='r',
+    evidenceOrphanRejected:orphanRejected===true,
+    evidenceWriteRevoked:evidenceWriteRefused===true,
     registry:registry?.source_hash==='runtime-read-only',
    };
   }}],

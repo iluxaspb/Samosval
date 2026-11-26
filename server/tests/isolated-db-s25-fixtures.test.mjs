@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import pg from 'pg';
 
 import { applyMigrations } from '../scripts/apply-migrations.mjs';
@@ -122,7 +122,14 @@ test('s25_provenance_fixtures_match_authority_contract', { skip: !bootstrapUrl }
     try {
       const verified = await verifyS25Target((text, values) => targetClient.query(text, values));
       assert.equal(verified.version, 25);
-      assert.equal(verified.registryHash, EXPECTED_S25_HASH);
+      // `registryHash` is the label the broker writes into the sealed COMMENT and
+      // the log — not a second registry gate. That gate is the throw inside the
+      // verifier, proved by the rejection cases in isolated-db-templates.test.mjs.
+      // Pin the label to the registry rows this clone actually returned, so a
+      // label that drifted from its content would be visible here.
+      const cloneRegistry = (await targetClient.query(`SELECT filename,checksum FROM schema_migrations WHERE filename ~ '^[0-9]{3}_' ORDER BY filename`)).rows;
+      assert.equal(verified.registryHash, createHash('sha256').update(JSON.stringify(cloneRegistry)).digest('hex'));
+      assert.equal(verified.count, cloneRegistry.length);
       await verifyTargetAuthority((text, values) => targetClient.query(text, values));
 
       // 2. Every S25 provenance/archive fixture applies and verifies on that
@@ -150,11 +157,22 @@ test('s25_provenance_fixtures_match_authority_contract', { skip: !bootstrapUrl }
         verifyFixtures({ query: (text, values) => targetClient.query(text, values) }, ['parallel-shift-v2-night']),
         /postcondition failed: parallel-shift-v2-night/,
       );
+
+      // 4. The restored context's `original_*` are only a copy of the source
+      //    archive provenance, so a context that disagrees with the revision
+      //    bytes must fail: this proves the expectation is derived from the
+      //    bytes stored in the database, not from the fixture literal.
+      await targetClient.query(`UPDATE restored_shift_contexts SET original_opened_by_uid=$3
+        WHERE workspace_id=$1 AND restored_context_id=$2`, ['main_workspace', 'fixture_restored_context', 'fixture_archive_editor']);
+      await assert.rejects(
+        verifyFixtures({ query: (text, values) => targetClient.query(text, values) }, ['parallel-shift-restored-contexts']),
+        /postcondition failed: parallel-shift-restored-contexts/,
+      );
     } finally {
       await targetClient.end();
     }
 
-    // 4. The S25 source was never mutated by the fixtures: a fresh clone is a
+    // 5. The S25 source was never mutated by the fixtures: a fresh clone is a
     //    clean S25 with no fixture registry and no fixture rows.
     const clean = targetName();
     await admin.query(`CREATE DATABASE "${clean}" TEMPLATE "${source.database}" OWNER ${OWNER}`);
