@@ -12,7 +12,7 @@
 |---|---|---|
 | I — legacy provenance и redesigned 025 | 1–5 | 1–4 ГОТОВО, 5 ЧАСТИЧНО (домен есть, HTTP-маршрут не подключён; отложено решением владельца 26.11.2026) |
 | II — archive/restored S25 | 6–10 | ГОТОВО |
-| III — 026, replica generations, exact restore | 11–15 | 11–13 ГОТОВО, 14–15 НЕ НАЧАТО |
+| III — 026, replica generations, exact restore | 11–15 | 11 ГОТОВО, 12 ЧАСТИЧНО (код от 13, тесты провенанса не написаны), 13 ГОТОВО, 14–15 НЕ НАЧАТО |
 | IV — v2 API и core domains | 16–22 | 16–17 ГОТОВО, 18–22 НЕ НАЧАТО |
 | V — client contexts и UX | 23–26 | 23 ГОТОВО, 24 ЧАСТИЧНО (транспорт готов, офлайн-журнал нет), 25–26 НЕ НАЧАТО |
 | VI — cross-domain и acceptance | 27–29 | НЕ НАЧАТО |
@@ -33,7 +33,7 @@
 | 9 | Archive revision finalize + one-winner CAS | ГОТОВО | `archive-revisions.mjs`, `archive-revisions.test.mjs` |
 | 10 | Latest-finalized consumers | ГОТОВО | `archive-latest.mjs`, `archive-consumers-latest.test.mjs` |
 | 11 | Migration 026 stream/heads/pending | ГОТОВО | `server/sql/026_parallel_shift_dependencies.sql`, `replica-stream-026.test.mjs` |
-| 12 | Replica v2 normalization/hash, parents | ГОТОВО | `replica-store.mjs`, `replica-materialize.mjs`, `replica-materialize-parallel-shifts.test.mjs` |
+| 12 | Replica v2 normalization/hash, parents | ЧАСТИЧНО | Код есть, но пришёл задачей 13, а не отдельной задачей 12: `normalizeReplicaOperation`/`hashReplicaOperationV2` + строгая проверка `protocolVersion !== 2 → protocol-upgrade-required` + проверка родителей (`parentState`: object/user/shift/truck) живут в `server/src/replica-heads.mjs` и реэкспортируются из `replica-materialize.mjs`. **Не сделано по букве Task 12:** golden-вектор v2 в `replica-store.test.mjs`, отдельные кейсы «sender≠creator», «delete null normalization», «id/path mismatch», «missing object/user rollback», «same-batch parent order», «v1 byte stability» в `replica-materialize.test.mjs`. Старые тесты `replica-materialize` 5/5 и `replica-materialize-parallel-shifts` 4/4 зелёные, но они проверяют материализацию, а не провенанс. Заведено отдельным долгом |
 | 13 | Head/pending/delete materializer | ГОТОВО | коммит `2b8a8b6`: `server/src/replica-heads.mjs` (CAS/stale/replay, pending staging+promotion с перечитыванием immutable stream, `verifyReplicaHeads`), `replica-pending-materialize.test.mjs` 10/10, `replica-store.test.mjs` 10/10; соседние корни `replica-materialize` 5/5, `replica-materialize-parallel-shifts` 4/4, `replica-stream-026` 20/20 |
 | 14 | Objects/users tombstones + collection verifier | НЕ НАЧАТО | зависит от 13 |
 | 15 | Full exact provenance backup/restore | НЕ НАЧАТО | нет `restore-bootstrap.mjs`, `replica-exact-backup.test.mjs` |
@@ -60,7 +60,8 @@
 | Клиент выводил день/ночь из часа, сервер — нет | ГОТОВО | `195be0c` |
 | `pool.on('error')` отсутствовал — terminate сессии ронял API | ГОТОВО | `79223b1` |
 | Legacy-смену без типа нельзя было закрыть | ГОТОВО | `ad85594` |
-| Сборка `working-test` не воспроизводится байт-в-байт | расследование | см. отчёт |
+| Сборка `working-test` не воспроизводится байт-в-байт | расследование закрыто: артефакты устарели на 2 коммита, сборка детерминирована | `f6f757d`, §38 |
+| Task 12: golden-вектор v2, sender≠creator, delete null, id/path mismatch, missing parent rollback, same-batch order, v1 byte stability | НЕ НАЧАТО | тесты провенанса replica не написаны (код есть в `replica-heads.mjs`) |
 
 ## Долги по схеме, открытые задачей 16 (для 027)
 
