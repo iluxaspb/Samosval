@@ -177,7 +177,7 @@ async function makeRunContext(source) {
 }
 
 async function dropTemplates(context) {
-  const names = ['S24', 'empty'];
+  const names = ['S25', 'S24', 'empty'];
   for (const kind of names) {
     const template = context.lifecycle.templates.get(kind);
     if (!template) continue;

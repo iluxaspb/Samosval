@@ -25,11 +25,15 @@ const dbFiles = [
 const harnessFiles = [
   'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-env', 'isolated-db-fixtures', 'isolated-db-guard',
   'isolated-db-integration', 'isolated-db-lifecycle', 'isolated-db-process', 'isolated-db-runner',
-  'isolated-db-templates', 'parallel-shifts-runtime-roles'
+  'isolated-db-s25-fixtures', 'isolated-db-templates', 'parallel-shifts-runtime-roles'
 ];
 
 const consumersByFile = {
   'parallel-shifts-runtime-roles': ['scripts/parallel-shifts-role-bootstrap.mjs:pg', 'tests/parallel-shifts-runtime-roles.test.mjs:pg'],
+  'isolated-db-s25-fixtures': [
+    'scripts/apply-migrations.mjs:pg',
+    'tests/isolated-db-s25-fixtures.test.mjs:pg'
+  ],
   'archive-consumers-latest': [
     'scripts/apply-migrations.mjs:pg',
     'tests/archive-consumers-latest.test.mjs:db-env',
@@ -335,6 +339,13 @@ const dbEntries = dbFiles.map(name => ({
   discovery: name === 'truck-phone-http' ? 'indirect-http' : 'direct',
   reason: `${name === 'truck-phone-http' ? 'db/indirect-http' : 'db/direct'} tests/${name}.test.mjs: ${(consumersByFile[name] ?? []).join(', ')}` ,
   consumers: consumersByFile[name] ?? [],
+  // No db root is on S25 yet: the S25 contract is proved by the
+  // `isolated-db-s25-fixtures` harness contract, and every migration-owned root
+  // below stays on S24 because its subject is the 024->025 transition itself
+  // (it builds pre-025 state and then applies 025), which an S25 clone has
+  // already consumed. `archive-store`, `archive-parallel-restore` and
+  // `replica-materialize` are old-line scenarios that fail on S25 by nature
+  // (docs/opyt-oshibok.md, lesson 23.1).
   baseline: 'S24',
 migrationsThrough: name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' ? 25 : null,
   customSchema: [],
@@ -361,6 +372,12 @@ const harnessEntries = harnessFiles.map(name => ({
     'isolated-db-templates': ['bootstrap-url', 'app-password'],
     'isolated-db-lifecycle': ['bootstrap-url', 'app-password', 'runtime-password'],
      'isolated-db-integration': ['target-url', 'isolated-marker'],
+    // Applies the 025 provenance/archive fixtures on clones of the run's sealed
+    // S25 template. Two fixtures need table ownership (the pre-025 legacy row
+    // behind the named v2 bridge and the fixture registry), which a db child
+    // never receives: it runs as samosval_test_app, so this is a harness
+    // contract like isolated-db-fixtures.
+    'isolated-db-s25-fixtures': ['bootstrap-url'],
     'parallel-shifts-runtime-roles': ['bootstrap-url', 'runtime-password', 'maintenance-password']
   }[name] ?? []
 }));

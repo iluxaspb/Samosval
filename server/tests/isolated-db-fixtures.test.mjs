@@ -7,7 +7,7 @@ import { applyFixtures, FIXTURE_IDS } from '../scripts/isolated-db/fixtures.mjs'
 import { transformLegacyMigrationGuard } from '../scripts/isolated-db/legacy-guards.mjs';
 import { verifyS24Target } from '../scripts/isolated-db/templates.mjs';
 
-const allowed = ['import-schema','identity-empty','auth-schema-018','authority-main-ubuntu','authority-main-firebase','replica-admin','replica-empty-stream-cursors'];
+const allowed = ['import-schema','identity-empty','auth-schema-018','authority-main-ubuntu','authority-main-firebase','replica-admin','replica-empty-stream-cursors','parallel-shift-legacy-unresolved','parallel-shift-v2-night','parallel-shift-cutover-report','parallel-shift-restored-contexts','archive-immutable-revisions','restore-bootstrap-boundary','parallel-shift-runtime-role'];
 const TARGET_NAME = 'samosval_parallel_shifts_test_abcdef012345_0123456789ab';
 const REGISTRY_TABLE = 'samosval_fixture_registry';
 const REGISTRY_DDL = /^CREATE TABLE IF NOT EXISTS samosval_fixture_registry\b/i;
@@ -77,7 +77,7 @@ test('fixture registry owns concrete semantics and accepts only a low-level targ
 
 test('fixture registry rejects future IDs, duplicates and template/wrong targets', async()=>{
   const queryFor=database=>async sql=>String(sql).includes('current_database')?{rows:[{database}]}:{rows:[]};
-  for(const id of ['parallel-shift-legacy-unresolved','replica-pending-empty','unknown'])
+  for(const id of ['parallel-shift-s26-future','replica-pending-empty','unknown'])
     await assert.rejects(applyFixtures({query:queryFor(TARGET_NAME)},[id]),/unavailable/i);
   await assert.rejects(applyFixtures({query:queryFor(TARGET_NAME)},['import-schema','import-schema']),/duplicate/i);
   await assert.rejects(applyFixtures({query:queryFor('samosval_parallel_shifts_test_abcdef012345_tpl_s24')},['import-schema']),/target is not approved/i);
@@ -139,14 +139,15 @@ async function withFreshTargets(names, run) {
 function connect(url){const client=new pg.Client({connectionString:url.href});return client.connect().then(()=>client);}
 const fixturesOf=client=>({query:(text,values)=>client.query(text,values)});
 
-test('all seven concrete fixtures apply and independently verify on fresh disposable targets', {skip:!bootstrapUrl}, async()=>{
+test('all seven S24 concrete fixtures apply and independently verify on fresh disposable targets', {skip:!bootstrapUrl}, async()=>{
+  const s24 = allowed.slice(0, 7);
   const names=['samosval_parallel_shifts_test_feedfacecafe_111111111111','samosval_parallel_shifts_test_feedfacecafe_222222222222'];
   await withFreshTargets(names, async urls=>{
     for(const name of names){
       const client=await connect(urls[name]);
       try{
         const reports=await applyFixtures(fixturesOf(client),['replica-empty-stream-cursors','authority-main-firebase','authority-main-ubuntu','replica-admin','auth-schema-018','identity-empty','import-schema']);
-        assert.deepEqual(reports.map(x=>x.id),allowed);
+        assert.deepEqual(reports.map(x=>x.id),s24);
         assert.ok(reports.every(x=>Object.isFrozen(x)&&x.type==='samosval-fixture-report:v1'));
         await assert.rejects(applyFixtures(fixturesOf(client),['replica-admin']),/already applied|duplicate/i);
         await verifyS24Target((text,values)=>client.query(text,values));

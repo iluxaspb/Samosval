@@ -22,7 +22,7 @@ const HASH_A = digest('tests/a.test.mjs');
 const NAME_A = `${PREFIX}_${HASH_A}`;
 const FILE_B = 'tests/second-file.test.mjs';
 const NAME_B = `${PREFIX}_${digest(FILE_B)}`;
-const TEMPLATE_NAMES = [`${PREFIX}_tpl_empty`, `${PREFIX}_tpl_s24`];
+const TEMPLATE_NAMES = [`${PREFIX}_tpl_empty`, `${PREFIX}_tpl_s24`, `${PREFIX}_tpl_s25`];
 const RESERVED_NAMES = ['postgres', 'template0', 'template1', 'samosval_test', 'samosval_working_test_reserve', 'samosval_parallel_shifts_test'];
 const CAPABILITY = 'c'.repeat(64);
 const TEMPLATE_COMMENT = `samosval-isolated-db:v1;kind=template;runid=${RUNID};baseline=S24;version=24;registry=${EXPECTED_S24_HASH};owner=${TARGET_OWNER}`;
@@ -277,7 +277,7 @@ test('a failure before mark leaves the record below marked, performs no destruct
 test('provision rejects unknown baselines, unfrozen templates and foreign templates before any SQL', async () => {
   const foreign = { kind: 'S24', database: `${GENERATED_DATABASE_PREFIX}ffffffffffff_tpl_s24`, immutable: true };
   for (const [spec, overrides, pattern] of [
-    [{ file: 'tests/a.test.mjs', baseline: 'S25' }, {}, /baseline is not approved/i],
+    [{ file: 'tests/a.test.mjs', baseline: 'S26' }, {}, /baseline is not approved/i],
     [{ file: 'tests/a.test.mjs', baseline: 'S24' }, { templates: new Map() }, /template is not approved/i],
     [{ file: 'tests/a.test.mjs', baseline: 'S24' }, { templates: new Map([['S24', foreign]]) }, /template is not approved/i],
     [{ file: 'tests/a.test.mjs', baseline: 'S24' }, { templates: new Map([['S24', { kind: 'S24', database: `${PREFIX}_tpl_s24` }]]) }, /template is not approved/i],
@@ -718,7 +718,7 @@ test('real PostgreSQL: two targets cloned from frozen S24 are independent and bo
     assert.equal((await cleanupTarget(ctx, b, { phase: 'setup' })).dropped, b.database);
     const leak = await leakCheck(ctx, { tracked: [a, b] });
     assert.equal(leak.leaks.some(leak => leak.database === a.database || leak.database === b.database), false);
-    assert.deepEqual(leak.leaks.map(leak => leak.reason), ['template', 'template'], 'frozen templates stay until the template phase');
+    assert.deepEqual(leak.leaks.map(leak => leak.reason), ['template', 'template', 'template'], 'frozen templates stay until the template phase');
   });
 });
 
