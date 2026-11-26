@@ -614,44 +614,6 @@ export async function mount(ctx, container, { remoteEnabled = false } = {}) {
     },
   };
 }
-// Живые обновления пересобирают не-табличные виды целиком. Чтобы прокрутка
-// и раскрытые разделы не сбрасывались, раскладка вида сохраняется до
-// пересборки и восстанавливается после (паттерн shiftContext/shiftPosition).
-function keepViewLayout(s, root) {
-  const main = root?.querySelector?.("main");
-  const layout = { view: s.view, top: main?.scrollTop || 0, left: main?.scrollLeft || 0, open: [] };
-  if (main) {
-    main.querySelectorAll?.("details[open]").forEach((d) => {
-      const key = d.id || d.querySelector?.("summary")?.textContent?.trim() || "";
-      if (key) layout.open.push(key);
-    });
-    main.querySelectorAll?.('[aria-expanded="true"]').forEach((el) => {
-      const key = el.id || el.getAttribute?.("data-section-id") || el.textContent?.trim() || "";
-      if (key) layout.open.push("aria:" + key);
-    });
-  }
-  return layout;
-}
-function restoreViewLayout(s, root, layout) {
-  if (!layout || layout.view !== s.view) return;
-  const main = root?.querySelector?.("main");
-  if (!main) return;
-  main.scrollTop = layout.top;
-  main.scrollLeft = layout.left;
-  for (const key of layout.open || []) {
-    const aria = key.startsWith("aria:");
-    const id = aria ? key.slice(5) : key;
-    main.querySelectorAll?.(aria ? '[aria-expanded]' : "details").forEach((el) => {
-      const elKey = aria
-        ? el.id || el.getAttribute?.("data-section-id") || el.textContent?.trim() || ""
-        : el.id || el.querySelector?.("summary")?.textContent?.trim() || "";
-      if (elKey === id) {
-        if (aria) el.setAttribute("aria-expanded", "true");
-        else el.open = true;
-      }
-    });
-  }
-}
 async function render(s) {
   // Rebuilding the shift DOM must not move the operator away from their card.
   // Scope the position to this object, date, shift and subtab; navigation resets it.
@@ -662,10 +624,6 @@ async function render(s) {
       ? { top: previousContent.scrollTop, left: previousContent.scrollLeft }
       : null;
   const rendering = (s.rendering = (s.rendering || 0) + 1);
-  // Не-табличные виды пересобираются целиком: держим прокрутку и раскрытые
-  // разделы, пока оператор читает живое обновление.
-  const viewLayout =
-    s.view !== "table" ? keepViewLayout(s, s.root) : null;
   // Incoming server data must not tear down the table while it is open:
   // rebuilding the grid causes a visible flash and drops the live cell focus.
   if (s.view === "table" && s.grid) {
@@ -814,9 +772,6 @@ async function render(s) {
     if (s.view === "catalog")
       await (await import("./catalog.mjs")).mount(s, main);
     if (s.view === "history") history(s, main);
-    // Прокрутка и раскрытые разделы возвращаются после пересборки вида.
-    if (viewLayout && rendering === s.rendering)
-      restoreViewLayout(s, s.root, viewLayout);
   } catch (e) {
     main.innerHTML = "<p>" + esc(e.message) + "</p>";
   }
