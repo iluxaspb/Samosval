@@ -88,6 +88,10 @@ jobs:
             await client.query(readFileSync('sql/017_replica_stream.sql','utf8'));
             await client.query(readFileSync('sql/019_line_timer_reset.sql','utf8'));
             await client.query(readFileSync('sql/020_senior_foreman.sql','utf8'));
+            await client.query(readFileSync('sql/021_migration_registry.sql','utf8'));
+            await client.query(readFileSync('sql/022_truck_phones.sql','utf8'));
+            await client.query(readFileSync('sql/023_truck_phone_delete.sql','utf8'));
+            await client.query(readFileSync('sql/024_truck_phone_driver.sql','utf8'));
           } finally {
             await client.end();
           }
