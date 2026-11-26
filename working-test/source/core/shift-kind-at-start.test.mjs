@@ -26,11 +26,14 @@ test('linePeriod: workShift day при закрытии ночью остаёт�
   assert.deepEqual(linePeriod({startDate:'18.11.2026', startedAt, workShift:'day'}), {date:'2026-11-18', kind:'day'});
 });
 
-test('linePeriod: без workShift — старый фолбэк по часу открытия (совместимость)', () => {
+test('linePeriod: без workShift тип не выводится из часа открытия — ошибка unknown-shift-period', () => {
   const dayStart = Date.parse('2026-11-18T07:00:00Z'); // 10:00 МСК
   const nightStart = Date.parse('2026-11-18T19:00:00Z'); // 22:00 МСК
-  assert.deepEqual(linePeriod({startDate:'18.11.2026', startedAt: dayStart}), {date:'2026-11-18', kind:'day'});
-  assert.deepEqual(linePeriod({startDate:'18.11.2026', startedAt: nightStart}), {date:'2026-11-18', kind:'night'});
+  for (const startedAt of [dayStart, nightStart]) {
+    assert.throws(() => linePeriod({startDate:'18.11.2026', startedAt}), {code:'unknown-shift-period'}, 'час открытия не доказательство типа');
+  }
+  assert.throws(() => linePeriod({startDate:'18.11.2026', startedAt: dayStart, kind:'evening'}), {code:'unknown-shift-period'});
+  assert.deepEqual(linePeriod({startDate:'18.11.2026', startedAt: dayStart, kind:'night'}), {date:'2026-11-18', kind:'night'}, 'доказанный kind остаётся доказательством');
 });
 
 test('15-shifts.js: NAS-старт передаёт workShift', () => {
@@ -74,9 +77,11 @@ test('sourcePeriod: workShift night — открытие днём остаётс
   assert.deepEqual(sourcePeriod({startDate:'18.11.2026', startedAt, closedAt, workShift:'night'}), {date:'2026-11-18', shift:'night'});
 });
 
-test('sourcePeriod: без workShift — прежний фолбэк по часу открытия', () => {
+test('sourcePeriod: без workShift тип не выводится из часа открытия — внятная ошибка', () => {
   const dayStart = Date.parse('2026-11-18T07:00:00Z');  // 10:00 МСК
   const nightStart = Date.parse('2026-11-18T19:00:00Z'); // 22:00 МСК
-  assert.deepEqual(sourcePeriod({startDate:'18.11.2026', startedAt: dayStart}), {date:'2026-11-18', shift:'day'});
-  assert.deepEqual(sourcePeriod({startDate:'18.11.2026', startedAt: nightStart}), {date:'2026-11-18', shift:'night'});
+  for (const startedAt of [dayStart, nightStart]) {
+    assert.throws(() => sourcePeriod({startDate:'18.11.2026', startedAt}), /Не определён тип смены/, 'час открытия не доказательство типа');
+  }
+  assert.equal(sourcePeriod({startDate:'18.11.2026', kind:'night'}).shift, 'night', 'доказанный kind остаётся доказательством');
 });
