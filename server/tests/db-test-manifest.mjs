@@ -22,8 +22,8 @@ const dbFiles = [
   'senior-foreman', 'server-control', 'settings', 'shift-close', 'shift-start',
   'tabel-presence', 'tabel-store', 'truck-phone-http', 'truck-phone-store',
   'v2-command', 'v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db',
-  'v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db',
-  'v2-shift-close-db'
+  'v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-derived-effects-db',
+  'v2-line-operations-db', 'v2-shift-close-db'
 ];
 
 const harnessFiles = [
@@ -386,6 +386,14 @@ const consumersByFile = {
     "tests/v2-line-operations-db.test.mjs:db-env",
     "tests/v2-line-operations-db.test.mjs:pg"
   ],
+  "v2-derived-effects-db": [
+    "scripts/apply-migrations.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/v2-derived-effects-db.test.mjs:db-env",
+    "tests/v2-derived-effects-db.test.mjs:pg"
+  ],
   "v2-shift-close-db": [
     "scripts/apply-migrations.mjs:pg",
     "tests/helpers/isolated-db.mjs:db-env",
@@ -459,6 +467,7 @@ const timeoutsByFile = {
   'v2-truck-transfer-db': 180_000,
   'v2-detached-completion-db': 180_000,
   'v2-line-operations-db': 180_000,
+  'v2-derived-effects-db': 240_000,
   'v2-shift-close-db': 240_000
 };
 
@@ -526,6 +535,7 @@ const bootstrapEnvByFile = {
   'v2-truck-transfer-db': ['bootstrap-url'],
   'v2-detached-completion-db': ['bootstrap-url'],
   'v2-line-operations-db': ['bootstrap-url'],
+  'v2-derived-effects-db': ['bootstrap-url'],
   'v2-shift-close-db': ['bootstrap-url']
 };
 
@@ -567,8 +577,8 @@ const dbEntries = dbFiles.map(name => ({
   // applies 025/026/027 itself (docs/opyt-oshibok.md, lesson 19).
   // `v2-shift-close-db` also starts from S25 and applies 026–029 itself: the
   // close gate needs the 028 detached table and its own 029 marker/token schema.
-  baseline: ['v2-shift-access', 'v2-shift-members-db'].includes(name) ? 'S25' : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db', 'v2-shift-close-db'].includes(name) ? 'S25' : name === 'isolated-db-s26-fixtures' ? 'S25' : 'S24',
-migrationsThrough: name === 'v2-shift-close-db' ? 29 : ['v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db'].includes(name) ? 27 : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db'].includes(name) ? 28 : ['replica-stream-026', 'replica-store', 'replica-pending-materialize', 'replica-exact-backup'].includes(name) ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
+  baseline: ['v2-shift-access', 'v2-shift-members-db'].includes(name) ? 'S25' : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db', 'v2-derived-effects-db', 'v2-shift-close-db'].includes(name) ? 'S25' : name === 'isolated-db-s26-fixtures' ? 'S25' : 'S24',
+migrationsThrough: ['v2-shift-close-db', 'v2-derived-effects-db'].includes(name) ? 29 : ['v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db'].includes(name) ? 27 : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db'].includes(name) ? 28 : ['replica-stream-026', 'replica-store', 'replica-pending-materialize', 'replica-exact-backup'].includes(name) ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],

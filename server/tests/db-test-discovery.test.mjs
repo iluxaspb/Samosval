@@ -29,7 +29,8 @@ test('discovered_equals_manifest_including_existing_replica_root', async () => {
   // 92 = 90 + the two Task 20 truck/transfer roots.
   // 93 = 92 + the Task 21 scoped line-operation root.
   // 94 = 93 + the Task 22 two-phase close root.
-  assert.equal(discovery.roots.length, 94);
+  // 95 = 94 + the Task 27 derived-effects root.
+  assert.equal(discovery.roots.length, 95);
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-s26-fixtures.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-truck-transfer-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-detached-completion-db.test.mjs'));

@@ -53,6 +53,25 @@ test('presence rechecks the reader after peer authorization before returning any
   let checks=0;const h=fixture({authorize:async uid=>{if(uid==='reader'&&++checks===2)throw Object.assign(Error('forbidden'),{status:403});return {uid,name:uid,workspaceId:'main_workspace'};}});
   await h.service.write('peer',intent());await assert.rejects(h.service.list('reader',{objectId:'site',sheetId:'one'}),{status:403});
 });
+test('presence keeps parallel shifts apart while the legacy call still sees every session',async()=>{
+  const {service}=fixture();await service.write('one',intent(1,{shiftId:'shift_a'}));await service.write('two',intent(1,{shiftId:'shift_b'}));
+  assert.deepEqual((await service.list('reader',{objectId:'site',sheetId:'one',shiftId:'shift_a'})).peers.map(p=>p.uid),['one']);
+  assert.deepEqual((await service.list('reader',{objectId:'site',sheetId:'one',shiftId:'shift_b'})).peers.map(p=>p.uid),['two']);
+  assert.deepEqual((await service.list('reader',{objectId:'site',sheetId:'one'})).peers.map(p=>p.uid).sort(),['one','two']);
+});
+test('presence writes the shift on the record and leaves legacy writes unscoped',async()=>{
+  const {service}=fixture();
+  assert.equal((await service.write('one',intent(1,{shiftId:'shift_a'}))).record.shiftId,'shift_a');
+  const legacy=await service.write('two',intent(1,{sessionId:'legacy'}));
+  assert.equal(Object.hasOwn(legacy.record,'shiftId'),false);
+  assert.deepEqual((await service.list('reader',{objectId:'site',sheetId:'one',shiftId:'shift_a'})).peers.map(p=>p.uid),['one']);
+  assert.deepEqual((await service.list('reader',{objectId:'site',sheetId:'one'})).peers.map(p=>p.uid).sort(),['one','two']);
+});
+test('presence validates the optional shift scope and never accepts a forged one',()=>{
+  assert.equal(presenceIntent(intent(1,{shiftId:'shift_a'})).shiftId,'shift_a');
+  for(const op of [intent(1,{shiftId:'../other'}),intent(1,{shiftId:''}),intent(1,{shiftId:7})])assert.throws(()=>presenceIntent(op),{code:'invalid-presence-target'});
+  assert.throws(()=>presenceIntent(intent(1,{shiftId:null})),{code:'invalid-presence-target'});
+});
 test('PostgreSQL presence obeys sheet grants and immediately removes revoked peer selection',{skip:!process.env.TEST_DATABASE_URL},async()=>{
   const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL}),prefix='presence_'+randomUUID().replaceAll('-',''),admin=prefix+'_admin',worker=prefix+'_worker',role=prefix+'_role',objectId=prefix;
   let created=false;

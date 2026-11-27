@@ -2,7 +2,9 @@ import {fail,map,parseKey} from './tabel-access.mjs';
 const validId=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(x);
 export function presenceTarget(input){
   if(!map(input)||!validId(input.objectId)||input.objectId.startsWith('_')||!validId(input.sheetId))throw fail('invalid-presence-target');
-  parseKey(input.objectId+'/sheet:'+input.sheetId);return {objectId:input.objectId,sheetId:input.sheetId};
+  if(input.shiftId!==undefined&&!validId(input.shiftId))throw fail('invalid-presence-target');
+  parseKey(input.objectId+'/sheet:'+input.sheetId);
+  return {objectId:input.objectId,sheetId:input.sheetId,...(input.shiftId===undefined?{}:{shiftId:input.shiftId})};
 }
 export function presenceIntent(input){
   if(!map(input)||!validId(input.sessionId)||!Number.isSafeInteger(input.sequence)||input.sequence<1||!['write','remove'].includes(input.type))throw fail('invalid-presence-intent');
@@ -45,7 +47,7 @@ export function createPresenceService({authorize,workspaceId='main_workspace',no
       if(now()-started>=ttlMs)throw fail('presence-expired',409);
       const previous=rows.get(id);if(previous&&previous.sequence>=op.sequence)return {...base(),ignored:true};
       if(!previous||previous.removed)room(uid);
-      const row={id:uid.length+':'+uid+':'+op.sessionId,uid,sessionId:op.sessionId,objectId:op.objectId,sheetId:op.sheetId,sequence:op.sequence,selection:op.selection,name:actor.name.slice(0,160),seen:now()};
+      const row={id:uid.length+':'+uid+':'+op.sessionId,uid,sessionId:op.sessionId,objectId:op.objectId,sheetId:op.sheetId,...(op.shiftId===undefined?{}:{shiftId:op.shiftId}),sequence:op.sequence,selection:op.selection,name:actor.name.slice(0,160),seen:now()};
       rows.set(id,row);return {...base(),record:structuredClone(row)};
     },
     async list(uid,input){
@@ -53,6 +55,9 @@ export function createPresenceService({authorize,workspaceId='main_workspace',no
       const target=presenceTarget(input);await access(uid,target);prune();const peers=[],checks=new Map();
       for(const [id,row] of [...rows]){
         if(row.removed||row.uid===uid||row.objectId!==target.objectId||row.sheetId!==target.sheetId)continue;
+        // A shift-scoped room shows only its own shift (§8). Without a shift the
+        // legacy object+sheet room is unchanged, including unscoped sessions.
+        if(target.shiftId!==undefined&&row.shiftId!==target.shiftId)continue;
         if(!checks.has(row.uid))checks.set(row.uid,access(row.uid,target));
         try{const actor=await checks.get(row.uid);if(rows.get(id)!==row||now()-row.seen>=ttlMs)continue;peers.push({...structuredClone(row),name:actor.name.slice(0,160)});}
         catch(error){if(error.status===403){if(rows.get(id)===row)rows.delete(id);}else throw error;}
