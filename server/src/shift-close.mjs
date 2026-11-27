@@ -38,10 +38,18 @@ export async function closeShiftOperation(pool,uid,input) {
         archive=candidate;
         await client.query('INSERT INTO shift_archives(workspace_id,archive_id,shift_id,payload) VALUES ($1,$2,$3,$4)',[WS,archiveId,op.shiftId,archive]);
       }
-      await client.query('UPDATE shifts SET is_active=false,payload=$3 WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId,shift]);
+      // 025 (design §4.1/D1): is_active means "occupies a line" and is true for
+      // `active` *and* `closing`. Clearing it here contradicts the canonical
+      // payload and the trigger rejects the row with 23514
+      // ('shift canonical payload mismatch'), so the shift could never be
+      // closed on the canonical schema. The line stays occupied until `finish`
+      // releases it — exactly like the v2 close (shift-close-v2.mjs).
+      await client.query('UPDATE shifts SET is_active=true,payload=$3 WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId,shift]);
       result={outcome:'confirmed',phase:'awaiting-material',shift,archive,archiveId:archive?archiveId:null};
     } else {
-      if(row.is_active||!shift.closing)throw fail('shift-not-prepared',409);
+      // The prepared marker is the `closing` document, not a cleared is_active:
+      // since 025 the line stays occupied (is_active=true) until this phase.
+      if(!shift.closing)throw fail('shift-not-prepared',409);
       // Восстановленная архивная смена уже переносила материал при исходном
       // закрытии: повторного подтверждения табеля не требуется.
       let materialImport=null;
@@ -69,7 +77,12 @@ export async function closeShiftOperation(pool,uid,input) {
       // The archive and material marker are already durable. Delete this shift only.
       await client.query('DELETE FROM line_logs WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId]);
       await client.query('DELETE FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId]);
-      shift={...shift,isActive:false,closing:false,closedAt:Date.now(),closedBy:profile.display_name};
+      // 025 derives the canonical `state` from the document, not from the alias:
+      // without `closedByUid` there is no proof of the close, so the row would
+      // land in `historical` (the state of migrated legacy rows) instead of
+      // `closed`. Write both the proof and the terminal alias, like v2 does
+      // (shift-close-v2.mjs).
+      shift={...shift,state:'closed',isActive:false,closing:false,closedAt:Date.now(),closedBy:profile.display_name,closedByUid:uid};
       if(materialImport)shift={...shift,materialImport};
       await client.query('UPDATE shifts SET is_active=false,payload=$3 WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId,shift]);
       result={outcome:'confirmed',phase:'closed',shift,archiveId:archive?archiveId:null};

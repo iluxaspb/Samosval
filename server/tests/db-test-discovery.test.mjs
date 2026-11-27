@@ -37,7 +37,9 @@ test('discovered_equals_manifest_including_existing_replica_root', async () => {
   // registered here in the same commit instead of leaving discovery red.
   // 100 = 98 + the Task 30 maintenance rehearsal unit root and its db root.
   // 102 = 100 + the v2 restored-archive unit root and its db root.
-  assert.equal(discovery.roots.length, 102);
+  // 103 = 102 + the legacy single-phase close root on the canonical schema
+  // (its 500 `23514` regression after the 025–029 window).
+  assert.equal(discovery.roots.length, 103);
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-s26-fixtures.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-truck-transfer-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-detached-completion-db.test.mjs'));
