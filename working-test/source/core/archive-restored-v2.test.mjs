@@ -14,6 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import vm from 'node:vm';
@@ -210,6 +211,43 @@ test('карточка: дата принимает ISO, ISO-мгновение 
   assert.equal(api.ruDate('27.11.2026'), '27.11.2026');
   assert.equal(api.ruDate(''), '');
   assert.equal(api.ruDate('не дата'), '');
+});
+
+// Регрессия стенда 393×852 (шаг 17): карточка показывала 26.11 вместо 27.11.
+// Серверная дата смены — календарная, а не UTC-дата мгновения: полночь 27.11
+// по Москве в UTC выглядит как 26.11T21:00Z.
+test('дата: мгновение переводится в московскую дату смены, а не в UTC-дату', () => {
+  assert.equal(api.isoDate('2026-11-26T21:00:00.000Z'), '2026-11-27', 'полночь по Москве — это 27.11, а не 26.11');
+  assert.equal(api.ruDate('2026-11-26T21:00:00.000Z'), '27.11.2026');
+  assert.equal(api.isoDate(new Date('2026-11-26T21:00:00.000Z')), '2026-11-27', 'Date-объект считается так же');
+  assert.equal(api.isoDate('2026-11-27T00:00:00.000Z'), '2026-11-27', 'ровно полночь UTC — уже дата смены');
+  assert.equal(api.isoDate(new Date('2026-11-27T00:00:00.000Z')), '2026-11-27');
+  // Реальный момент (не полночь): дата берётся по Москве.
+  assert.equal(api.isoDate('2026-11-26T22:30:00.000Z'), '2026-11-27');
+  assert.equal(api.isoDate('2026-11-27T20:59:00.000Z'), '2026-11-27');
+  assert.equal(api.isoDate('2026-11-27T21:00:00.000Z'), '2026-11-28', 'после 21:00 UTC в Москве уже следующий день');
+  // ISO со смещением и без зоны.
+  assert.equal(api.isoDate('2026-11-27T00:00:00+03:00'), '2026-11-27');
+  assert.equal(api.isoDate('2026-11-27T00:00'), '2026-11-27', 'ISO без зоны — календарная дата уже дана');
+  assert.equal(api.isoDate('2026-11-27 00:00:00'), '2026-11-27');
+});
+
+test('карточка: дата смены из серверного мгновения показывает верный день', () => {
+  const card = api.cardOf(api.normalizeContext(makeView({ shiftSnapshot: Object.assign({}, makeView().shiftSnapshot, { workDate: '2026-11-26T21:00:00.000Z' }) })).view);
+  assert.equal(card.shift.startDate, '27.11.2026', 'карточка не сдвигается на день назад');
+  assert.equal(card.shift.date, '27.11.2026');
+});
+
+// Часовой пояс машины не должен влиять: разбор идёт через явную зону
+// Europe/Moscow, а не через локальную. Проверяем в отдельных процессах.
+test('дата: результат не зависит от часового пояса машины', () => {
+  const script = 'const api=require(' + JSON.stringify(join(here, '48-archive-restored-v2.js')) + ');'
+    + 'process.stdout.write([api.ruDate("2026-11-26T21:00:00.000Z"),api.ruDate("2026-11-27T00:00:00.000Z"),api.ruDate(new Date("2026-11-26T21:00:00.000Z"))].join("|"));';
+  const outputs = ['UTC', 'America/New_York', 'Asia/Tokyo', 'Europe/Moscow'].map(TZ =>
+    execFileSync(process.execPath, ['-e', script], { env: Object.assign({}, process.env, { TZ }), encoding: 'utf8' }));
+  for (const output of outputs) {
+    assert.equal(output, '27.11.2026|27.11.2026|27.11.2026', 'часовой пояс машины не меняет дату смены');
+  }
 });
 
 test('карточка: опубликованный контекст помечается readOnly', () => {

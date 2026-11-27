@@ -65,20 +65,69 @@
     return Number.isSafeInteger(number) && number >= 1 ? number : null;
   }
 
-  // `work_date` сервер отдаёт из pg как `date`: JSON приходит ISO-мгновением
-  // (`2026-11-27T00:00:00.000Z`), а не строкой `YYYY-MM-DD`. Клиент обязан
-  // принять обе формы, иначе карточка показывает пустую дату (урок 69).
+  // `work_date` сервер отдаёт из pg как `date`. В JSON это может быть и
+  // строка `YYYY-MM-DD`, и мгновение (`2026-11-27T00:00:00.000Z`, а при
+  // серверной зоне UTC+3 — `2026-11-26T21:00:00.000Z`). Дату смены нельзя
+  // выводить как UTC-дату мгновения: полночь 27.11 по Москве — это ещё 26.11
+  // в UTC, и карточка показывала день раньше (найдено стендом 393×852).
+  const DAY_MS = 86400000;
+
+  function utcDateOf(ms) {
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+
+  // Москва — постоянный UTC+3 (перехода на летнее время нет с 2014 года).
+  // Тот же Intl-вызов с явной зоной использует `15-shifts.js`, когда строит
+  // `startDate` закрываемой смены: карточка и шапка считают дату одинаково.
+  function moscowDateOf(ms) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).formatToParts(new Date(ms));
+      const pick = type => {
+        const part = parts.find(item => item.type === type);
+        return part ? part.value : '';
+      };
+      const year = pick('year'), month = pick('month'), day = pick('day');
+      if (/^\d{4}$/.test(year) && /^\d{2}$/.test(month) && /^\d{2}$/.test(day)) {
+        return year + '-' + month + '-' + day;
+      }
+    } catch (_) { /* ниже — арифметический запасной путь */ }
+    return new Date(ms + 3 * 3600000).toISOString().slice(0, 10);
+  }
+
+  // Мгновение → календарная дата смены. Ровно полночь UTC — это уже дата
+  // смены: так выглядит pg-`date` после JSON на сервере в UTC. Любое другое
+  // мгновение — реальный момент времени, его дата считается по Москве.
+  function dateOfInstant(ms) {
+    if (ms % DAY_MS === 0) return utcDateOf(ms);
+    return moscowDateOf(ms);
+  }
+
+  // Формы, которые обязан принять клиент: голая дата, ISO со временем без
+  // зоны (дата уже дана — мгновения нет), ISO с зоной, `ДД.ММ.ГГГГ`, Date.
+  const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(Z|[+-]\d{2}:?\d{2})?$)/;
+
   function isoDate(value) {
-    if (value instanceof Date && Number.isFinite(value.getTime())) {
-      return value.toISOString().slice(0, 10);
+    // `instanceof Date` ложно для Date из другого realm (iframe, vm): форма
+    // проверяется по внутреннему тегу, иначе дата молча пропадает.
+    if (value instanceof Date || Object.prototype.toString.call(value) === '[object Date]') {
+      const ms = Number(value.getTime());
+      return Number.isFinite(ms) ? dateOfInstant(ms) : null;
     }
     const text = typeof value === 'string' ? value.trim() : '';
     if (!text) return null;
-    const iso = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T ])/.exec(text);
-    if (iso) return iso[1] + '-' + iso[2] + '-' + iso[3];
+    const iso = ISO_RE.exec(text);
+    if (iso) {
+      const plain = iso[1] + '-' + iso[2] + '-' + iso[3];
+      if (!iso[4]) return plain;
+      const ms = Date.parse(text);
+      return Number.isFinite(ms) ? dateOfInstant(ms) : plain;
+    }
     const ru = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(text);
     if (ru) return ru[3] + '-' + ru[2].padStart(2, '0') + '-' + ru[1].padStart(2, '0');
-    return null;
+    const ms = Date.parse(text);
+    return Number.isFinite(ms) ? dateOfInstant(ms) : null;
   }
 
   function ruDate(value) {
