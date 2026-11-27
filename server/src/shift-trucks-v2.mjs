@@ -370,8 +370,8 @@ export async function removeTruck(pool, actor, input) {
     if (stage !== null) throw v2Error('truck-cycle-incomplete', 409, { truckId, stage });
 
     await client.query(
-      'DELETE FROM line_truck_statuses WHERE workspace_id=$1 AND truck_id=$2',
-      [workspaceId, truckId],
+      'DELETE FROM line_truck_statuses WHERE workspace_id=$1 AND truck_id=$2 AND shift_id=$3',
+      [workspaceId, truckId, shiftId],
     );
     const bumped = await bumpShiftRevision(client, workspaceId, shiftId, expectedShiftRevision);
     return {

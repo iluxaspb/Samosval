@@ -288,9 +288,9 @@ export async function submitLineOperationV2(pool, actor, input) {
     const updated = (await client.query(
       `UPDATE line_truck_statuses
           SET payload=$3::jsonb, status_revision=$4, cycle_revision=$5, ttn_revision=$6
-        WHERE workspace_id=$1 AND truck_id=$2
+        WHERE workspace_id=$1 AND truck_id=$2 AND shift_id=$7
         RETURNING ${STATUS_FIELDS}`,
-      [workspaceId, truckId, payload, nextStatusRevision, nextCycleRevision, nextTtnRevision],
+      [workspaceId, truckId, payload, nextStatusRevision, nextCycleRevision, nextTtnRevision, shiftId],
     )).rows[0];
     if (!updated) throw v2Error('truck-not-on-shift', 409, { truckId, shiftId });
 

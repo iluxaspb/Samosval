@@ -181,9 +181,9 @@ export async function forceTransferTruck(pool, actor, input) {
       `UPDATE line_truck_statuses
           SET shift_id=$3, payload=$4::jsonb, status_revision=status_revision+1,
               cycle_revision=1, ttn_revision=1
-        WHERE workspace_id=$1 AND truck_id=$2
+        WHERE workspace_id=$1 AND truck_id=$2 AND shift_id=$5
         RETURNING truck_id,shift_id,status_revision,cycle_revision,ttn_revision,payload`,
-      [workspaceId, truckId, destinationShiftId, cleanPayload],
+      [workspaceId, truckId, destinationShiftId, cleanPayload, sourceShiftId],
     )).rows[0];
 
     // 5. The unfinished cycle is detached after the move: the database requires
