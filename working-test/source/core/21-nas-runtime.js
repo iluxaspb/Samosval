@@ -170,7 +170,10 @@
     state.shift=snapshot.shift;state.trucks=snapshot.trucks;
     // Восстановленные для правок архивные смены живут параллельно активной
     // линии: пользователь редактирует их через отчёт, не закрывая текущую.
-    state.restoredShifts=snapshot.restoredShifts||[];
+    // v1-снапшот отдаёт их только на старом сервере; на канонической схеме
+    // карточки приходят из v2-контекстов (nasRestoredShiftsCombined).
+    nasRestoredV1=snapshot.restoredShifts||[];
+    state.restoredShifts=nasRestoredShiftsCombined();
     // Рейсы восстановленных смен попадают в общий список: правки (✏️/X) ищут
     // лог по id, а сводки активной смены фильтруются по shiftId и их не видят.
     // offlineRemoteLogs — источник офлайн-проекции: кладём их туда, иначе
@@ -379,6 +382,218 @@
   function nasStopV2Shifts(){
     try{nasV2Bridge?.handle?.close?.();}catch(_){}
     nasV2Bridge=null;nasV2BridgeErrorLogged=false;
+    nasRestoredV1=[];nasRestoredContexts=[];nasRestoredRead=null;nasRestoredReadAt=0;
+  }
+
+  // === Восстановленные архивные смены (v2, design §5.6, §10.1) ===
+  // Старый сервер отдаёт restored-смены в v1-снапшоте (`shifts` +
+  // `payload.restored`). На канонической схеме их место — restored_shift_contexts:
+  // клиент читает их через GET /api/v2/archives/{id}/restored и правит через
+  // POST /api/v2/archives/{id}/operations. Карточка и рейсы выглядят как в
+  // 1.8.3, но в active-таблицы (shifts, line_logs, line_truck_statuses) этот
+  // путь не пишет ничего.
+  let nasRestoredV1 = [];          // restored-смены из v1-снапшота (старый сервер)
+  let nasRestoredContexts = [];    // [{card}] открытые v2-контексты
+  let nasRestoredRead = null;
+  let nasRestoredReadAt = 0;
+
+  function nasRestoredArchiveApi(){
+    return typeof WorkingTestArchiveRestoredV2!=='undefined'?WorkingTestArchiveRestoredV2:null;
+  }
+  function nasRestoredArchiveTransport(){
+    const transport=nasV2Shifts()?.transport;
+    if(!transport||typeof transport.readRestoredArchive!=='function'||typeof transport.submitArchiveV2!=='function')return null;
+    return transport;
+  }
+  // v2-путь восстановления доступен только при живом мосте. Без него остаётся
+  // прежний честный отказ, а не «похожий» локальный контекст (урок 63).
+  function nasRestoredV2Ready(){return !!(nasRestoredArchiveApi()&&nasRestoredArchiveTransport());}
+
+  function nasRestoredCards(){
+    return nasRestoredContexts.map(entry=>{
+      const card=entry.card;
+      // Опубликованный (finalized) контекст неприкосновенен: карточка остаётся,
+      // но правки и возврат в архив недоступны.
+      const readOnly=card.context.contextState!=='open';
+      const logs=(card.logs||[]).map(log=>log.restoredReadOnly===readOnly?log:{...log,restoredReadOnly:readOnly});
+      return {...card,readOnly,logs};
+    });
+  }
+  function nasRestoredShiftsCombined(){
+    const v2=nasRestoredCards();
+    const ids=new Set(v2.map(card=>card.shift.id));
+    return [...nasRestoredV1.filter(row=>row?.shift&&!ids.has(row.shift.id)),...v2];
+  }
+  function nasRestoredContextForShift(shiftId){
+    return nasRestoredContexts.find(entry=>entry.card.shift.id===shiftId)||null;
+  }
+  function nasRestoredContextForLog(logId){
+    if(!logId)return null;
+    for(const entry of nasRestoredContexts){
+      const log=(entry.card.logs||[]).find(row=>row.id===logId);
+      if(log)return {context:entry,log};
+    }
+    return null;
+  }
+  // Единая публикация восстановленных смен: карточка в отчёте и рейсы в журнале.
+  // Рейсы кладутся в offlineRemoteLogs, иначе offlineProjectState затрёт их
+  // своим срезом (как и для v1-снапшота).
+  function nasApplyRestoredShifts(){
+    state.restoredShifts=nasRestoredShiftsCombined();
+    const restoredIds=new Set(state.restoredShifts.map(row=>row?.shift?.id).filter(Boolean));
+    const baseLogs=(Array.isArray(offlineRemoteLogs)?offlineRemoteLogs:[]).filter(log=>!restoredIds.has(log.shiftId));
+    offlineRemoteLogs=[...baseLogs,...state.restoredShifts.flatMap(row=>row.logs||[])];
+    offlineProjectState();saveCache();renderAll();
+  }
+  // Карточки переживают перезагрузку: они лежат в кэше сессии (saveCache), а
+  // сервер перечитывается, как только мост готов.
+  function nasSeedRestoredContexts(){
+    // Без живого v2-моста кэш не поднимаем: карточка без маршрута правок
+    // выглядела бы рабочей, а любая правка упиралась бы в отказ (урок 69).
+    if(!nasRestoredV2Ready())return;
+    const cached=(state.restoredShifts||[]).filter(row=>row&&row.context&&row.shift&&row.shift.restoredContextId);
+    if(!cached.length)return;
+    const known=new Set(nasRestoredContexts.map(entry=>entry.card.shift.id));
+    for(const card of cached){
+      if(known.has(card.shift.id))continue;
+      nasRestoredContexts.push({card:{...card,readOnly:card.context.contextState!=='open'}});
+      known.add(card.shift.id);
+    }
+  }
+
+  // GET /api/v2/archives/{id}/restored идемпотентен: повторное открытие
+  // возвращает уже открытый контекст с его собственной базовой ревизией.
+  // Большие архивы листаются курсором, чтобы карточка не потеряла рейсы.
+  async function nasReadRestoredContext(archiveId){
+    const api=nasRestoredArchiveApi(),transport=nasRestoredArchiveTransport();
+    if(!api||!transport)return {ok:false,error:{code:'v2-unavailable',status:0}};
+    const pages=[];let cursor=null;
+    for(let page=0;page<20;page++){
+      const response=await transport.readRestoredArchive({archiveId,limit:200,...(cursor?{cursor}:{})});
+      if(!response||response.ok!==true)return {ok:false,error:response?.error||{code:'invalid-api-response',status:0}};
+      const normalized=api.normalizeContext(response.data);
+      if(!normalized.ok)return {ok:false,error:{code:'invalid-api-response',status:0}};
+      pages.push(normalized.view);
+      const next=normalized.view.tripsPage?.nextCursor;
+      if(normalized.view.tripsPage?.hasMore!==true||!next)break;
+      cursor=next;
+    }
+    if(!pages.length)return {ok:false,error:{code:'invalid-api-response',status:0}};
+    const merged=pages.length===1?pages[0]:{...pages[0],trips:pages.flatMap(view=>view.trips),
+      tripsPage:{...pages[0].tripsPage,hasMore:false,nextCursor:null}};
+    const card=api.cardOf(merged);
+    const index=nasRestoredContexts.findIndex(entry=>entry.card.shift.id===card.shift.id);
+    const entry={card};
+    if(index>=0)nasRestoredContexts[index]=entry;else nasRestoredContexts.push(entry);
+    return {ok:true,context:entry,card};
+  }
+  // Фоновое перечитывание открытых контекстов: ошибка не стирает карточку, а
+  // правка сама перечитает контекст при CAS-конфликте.
+  async function nasRefreshRestoredContexts(options){
+    const force=options?.force===true;
+    if(!nasRestoredV2Ready()||!nasRestoredContexts.length)return {ok:false,count:0};
+    const now=Date.now();
+    if(!force&&now-nasRestoredReadAt<30000)return {ok:true,count:nasRestoredContexts.length};
+    if(nasRestoredRead)return nasRestoredRead;
+    nasRestoredReadAt=now;
+    const work=(async()=>{
+      let ok=0;
+      for(const entry of nasRestoredContexts.slice()){
+        const result=await nasReadRestoredContext(entry.card.context.archiveId);
+        if(result.ok)ok+=1;
+      }
+      if(ok)nasApplyRestoredShifts();
+      return {ok:ok>0,count:ok};
+    })();
+    nasRestoredRead=work;
+    try{return await work;}finally{if(nasRestoredRead===work)nasRestoredRead=null;}
+  }
+  function nasRestoredOperationId(){
+    if(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function')return 'restored_'+crypto.randomUUID().replaceAll('-','');
+    return 'restored_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12);
+  }
+  function nasRestoredFieldText(code){
+    if(code==='invalid-volume')return 'Проверьте объём: от 0 до 1000 м³';
+    if(code==='invalid-time')return 'Проверьте время: формат ЧЧ:ММ';
+    if(code==='invalid-ttn')return 'Проверьте отметку ТТН';
+    if(code==='invalid-comment')return 'Комментарий слишком длинный';
+    return 'Проверьте поля правки восстановленной смены';
+  }
+  // Правка рейса/ТТН архивной смены. CAS берётся из фактически прочитанного
+  // контекста; operationId фиксируется ДО первого запроса, поэтому повтор после
+  // конфликта не создаёт вторую операцию на сервере.
+  async function nasRestoredCorrect(entry,command){
+    const api=nasRestoredArchiveApi(),transport=nasRestoredArchiveTransport();
+    if(!api||!transport)throw Error('Сервер не поддерживает правку восстановленной смены: обновите приложение.');
+    if(entry.card.context.contextState!=='open')throw Error(api.FINALIZED_NOTICE);
+    const operationId=nasRestoredOperationId();
+    const build=()=>api.commandFor(entry.card,{...command,operationId});
+    let prepared=build();
+    if(!prepared.ok)throw Error(nasRestoredFieldText(prepared.code));
+    let response=await transport.submitArchiveV2(prepared.input);
+    if(response?.ok!==true&&response?.error?.code==='archive-changed'){
+      const fresh=await nasReadRestoredContext(entry.card.context.archiveId);
+      if(fresh.ok){
+        entry=fresh.context;
+        prepared=build();
+        if(prepared.ok)response=await transport.submitArchiveV2(prepared.input);
+      }
+    }
+    if(response?.ok!==true){
+      const code=response?.error?.code,status=response?.error?.status;
+      const error=Error(api.correctionText(code,status));
+      error.serverCode=code;error.status=status;throw error;
+    }
+    const result=response.data?.result;
+    entry.card=api.applyResult(entry.card,result||{});
+    nasApplyRestoredShifts();
+    return result;
+  }
+  async function nasRestoredTripUpdate(found,data){
+    const fields=data||{};
+    return nasRestoredCorrect(found.context,{type:'trip.update',recordId:found.log.id,
+      fields:{volume:Number(fields.volume),timeStr:String(fields.timeStr||''),
+        comment:typeof fields.comment==='string'?fields.comment:''}});
+  }
+  async function nasRestoredTripDelete(found){
+    return nasRestoredCorrect(found.context,{type:'trip.delete',recordId:found.log.id});
+  }
+  async function nasRestoredTtnChange(shiftId,truckId,status){
+    const entry=nasRestoredContextForShift(shiftId);
+    if(!entry)throw Error('Восстановленная смена не найдена: обновите страницу.');
+    return nasRestoredCorrect(entry,status===null
+      ?{type:'ttn.delete',recordId:truckId}
+      :{type:'ttn.update',recordId:truckId,fields:{ttnStatus:status}});
+  }
+  // Кнопка в карточке восстановленной смены: отметка ТТН архивного рейса.
+  async function markRestoredTtn(shiftId,truckId,status){
+    try{await nasRestoredTtnChange(shiftId,truckId,status);showToastEl(status===null?'↩️ Отметка ТТН снята':'📄 ТТН отмечена',false);}
+    catch(error){showError(error.message);}
+  }
+  // Восстановление архивной смены через v2. Возвращает карточку и ничего не
+  // пишет в active-таблицы: контекст правок — отдельное хранилище.
+  async function nasRestoreArchivedShift(archiveId){
+    const api=nasRestoredArchiveApi();
+    const result=await nasReadRestoredContext(archiveId);
+    if(!result.ok){
+      const code=result.error?.code,status=result.error?.status;
+      const error=Error(api?api.refusalFor(code,status).text:'Не удалось восстановить архивную смену');
+      error.serverCode=code;error.status=status;throw error;
+    }
+    nasApplyRestoredShifts();
+    return result;
+  }
+  function nasRestoredRefusalText(code,status){
+    const api=nasRestoredArchiveApi();
+    return api?api.refusalFor(code,status).text:null;
+  }
+  // Текст для «Вернуть в архив»: null значит «это не v2-контекст», и работает
+  // прежний путь закрытия восстановленной смены (старый сервер).
+  function nasRestoredFinalizeText(shiftId){
+    const api=nasRestoredArchiveApi();
+    const entry=nasRestoredContextForShift(shiftId);
+    if(!entry)return null;
+    return api?api.finalizeText(entry.card):null;
   }
   // Флаг включён в канале по умолчанию (shell.html), поэтому мост поднимается
   // и там, где сервер v2 ещё не отвечает (старый сервер, нет маршрутов, связь
@@ -443,6 +658,9 @@
       const client=createNasClient({baseUrl: nasApiBase(), getUser:()=>wtAuthUser(),workspaceId:WORKSPACE_ID,timeoutMs:15000});nasRuntimeClient=client;
       nasStartConnection(client,epoch);
       nasStartV2Shifts(epoch,client);
+      // Карточки восстановленных смен переживают перезагрузку: они лежат в
+      // кэше сессии, а сервер перечитывается, как только мост готов.
+      nasSeedRestoredContexts();
       // Pulse: proves this phone is alive and tells the servers how many phones
       // still see the primary. Failover needs many phones, not one.
       const pulse=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||!navigator.onLine)return;if(typeof client.writeAuthorityPresence!=='function')return;try{client.writeAuthorityPresence({}).catch(()=>{});}catch(_){}};
@@ -478,6 +696,9 @@
       // Отсчёт тишины подписки начинается сразу: иначе до первого сеанса
       // надзиратель каждые 2,5 секунды заново перезапускал бы подписку.
       nasLastSessionAt=Date.now();
+      // Открытые контексты восстановленных смен перечитываются один раз при
+      // старте: GET идемпотентен и отдаёт уже открытый контекст.
+      if(nasRestoredContexts.length)void nasRefreshRestoredContexts({force:true}).catch(()=>{});
       // Надзиратель повторов: раз в 2,5 секунды проверяет, не застряла ли
       // подписка и не остались ли ошибки источников без повторного чтения.
       if(nasSyncTimer&&typeof clearInterval==='function')clearInterval(nasSyncTimer);
@@ -564,6 +785,16 @@
   async function nasBackupRead(id){if(!canAdmin()||!nasRuntimeClient)throw Error('Требуется администратор Ubuntu');return nasRuntimeClient.readBackups(id);}
   async function nasBackupCommand(target,fields){return nasBusinessCommand('backup',target,fields);}
   async function nasReportAction(type,log,data){
+    // Рейс восстановленной архивной смены живёт в restored_context_logs, а не в
+    // line_logs активной линии: v1-команда report.* его не найдёт, а при
+    // совпадении id адресовала бы чужую смену. Правка и удаление идут
+    // v2-маршрутом архивного контекста с CAS из прочитанного контекста.
+    const restored=nasRestoredContextForLog(log?.id);
+    if(restored){
+      if(type==='report.update')return nasRestoredTripUpdate(restored,data);
+      if(type==='report.delete')return nasRestoredTripDelete(restored);
+      throw Error('Для восстановленной архивной смены доступны правка и удаление рейса');
+    }
     const expected={volume:log.volume,timestamp:log.timestamp,timeStr:log.timeStr,comment:log.comment||'',truckId:log.truckId,shiftId:log.shiftId};
     const result=await nasBusinessCommand('report',log.id,{type,logId:log.id,expected,...(data?{data}:{})});
     await nasRefreshLine();await Promise.allSettled([refreshNasGames(),refreshNasAuxiliary()]);return result;

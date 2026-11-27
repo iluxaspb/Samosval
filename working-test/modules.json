@@ -61,7 +61,8 @@
         "core/44-shift-management.js",
         "core/45-restored-archive.js",
         "core/46-detached-trips.js",
-        "core/47-shift-transfer-ui.js"
+        "core/47-shift-transfer-ui.js",
+        "core/48-archive-restored-v2.js"
       ]
     },
     {

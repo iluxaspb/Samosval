@@ -108,7 +108,8 @@ test('поведение: прочие ошибки восстановления
 // === Часть 2: снапшот линии раскладывает restored-смены и не теряет их в офлайн-проекции ===
 test('исходник: acceptNasLineSnapshot сохраняет restoredShifts и кладёт их рейсы в офлайн-проекцию', () => {
   const body = functionBody(nasSrc, 'acceptNasLineSnapshot');
-  assert.match(body, /state\.restoredShifts\s*=\s*snapshot\.restoredShifts/, 'restoredShifts сохраняются в state');
+  assert.match(body, /nasRestoredV1\s*=\s*snapshot\.restoredShifts\s*\|\|\s*\[\]/, 'v1-снапшот сохраняет restoredShifts отдельно');
+  assert.match(body, /state\.restoredShifts\s*=\s*nasRestoredShiftsCombined\(\)/, 'state получает v1+v2 карточки через единый сборщик');
   assert.match(body, /offlineRemoteLogs\s*=\s*\[\.\.\.snapshot\.logs,\.\.\.restoredLogs\]/,
     'рейсы restored попадают в офлайн-проекцию (иначе offlineProjectState их затирает)');
 });

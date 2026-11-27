@@ -138,6 +138,13 @@
   async function closeRestoredShift(shiftId) {
     if(!requireEdit('close_shift')) return;
     const r=(state.restoredShifts||[]).find(x=>x.shift.id===shiftId); if(!r){showError('Смена уже изменена. Обновите страницу.');return;}
+    // v2-контекст (design §5.6): маршрута публикации ревизии архива в сервере
+    // канала нет. Честно объясняем это и НЕ закрываем смену окольным путём —
+    // иначе пользователь решит, что правки вернулись в архив.
+    if(typeof nasRestoredFinalizeText==='function'){
+      const text=nasRestoredFinalizeText(shiftId);
+      if(text){showError(text);return;}
+    }
     if(!(await appConfirm(`Вернуть восстановленную смену «${objectTitle(r.shift.objectId,r.shift.objectName)}» от ${r.shift.startDate} в архив?\n\nАктивная смена линии продолжит работать без изменений.`)))return;
     if(!isNasRuntime()){showError('Возврат в архив доступен в режиме сервера Ubuntu');return;}
     try{

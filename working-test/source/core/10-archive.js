@@ -244,6 +244,20 @@
         ? `Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date} для правок?\n\nАктивная смена «${objectTitle(state.shift.objectId,state.shift.objectName)}» продолжит работать — восстановленная смена редактируется параллельно.`
         : `Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date}?`;
       if(!(await appConfirm(msg)))return;
+      // v2-путь (design §5.6): сервер открывает restored-контекст, клиент
+      // показывает карточку «Восстановленная смена» и правит рейсы через
+      // POST /api/v2/archives/{id}/operations. Активная смена и active-таблицы
+      // не затрагиваются. Без живого моста остаётся прежний честный отказ.
+      if(typeof nasRestoredV2Ready==='function'&&nasRestoredV2Ready()){
+        try{
+          await nasRestoreArchivedShift(viewingArchiveId);
+          closeArchiveModal();
+          showToastEl(hasActive?'✅ Архивная смена восстановлена для правок — параллельно с активной':'✅ Архивная смена восстановлена для правок',false);
+        }catch(error){
+          showError(error&&error.message?error.message:'Не удалось восстановить архивную смену: данные не изменены.');
+        }
+        return;
+      }
       try{await nasArchiveAction('archive.restore',viewingArchiveId);closeArchiveModal();showToastEl(hasActive?'✅ Архивная смена восстановлена для правок — параллельно с активной':'Смена восстановлена на Ubuntu',false);}
       catch(error){
         // На канонической схеме (миграция 025) старый путь восстановления

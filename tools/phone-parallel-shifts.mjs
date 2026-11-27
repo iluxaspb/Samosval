@@ -736,33 +736,29 @@ try{
   facts.archive={entry,series:series.map(row=>({revision:Number(row.archive_revision),sha256:row.payload_sha256,latest:Number(row.latest_finalized_revision)})),revisionView,explicit};
  });
 
- await scenario('a restored archive is refused honestly on the canonical schema and leaves no rows behind',async()=>{
+ await scenario('a restored archive opens as a v2 context, edits a trip without touching active tables, and finalization refuses honestly',async()=>{
   const entryId='closed_'+shiftA;
-  // На канонической схеме (миграция 025) старый путь восстановления запрещён
-  // дизайном: restored archive не становится active shift (design §4.7, §3.4),
-  // его место — restored_shift_contexts, у которого пока нет маршрута. Сервер
-  // обязан отказать стабильным кодом до любой записи, а не упасть 500.
-  const before=(await pool.query("SELECT (SELECT count(*) FROM shifts WHERE workspace_id=$1 AND payload->>'restored'='true') AS restored_shifts,(SELECT count(*) FROM line_logs WHERE workspace_id=$1) AS logs",[process.env.WORKSPACE_ID||'main_workspace'])).rows[0];
+  const ws=process.env.WORKSPACE_ID||'main_workspace';
+  const countsSql="SELECT (SELECT count(*) FROM shifts WHERE workspace_id=$1 AND payload->>'restored'='true') AS restored_shifts,"
+   +"(SELECT count(*) FROM line_logs WHERE workspace_id=$1) AS logs,"
+   +"(SELECT count(*) FROM line_truck_statuses WHERE workspace_id=$1) AS statuses,"
+   +"(SELECT count(*) FROM restored_shift_contexts WHERE workspace_id=$1) AS contexts,"
+   +"(SELECT count(*) FROM restored_context_logs WHERE workspace_id=$1) AS context_logs";
+  const before=(await pool.query(countsSql,[ws])).rows[0];
+
+  // Негатив остаётся обязательным: старый путь восстановления на канонической
+  // схеме (миграция 025) запрещён дизайном и обязан отказать стабильным кодом
+  // до любой записи. Это не доказательство v2-пути, а проверка совместимости.
   const refused=await admin.ev(`nasArchiveAction('archive.restore',${J(entryId)}).then(()=>({ok:true}),error=>({ok:false,code:error.serverCode||error.code,status:error.status,message:String(error.message||error)}))`);
-  assert.equal(refused.ok,false,'restore must be refused');
+  assert.equal(refused.ok,false,'legacy restore must be refused');
   assert.equal(refused.code,'archive-restore-requires-v2',JSON.stringify(refused));
   assert.equal(refused.status,409,JSON.stringify(refused));
+  const afterLegacy=(await pool.query(countsSql,[ws])).rows[0];
+  assert.equal(Number(afterLegacy.restored_shifts),0,'legacy path created no restored shift row');
+  assert.equal(Number(afterLegacy.logs),Number(before.logs),'legacy path wrote no active trips');
+  assert.equal(Number(afterLegacy.contexts),Number(before.contexts),'legacy path opened no v2 context');
 
-  // Ничего не создано: ни строки restored в shifts, ни рейсов, ни контекста.
-  const after=(await pool.query("SELECT (SELECT count(*) FROM shifts WHERE workspace_id=$1 AND payload->>'restored'='true') AS restored_shifts,(SELECT count(*) FROM line_logs WHERE workspace_id=$1) AS logs",[process.env.WORKSPACE_ID||'main_workspace'])).rows[0];
-  assert.equal(Number(after.restored_shifts),Number(before.restored_shifts),'no restored shift row');
-  assert.equal(Number(after.logs),Number(before.logs),'no restored trips');
-  assert.equal(Number(after.restored_shifts),0,'the stand has no restored shift at all');
-  const restoredState=await admin.ev(`({list:Array.isArray(state.restoredShifts)?state.restoredShifts.length:null,
-   archive:(state.archive||[]).some(item=>item.id===${J(entryId)})})`);
-  assert.equal(restoredState.list??0,0,'client restored list stays empty');
-  assert.equal(restoredState.archive,true,'the archive entry was not moved away');
-  const visible=await admin.ev('nasV2Shifts().store.visibleShifts().map(row=>row.shiftId)');
-  assert.deepEqual(visible,[shiftB],'the strip still shows only B');
-  assert.equal(await admin.ev("document.getElementById('shiftStrip').hidden"),true);
-
-  // Пользователь видит причину, а не «api-http-409»: путь тот же, что у кнопки
-  // «Восстановить» — модалка архива, подтверждение и панель ошибки.
+  // Настоящий пользовательский путь: модалка архива → «Восстановить» → v2-контекст.
   await admin.ev('switchTab("archive");renderArchive()');
   await admin.ev(`openArchiveModal(${J(entryId)})`);
   await until(()=>admin.ev("!!document.querySelector('#archiveModal.open')"),'archive modal',20000);
@@ -770,26 +766,85 @@ try{
   await admin.ev("document.getElementById('archiveRestoreBtn').click()");
   await until(()=>admin.ev("!!document.querySelector('.pcm-overlay .pcm-btn-confirm')"),'restore confirmation',20000);
   await admin.ev("document.querySelector('.pcm-overlay .pcm-btn-confirm').click()");
-  await until(()=>admin.ev("document.getElementById('errorPanel')?.classList.contains('open')===true"),'restore refusal panel',30000);
-  const refusalText=await admin.ev("document.getElementById('errorPanel').querySelector('.error-panel-text').textContent");
-  assert.ok(refusalText.includes('Восстановление архивной смены в этом режиме недоступно'),refusalText);
-  assert.ok(refusalText.includes('смена не создана, данные архива не изменены'),refusalText);
-  assert.equal(/api-http-\d+/.test(refusalText),false,'the user never sees a raw HTTP code');
-  await admin.ev("document.querySelector('.error-panel-close').click()");
-  await admin.ev('closeArchiveModal()');
+  await until(()=>admin.ev(`(state.restoredShifts||[]).some(row=>row.shift&&row.shift.archiveId===${J(entryId)})`),'v2 restored card',30000);
+  const card=await admin.ev(`(()=>{const row=(state.restoredShifts||[]).find(item=>item.shift&&item.shift.archiveId===${J(entryId)});
+   if(!row)return null;const el=document.querySelector('[data-restored-shift="'+row.shift.id+'"]');
+   return {shiftId:row.shift.id,objectId:row.shift.objectId,startDate:row.shift.startDate,logs:row.logs.length,
+    restoredContextId:row.shift.restoredContextId,contextRevision:row.context&&row.context.contextRevision,
+    cardText:el?el.textContent:'',provenance:!!row.provenance};})()`);
+  assert.ok(card&&card.restoredContextId,'the v2 card is in state with a context id');
+  assert.equal(card.objectId,SITE,'card keeps the archive object');
+  assert.equal(card.startDate,'27.11.2026','card shows the archive date');
+  assert.ok(card.logs>0,'the restored card carries the archive trips');
+  assert.ok(card.cardText.includes('Восстановленная смена'),'the restored card is rendered');
 
-  const afterUi=(await pool.query("SELECT (SELECT count(*) FROM shifts WHERE workspace_id=$1 AND payload->>'restored'='true') AS restored_shifts,(SELECT count(*) FROM line_logs WHERE workspace_id=$1) AS logs",[process.env.WORKSPACE_ID||'main_workspace'])).rows[0];
-  assert.equal(Number(afterUi.restored_shifts),0,'the UI path created no restored shift');
-  assert.equal(Number(afterUi.logs),Number(before.logs),'the UI path created no trips');
-  facts.restored={entryId,refused,counts:{before:{restored_shifts:Number(before.restored_shifts),logs:Number(before.logs)},after:{restored_shifts:Number(afterUi.restored_shifts),logs:Number(afterUi.logs)}},visibleShifts:visible,userText:refusalText};
+  const opened=(await pool.query(countsSql,[ws])).rows[0];
+  assert.equal(Number(opened.contexts),Number(before.contexts)+1,'exactly one open restored context');
+  assert.equal(Number(opened.restored_shifts),0,'v2 restore writes no row into shifts');
+  assert.equal(Number(opened.logs),Number(before.logs),'v2 restore writes no trips into line_logs');
+  assert.equal(Number(opened.statuses),Number(before.statuses),'v2 restore writes no line statuses');
+
+  // Правка рейса через реальный журнал: ✏️ → saveLogEdit. Она обязана уйти в
+  // restored_context_logs и не тронуть активные рейсы смены B.
+  const logId=await admin.ev(`(()=>{const row=(state.restoredShifts||[]).find(item=>item.shift&&item.shift.archiveId===${J(entryId)});
+   const log=row&&row.logs.find(item=>!item.isGAI);return log?log.id:null;})()`);
+  assert.ok(logId,'the restored card has an editable trip');
+  const volumeBefore=await admin.ev(`(()=>{const row=(state.restoredShifts||[]).find(item=>item.shift&&item.shift.archiveId===${J(entryId)});
+   const log=row.logs.find(item=>item.id===${J(logId)});return log?log.volume:null;})()`);
+  await admin.ev(`openEditLog(${J(logId)})`);
+  await admin.ev(`(()=>{document.getElementById('editLogVolume').value='7';document.getElementById('editLogTime').value='11:11';document.getElementById('editLogComment').value='правка архивной смены';void saveLogEdit();})()`);
+  await until(async()=>{
+   const row=await admin.ev(`(()=>{const item=(state.restoredShifts||[]).find(r=>r.shift&&r.shift.archiveId===${J(entryId)});
+    const log=item&&item.logs.find(l=>l.id===${J(logId)});return log?{volume:log.volume,timeStr:log.timeStr,comment:log.comment}:null;})()`);
+   return row&&Number(row.volume)===7&&row.timeStr==='11:11';
+  },'restored trip edit',30000);
+  const edited=(await pool.query("SELECT payload FROM restored_context_logs WHERE workspace_id=$1 AND log_id=$2",[ws,logId])).rows[0];
+  assert.ok(edited,'the edit is stored in the restored context');
+  assert.equal(Number(edited.payload.volume),7);
+  assert.equal(edited.payload.timeStr,'11:11');
+  const afterEdit=(await pool.query(countsSql,[ws])).rows[0];
+  assert.equal(Number(afterEdit.logs),Number(before.logs),'editing a restored trip never touches line_logs');
+  assert.equal(Number(afterEdit.statuses),Number(before.statuses),'editing a restored trip never touches line statuses');
+  assert.equal(Number(afterEdit.restored_shifts),0,'editing a restored trip never creates a restored shift row');
+
+  // «Вернуть в архив»: маршрута финализации в сервере канала нет, поэтому клиент
+  // обязан объяснить недоступность и НЕ публиковать ревизию.
+  const revBefore=(await pool.query("SELECT count(*) AS c FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2",[ws,entryId])).rows[0];
+  await admin.ev(`closeRestoredShift(${J(card.shiftId)})`);
+  await until(()=>admin.ev("document.getElementById('errorPanel')?.classList.contains('open')===true"),'finalize refusal panel',20000);
+  const finalizeText=await admin.ev("document.getElementById('errorPanel').querySelector('.error-panel-text').textContent");
+  assert.ok(finalizeText.includes('в архив она не вернулась'),finalizeText);
+  assert.equal(/api-http-\d+/.test(finalizeText),false,'the user never sees a raw HTTP code');
+  await admin.ev("document.querySelector('.error-panel-close').click()");
+  const revAfter=(await pool.query("SELECT count(*) AS c FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2",[ws,entryId])).rows[0];
+  assert.equal(Number(revAfter.c),Number(revBefore.c),'finalization refusal published no archive revision');
+  const contextState=(await pool.query("SELECT context_state FROM restored_shift_contexts WHERE workspace_id=$1 AND archive_id=$2",[ws,entryId])).rows[0];
+  assert.equal(contextState.context_state,'open','the context stays open after an honest refusal');
+
+  // Постусловия: активные таблицы не изменились, карточка на месте, полоса
+  // смен по-прежнему показывает только B.
+  const afterUi=(await pool.query(countsSql,[ws])).rows[0];
+  assert.equal(Number(afterUi.restored_shifts),0,'the UI path created no restored shift row');
+  assert.equal(Number(afterUi.logs),Number(before.logs),'the UI path created no active trips');
+  assert.equal(Number(afterUi.statuses),Number(before.statuses),'the UI path created no active statuses');
+  const stillThere=await admin.ev(`(state.restoredShifts||[]).some(row=>row.shift&&row.shift.archiveId===${J(entryId)})`);
+  assert.equal(stillThere,true,'the restored card remains after an honest finalize refusal');
+  const visible=await admin.ev('nasV2Shifts().store.visibleShifts().map(row=>row.shiftId)');
+  assert.deepEqual(visible,[shiftB],'the strip still shows only B');
+  assert.equal(await admin.ev("document.getElementById('shiftStrip').hidden"),true,'the strip stays hidden: a restored context is not an active shift');
+
+  facts.restored={entryId,card,refused,volumeBefore,logId,finalizeText,
+   counts:{before:{restored_shifts:Number(before.restored_shifts),logs:Number(before.logs),statuses:Number(before.statuses),contexts:Number(before.contexts)},
+    after:{restored_shifts:Number(afterUi.restored_shifts),logs:Number(afterUi.logs),statuses:Number(afterUi.statuses),contexts:Number(afterUi.contexts)}},
+   revisions:{before:Number(revBefore.c),after:Number(revAfter.c)}};
  });
 
  await scenario('no page exceptions, no module load failures, no foreign origin traffic',async()=>{
   for(const session of sessions){
    if(!session.closed)session.browser.collector.assertNoExceptions();
   }
-  const modules=await admin.ev("({selector:typeof WorkingTestShiftSelector,management:typeof WorkingTestShiftManagement,contexts:typeof WorkingTestShiftContexts,transport:typeof WorkingTestV2Transport,detached:typeof WorkingTestDetachedTrips,restored:typeof WorkingTestRestoredArchive})");
-  assert.deepEqual(modules,{selector:'object',management:'object',contexts:'object',transport:'object',detached:'object',restored:'object'});
+  const modules=await admin.ev("({selector:typeof WorkingTestShiftSelector,management:typeof WorkingTestShiftManagement,contexts:typeof WorkingTestShiftContexts,transport:typeof WorkingTestV2Transport,detached:typeof WorkingTestDetachedTrips,restored:typeof WorkingTestRestoredArchive,restoredV2:typeof WorkingTestArchiveRestoredV2})");
+  assert.deepEqual(modules,{selector:'object',management:'object',contexts:'object',transport:'object',detached:'object',restored:'object',restoredV2:'object'});
   assert.ok(admin.browser.network.some(row=>row.url.startsWith(origin+'/api/v2/shifts?')),'the v2 list really left the browser');
   assert.equal(admin.browser.network.some(row=>row.url.includes(':18091')),false,'no legacy channel traffic');
   assert.ok(admin.browser.api.filter(row=>row.url.includes('/api/')).every(row=>row.url.startsWith(origin+'/api/')),'every API call uses the synthetic origin');

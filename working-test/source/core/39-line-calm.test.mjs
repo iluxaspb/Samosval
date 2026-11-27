@@ -134,6 +134,8 @@ function runLineSnapshotHarness() {
     initialized: false,
     nasStableHash,
     nasLineHash: null,
+    nasRestoredV1: [],
+    nasRestoredShiftsCombined: () => [],
     markSync: () => {},
     offlineProjectState: () => { projectCalls++; },
     refreshNasLineNotificationDisplay: () => {},
