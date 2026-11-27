@@ -31,6 +31,7 @@ import {handleHealthRequest} from './health.mjs';
 import {handleV2Request} from './v2-router.mjs';
 import {readAuthorityState,switchAuthority,assertWriteAuthority,touchPresence} from './authority.mjs';
 import {appendReplicaBatch,readReplicaJournal} from './replica-store.mjs';
+import {applyServiceGate} from './service-gate.mjs';
 
 const required = ['POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'FIREBASE_PROJECT_ID'];
 for (const key of required) {
@@ -131,6 +132,14 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
     try{await pool.query('SELECT 1');return send(res,200,{status:'ready',database:'connected'});}
     catch{return send(res,503,{status:'unavailable'});}
   }
+  // Окно обслуживания и переключение протокола (design §9, §13). Гейт стоит
+  // после проверки origin/CORS и health-проб (preflight и мониторинг не
+  // ломаются), но до разбора тела и любых доменных вызовов: закрытый сервер
+  // отвечает `503 maintenance` на все /api/v1|v2 чтения и записи, кроме health
+  // и локального входа, а устаревший клиент на v1-маршрутах смен получает
+  // `426 protocol-upgrade-required` вместо singleton-данных. Оба флага читаются
+  // из env на каждый запрос, перезапуск для окна не нужен.
+  if(applyServiceGate({path,method:req.method,res,send,env:process.env}))return;
   // v2 tree: reads (Task 18) and shift metadata/membership commands (Task 19).
   // Everything else under `/api/v2` is answered by the router itself (stable
   // 404/405/426) and never falls through to the v1 routes below.

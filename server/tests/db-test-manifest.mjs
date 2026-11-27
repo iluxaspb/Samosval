@@ -4,7 +4,7 @@ const unitFiles = [
   'identity-rules', 'isolated-db-cli', 'json-response', 'line-rules', 'line-transport',
   'migration-import', 'migration-snapshot', 'nas-runtime', 'opencode-smoke',
   'presence-ui', 'seed-identity-unit', 'seed-objects-unit', 'service-rules',
-  'session-client-background', 'session-client', 'shift-archive',
+  'session-client-background', 'session-client', 'service-gate', 'shift-archive',
   'shift-start-rules', 'tabel-access', 'tabel-backend', 'tabel-remote',
   'truck-phone', 'updater', 'v2-router'
 ];

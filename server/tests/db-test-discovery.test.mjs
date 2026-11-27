@@ -31,7 +31,8 @@ test('discovered_equals_manifest_including_existing_replica_root', async () => {
   // 94 = 93 + the Task 22 two-phase close root.
   // 95 = 94 + the Task 27 derived-effects root.
   // 96 = 95 + the Task 28 query-isolation root.
-  assert.equal(discovery.roots.length, 96);
+  // 97 = 96 + the Task 29A service-gate unit root.
+  assert.equal(discovery.roots.length, 97);
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-s26-fixtures.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-truck-transfer-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-detached-completion-db.test.mjs'));
