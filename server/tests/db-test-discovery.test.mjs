@@ -37,11 +37,13 @@ test('discovered_equals_manifest_including_existing_replica_root', async () => {
   // registered here in the same commit instead of leaving discovery red.
   // 100 = 98 + the Task 30 maintenance rehearsal unit root and its db root.
   // 102 = 100 + the v2 restored-archive unit root and its db root.
-  // 104 = 102 + the two snapshot-cache unit roots of the 1.9.0 sync work
-  // (shared snapshot serialization and byte-for-byte response text).
-  assert.equal(discovery.roots.length, 104);
+  // 105 = 102 + the three unit roots of the 1.9.0 sync work (shared snapshot
+  // serialization, byte-for-byte response text, and the Moscow time format
+  // that the journal and cards ship as a string).
+  assert.equal(discovery.roots.length, 105);
   assert.ok(discovery.roots.some(item => item.file === 'tests/snapshot-cache.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/snapshot-text.test.mjs'));
+  assert.ok(discovery.roots.some(item => item.file === 'tests/moscow-time.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-s26-fixtures.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-truck-transfer-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-detached-completion-db.test.mjs'));

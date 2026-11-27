@@ -50,7 +50,7 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.9.0'
+REQUIRED_VERSION = '1.9.1'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
 FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
@@ -117,6 +117,11 @@ ALLOWED_NEW_FILES = {
     'server/tests/snapshot-cache.test.mjs',
     'server/tests/snapshot-text.test.mjs',
     'server/tests/db-test-manifest.mjs',
+    # 1.9.1: московское время считается готовым форматтером (журнал и карточки
+    # на каждый запрос пересобирали 3,5 МБ), плюс обновлённый счётчик корней тестов.
+    'server/src/moscow-time.mjs',
+    'server/tests/moscow-time.test.mjs',
+    'server/tests/db-test-discovery.test.mjs',
 }
 ALLOWED_NEW_PREFIXES = ('working-test/',)
 

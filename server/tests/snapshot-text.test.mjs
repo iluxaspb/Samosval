@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {presentGames, gamesText} from '../src/game-store.mjs';
-import {presentAuxiliary, auxiliaryText} from '../src/auxiliary-store.mjs';
+import {presentAuxiliary, auxiliaryText, publicAuxiliary} from '../src/auxiliary-store.mjs';
 
 const ws = 'main_workspace';
 const records = [
@@ -42,13 +42,19 @@ const audit = [{id: 'e1', timestamp: 2, text: 'Прибытие'}, {id: 'e2', ti
 const notifications = [{id: 'n1', timestamp: 2, html: 'Прибытие · Самосвал'}];
 
 function auxSnapshot(source, extra = {}) {
+  const auditText = JSON.stringify(source.audit);
+  const notificationsText = JSON.stringify(source.notifications);
+  const needsFilter = extra.needsFilter ?? false;
+  // Так же, как loadAuxiliarySnapshot: очищенный журнал считается один раз на
+  // версию, а не на каждый запрос.
   return {
     plugins: source.plugins,
     patches: source.patches,
-    auditText: JSON.stringify(source.audit),
-    notificationsText: JSON.stringify(source.notifications),
-    needsFilter: false,
-    ...extra,
+    auditText,
+    notificationsText,
+    publicAuditText: needsFilter ? JSON.stringify(publicAuxiliary(JSON.parse(auditText))) : auditText,
+    publicNotificationsText: needsFilter ? JSON.stringify(publicAuxiliary(JSON.parse(notificationsText))) : notificationsText,
+    needsFilter,
   };
 }
 

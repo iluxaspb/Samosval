@@ -1,4 +1,5 @@
 import {fail,map} from './tabel-access.mjs';
+import {moscowTime} from './moscow-time.mjs';
 import {serviceActor,serviceCommand,validId} from './service-command.mjs';
 import {readArchiveEntries} from './archive-read.mjs';
 const WS=process.env.WORKSPACE_ID||'main_workspace';
@@ -16,7 +17,7 @@ export function presentLineHistory(h){
  const truckLabel=[brand,number].filter(Boolean).join(' ')||'Самосвал';
  const escaped=truckLabel.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const entry={id:'nas_'+h.action_id,actionId:h.action_id,type:h.type,truckId:h.truck_id,logId:h.log_data?.id||null,shiftId:h.shift_id,timestamp:at,createdBy:actor.name||h.display_name||'',createdByEmail:actor.email||h.email||'',html:label+' · '+escaped};
- const audit={...entry,eventType:h.type,userName:entry.createdBy,userEmail:entry.createdByEmail,timeStr:new Date(at).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}),text:label+' · '+truckLabel+(h.undone?' · отменено':'')};
+ const audit={...entry,eventType:h.type,userName:entry.createdBy,userEmail:entry.createdByEmail,timeStr:moscowTime(at),text:label+' · '+truckLabel+(h.undone?' · отменено':'')};
  return {entry,audit};
 }
 export function publicAuxiliary(value){
@@ -57,7 +58,7 @@ export async function loadAuxiliary(pool,ws=WS){
   }
   for(const table of ['workspace_service_audit','control_audit','identity_audit']){
    const events=(await client.query(`SELECT * FROM ${table} ${table==='identity_audit'?'':'WHERE workspace_id=$1'} ORDER BY created_at DESC LIMIT 200`,table==='identity_audit'?[]:[ws])).rows;
-   for(const e of events){const at=new Date(e.created_at).getTime();data.audit.set(table+'_'+e.operation_id,{id:table+'_'+e.operation_id,timestamp:at,eventType:e.type,text:e.type,userName:e.uid,timeStr:new Date(at).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}),...(table==='control_audit'?{history:{operations:[{collection:e.type.startsWith('line.')?'truckStatus':e.type.startsWith('truck.')?'trucks':'objects',id:e.after_data?.id||e.before_data?.id||'',before:e.before_data,after:e.after_data}]}}:{})});}
+   for(const e of events){const at=new Date(e.created_at).getTime();data.audit.set(table+'_'+e.operation_id,{id:table+'_'+e.operation_id,timestamp:at,eventType:e.type,text:e.type,userName:e.uid,timeStr:moscowTime(at),...(table==='control_audit'?{history:{operations:[{collection:e.type.startsWith('line.')?'truckStatus':e.type.startsWith('truck.')?'trucks':'objects',id:e.after_data?.id||e.before_data?.id||'',before:e.before_data,after:e.after_data}]}}:{})});}
   }
   await client.query('COMMIT');
   return {plugins:[...data.plugins.values()],patches:[...data.patches.values()],
@@ -82,11 +83,16 @@ function hasSensitive(value,depth=0){
 }
 export async function loadAuxiliarySnapshot(pool,ws=WS){
  const data=await loadAuxiliary(pool,ws);
- // publicAuxiliary вычищает служебные поля; для журнала проверяем это один раз,
- // чтобы не перебирать 3,5 МБ на каждый запрос.
+ const auditText=JSON.stringify(data.audit),notificationsText=JSON.stringify(data.notifications);
+ // publicAuxiliary вычищает служебные поля. Журнал одинаков у всех неадминских
+ // ролей, поэтому чистим его один раз на версию данных, а не на каждый опрос:
+ // в журнале канала есть служебные ключи, и без этого каждый телефон заново
+ // разбирал и сериализовал 3,5 МБ.
  const needsFilter=hasSensitive(data.audit)||hasSensitive(data.notifications);
- return {plugins:data.plugins,patches:data.patches,
-  auditText:JSON.stringify(data.audit),notificationsText:JSON.stringify(data.notifications),needsFilter};
+ const publicAuditText=needsFilter?JSON.stringify(publicAuxiliary(JSON.parse(auditText))):auditText;
+ const publicNotificationsText=needsFilter?JSON.stringify(publicAuxiliary(JSON.parse(notificationsText))):notificationsText;
+ return {plugins:data.plugins,patches:data.patches,auditText,notificationsText,
+  publicAuditText,publicNotificationsText,needsFilter};
 }
 export function auxiliaryText(snapshot,actor,ws=WS){
  let plugins=snapshot.plugins;
@@ -97,10 +103,10 @@ export function auxiliaryText(snapshot,actor,ws=WS){
  if(actor.role!=='admin'){plugins=publicAuxiliary(plugins);patches=publicAuxiliary(patches);}
  const head='{"format":"samosval-auxiliary","version":1,"source":"ubuntu","workspaceId":'+JSON.stringify(ws)
   +',"plugins":'+JSON.stringify(plugins)+',"patches":'+JSON.stringify(patches)+',"audit":';
- const tail=',"notifications":'+snapshot.notificationsText+'}';
- if(actor.role==='admin'||!snapshot.needsFilter)return head+snapshot.auditText+tail;
- return JSON.stringify(publicAuxiliary({format:'samosval-auxiliary',version:1,source:'ubuntu',workspaceId:ws,plugins,patches,
-  audit:JSON.parse(snapshot.auditText),notifications:JSON.parse(snapshot.notificationsText)}));
+ if(actor.role==='admin')return head+snapshot.auditText+',"notifications":'+snapshot.notificationsText+'}';
+ // Неадминская роль: журнал и уведомления уже очищены в снимке, плагины и
+ // патчи зависят от роли и чистятся здесь (они маленькие).
+ return head+snapshot.publicAuditText+',"notifications":'+snapshot.publicNotificationsText+'}';
 }
 export async function readAuxiliary(pool,uid,ws=WS,load=loadAuxiliary){
  const client=await pool.connect();
@@ -157,7 +163,7 @@ export function submitAuxiliary(pool,uid,input,ws=WS){
   const data=await auxiliaryEntries(client,ws),before=data[op.collection].get(op.recordId);
   const tomb=(await client.query('SELECT revision FROM workspace_aux_records WHERE workspace_id=$1 AND collection=$2 AND record_id=$3',[ws,op.collection,op.recordId])).rows[0];
   const previous=before?.revision||Number(tomb?.revision||0);if(previous!==op.expectedRevision)throw fail('auxiliary-changed',409);
-  const revision=previous+1,after=op.type==='auxiliary.delete'?null:{...op.data,...(op.collection==='audit'?{userName:actor.display_name,userEmail:actor.email,createdByEmail:actor.email,timestamp:Date.now(),timeStr:new Date().toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})}:{})};
+  const revision=previous+1,after=op.type==='auxiliary.delete'?null:{...op.data,...(op.collection==='audit'?{userName:actor.display_name,userEmail:actor.email,createdByEmail:actor.email,timestamp:Date.now(),timeStr:moscowTime(Date.now())}:{})};
   await client.query('INSERT INTO workspace_aux_records(workspace_id,collection,record_id,payload,revision) VALUES ($1,$2,$3,$4,$5) ON CONFLICT(workspace_id,collection,record_id) DO UPDATE SET payload=EXCLUDED.payload,revision=EXCLUDED.revision',[ws,op.collection,op.recordId,after,revision]);
   return {before:before||null,after,result:{id:op.recordId,revision,data:after}};
  });

@@ -30,6 +30,32 @@ test('sharedValue: одна сборка на версию, параллельн
   assert.equal(builds, 2, 'новая версия собирается заново');
 });
 
+test('sharedValue: во время сборки следующая идёт сразу для самой новой версии', async () => {
+  const name = 'тест-склейка-' + Math.random();
+  let builds = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const build = async () => {
+    builds += 1;
+    const at = builds;
+    if (at === 1) await gate; // первая сборка висит, пока не придут остальные
+    return {at};
+  };
+  const first = sharedValue(name, '1', build);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const later = ['2', '3', '4', '5'].map((version) => sharedValue(name, version, build));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  release();
+  const values = await Promise.all([first, ...later]);
+  assert.equal(builds, 2, 'пять версий дали две сборки: первую и сразу самую новую');
+  assert.equal(values[0].at, 1);
+  for (const value of values.slice(1)) {
+    assert.equal(value.at, 2, 'каждый ждущий получил данные не старше своей версии');
+  }
+  await sharedValue(name, '6', build);
+  assert.equal(builds, 3, 'следующая новая версия собирается заново');
+});
+
 function request(port, headers = {}) {
   return new Promise((resolve, reject) => {
     http.get({host: '127.0.0.1', port, path: '/api/v1/games', headers}, (res) => {
