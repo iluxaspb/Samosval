@@ -53,7 +53,10 @@
         "core/19-navigation.js",
         "core/24-switch-policy.js",
         "core/20-backend-mode.js",
-        "core/22-server-control.js"
+        "core/22-server-control.js",
+        "core/40-shift-contexts.js",
+        "core/41-v2-transport.js",
+        "core/42-offline-v2.js"
       ]
     },
     {

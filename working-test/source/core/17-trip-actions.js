@@ -1,20 +1,29 @@
+  // Офлайн-очередь принимает только обычные line-команды выбранной смены.
+  // Принудительный перевод и завершение detached trip — online-only (§9):
+  // их cross-shift CAS нельзя подтвердить из очереди, поэтому офлайн-попытка
+  // остаётся read-only с причиной и ничего не ставит в очередь.
+  function queueLineCommand(type,id,intent){
+    if(offlineIsOnlineOnlyCommand(type)){showError(offlineReasonLabel('online-only-command'));return false;}
+    if(!state.shift||!intent||intent.shiftId!==state.shift.id)return false;
+    return offlineQueueAction(type,id,intent);
+  }
   async function performLoad(id,capturedIntent){
     if(!requireEdit('action_load')||loadInFlight[id]||lineActionInFlight[id])return {outcome:'ignored'};
     const intent=capturedIntent||captureLineIntent(id);
     if(!intent)return {outcome:'ignored'};
-    return {outcome:offlineQueueAction('load',id,intent)?'queued':'failed'};
+    return {outcome:queueLineCommand('load',id,intent)?'queued':'failed'};
   }
   async function toggleArrive(id,capturedIntent){
     if(!requireEdit('action_arrive')||lineActionInFlight[id])return {outcome:'ignored'};
     const intent=capturedIntent||captureLineIntent(id);
     if(!intent)return {outcome:'ignored'};
-    return {outcome:offlineQueueAction('arrive',id,intent)?'queued':'failed'};
+    return {outcome:queueLineCommand('arrive',id,intent)?'queued':'failed'};
   }
   async function toggleTtn(id,capturedIntent){
     if(!requireEdit('action_ttn')||lineActionInFlight[id])return {outcome:'ignored'};
     const intent=capturedIntent||captureLineIntent(id);
     if(!intent)return {outcome:'ignored'};
-    return {outcome:offlineQueueAction('ttn',id,intent)?'queued':'failed'};
+    return {outcome:queueLineCommand('ttn',id,intent)?'queued':'failed'};
   }
 
   // === УДЕРЖАНИЕ ===

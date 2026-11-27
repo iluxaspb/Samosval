@@ -543,6 +543,35 @@
       });
     }
 
+    // Подтверждение материала — единственный путь создать material marker и
+    // закрыть смену с рейсами (§4.6, §7). Тело — ровно §5.5: смена берётся из
+    // пути, в теле её нет (иначе хеш операции расходился бы у клиентов).
+    // `expectedMaterialMarkerRevision:null` здесь значение CAS («marker ещё не
+    // создан»), а не отсутствие поля, поэтому null обязан уйти в тело как есть:
+    // иначе фаза подтверждения материала снова стала бы недостижимой из
+    // клиента (урок 55).
+    function confirmMaterial(input) {
+      const settings = input || {};
+      const missing = requireFields(settings, ['operationId', 'shiftId', 'closeToken', 'materialId']);
+      if (missing) return Promise.resolve(failure('invalid-argument', { field: missing }));
+      const volume = Number(settings.volume);
+      if (!Number.isFinite(volume) || volume < 0) return Promise.resolve(failure('invalid-argument', { field: 'volume' }));
+      return command({
+        method: 'POST',
+        path: '/api/v2/shifts/' + segment(settings.shiftId) + '/close/material',
+        operationId: settings.operationId,
+        shiftId: settings.shiftId,
+        body: {
+          closeToken: settings.closeToken,
+          materialId: settings.materialId,
+          volume,
+          expectedShiftRevision: settings.expectedShiftRevision,
+          expectedArchiveRevision: settings.expectedArchiveRevision,
+          expectedMaterialMarkerRevision: settings.expectedMaterialMarkerRevision
+        }
+      });
+    }
+
     function finishClose(input) {
       const settings = input || {};
       const missing = requireFields(settings, ['operationId', 'shiftId', 'closeToken']);
@@ -720,6 +749,7 @@
       completeDetachedTrip,
       submitLineV2,
       prepareClose,
+      confirmMaterial,
       finishClose,
       readRestoredArchive,
       submitArchiveV2,

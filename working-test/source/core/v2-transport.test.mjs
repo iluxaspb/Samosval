@@ -113,7 +113,7 @@ test('классический скрипт публикует полный на
     'listShifts', 'readShiftSnapshot', 'createShift', 'changeShiftObject',
     'addMember', 'removeMember', 'addTruck', 'removeTruck',
     'forceTransferTruck', 'completeDetachedTrip', 'submitLineV2',
-    'prepareClose', 'finishClose', 'readRestoredArchive', 'submitArchiveV2',
+    'prepareClose', 'confirmMaterial', 'finishClose', 'readRestoredArchive', 'submitArchiveV2',
     'subscribeShifts', 'refreshCrossShift'
   ]) assert.equal(typeof transport[name], 'function', name);
 });
@@ -466,6 +466,68 @@ test('закрытие смены отправляет точные поля CAS
     expectedArchiveRevision: 1,
     expectedMaterialMarkerRevision: 2
   });
+});
+
+test('подтверждение материала идёт на /close/material и сохраняет null-ревизию marker', async () => {
+  const { transport, calls } = harness(call => receipt(call.body.operationId, { phase: 'material', materialMarkerRevision: 1 }));
+  const result = await transport.confirmMaterial({
+    shiftId: 'shift_a',
+    operationId: 'op-material',
+    closeToken: 'token-1',
+    materialId: 'material_1',
+    volume: 42.5,
+    expectedShiftRevision: 5,
+    expectedArchiveRevision: 1,
+    expectedMaterialMarkerRevision: null
+  });
+  assert.equal(result.ok, true);
+  assert.equal(calls[0].path, '/api/v2/shifts/shift_a/close/material');
+  assert.equal(calls[0].method, 'POST');
+  assert.deepEqual(calls[0].body, {
+    operationId: 'op-material',
+    protocolVersion: 2,
+    closeToken: 'token-1',
+    materialId: 'material_1',
+    volume: 42.5,
+    expectedShiftRevision: 5,
+    expectedArchiveRevision: 1,
+    expectedMaterialMarkerRevision: null
+  });
+  // §5.5: смена адресуется только путём, в теле её нет — иначе хеш операции
+  // расходился бы у клиентов, которые кладут поле в тело и которые нет.
+  assert.ok(!('shiftId' in calls[0].body), 'shiftId не уходит в тело close/material');
+  assert.match(calls[0].path, /\/shifts\/shift_a\/close\/material$/, 'смена осталась в пути');
+  // null — это значение CAS «marker ещё не создан», а не отсутствие поля.
+  assert.ok('expectedMaterialMarkerRevision' in calls[0].body, 'null-ревизия не выбрасывается из тела');
+});
+
+test('finishClose передаёт expectedMaterialMarkerRevision: null как значение CAS', async () => {
+  const { transport, calls } = harness(call => receipt(call.body.operationId, { phase: 'closed' }));
+  await transport.finishClose({
+    shiftId: 'shift_a',
+    operationId: 'op-finish-null',
+    closeToken: 'token-1',
+    expectedShiftRevision: 5,
+    expectedArchiveRevision: 1,
+    expectedMaterialMarkerRevision: null
+  });
+  assert.ok('expectedMaterialMarkerRevision' in calls[0].body, 'поле осталось в теле');
+  assert.equal(calls[0].body.expectedMaterialMarkerRevision, null);
+});
+
+test('подтверждение материала без обязательных полей не уходит на сервер', async () => {
+  const { transport, calls } = harness(() => ({}));
+  const missingVolume = await transport.confirmMaterial({
+    shiftId: 'shift_a', operationId: 'op-m1', closeToken: 'token-1', materialId: 'material_1'
+  });
+  assert.equal(missingVolume.ok, false);
+  assert.equal(missingVolume.error.code, 'invalid-argument');
+  assert.equal(missingVolume.error.details.field, 'volume');
+  const missingToken = await transport.confirmMaterial({
+    shiftId: 'shift_a', operationId: 'op-m2', materialId: 'material_1', volume: 1
+  });
+  assert.equal(missingToken.error.details.field, 'closeToken');
+  assert.equal(calls.length, 0, 'неполная команда не отправляется');
 });
 
 test('восстановленный архив читается с ревизией, лимитом и курсором', async () => {

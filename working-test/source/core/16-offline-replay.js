@@ -23,7 +23,94 @@
     offlineStatusSince=0;
     updateSyncUI();
   }
-  function offlineUnreviewedFailures(){return offlineJournalRead().filter(x=>x.status==='rejected'&&!x.reviewed);}
+  // Очередь офлайн-команд принадлежит конкретной смене (uid/workspace разделены
+  // ключом хранения в 15-shifts.js, shiftId — записями внутри него). Карточка
+  // смены показывает только её очередь, dead-letter тоже scoped, а общий бейдж
+  // вкладки — сумма по всем сменам текущего uid. Ни одна функция ниже не
+  // подставляет «текущую» смену в чужую запись: shiftId записи неизменяем.
+  const OFFLINE_ONLINE_ONLY_TYPES=['force-transfer','force_transfer','detached-complete','detached-trip-complete','complete-detached-trip'];
+  function offlineV2Api(){return typeof WorkingTestOfflineV2!=='undefined'?WorkingTestOfflineV2:null;}
+  function offlineIsOnlineOnlyCommand(type){
+    const api=offlineV2Api();
+    if(api&&typeof api.isOnlineOnlyCommand==='function')return api.isOnlineOnlyCommand(type);
+    return OFFLINE_ONLINE_ONLY_TYPES.includes(String(type||''));
+  }
+  function offlineShiftQueue(shiftId){
+    if(!shiftId)return [];
+    return offlineJournalRead().filter(x=>x&&x.shiftId===shiftId);
+  }
+  function offlineShiftPending(shiftId){return offlineShiftQueue(shiftId).filter(x=>x.status==='pending');}
+  function offlineShiftDeadLetter(shiftId){return offlineShiftQueue(shiftId).filter(x=>x.status==='rejected'&&x.deadLetter===true);}
+  // Ответ сервера на повтор: permanent-отказ уходит в dead-letter этой смены,
+  // разрешимый конфликт остаётся пользователю с кодом и безопасными details.
+  function offlineReplayVerdict(code,details){
+    const api=offlineV2Api();
+    if(api&&typeof api.classifyReplayFailure==='function')return api.classifyReplayFailure({code,details,status:details&&details.status});
+    return {code:String(code||'replay-failed'),permanent:false,deadLetter:false,conflict:false,details:{}};
+  }
+  function offlineUnreviewedFailures(shiftId){
+    return (shiftId?offlineShiftQueue(shiftId):offlineJournalRead()).filter(x=>x.status==='rejected'&&!x.reviewed);
+  }
+  // Конверт §9: сохранено ровно то, что отправляется. Конверт собирается один
+  // раз — при постановке в очередь — и при повторе не пересобирается из
+  // текущего состояния экрана: ни смена, ни аккаунт его не подменяют.
+  function offlineEnvelopeScope(op){
+    return {uid:(op&&op.uid)||currentUid,workspaceId:(op&&op.workspaceId)||WORKSPACE_ID};
+  }
+  function offlineEnvelopeOf(op){
+    const api=offlineV2Api();
+    if(!api||typeof api.buildCommandEnvelope!=='function')return {ok:false,code:'journal-unavailable'};
+    const scope=offlineEnvelopeScope(op);
+    let envelope=op&&op.commandEnvelope?op.commandEnvelope:null;
+    let expectedHash=op&&op.commandHash?op.commandHash:null;
+    if(!envelope){
+      // Старая запись без конверта (обновление PWA поверх прежней очереди):
+      // конверт собирается ровно один раз и сохраняется вместе с хешем, чтобы
+      // каждый следующий повтор доказывал тот же самый конверт.
+      const built=api.buildCommandEnvelope(op,scope);
+      if(!built.ok)return {ok:false,code:'operation-hash-conflict'};
+      envelope=built.envelope;expectedHash=built.commandHash;
+      const all=offlineJournalRead(),saved=all.find(x=>x.id===op.id);
+      if(saved){
+        saved.commandEnvelope=envelope;saved.commandHash=expectedHash;
+        // Не смогли сохранить (переполнена память) — не теряем действие:
+        // конверт соберётся заново в следующий раз из тех же полей записи.
+        try{offlineJournalWrite(all);}catch(_){}
+      }
+    }
+    let hash;
+    try{hash=api.commandHash(envelope,scope);}catch(_){return {ok:false,code:'operation-hash-conflict'};}
+    if(expectedHash&&expectedHash!==hash)return {ok:false,code:'operation-hash-conflict'};
+    return {ok:true,envelope,commandHash:hash};
+  }
+  // Команда на провод собирается из сохранённого конверта: тело и expected
+  // revisions берутся оттуда, а служебные поля записи (актёр, beforeStatus,
+  // logId) остаются из журнала. Конверт и его хеш на сервер не уходят.
+  function offlineCommandWire(op,envelope){
+    const wire={...op};
+    delete wire.commandEnvelope;delete wire.commandHash;
+    Object.assign(wire,envelope.body,{id:envelope.operationId,type:envelope.commandType,shiftId:envelope.shiftId,createdAt:envelope.createdAt});
+    const revisions=envelope.expectedRevisions||{};
+    if(revisions.cycle!==undefined)wire.expectedRevision=revisions.cycle;
+    if(revisions.ttn!==undefined)wire.expectedTtnRevision=revisions.ttn;
+    if(revisions.shift!==undefined)wire.expectedShiftRevision=revisions.shift;
+    if(revisions.status!==undefined)wire.expectedStatusRevision=revisions.status;
+    return wire;
+  }
+  // Страж повтора: пока хеш сохранённого конверта не сходится с записью,
+  // запрос не уходит вообще. Повреждённое или подменённое хранилище — это
+  // dead-letter этой смены с кодом operation-hash-conflict, а не «примерно
+  // та же» команда.
+  function offlineReplayCommand(op){
+    const prepared=offlineEnvelopeOf(op);
+    if(!prepared.ok){
+      offlineResolve(op.id,'rejected',prepared.code,{deadLetter:true});
+      offlineProjectState();refreshLineViews();
+      showErrorPanel('⚠️ '+escapeHtml(offlineReasonLabel(prepared.code)));
+      return null;
+    }
+    return offlineCommandWire(op,prepared.envelope);
+  }
   function offlineReasonLabel(reason){
     const reasons={
       'arrival-changed':'Прибытие уже изменено другим оператором',
@@ -34,13 +121,20 @@
       'duplicate':'Повторный рейс не добавлен',
       'already-exists':'Рейс с таким номером уже существует',
       'shift-changed':'Смена завершена или изменена',
-      'not-on-line':'Самосвал снят с линии'
+      'not-on-line':'Самосвал снят с линии',
+      'shift-closed':'Смена уже закрыта — действие не отправлено',
+      'not-shift-member':'Вы больше не участник этой смены',
+      'protocol-upgrade-required':'Обновите приложение: сервер требует новый протокол',
+      'revision-conflict':'Данные уже изменились другим оператором',
+      'truck-not-on-shift':'Самосвал переведён в другую смену',
+      'online-only-command':'Действие доступно только при связи с сервером',
+      'operation-hash-conflict':'Повтор с другими данными отклонён'
     };
     return reasons[reason]||('Ошибка: '+String(reason||'неизвестная'));
   }
   function offlineLocalTicker(){
     if(!state.shift)return null;
-    const op=offlinePendingOps().filter(x=>x.shiftId===state.shift.id).slice(-1)[0];if(!op)return null;
+    const op=offlineShiftPending(state.shift.id).slice(-1)[0];if(!op)return null;
     const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived===false?'↩️ Снял прибытие':'🚛 Приехал');
     return {id:op.id,type:'offline',offlinePending:true,createdByEmail:op.email,timestamp:op.createdAt,
       html:label+' · '+truckLabelHtml(op.truckId)+' <span style="color:#f59e0b;font-size:10px">☁️ ОФЛАЙН</span>'};
@@ -83,8 +177,10 @@
   // Start from the remote snapshot every time: never apply the same pending load twice.
   function offlineProjectState(){
     const statuses={...offlineRemoteStatuses},logs=offlineRemoteLogs.slice();
-    for(const op of offlinePendingOps()){
-      if(!state.shift||op.shiftId!==state.shift.id||!statuses[op.truckId])continue;
+    // Проекция читает очередь только выбранной смены: записи соседней смены
+    // того же uid не попадают в её карточку.
+    for(const op of offlineShiftPending(state.shift?.id||'')){
+      if(!state.shift||!statuses[op.truckId])continue;
       if(op.type==='reset'&&statuses[op.truckId].lastResetOperationId===op.id)continue;
       if(op.type==='load'&&(statuses[op.truckId].lastLoadLogId===op.logId||logs.some(l=>l.id===op.logId)))continue;
       if(op.type==='arrive'&&op.wantArrived!==false&&Number(statuses[op.truckId].arriveTimestamp||0)===Math.max(Number(op.createdAt),Number(op.lastLoadTimestamp||0)+1)&&statuses[op.truckId].arriveBy===op.actor)continue;
@@ -94,6 +190,10 @@
     state.truckStatus=statuses;state.logs=logs.sort((x,y)=>(y.timestamp||0)-(x.timestamp||0));offlineProjectTicker();
   }
   function offlineQueueAction(type,id,intent){
+    // Принудительный перевод и завершение detached trip меняют сразу две смены:
+    // их cross-shift CAS нельзя подтвердить из очереди (design §9). Офлайн-
+    // попытка остаётся read-only с причиной и ничего не пишет на устройство.
+    if(offlineIsOnlineOnlyCommand(type)){showError(offlineReasonLabel('online-only-command'));return false;}
     if(!currentUid||!intent||!intent.status||!state.shift||state.shift.id!==intent.shiftId)return false;
     if(type==='reset'&&!canAdmin()){showError('Только для администратора');return false;}
     const before=intent.status,now=Date.now(),gap=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES)*60000;
@@ -109,9 +209,19 @@
         expectedTtnRevision:Number(before.ttnRevision||0),arrivalTimestamp:Number(before.arriveTimestamp||0),
         lastLoadTimestamp:Number(before.lastLoadTimestamp||0),wantArrived:!before.arriveStatus,collect:!before.ttnStatus,
         dependencyId:previous?.id||null,cycleMinutes:Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES),
-        truckName:truck.brand+' '+truck.number,volume:truck.isGAI?0:truck.defaultVol,isGAI:!!truck.isGAI,status:'pending'};
+        truckName:truck.brand+' '+truck.number,volume:truck.isGAI?0:truck.defaultVol,isGAI:!!truck.isGAI,status:'pending',
+        // Конверт v2: scope и тип команды фиксируются при постановке в очередь и
+        // при повторе не подменяются ни аккаунтом, ни выбранной сменой.
+        protocolVersion:2,uid:currentUid,workspaceId:WORKSPACE_ID,commandType:type};
       if(type==='load')op.logId='load_'+id+'_'+op.shiftId+'_cycle_'+op.expectedRevision+'_'+op.arrivalTimestamp;
       if(isNasRuntime())op.operationScope=nasStorageScope();
+      // Канонический конверт §9 сохраняется вместе с записью: при повторе
+      // уходит именно он, а не тело, собранное заново из текущего экрана.
+      const v2api=offlineV2Api();
+      if(v2api&&typeof v2api.buildCommandEnvelope==='function'){
+        const built=v2api.buildCommandEnvelope(op,{uid:currentUid,workspaceId:WORKSPACE_ID});
+        if(built.ok){op.commandEnvelope=built.envelope;op.commandHash=built.commandHash;}
+      }
       items.push(op);offlineJournalWrite(items); // Commit locally first; never silently lose an action.
       try{window.__gameCoinQueued?.(op);}catch(e){console.warn('[game animation]',e);}
       const old=state.truckStatus[id];offlineProjectState();signalLineTransition(id,old,state.truckStatus[id]);refreshLineViews();
@@ -125,10 +235,15 @@
       return false;
     }
   }
-  function offlineResolve(id,status,reason){
+  function offlineResolve(id,status,reason,extra){
     const all=offlineJournalRead(),op=all.find(x=>x.id===id);
     if(op&&op.status==='pending'){
-      op.status=status;op.result=reason;op.resolvedAt=Date.now();offlineJournalWrite(all);
+      op.status=status;op.result=reason;op.resolvedAt=Date.now();
+      // Permanent-отказ (закрытая смена, снятый участник, старый протокол)
+      // помечается dead-letter этой смены: очередь не переигрывает его молча.
+      if(extra&&extra.deadLetter)op.deadLetter=true;
+      if(extra&&extra.details)op.rejectionDetails=extra.details;
+      offlineJournalWrite(all);
       // Подтверждённая запись удаляется из журнала компакцией в offlineJournalWrite,
       // как только уведомление/аудит доставлены (effectsDelivered) — сервер уже
       // владеет данными, а вечный рост журнала переполнял память телефона.
@@ -210,7 +325,9 @@
       // one-time snapshot would leave that new action pending until another
       // online event or reload.
       while(true){
-        const op=offlinePendingOps()[0];
+        // Сначала досылаем очередь выбранной смены, потом фоновые: карточка
+        // смены и её счётчик относятся ровно к её записям.
+        let op=offlineShiftPending(state.shift?.id||'')[0]||offlinePendingOps()[0];
         if(!op)break;
         if(!sessionIsCurrent()||!navigator.onLine||currentUserStatus!=='active')break;
         if(!offlineJournalRead().some(x=>x.id===op.id&&x.status==='pending'))continue;
@@ -221,6 +338,11 @@
             offlineResolve(op.id,'rejected','previous-action-rejected');offlineProjectState();refreshLineViews();continue;
           }
         }
+        // Перед отправкой сверяется хеш сохранённого конверта. Расхождение —
+        // dead-letter без запроса; сама отправка идёт ровно сохранённым телом.
+        const command=offlineReplayCommand(op);
+        if(!command)continue;
+        op=command;
         try{
           if(!sessionIsCurrent())break;
           const result=await db.runTransaction(async tx=>{
@@ -319,9 +441,11 @@
           if(e.code==='auth-session-stale')break;
           if(offlineTransportError(e)){offlineTransportFailed(e);break;}
           if(!navigator.onLine||['aborted','cancelled'].includes(e.code)){offlineServerRetryAt=Date.now()+1500;break;}
-          offlineResolve(op.id,'rejected',e.code||e.message||'error');offlineProjectState();refreshLineViews();
-          showToastEl('⚠️ Офлайн-действие отклонено: '+escapeHtml(e.message||e.code||'ошибка'),true);
-          showErrorPanel('⚠️ Офлайн-действие отклонено: '+escapeHtml(e.message||e.code||'ошибка'));
+          const verdict=offlineReplayVerdict(e.code||e.message||'error',e.serverDetails||e.details||{});
+          offlineResolve(op.id,'rejected',verdict.code,{deadLetter:verdict.deadLetter,details:verdict.details});offlineProjectState();refreshLineViews();
+          const label=e.message||offlineReasonLabel(verdict.code);
+          showToastEl('⚠️ Офлайн-действие отклонено: '+escapeHtml(label),true);
+          showErrorPanel('⚠️ Офлайн-действие отклонено: '+escapeHtml(label));
         }
       }
     }finally{
