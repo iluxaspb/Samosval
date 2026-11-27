@@ -7,6 +7,8 @@ import {
   createShift,
   removeShiftMember,
 } from './shift-members-v2.mjs';
+import { assignTruck, removeTruck } from './shift-trucks-v2.mjs';
+import { completeDetachedTrip, forceTransferTruck } from './shift-transfer-v2.mjs';
 
 // `/api/v2` router (design §5, §14, plan Tasks 18–19).
 //
@@ -25,6 +27,10 @@ import {
 const SHIFT_TOKEN = /^[A-Za-z0-9_-]{1,160}$/;
 const SNAPSHOT_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/snapshot$/;
 const SHIFT_SUBROUTE = /^\/api\/v2\/shifts\/([^/]+)\/(object|members)(?:\/([^/]+))?$/;
+const TRUCKS_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/trucks$/;
+const TRUCK_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/trucks\/([^/]+)$/;
+const FORCE_TRANSFER_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/trucks\/([^/]+)\/force-transfer$/;
+const DETACHED_COMPLETE_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/detached-trips\/([^/]+)\/complete$/;
 
 // Only the plain token form is an id; `%61`/`a%20b` are not silently normalised
 // into another shift or user.
@@ -47,7 +53,32 @@ function resolveV2Path(pathname) {
     return shiftId ? { kind: 'snapshot', shiftId } : null;
   }
   const sub = SHIFT_SUBROUTE.exec(pathname);
-  if (!sub) return null;
+  if (!sub) {
+    const force = FORCE_TRANSFER_ROUTE.exec(pathname);
+    if (force) {
+      const shiftId = decodeToken(force[1]);
+      const truckId = decodeToken(force[2]);
+      return shiftId && truckId ? { kind: 'truck-force-transfer', shiftId, truckId } : null;
+    }
+    const detached = DETACHED_COMPLETE_ROUTE.exec(pathname);
+    if (detached) {
+      const shiftId = decodeToken(detached[1]);
+      const cycleId = decodeToken(detached[2]);
+      return shiftId && cycleId ? { kind: 'detached-complete', shiftId, cycleId } : null;
+    }
+    const truck = TRUCK_ROUTE.exec(pathname);
+    if (truck) {
+      const shiftId = decodeToken(truck[1]);
+      const truckId = decodeToken(truck[2]);
+      return shiftId && truckId ? { kind: 'truck', shiftId, truckId } : null;
+    }
+    const trucks = TRUCKS_ROUTE.exec(pathname);
+    if (trucks) {
+      const shiftId = decodeToken(trucks[1]);
+      return shiftId ? { kind: 'trucks', shiftId } : null;
+    }
+    return null;
+  }
   const shiftId = decodeToken(sub[1]);
   if (!shiftId) return null;
   if (sub[2] === 'object' && sub[3] === undefined) return { kind: 'object', shiftId };
@@ -75,6 +106,18 @@ export function matchV2Route(pathname, method = 'GET') {
       return method === 'POST' ? { kind: 'member-add', shiftId: path.shiftId } : null;
     case 'member':
       return method === 'DELETE' ? { kind: 'member-remove', shiftId: path.shiftId, uid: path.uid } : null;
+    case 'trucks':
+      return method === 'POST' ? { kind: 'truck-add', shiftId: path.shiftId } : null;
+    case 'truck':
+      return method === 'DELETE' ? { kind: 'truck-remove', shiftId: path.shiftId, truckId: path.truckId } : null;
+    case 'truck-force-transfer':
+      return method === 'POST'
+        ? { kind: 'truck-force-transfer', shiftId: path.shiftId, truckId: path.truckId }
+        : null;
+    case 'detached-complete':
+      return method === 'POST'
+        ? { kind: 'detached-complete', shiftId: path.shiftId, cycleId: path.cycleId }
+        : null;
     default:
       return null;
   }
@@ -108,6 +151,18 @@ function protocolUpgrade(declared) {
   return v2Error('protocol-upgrade-required', 426, {
     protocolVersion: Number.isSafeInteger(version) && version > 0 ? version : 0,
   });
+}
+
+// Force transfer and detached completion are online-only (§9): they must never
+// be replayed from an offline queue. An offline envelope is refused before any
+// mutation (right after the caller is identified), so a queued command can never
+// become a second transfer of the same truck.
+function refuseOfflineRequest(req) {
+  const declared = req?.headers?.['x-samosval-offline'];
+  if (declared === undefined) return;
+  const value = String(declared).trim().toLowerCase();
+  if (value === '' || value === '0' || value === 'false') return;
+  throw v2Error('online-required', 409);
 }
 
 // `handleV2Request` returns true when it answered the request and false when the
@@ -148,6 +203,10 @@ export async function handleV2Request(options) {
   const changeObjectCommand = services.changeShiftObject ?? changeShiftObject;
   const addMemberCommand = services.addShiftMember ?? addShiftMember;
   const removeMemberCommand = services.removeShiftMember ?? removeShiftMember;
+  const assignTruckCommand = services.assignTruck ?? assignTruck;
+  const removeTruckCommand = services.removeTruck ?? removeTruck;
+  const forceTransferCommand = services.forceTransferTruck ?? forceTransferTruck;
+  const completeDetachedCommand = services.completeDetachedTrip ?? completeDetachedTrip;
   const workspaceId = input.workspaceId ?? process.env.WORKSPACE_ID ?? 'main_workspace';
 
   try {
@@ -185,8 +244,32 @@ export async function handleV2Request(options) {
       send(res, 200, await addMemberCommand(pool, actor, { ...command, shiftId: route.shiftId }));
       return true;
     }
-    send(res, 200, await removeMemberCommand(pool, actor, {
-      ...command, shiftId: route.shiftId, uid: route.uid,
+    if (route.kind === 'member-remove') {
+      send(res, 200, await removeMemberCommand(pool, actor, {
+        ...command, shiftId: route.shiftId, uid: route.uid,
+      }));
+      return true;
+    }
+    if (route.kind === 'truck-add') {
+      send(res, 200, await assignTruckCommand(pool, actor, { ...command, shiftId: route.shiftId }));
+      return true;
+    }
+    if (route.kind === 'truck-remove') {
+      send(res, 200, await removeTruckCommand(pool, actor, {
+        ...command, shiftId: route.shiftId, truckId: route.truckId,
+      }));
+      return true;
+    }
+    if (route.kind === 'truck-force-transfer') {
+      refuseOfflineRequest(req);
+      send(res, 200, await forceTransferCommand(pool, actor, {
+        ...command, shiftId: route.shiftId, truckId: route.truckId,
+      }));
+      return true;
+    }
+    refuseOfflineRequest(req);
+    send(res, 200, await completeDetachedCommand(pool, actor, {
+      ...command, shiftId: route.shiftId, cycleId: route.cycleId,
     }));
     return true;
   } catch (error) {

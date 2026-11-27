@@ -6,7 +6,7 @@ import pg from 'pg';
 import { applyMigrations } from '../scripts/apply-migrations.mjs';
 import { applyFixtures, verifyFixtures } from '../scripts/isolated-db/fixtures.mjs';
 import { transformLegacyMigrationGuard } from '../scripts/isolated-db/legacy-guards.mjs';
-import { EXPECTED_S25_HASH, verifyS25Target, verifyTargetAuthority } from '../scripts/isolated-db/templates.mjs';
+import { verifyS25Target, verifyTargetAuthority } from '../scripts/isolated-db/templates.mjs';
 
 // The S25 provenance/archive contract can only be proven on a real S25 clone:
 // two of the seven fixtures (the pre-025 legacy document behind the named v2
@@ -15,14 +15,15 @@ import { EXPECTED_S25_HASH, verifyS25Target, verifyTargetAuthority } from '../sc
 // therefore a harness contract, exactly like `isolated-db-fixtures.test.mjs`:
 // it consumes the run's bootstrap-admin URL.
 //
-// When the selection also contains a database root, the real harness has
-// already built and sealed the S25 template before any child starts, and this
-// test clones exactly that artifact. When only harness contracts are selected
-// (`needsTarget` is false), it builds the same S25 from the same sources so the
-// contract is always proved by fact, never skipped.
+// It always builds its own S25 from the same sources the harness uses. Borrowing
+// "the one S25 template on this cluster" is not a contract a child can check:
+// the child does not know the run id, and a template left behind by an
+// interrupted run would make the root red for a reason that has nothing to do
+// with the fixtures. The harness template itself is verified where it is made
+// (`prepareTemplates` → `verifyS25Target` + `inspectTemplateSeal`) and by every
+// db root that clones the S25 baseline.
 const bootstrapUrl = process.env.SAMOSVAL_TEST_BOOTSTRAP_URL;
 const OWNER = 'samosval_test_prepared_owner';
-const S25_SEAL = `baseline=S25;version=25;registry=${EXPECTED_S25_HASH};owner=${OWNER}`;
 const S25_FIXTURES = [
   'parallel-shift-legacy-unresolved',
   'parallel-shift-v2-night',
@@ -51,7 +52,7 @@ function targetName() {
   return `samosval_parallel_shifts_test_${randomBytes(6).toString('hex')}_${randomBytes(6).toString('hex')}`;
 }
 
-// Rebuilds the exact S25 the harness builds: a fresh database receives
+// Builds the exact S25 the harness builds: a fresh database receives
 // migrations 001-025 and every public object is re-owned by the prepared owner,
 // so the same authority verifier applies.
 async function buildS25(admin) {
@@ -84,33 +85,13 @@ async function buildS25(admin) {
   return database;
 }
 
-// The frozen template the harness built in this run, or a locally built S25.
-async function s25Source(admin, created) {
-  const sealed = (await admin.query(`SELECT d.datname, d.datallowconn, owner.rolname AS owner,
-      description.description AS comment
-    FROM pg_database d
-    JOIN pg_roles owner ON owner.oid = d.datdba
-    LEFT JOIN pg_shdescription description ON description.objoid = d.oid AND description.classoid = 'pg_catalog.pg_database'::regclass
-    WHERE d.datname ~ '^samosval_parallel_shifts_test_[a-f0-9]{12,20}_tpl_s25$'`)).rows;
-  assert.ok(sealed.length <= 1, 'at most one S25 template may exist for one run');
-  if (sealed.length === 1) {
-    const [template] = sealed;
-    assert.equal(template.datallowconn, false, 'a frozen template accepts no connections');
-    assert.equal(template.owner, OWNER);
-    assert.ok(template.comment.endsWith(S25_SEAL), `sealed S25 comment must name the real registry: ${template.comment}`);
-    return { database: template.datname, source: 'harness-template' };
-  }
-  const database = await buildS25(admin);
-  created.push(database);
-  return { database, source: 'rebuilt-from-sources' };
-}
-
 test('s25_provenance_fixtures_match_authority_contract', { skip: !bootstrapUrl }, async () => {
   const admin = new pg.Client({ connectionString: bootstrapUrl });
   await admin.connect();
   const created = [];
   try {
-    const source = await s25Source(admin, created);
+    const source = { database: await buildS25(admin) };
+    created.push(source.database);
 
     // 1. One disposable clone is a real 025 schema, not a renamed S24: the
     //    verifier reads the registry checksums, key objects, migration function

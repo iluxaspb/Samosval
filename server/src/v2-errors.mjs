@@ -66,13 +66,14 @@ const DETAIL_KEYS = Object.freeze(new Set([
   'field', 'reason', 'state', 'limit', 'cursor',
   'operationId', 'protocolVersion',
   'shiftId', 'objectId', 'workDate', 'shiftType', 'truckId',
-  'sourceShiftId', 'destinationShiftId',
+  'sourceShiftId', 'destinationShiftId', 'cycleId', 'stage',
   'expectedRevision', 'actualRevision',
   'expectedShiftRevision', 'actualShiftRevision',
   'expectedMembershipRevision', 'actualMembershipRevision',
   'expectedStatusRevision', 'actualStatusRevision',
   'expectedCycleRevision', 'actualCycleRevision',
   'expectedTtnRevision', 'actualTtnRevision',
+  'expectedDetachedCycleRevision', 'actualDetachedCycleRevision',
   'retryAfterSeconds', 'replayed'
 ]));
 

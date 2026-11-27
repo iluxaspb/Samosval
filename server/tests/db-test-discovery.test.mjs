@@ -26,8 +26,11 @@ test('discovered_equals_manifest_including_existing_replica_root', async () => {
   // 90 roots: the inventory count is part of the contract, so adding a root
   // means updating it in the same commit as the manifest entry. 90 = 89 + the
   // S26 replica/restore fixture root added by Task 7 of the isolated-db suite.
-  assert.equal(discovery.roots.length, 90);
+  // 92 = 90 + the two Task 20 truck/transfer roots.
+  assert.equal(discovery.roots.length, 92);
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-s26-fixtures.test.mjs'));
+  assert.ok(discovery.roots.some(item => item.file === 'tests/v2-truck-transfer-db.test.mjs'));
+  assert.ok(discovery.roots.some(item => item.file === 'tests/v2-detached-completion-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/replica-materialize-parallel-shifts.test.mjs'));
   assert.ok(manifest.harnessFixtures.includes('tests/fixtures/marker-tamper.test.mjs'));
   assert.ok(manifest.harnessFixtures.includes('tests/fixtures/isolated-db-process.test.mjs'));

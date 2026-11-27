@@ -111,10 +111,10 @@ const registry = pool => pool
 test('apply-migrations: применяет все файлы sql/ на пустой базе, пишет sha256 и повторяется как no-op', { skip: bootstrapUrl ? false : 'SAMOSVAL_TEST_BOOTSTRAP_URL (или TEST_DATABASE_URL) не задан' }, async () => {
   await withScratchDatabase(async ({ name, pool }) => {
     // 018 применим только в базе резерва samosval_working_test_reserve (guard имени БД).
-    // 25 файлов в sql/ минус 018 = 24 применяемых миграции (последняя — 027).
+    // 26 файлов в sql/ минус 018 = 25 применяемых миграций (последняя — 028).
     const options = optionsFor(name);
     const first = await applyMigrations(pool, options);
-    assert.equal(first.length, 24, `ожидали 24 миграции (25 файлов минус 018), применено ${first.length}`);
+    assert.equal(first.length, 25, `ожидали 25 миграций (26 файлов минус 018), применено ${first.length}`);
     assert.ok(first.every(r => r.status === 'applied'));
 
     // Реестр заполнен целиком, чексуммы — sha256 реальных файлов.

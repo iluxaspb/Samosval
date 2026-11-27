@@ -29,7 +29,7 @@ function harness({ method = 'GET', path = '/api/v2/shifts', search = '', headers
   const req = fakeRequest({ method, headers });
   const res = fakeResponse();
   const sent = [];
-  const calls = { list: [], snapshot: [], loadActor: 0, create: [], object: [], memberAdd: [], memberRemove: [] };
+  const calls = { list: [], snapshot: [], loadActor: 0, create: [], object: [], memberAdd: [], memberRemove: [], truckAdd: [], truckRemove: [], transfer: [], complete: [] };
   const defaultActor = { uid: 'uid_reader', displayName: 'Reader', role: 'foreman', status: 'active' };
   const options = {
     pool: { connect() { throw new Error('the router must not open a connection itself'); } },
@@ -67,6 +67,22 @@ function harness({ method = 'GET', path = '/api/v2/shifts', search = '', headers
         calls.memberRemove.push({ actor, command });
         return commandEnvelope(command.operationId, { membership: { uid: command.uid } });
       },
+      assignTruck: async (pool, actor, command) => {
+        calls.truckAdd.push({ actor, command });
+        return commandEnvelope(command.operationId, { assignment: { truckId: command.truckId } });
+      },
+      removeTruck: async (pool, actor, command) => {
+        calls.truckRemove.push({ actor, command });
+        return commandEnvelope(command.operationId, { removed: true, truckId: command.truckId });
+      },
+      forceTransferTruck: async (pool, actor, command) => {
+        calls.transfer.push({ actor, command });
+        return commandEnvelope(command.operationId, { truckId: command.truckId });
+      },
+      completeDetachedTrip: async (pool, actor, command) => {
+        calls.complete.push({ actor, command });
+        return commandEnvelope(command.operationId, { cycleId: command.cycleId });
+      },
       ...services,
     },
   };
@@ -82,6 +98,18 @@ test('matchV2Route recognises the read and command routes per method', () => {
   assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/members/uid_member', 'DELETE'), {
     kind: 'member-remove', shiftId: 'shift_a1', uid: 'uid_member',
   });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/trucks', 'POST'), {
+    kind: 'truck-add', shiftId: 'shift_a1',
+  });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/trucks/truck_1', 'DELETE'), {
+    kind: 'truck-remove', shiftId: 'shift_a1', truckId: 'truck_1',
+  });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/trucks/truck_1/force-transfer', 'POST'), {
+    kind: 'truck-force-transfer', shiftId: 'shift_a1', truckId: 'truck_1',
+  });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/detached-trips/cycle_1/complete', 'POST'), {
+    kind: 'detached-complete', shiftId: 'shift_a1', cycleId: 'cycle_1',
+  });
   // A known path with a wrong method is not a route (the handler answers 405).
   for (const [path, method] of [
     ['/api/v2/shifts', 'PUT'], ['/api/v2/shifts', 'PATCH'], ['/api/v2/shifts', 'DELETE'],
@@ -89,6 +117,13 @@ test('matchV2Route recognises the read and command routes per method', () => {
     ['/api/v2/shifts/a/object', 'POST'], ['/api/v2/shifts/a/members', 'GET'],
     ['/api/v2/shifts/a/members', 'DELETE'], ['/api/v2/shifts/a/members/u', 'POST'],
     ['/api/v2/shifts/a/members/u', 'PATCH'],
+    ['/api/v2/shifts/a/trucks', 'GET'], ['/api/v2/shifts/a/trucks', 'PUT'],
+    ['/api/v2/shifts/a/trucks', 'DELETE'], ['/api/v2/shifts/a/trucks/t', 'GET'],
+    ['/api/v2/shifts/a/trucks/t', 'POST'], ['/api/v2/shifts/a/trucks/t', 'PATCH'],
+    ['/api/v2/shifts/a/trucks/t/force-transfer', 'GET'],
+    ['/api/v2/shifts/a/trucks/t/force-transfer', 'DELETE'],
+    ['/api/v2/shifts/a/detached-trips/c/complete', 'GET'],
+    ['/api/v2/shifts/a/detached-trips/c/complete', 'DELETE'],
   ]) {
     assert.equal(matchV2Route(path, method), null, `${method} ${path}`);
   }
@@ -96,6 +131,8 @@ test('matchV2Route recognises the read and command routes per method', () => {
     '/api/v2', '/api/v2/', '/api/v2/shifts/', '/api/v2/shifts/a/b', '/api/v2/shifts/a/snapshot/',
     '/api/v2/archives', '/api/v1/shifts', '/api/v2/shifts/a/snapshotx',
     '/api/v2/shifts/a/object/x', '/api/v2/shifts/a/members/', '/api/v2/shifts/a/members/u/x',
+    '/api/v2/shifts/a/trucks/', '/api/v2/shifts/a/trucks/t/x',
+    '/api/v2/shifts/a/detached-trips/c', '/api/v2/shifts/a/detached-trips/c/complete/x',
   ]) {
     assert.equal(matchV2Route(path), null, path);
   }
@@ -104,6 +141,8 @@ test('matchV2Route recognises the read and command routes per method', () => {
   assert.equal(matchV2Route(`/api/v2/shifts/${'x'.repeat(161)}/snapshot`), null);
   assert.equal(matchV2Route('/api/v2/shifts/a%20b/object', 'PATCH'), null);
   assert.equal(matchV2Route('/api/v2/shifts/a/members/a%20b', 'DELETE'), null);
+  assert.equal(matchV2Route('/api/v2/shifts/a/trucks/a%20b', 'DELETE'), null);
+  assert.equal(matchV2Route('/api/v2/shifts/a/detached-trips/a%20b/complete', 'POST'), null);
 });
 
 test('unknown v2 path answers 404 with the stable v2 body', async () => {
@@ -119,6 +158,9 @@ test('a known v2 path with a wrong method answers 405', async () => {
     ['PUT', '/api/v2/shifts'], ['PATCH', '/api/v2/shifts'], ['DELETE', '/api/v2/shifts'],
     ['POST', '/api/v2/shifts/shift_a1/snapshot'], ['GET', '/api/v2/shifts/shift_a1/object'],
     ['GET', '/api/v2/shifts/shift_a1/members'], ['POST', '/api/v2/shifts/shift_a1/members/uid_member'],
+    ['GET', '/api/v2/shifts/shift_a1/trucks'], ['POST', '/api/v2/shifts/shift_a1/trucks/truck_1'],
+    ['GET', '/api/v2/shifts/shift_a1/trucks/truck_1/force-transfer'],
+    ['GET', '/api/v2/shifts/shift_a1/detached-trips/cycle_1/complete'],
   ]) {
     const { sent, calls, options } = harness({ method, path });
     assert.equal(await handleV2Request(options), true);
@@ -274,6 +316,85 @@ test('command routes take the shift and the uid from the path, never from the bo
   assert.equal(remove.res.status, 200);
   assert.equal(remove.calls.memberRemove[0].command.uid, 'uid_path');
   assert.equal(remove.calls.memberRemove[0].command.shiftId, 'shift_path');
+});
+
+test('truck routes take their ids from the path and refuse an offline envelope', async () => {
+  const add = harness({
+    method: 'POST',
+    path: '/api/v2/shifts/shift_path/trucks',
+    body: {operationId: 'op_truck_add', protocolVersion: 2, truckId: 'truck_body', expectedShiftRevision: 3},
+  });
+  await handleV2Request(add.options);
+  assert.equal(add.res.status, 200);
+  assert.equal(add.calls.truckAdd[0].command.shiftId, 'shift_path');
+  assert.equal(add.calls.truckAdd[0].command.truckId, 'truck_body');
+
+  const remove = harness({
+    method: 'DELETE',
+    path: '/api/v2/shifts/shift_path/trucks/truck_path',
+    body: {
+      operationId: 'op_truck_remove', protocolVersion: 2, truckId: 'truck_body',
+      expectedShiftRevision: 4, expectedStatusRevision: 2,
+      expectedCycleRevision: 2, expectedTtnRevision: 2,
+    },
+  });
+  await handleV2Request(remove.options);
+  assert.equal(remove.res.status, 200);
+  assert.equal(remove.calls.truckRemove[0].command.shiftId, 'shift_path');
+  assert.equal(remove.calls.truckRemove[0].command.truckId, 'truck_path');
+
+  const transfer = harness({
+    method: 'POST',
+    path: '/api/v2/shifts/shift_dest/trucks/truck_path/force-transfer',
+    body: {
+      operationId: 'op_transfer', protocolVersion: 2, sourceShiftId: 'shift_source',
+      truckId: 'truck_body', confirmTransfer: true,
+      expectedSourceShiftRevision: 2, expectedDestinationShiftRevision: 3,
+      expectedStatusRevision: 1, expectedCycleRevision: 2, expectedTtnRevision: 1,
+    },
+  });
+  await handleV2Request(transfer.options);
+  assert.equal(transfer.res.status, 200);
+  assert.equal(transfer.calls.transfer[0].command.shiftId, 'shift_dest');
+  assert.equal(transfer.calls.transfer[0].command.truckId, 'truck_path');
+  assert.equal(transfer.calls.transfer[0].command.sourceShiftId, 'shift_source');
+  assert.equal(transfer.calls.transfer[0].command.confirmTransfer, true);
+
+  const complete = harness({
+    method: 'POST',
+    path: '/api/v2/shifts/shift_source/detached-trips/cycle_path/complete',
+    body: {
+      operationId: 'op_complete', protocolVersion: 2, cycleId: 'cycle_body',
+      truckId: 'truck_1', destinationShiftId: 'shift_dest', type: 'load', createdAt: 1764000000000,
+      expectedSourceShiftRevision: 3, expectedDestinationShiftRevision: 4,
+      expectedDetachedCycleRevision: 1,
+    },
+  });
+  await handleV2Request(complete.options);
+  assert.equal(complete.res.status, 200);
+  assert.equal(complete.calls.complete[0].command.shiftId, 'shift_source');
+  assert.equal(complete.calls.complete[0].command.cycleId, 'cycle_path');
+  assert.equal(complete.calls.complete[0].command.destinationShiftId, 'shift_dest');
+
+  // Both online-only commands refuse a queued envelope before any mutation,
+  // and the service never sees the command.
+  for (const [path, calls] of [
+    ['/api/v2/shifts/shift_dest/trucks/truck_path/force-transfer', 'transfer'],
+    ['/api/v2/shifts/shift_source/detached-trips/cycle_path/complete', 'complete'],
+  ]) {
+    const offline = harness({
+      method: 'POST',
+      path,
+      headers: {'x-samosval-offline': '1'},
+      body: {operationId: 'op_offline', protocolVersion: 2},
+    });
+    await handleV2Request(offline.options);
+    assert.deepEqual(offline.sent, [{
+      status: 409,
+      body: {protocolVersion: 2, error: 'online-required', details: {}},
+    }], path);
+    assert.deepEqual(offline.calls[calls], [], path);
+  }
 });
 
 test('the workspace comes from the server configuration, not from the command body', async () => {

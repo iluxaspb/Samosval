@@ -402,7 +402,9 @@ P1 characterization/source payload
 
 ### Task 20: Truck assignment, force transfer and detached completion
 
-**Files:** create `server/src/shift-trucks-v2.mjs`, `server/src/shift-transfer-v2.mjs`, `server/tests/v2-truck-transfer-db.test.mjs`, `server/tests/v2-detached-completion-db.test.mjs`; modify router.
+**Files:** create `server/src/shift-trucks-v2.mjs`, `server/src/shift-transfer-v2.mjs`, `server/sql/028_detached_open_trips.sql`, `server/tests/v2-truck-transfer-db.test.mjs`, `server/tests/v2-detached-completion-db.test.mjs`; modify router, manifest/discovery/migration-registry.
+
+**Note:** миграция 028 добавлена в объём задачи по факту: read-контракт §5.1 (`readDetachedOpenTrips`) и дизайн §4.4 требуют таблицу `detached_open_trips`, но список файлов задачи её не содержал.
 
 **Interfaces:** add/remove/force/complete methods.
 
