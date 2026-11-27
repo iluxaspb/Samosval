@@ -13,11 +13,11 @@ import {installAuthFixtureTransport} from './phone-auth-fixture.mjs';
 // strip hidden and that the management sheet refuses to fake v1 commands.
 //
 // Where the product has a screen, the screen is the path (shift creation,
-// membership, shift switch, closing, archive, restored archive). Where this
-// channel still has no screen (truck assignment, line operations, force
-// transfer confirmation, the detached-trip block) the scenario drives the
-// shipped client transport with the real token and reports the missing screens
-// instead of imitating them.
+// membership, shift switch, closing, archive, restored archive). The force
+// transfer confirmation and the detached-trip block are screens too: the
+// scenario checks them in the real DOM (47-shift-transfer-ui.js). Only truck
+// assignment and line operations themselves are still driven through the
+// shipped client transport with the real token.
 const base=process.env.PHONE_QA_BASE,origin='https://samosval-test.iluxa.pro:18499';
 const API='http://127.0.0.1:18099';
 assert.ok(base?.includes('/browser-fix.')&&process.env.PGHOST===base+'/socket');
@@ -365,6 +365,46 @@ try{
    sourceShiftLabel:afterA.detachedOpenTrips[0].sourceShift,
    destinationShiftLabel:afterA.detachedOpenTrips[0].destinationShift
   };
+ });
+
+ await scenario('the force-transfer and detached-trip screens are wired into the real line UI',async()=>{
+  // Экраны существуют не только как модуль: добавление самосвала уходит в
+  // v2-функцию, а блок «Рейсы, оставшиеся в прежней смене» нарисован на линии.
+  assert.equal(await admin.ev("typeof window.__wtAddTruckToShift"),'function');
+  assert.equal(await admin.ev("!!document.getElementById('detachedTripsBlock')"),true);
+  await refreshStore(shiftA);
+  await refreshStore(shiftB);
+  const readBlock=shiftId=>admin.ev(`(()=>{
+   if(!shiftStripSelect(${J(shiftId)}))throw Error('shift not selectable: ${shiftId}');
+   const block=document.getElementById('detachedTripsBlock');
+   if(!block)throw Error('detached block missing');
+   const card=block.querySelector('.detached-trip-card');
+   return {hidden:block.hidden,count:block.querySelectorAll('.detached-trip-card').length,
+    title:block.querySelector('.detached-trips-title')?.textContent||'',
+    source:card?.querySelector('.detached-trip-source')?.textContent||'',
+    warning:card?.querySelector('.detached-trip-warning')?.textContent||'',
+    action:card?.querySelector('.detached-trip-action')?.textContent||'',
+    disabled:card?.querySelector('.detached-trip-action')?.disabled};})()`);
+  const waitBlock=shiftId=>until(async()=>{
+   const block=await readBlock(shiftId);
+   return block.hidden===false&&block.count===1;
+  },'detached block on '+shiftId,20000);
+  await waitBlock(shiftB);
+  const onDestination=await readBlock(shiftB);
+  assert.equal(onDestination.title,'Рейсы, оставшиеся в прежней смене');
+  assert.ok(onDestination.source.includes(SITE_NAME),onDestination.source);
+  assert.ok(onDestination.source.includes(WORK_DATE),onDestination.source);
+  assert.ok(onDestination.source.includes('День'),onDestination.source);
+  assert.match(onDestination.warning,/^Действие будет записано в исходную смену: /);
+  assert.equal(onDestination.action,'Завершить в прежней смене');
+  assert.equal(onDestination.disabled,false,'admin may complete the load stage');
+  // В исходной смене тот же рейс виден так же крупно.
+  await waitBlock(shiftA);
+  const onSource=await readBlock(shiftA);
+  assert.equal(onSource.count,1);
+  assert.equal(onSource.source,onDestination.source);
+  facts.detachedBlock={destination:onDestination,source:onSource};
+  await projectShift(shiftB);
  });
 
  await scenario('the detached trip is offered to both shifts, is online-only, and completes into A only',async()=>{

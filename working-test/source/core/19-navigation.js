@@ -2,15 +2,30 @@
   // флаг канала выключен, не подменяем операции v2 командами старого клиента.
   let shiftSelector = null;
   let shiftManagement = null;
+  let shiftTransferUi = null;
   let shiftUiBridge = null;
   function shiftRights() {
     return {
       start_shift: typeof hasPermission === 'function' && hasPermission('start_shift'),
       close_shift: typeof hasPermission === 'function' && hasPermission('close_shift'),
       manage_shift_members: typeof hasPermission === 'function' && hasPermission('manage_shift_members'),
+      manage_trucks: typeof hasPermission === 'function' && hasPermission('manage_trucks'),
       force_transfer_truck: typeof hasPermission === 'function' && hasPermission('force_transfer_truck'),
+      action_arrive: typeof hasPermission === 'function' && hasPermission('action_arrive'),
+      action_load: typeof hasPermission === 'function' && hasPermission('action_load'),
+      action_ttn: typeof hasPermission === 'function' && hasPermission('action_ttn'),
       edit_line: typeof hasPermission === 'function' && hasPermission('edit_line')
     };
+  }
+  // §6: перевод разрешён админу и старшему прорабу; матрица прав одна этого
+  // не доказывает, сервер проверяет роль отдельно.
+  function mayForceTransfer() {
+    const role = typeof currentUserRole === 'string' ? currentUserRole : '';
+    return shiftRights().force_transfer_truck === true && (role === 'admin' || role === 'senior_foreman');
+  }
+  function hideDetachedTrips() {
+    const mount = document.getElementById('detachedTripsBlock');
+    if (mount) { mount.textContent = ''; mount.hidden = true; }
   }
   function shiftBridge() {
     try { return typeof nasV2Shifts === 'function' ? nasV2Shifts() : null; } catch (_) { return null; }
@@ -23,8 +38,13 @@
       if (shiftSelector) shiftSelector.destroy();
       shiftSelector = null;
       shiftManagement = null;
+      shiftTransferUi = null;
       shiftUiBridge = null;
+      hideDetachedTrips();
       window.__wtRenderShiftStrip = function () { if (mount) mount.hidden = true; };
+      window.__wtRenderDetachedTrips = hideDetachedTrips;
+      // Без v2-моста занятый самосвал добавляется старым путём: v2-функции нет.
+      delete window.__wtAddTruckToShift;
       const button = document.getElementById('shiftManagementBtn');
       if (button) button.hidden = false;
       return null;
@@ -33,6 +53,7 @@
       if (shiftSelector) shiftSelector.destroy();
       shiftSelector = null;
       shiftManagement = null;
+      shiftTransferUi = null;
       shiftUiBridge = bridge;
     }
     if (!shiftSelector) {
@@ -45,7 +66,58 @@
       shiftManagement = WorkingTestShiftManagement.createShiftManagement({
         transport: bridge.transport, store: bridge.store, rights: shiftRights()
       });
+      // Крупное подтверждение перевода и блок оставшихся рейсов — только на
+      // живом v2-мосте (design §10.2).
+      shiftTransferUi = typeof WorkingTestShiftTransferUi !== 'undefined'
+        ? WorkingTestShiftTransferUi.createShiftTransferUi({
+          store: bridge.store,
+          transport: bridge.transport,
+          doc: document,
+          mount: document.getElementById('detachedTripsBlock'),
+          confirm: function (title, message, opts) {
+            return typeof window.showConfirmModal === 'function'
+              ? window.showConfirmModal(title, message, opts)
+              : Promise.resolve(false);
+          },
+          notify: function (message, isError) {
+            if (isError) { if (typeof showError === 'function') showError(message); }
+            else if (typeof showToastEl === 'function') showToastEl(message, false);
+          },
+          truckLabel: function (id) { return typeof truckName === 'function' ? truckName(id) : ''; },
+          objectLabel: function (id) {
+            const found = (state.objects || []).find(row => row.id === id);
+            return found ? found.name : '';
+          },
+          describeError: function (result) {
+            return shiftManagement ? shiftManagement.describe(result) : '';
+          },
+          online: function () { return typeof navigator === 'undefined' || navigator.onLine !== false; },
+          rights: shiftRights,
+          forceTransferAllowed: mayForceTransfer,
+          onChange: function () {
+            // Команда обновила контексты store, а линия рисуется из проекции.
+            // Без этого шага карточки самосвалов ждали бы следующего опроса.
+            try { bridge.store.projectActiveContextToLegacyState(state); } catch (_) { /* проекция не критична для отчёта */ }
+            renderAll();
+          }
+        })
+        : null;
       window.__wtRenderShiftStrip = function () { shiftSelector?.render(); };
+      window.__wtRenderDetachedTrips = function () {
+        if (shiftTransferUi) shiftTransferUi.render();
+        else hideDetachedTrips();
+      };
+      // Добавление самосвала на линию в режиме v2 идёт через v2-транспорт:
+      // занятый самосвал получает предупреждение или крупный confirm перевода.
+      window.__wtAddTruckToShift = function (truckId) {
+        if (!shiftTransferUi) return Promise.resolve({ ok: false, code: 'transport-unavailable' });
+        return shiftTransferUi.addTruckToShift({ truckId: truckId }).then(function (result) {
+          if (!result.ok && result.code !== 'truck-assigned-to-other-shift' && !result.cancelled) {
+            if (typeof showError === 'function') showError(result.message);
+          }
+          return result;
+        });
+      };
       // Кнопка листа управления имеет смысл только когда v2-мост поднят.
       const button = document.getElementById('shiftManagementBtn');
       if (button) button.hidden = false;
@@ -290,6 +362,8 @@
     const ui = ensureShiftUi();
     if (!ui) return;
     ui.selector.render();
+    // Список смен меняется — блок оставшихся рейсов тоже пересобирается.
+    window.__wtRenderDetachedTrips?.();
     // Первый список (или смена активной смены) проецируется в старую линию:
     // без этого экран остаётся «Смена не начата», хотя выбранная смена уже
     // есть в полосе, а у прораба с одной сменой полосы нет вовсе.
@@ -314,6 +388,8 @@
     // каждые 4 секунды, а renderLine сам пропускает неизменные данные.
     renderHeaderStats();
     scheduleRenderLine();
+    // Снимок приносит и detached-рейсы выбранной смены: обновляем блок.
+    window.__wtRenderDetachedTrips?.();
   });
 
   function switchTab(name, btn) {

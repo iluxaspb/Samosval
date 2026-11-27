@@ -60,7 +60,8 @@
         "core/43-shift-selector.js",
         "core/44-shift-management.js",
         "core/45-restored-archive.js",
-        "core/46-detached-trips.js"
+        "core/46-detached-trips.js",
+        "core/47-shift-transfer-ui.js"
       ]
     },
     {

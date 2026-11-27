@@ -185,7 +185,9 @@
   //   danger: false,       // → красная кнопка + красная иконка
   //   variant: 'primary' | 'danger' | 'success' | 'warning',  // альтернатива
   //   icon: '❓' | '⚠️' | ...,
-  //   hideCancel: false     // если нужен только «ОК»
+  //   hideCancel: false,    // если нужен только «ОК»
+  //   focus: 'cancel',      // безопасный default: фокус на отмене
+  //   enterConfirms: false  // Enter не подтверждает опасное действие
   // }
   window.showConfirmModal = function(title, message, opts) {
     opts = opts || {};
@@ -267,16 +269,23 @@
         if (e.target === overlay) close(false);
       });
 
-      // Escape — отмена, Enter — подтверждение
+      // Escape — отмена, Enter — подтверждение (если это не опасный диалог,
+      // для которого Enter должен достаться кнопке в фокусе).
       function onKey(e) {
         if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); close(false); }
-        else if (e.key === 'Enter') { document.removeEventListener('keydown', onKey); close(true); }
+        else if (e.key === 'Enter' && opts.enterConfirms !== false) { document.removeEventListener('keydown', onKey); close(true); }
       }
       document.addEventListener('keydown', onKey);
 
-      // Фокус на подтверждение для accessibility
+      // Фокус по умолчанию — на подтверждении. Опасные диалоги просят
+      // focus:'cancel', чтобы случайный Enter не выполнил необратимое действие.
       setTimeout(() => {
-        try { card.querySelector('.pcm-btn-confirm').focus({ preventScroll: true }); } catch(e) {}
+        try {
+          const target = opts.focus === 'cancel'
+            ? card.querySelector('.pcm-btn-cancel')
+            : card.querySelector('.pcm-btn-confirm');
+          target?.focus({ preventScroll: true });
+        } catch(e) {}
       }, 100);
     });
   };
