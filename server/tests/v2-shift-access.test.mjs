@@ -333,6 +333,14 @@ test('parallel shift ACL: defaults, membership, visibility, closing and replay',
       assert.equal((await authorizeShift(pool, foreman, { workspaceId: WORKSPACE, shiftId: shift.closed, action: 'shift.read' })).shift.state, 'closed');
       const error = await expectError(authorizeShift(pool, foreman, { workspaceId: WORKSPACE, shiftId: shift.closed, action: 'shift.line.load' }), 'shift-closed', 410);
       assert.equal(error.details.state, 'closed');
+      // The close domain owns the terminal answer (§5.5/§11): the ACL lets the two
+      // close actions through on a closed row, so an identical replay still reaches
+      // its receipt and a new close is refused by the domain with a stable 409
+      // instead of the generic 410. Permissions are still re-checked here.
+      for (const action of ['shift.close.prepare', 'shift.close.finish']) {
+        const allowed = await authorizeShift(pool, foreman, { workspaceId: WORKSPACE, shiftId: shift.closed, action });
+        assert.equal(allowed.shift.state, 'closed', action);
+      }
     });
 
     await t.test('detached completion is allowed through source OR current destination membership', async () => {

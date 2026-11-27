@@ -74,6 +74,9 @@ const DETAIL_KEYS = Object.freeze(new Set([
   'expectedCycleRevision', 'actualCycleRevision',
   'expectedTtnRevision', 'actualTtnRevision',
   'expectedDetachedCycleRevision', 'actualDetachedCycleRevision',
+  // Two-phase close (Task 22): the exact archive/marker counter that disagreed.
+  'expectedArchiveRevision', 'actualArchiveRevision',
+  'expectedMaterialMarkerRevision', 'actualMaterialMarkerRevision',
   'retryAfterSeconds', 'replayed'
 ]));
 

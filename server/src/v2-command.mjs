@@ -96,6 +96,21 @@ function requireAuditPayload(value, field) {
   return value;
 }
 
+// §4.5 makes the shift receipt shift-scoped; the column arrives with 029. Roots
+// that still run an older chain keep the legacy insert, and the positive answer is
+// cached per connection (the same pattern `hasRevisionChain` uses).
+const shiftScopedReceipts = new WeakMap();
+
+async function receiptHasShiftColumn(client) {
+  if (shiftScopedReceipts.get(client) === true) return true;
+  const present = (await client.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='shift_operation_receipts' AND column_name='shift_id'`,
+  )).rowCount > 0;
+  if (present) shiftScopedReceipts.set(client, true);
+  return present;
+}
+
 // One command = one transaction: pending receipt, mutation, audit, result, COMMIT.
 //
 //   authorize(client, context) -> actor        re-checked on EVERY call, including
@@ -129,10 +144,18 @@ export async function runV2Command(options) {
     await client.query('BEGIN');
     // Authorization first: an operation id alone must never disclose a result.
     const actor = await authorize(client, context);
-    const created = await client.query(
-      `INSERT INTO ${V2_RECEIPT_TABLE}(workspace_id,operation_id,uid,request_hash,result) VALUES ($1,$2,$3,$4,'{}') ON CONFLICT DO NOTHING RETURNING operation_id`,
-      [workspaceId, operation, uid, hash]
-    );
+    const created = (await receiptHasShiftColumn(client))
+      // §4.5: the receipt is shift-scoped once 029 exists, so a pending server
+      // operation can be attributed to (and gated on) one shift. Older baselines
+      // keep the legacy four-column write.
+      ? await client.query(
+        `INSERT INTO ${V2_RECEIPT_TABLE}(workspace_id,operation_id,uid,request_hash,shift_id,result) VALUES ($1,$2,$3,$4,$5,'{}') ON CONFLICT DO NOTHING RETURNING operation_id`,
+        [workspaceId, operation, uid, hash, shiftId]
+      )
+      : await client.query(
+        `INSERT INTO ${V2_RECEIPT_TABLE}(workspace_id,operation_id,uid,request_hash,result) VALUES ($1,$2,$3,$4,'{}') ON CONFLICT DO NOTHING RETURNING operation_id`,
+        [workspaceId, operation, uid, hash]
+      );
     if (!created.rowCount) {
       const stored = (await client.query(
         `SELECT uid,request_hash,result FROM ${V2_RECEIPT_TABLE} WHERE workspace_id=$1 AND operation_id=$2`,

@@ -28,11 +28,13 @@ test('discovered_equals_manifest_including_existing_replica_root', async () => {
   // S26 replica/restore fixture root added by Task 7 of the isolated-db suite.
   // 92 = 90 + the two Task 20 truck/transfer roots.
   // 93 = 92 + the Task 21 scoped line-operation root.
-  assert.equal(discovery.roots.length, 93);
+  // 94 = 93 + the Task 22 two-phase close root.
+  assert.equal(discovery.roots.length, 94);
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-s26-fixtures.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-truck-transfer-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-detached-completion-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-line-operations-db.test.mjs'));
+  assert.ok(discovery.roots.some(item => item.file === 'tests/v2-shift-close-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/replica-materialize-parallel-shifts.test.mjs'));
   assert.ok(manifest.harnessFixtures.includes('tests/fixtures/marker-tamper.test.mjs'));
   assert.ok(manifest.harnessFixtures.includes('tests/fixtures/isolated-db-process.test.mjs'));

@@ -43,8 +43,13 @@ export const SHIFT_ACTIONS = Object.freeze({
   // The completing right depends on the saved stage (`lineAction`), so it is
   // resolved per call instead of being fixed here.
   'shift.detached.complete': Object.freeze({ rights: Object.freeze([]), closing: 'blocked' }),
-  'shift.close.prepare': Object.freeze({ rights: Object.freeze(['close_shift']), closing: 'allowed' }),
-  'shift.close.finish': Object.freeze({ rights: Object.freeze(['close_shift']), closing: 'allowed' }),
+  // `terminal: 'domain'` means the close domain owns the terminal-state answer
+  // (§5.5/§11): a closed/historical row must answer its stable `409 shift-closed`
+  // instead of the generic `410`, and an identical replay must still reach its
+  // receipt. The ACL still re-checks the actor, membership and right on every call.
+  'shift.close.prepare': Object.freeze({ rights: Object.freeze(['close_shift']), closing: 'allowed', terminal: 'domain' }),
+  'shift.close.material': Object.freeze({ rights: Object.freeze(['close_shift']), closing: 'allowed', terminal: 'domain' }),
+  'shift.close.finish': Object.freeze({ rights: Object.freeze(['close_shift']), closing: 'allowed', terminal: 'domain' }),
 });
 
 // A detached trip can only be completed by the action that saved its stage.
@@ -125,14 +130,15 @@ export async function hasAnyRight(client, role, rights) {
 }
 
 // Lifecycle gate: active accepts everything, closing accepts only the actions
-// marked allowed, and a closed/historical shift answers 410 for every command.
-function requireOpenLifecycle(shift, action, closing) {
+// marked allowed, and a closed/historical shift answers 410 for every command
+// except the close actions, whose domain owns the terminal answer.
+function requireOpenLifecycle(shift, action, closing, terminal) {
   if (shift.state === 'active') return;
   if (shift.state === 'closing') {
     if (closing === 'allowed') return;
     throw v2Error('shift-closing', 409, { shiftId: shift.shiftId, state: shift.state });
   }
-  if (action === 'shift.read') return;
+  if (action === 'shift.read' || terminal === 'domain') return;
   throw v2Error('shift-closed', 410, { shiftId: shift.shiftId, state: shift.state });
 }
 
@@ -187,8 +193,8 @@ export async function authorizeShift(client, actor, options) {
     if (!admin && !membership) throw v2Error('not-shift-member', 403, { shiftId });
     const sourceShift = await loadShift(client, workspaceId, sourceShiftId);
     if (!sourceShift) throw v2Error('shift-not-visible', 404, { shiftId: sourceShiftId });
-    requireOpenLifecycle(shift, input.action, spec.closing);
-    requireOpenLifecycle(sourceShift, input.action, spec.closing);
+    requireOpenLifecycle(shift, input.action, spec.closing, spec.terminal);
+    requireOpenLifecycle(sourceShift, input.action, spec.closing, spec.terminal);
     return { shift, membership, sourceShift, via: admin ? 'admin' : 'destination' };
   }
 
@@ -213,8 +219,8 @@ export async function authorizeShift(client, actor, options) {
         throw v2Error('forbidden', 403, { reason: 'missing-right' });
       }
     }
-    requireOpenLifecycle(shift, input.action, spec.closing);
-    requireOpenLifecycle(destinationShift, input.action, spec.closing);
+    requireOpenLifecycle(shift, input.action, spec.closing, spec.terminal);
+    requireOpenLifecycle(destinationShift, input.action, spec.closing, spec.terminal);
     return { shift, membership, destinationShift, via };
   }
 
@@ -231,7 +237,7 @@ export async function authorizeShift(client, actor, options) {
       throw v2Error('forbidden', 403, { reason: 'missing-right' });
     }
   }
-  requireOpenLifecycle(shift, input.action, spec.closing);
+  requireOpenLifecycle(shift, input.action, spec.closing, spec.terminal);
   return { shift, membership, via: admin ? 'admin' : 'shift' };
 }
 

@@ -29,7 +29,7 @@ function harness({ method = 'GET', path = '/api/v2/shifts', search = '', headers
   const req = fakeRequest({ method, headers });
   const res = fakeResponse();
   const sent = [];
-  const calls = { list: [], snapshot: [], loadActor: 0, create: [], object: [], memberAdd: [], memberRemove: [], truckAdd: [], truckRemove: [], transfer: [], complete: [], line: [] };
+  const calls = { list: [], snapshot: [], loadActor: 0, create: [], object: [], memberAdd: [], memberRemove: [], truckAdd: [], truckRemove: [], transfer: [], complete: [], line: [], closePrepare: [], closeMaterial: [], closeFinish: [] };
   const defaultActor = { uid: 'uid_reader', displayName: 'Reader', role: 'foreman', status: 'active' };
   const options = {
     pool: { connect() { throw new Error('the router must not open a connection itself'); } },
@@ -87,6 +87,18 @@ function harness({ method = 'GET', path = '/api/v2/shifts', search = '', headers
         calls.line.push({ actor, command });
         return commandEnvelope(command.operationId, { type: command.type, truckId: command.truckId });
       },
+      prepareShiftClose: async (pool, actor, command) => {
+        calls.closePrepare.push({ actor, command });
+        return commandEnvelope(command.operationId, { phase: 'prepared', closeToken: 'token_000000000000' });
+      },
+      confirmShiftMaterial: async (pool, actor, command) => {
+        calls.closeMaterial.push({ actor, command });
+        return commandEnvelope(command.operationId, { phase: 'material-confirmed', materialMarkerRevision: 1 });
+      },
+      finishShiftClose: async (pool, actor, command) => {
+        calls.closeFinish.push({ actor, command });
+        return commandEnvelope(command.operationId, { phase: 'closed' });
+      },
       ...services,
     },
   };
@@ -117,6 +129,15 @@ test('matchV2Route recognises the read and command routes per method', () => {
   assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/line-operations', 'POST'), {
     kind: 'line-operations', shiftId: 'shift_a1',
   });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/close/prepare', 'POST'), {
+    kind: 'close-prepare', shiftId: 'shift_a1',
+  });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/close/material', 'POST'), {
+    kind: 'close-material', shiftId: 'shift_a1',
+  });
+  assert.deepEqual(matchV2Route('/api/v2/shifts/shift_a1/close/finish', 'POST'), {
+    kind: 'close-finish', shiftId: 'shift_a1',
+  });
   // A known path with a wrong method is not a route (the handler answers 405).
   for (const [path, method] of [
     ['/api/v2/shifts', 'PUT'], ['/api/v2/shifts', 'PATCH'], ['/api/v2/shifts', 'DELETE'],
@@ -134,6 +155,14 @@ test('matchV2Route recognises the read and command routes per method', () => {
     ['/api/v2/shifts/a/line-operations', 'GET'],
     ['/api/v2/shifts/a/line-operations', 'PATCH'],
     ['/api/v2/shifts/a/line-operations', 'DELETE'],
+    ['/api/v2/shifts/a/close/prepare', 'GET'],
+    ['/api/v2/shifts/a/close/prepare', 'PUT'],
+    ['/api/v2/shifts/a/close/prepare', 'DELETE'],
+    ['/api/v2/shifts/a/close/material', 'GET'],
+    ['/api/v2/shifts/a/close/material', 'PATCH'],
+    ['/api/v2/shifts/a/close/material', 'DELETE'],
+    ['/api/v2/shifts/a/close/finish', 'GET'],
+    ['/api/v2/shifts/a/close/finish', 'PATCH'],
   ]) {
     assert.equal(matchV2Route(path, method), null, `${method} ${path}`);
   }
@@ -144,6 +173,9 @@ test('matchV2Route recognises the read and command routes per method', () => {
     '/api/v2/shifts/a/trucks/', '/api/v2/shifts/a/trucks/t/x',
     '/api/v2/shifts/a/detached-trips/c', '/api/v2/shifts/a/detached-trips/c/complete/x',
     '/api/v2/shifts/a/line-operations/', '/api/v2/shifts/a/line-operations/x',
+    '/api/v2/shifts/a/close', '/api/v2/shifts/a/close/prepare/',
+    '/api/v2/shifts/a/close/prepare/x', '/api/v2/shifts/a/close/finish/x',
+    '/api/v2/shifts/a/close/material/', '/api/v2/shifts/a/close/material/x',
   ]) {
     assert.equal(matchV2Route(path), null, path);
   }
@@ -155,6 +187,9 @@ test('matchV2Route recognises the read and command routes per method', () => {
   assert.equal(matchV2Route('/api/v2/shifts/a/trucks/a%20b', 'DELETE'), null);
   assert.equal(matchV2Route('/api/v2/shifts/a/detached-trips/a%20b/complete', 'POST'), null);
   assert.equal(matchV2Route('/api/v2/shifts/a%20b/line-operations', 'POST'), null);
+  assert.equal(matchV2Route('/api/v2/shifts/a%20b/close/prepare', 'POST'), null);
+  assert.equal(matchV2Route('/api/v2/shifts/a%20b/close/material', 'POST'), null);
+  assert.equal(matchV2Route('/api/v2/shifts/a%20b/close/finish', 'POST'), null);
 });
 
 test('unknown v2 path answers 404 with the stable v2 body', async () => {
@@ -175,6 +210,12 @@ test('a known v2 path with a wrong method answers 405', async () => {
     ['GET', '/api/v2/shifts/shift_a1/detached-trips/cycle_1/complete'],
     ['GET', '/api/v2/shifts/shift_a1/line-operations'],
     ['PUT', '/api/v2/shifts/shift_a1/line-operations'],
+    ['GET', '/api/v2/shifts/shift_a1/close/prepare'],
+    ['PUT', '/api/v2/shifts/shift_a1/close/prepare'],
+    ['GET', '/api/v2/shifts/shift_a1/close/material'],
+    ['DELETE', '/api/v2/shifts/shift_a1/close/material'],
+    ['GET', '/api/v2/shifts/shift_a1/close/finish'],
+    ['DELETE', '/api/v2/shifts/shift_a1/close/finish'],
   ]) {
     const { sent, calls, options } = harness({ method, path });
     assert.equal(await handleV2Request(options), true);
@@ -455,6 +496,65 @@ test('the line-operations route takes the shift from the path and forwards the r
   await handleV2Request(absent.options);
   assert.equal(absent.calls.line[0].command.shiftId, 'shift_path');
   assert.equal(absent.calls.line[0].command.bodyShiftId, undefined);
+});
+
+test('the close routes take the shift from the path and forward the phase body', async () => {
+  const prepare = harness({
+    method: 'POST',
+    path: '/api/v2/shifts/shift_path/close/prepare',
+    body: {operationId: 'op_close_prepare', protocolVersion: 2, expectedShiftRevision: 4},
+  });
+  await handleV2Request(prepare.options);
+  assert.equal(prepare.res.status, 200);
+  assert.equal(prepare.calls.closePrepare.length, 1);
+  assert.equal(prepare.calls.closePrepare[0].command.shiftId, 'shift_path');
+  assert.equal(prepare.calls.closePrepare[0].command.expectedShiftRevision, 4);
+  assert.equal(prepare.calls.closeFinish.length, 0);
+
+  const material = harness({
+    method: 'POST',
+    path: '/api/v2/shifts/shift_path/close/material',
+    body: {
+      operationId: 'op_close_material', protocolVersion: 2, closeToken: 'token_000000000000',
+      materialId: 'material_1', volume: 10,
+      expectedShiftRevision: 5, expectedArchiveRevision: 1, expectedMaterialMarkerRevision: null,
+    },
+  });
+  await handleV2Request(material.options);
+  assert.equal(material.res.status, 200);
+  assert.equal(material.calls.closeMaterial.length, 1);
+  assert.equal(material.calls.closeMaterial[0].command.shiftId, 'shift_path');
+  assert.equal(material.calls.closeMaterial[0].command.materialId, 'material_1');
+  assert.equal(material.calls.closeMaterial[0].command.volume, 10);
+  assert.equal(material.calls.closeMaterial[0].command.expectedMaterialMarkerRevision, null);
+  assert.equal(material.calls.closePrepare.length, 0);
+  assert.equal(material.calls.closeFinish.length, 0);
+
+  const finish = harness({
+    method: 'POST',
+    path: '/api/v2/shifts/shift_path/close/finish',
+    body: {
+      operationId: 'op_close_finish', protocolVersion: 2, closeToken: 'token_000000000000',
+      expectedShiftRevision: 5, expectedArchiveRevision: 1, expectedMaterialMarkerRevision: 1,
+    },
+  });
+  await handleV2Request(finish.options);
+  assert.equal(finish.res.status, 200);
+  assert.equal(finish.calls.closeFinish.length, 1);
+  assert.equal(finish.calls.closeFinish[0].command.shiftId, 'shift_path');
+  assert.equal(finish.calls.closeFinish[0].command.closeToken, 'token_000000000000');
+  assert.equal(finish.calls.closeFinish[0].command.expectedMaterialMarkerRevision, 1);
+  assert.equal(finish.calls.closePrepare.length, 0);
+
+  // The body never supplies the addressed shift: a different value is ignored by
+  // the router and the path wins.
+  const foreign = harness({
+    method: 'POST',
+    path: '/api/v2/shifts/shift_path/close/prepare',
+    body: {operationId: 'op_close_foreign', protocolVersion: 2, expectedShiftRevision: 1, shiftId: 'shift_other'},
+  });
+  await handleV2Request(foreign.options);
+  assert.equal(foreign.calls.closePrepare[0].command.shiftId, 'shift_path');
 });
 
 test('the workspace comes from the server configuration, not from the command body', async () => {
