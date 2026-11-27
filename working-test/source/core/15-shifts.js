@@ -118,7 +118,13 @@
   // === ЛИНИЯ ===
   async function addTruckToLine(id) {
     if (!requireEdit('edit_line') || !state.shift) return;
-    if(isNasRuntime()){try{await nasChangeMembership(id,true);}catch(error){showError(error.message);}return;}
+    if(isNasRuntime()){
+      // Канал v2: назначение идёт через v2-транспорт, иначе сервер отвечает
+      // 426. Занятый самосвал получает предупреждение или confirm перевода.
+      if(typeof window.__wtAddTruckToShift==='function'){await window.__wtAddTruckToShift(id);return;}
+      if(typeof nasV2ShiftsEnabled==='function'&&nasV2ShiftsEnabled()){showError('Смены ещё загружаются. Подождите немного и повторите действие.');return;}
+      try{await nasChangeMembership(id,true);}catch(error){showError(error.message);}return;
+    }
     let ex = state.truckStatus[id];
     let d = { id, shiftId: state.shift.id, onLine: true, addedBy: getUserName(), addedAt: Date.now(), arriveStatus: null, arriveTimestamp: null, arriveBy: null, ttnStatus: null, ttnBy: null, ttnLogId: null, lastLoadTimestamp: null, lastLoadBy: null, lastLoadLogId:null, cycleRevision:0, loadedAfterArrive: false };
     state.truckStatus[id] = d; offlineRemoteStatuses[id]={...d};saveCache(); renderLine(); renderHeaderStats();

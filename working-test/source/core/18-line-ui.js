@@ -611,6 +611,9 @@
     // Полоса открытых смен — отдельный элемент, а не карточки линии: порядок
     // хуков и удержаний она не меняет (задача 25).
     window.__wtRenderShiftStrip?.();
+    // Рейсы, оставшиеся в прежней смене: свой блок, тоже без влияния на
+    // порядок карточек (design §10.2).
+    window.__wtRenderDetachedTrips?.();
     if (hasTabAccess('report')) renderReport();
     if (hasTabAccess('archive')) renderArchive();
     if (hasTabAccess('trucks')) { renderGlobalTrucksManage(); renderGlobalObjectsManage(); }

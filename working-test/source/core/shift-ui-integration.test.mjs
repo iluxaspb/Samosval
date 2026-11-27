@@ -48,3 +48,39 @@ test('интеграция: горизонтальная полоса участ
   assert.match(style, /\.shift-tab\s*\{[^}]*flex:\s*0\s+0\s+auto/s);
   assert.match(style, /scroll-snap-align:\s*start/);
 });
+
+test('интеграция: перевод и оставшиеся рейсы подключены только на живом v2-мосте', () => {
+  const modules = readFileSync(new URL('../../modules.json', import.meta.url), 'utf8');
+  const shifts = readFileSync(here + '15-shifts.js', 'utf8');
+  const confirm = readFileSync(new URL('../features/pretty-confirm.js', import.meta.url), 'utf8');
+  const transfer = readFileSync(here + '47-shift-transfer-ui.js', 'utf8');
+
+  // Модуль собирается в канал сразу после detached-модуля.
+  assert.ok(modules.indexOf('core/46-detached-trips.js') < modules.indexOf('core/47-shift-transfer-ui.js'));
+  // Отдельный блок в потоке линии, не внутри списка карточек текущей смены.
+  assert.ok(shell.indexOf('id="trucksLineList"') < shell.indexOf('id="detachedTripsBlock"'));
+  assert.match(shell, /id="detachedTripsBlock" hidden/);
+  assert.match(style, /#detachedTripsBlock\s*\{/);
+  assert.match(style, /\.detached-trip-warning\s*\{/);
+  assert.match(lineUi, /window\.__wtRenderDetachedTrips\?\.\(\)/);
+
+  // Без моста блок скрыт, v2-добавления самосвала нет — экран 1.8.7 цел.
+  assert.match(navigation, /window\.__wtRenderDetachedTrips = hideDetachedTrips/);
+  assert.match(navigation, /delete window\.__wtAddTruckToShift/);
+  assert.match(navigation, /WorkingTestShiftTransferUi\.createShiftTransferUi/);
+  assert.match(navigation, /forceTransferAllowed: mayForceTransfer/);
+  assert.match(navigation, /window\.__wtAddTruckToShift\s*=/);
+  // §6: роль проверяется вместе с правом, а не только матрица прав.
+  assert.match(navigation, /role === 'admin' \|\| role === 'senior_foreman'/);
+
+  // Экран добавления самосвала уходит в v2, а не в старую команду линии.
+  assert.ok(shifts.indexOf('window.__wtAddTruckToShift') < shifts.indexOf('await nasChangeMembership(id,true)'));
+
+  // Опасное подтверждение: безопасный default и тексты design §10.2.
+  assert.match(confirm, /opts\.focus === 'cancel'/);
+  assert.match(confirm, /opts\.enterConfirms !== false/);
+  assert.match(transfer, /Перевести самосвал в другую смену\?/);
+  assert.match(transfer, /Рейсы, оставшиеся в прежней смене/);
+  assert.match(transfer, /Завершить в прежней смене/);
+  assert.match(transfer, /Отменить перевод будет нельзя\./);
+});
