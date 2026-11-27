@@ -20,13 +20,18 @@ SEED=$(resolve_tool "$SEED_NAME")
 SCENARIO=$(resolve_tool "$SCENARIO_NAME")
 if [ "$(id -u)" != 0 ] && [ "${PHONE_BROWSER_NS:-}" != 1 ]; then
  export PHONE_HOST_NS=$(readlink /proc/self/ns/net)
- exec sudo -n --preserve-env=PHONE_HOST_NS,PHONE_REVIEWED_COMMIT,PHONE_SEED,PHONE_SCENARIO,PHONE_CHROMIUM unshare -n bash "$0"
+ # SAMOSVAL_V2_SHIFTS is forwarded so the stand can run the same gate value as
+ # the channel it reviews (lesson 71). Absent or empty keeps the stand gate-free.
+ exec sudo -n --preserve-env=PHONE_HOST_NS,PHONE_REVIEWED_COMMIT,PHONE_SEED,PHONE_SCENARIO,PHONE_CHROMIUM,SAMOSVAL_V2_SHIFTS unshare -n bash "$0"
 fi
 [[ "${PHONE_HOST_NS:-}" =~ ^net:\[[0-9]+\]$ ]] || exit 1
 [ "$(readlink /proc/self/ns/net)" != "$PHONE_HOST_NS" ] || exit 1
 if [ "$(id -u)" = 0 ]; then
  ip link set lo up
+ gate_env=()
+ if [ -n "${SAMOSVAL_V2_SHIFTS:-}" ]; then gate_env+=(SAMOSVAL_V2_SHIFTS="$SAMOSVAL_V2_SHIFTS"); fi
  exec setpriv --reuid=iluxa --regid=iluxa --init-groups env HOME=/home/iluxa PHONE_BROWSER_NS=1 \
+  "${gate_env[@]}" \
   PHONE_SEED="$SEED_NAME" PHONE_SCENARIO="$SCENARIO_NAME" PHONE_CHROMIUM="${PHONE_CHROMIUM:-}" bash "$0"
 fi
 [ "$(readlink /proc/self/ns/net)" != "$PHONE_HOST_NS" ] || exit 1

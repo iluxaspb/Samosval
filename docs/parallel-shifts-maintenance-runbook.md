@@ -98,10 +98,10 @@ node server/scripts/maintenance-parallel-shifts.mjs --phase report    --run-dir 
 4. Сделать проверенный full provenance backup **фактической общей БД**, сверить SHA-256 и пробное чтение. В окне `/api/v1/backups` закрыт `503`, поэтому backup делается напрямую в БД (этап `backup` этого скрипта по runbook либо `pg_dump`).
 5. Запустить read-only preflight. Если есть active/closing unresolved-type, показать владельцу exact rows и hash и получить отдельное подтверждение именно этого списка. Отказ — abort, БД untouched, maintenance как v2 не открывать.
 6. После подтверждения применить role split + historicalization + 025, затем 026; прогнать constraints/backfill/audit и smoke при закрытом трафике.
-7. Развернуть сервер v2. Восемь legacy-маршрутов отвечают `426 protocol-upgrade-required` (см. §6).
+7. Развернуть сервер v2. Гейт `SAMOSVAL_V2_SHIFTS` остаётся `0`, пока клиент держит одиночную линию на v1: `426` на восьми маршрутах (см. §6) — это отдельный последний шаг перевода (§10.9, урок 71).
 8. Опубликовать новую тестовую PWA внутри согласованной последовательности окна.
 9. Проверить live manifest/HTML/SW/RECORDS, auth, list/snapshot, две изолированные смены, close, отсутствие ошибок в консоли.
-10. Открыть mutations v2 и снять maintenance. Старый клиент остаётся заблокирован `426` во время и после окна.
+10. Открыть mutations v2 и снять maintenance. Клиент 1.8.8 продолжает работать: одиночная линия идёт по v1, параллельные смены — через v2-мост (клиентский флаг `WORKING_TEST_V2_SHIFTS`).
 11. Наблюдать readiness/error rate и выполнить post-deploy counts.
 
 ## 6. Что именно отвечает 426, а что продолжает работать
@@ -126,6 +126,8 @@ node server/scripts/maintenance-parallel-shifts.mjs --phase report    --run-dir 
 - `/api/v1/backups` — вне протокольного гейта.
 
 Во время maintenance (`SAMOSVAL_MAINTENANCE=1`) закрыты **все** API-маршруты, включая `/api/v1/backups`; проходят только `/health/live`, `/health/ready` и `/api/v1/auth/*`. Поэтому проверенный backup в окне берётся напрямую в базе, а не через API.
+
+Список выше — поведение **включённого** гейта `SAMOSVAL_V2_SHIFTS=1`. В реальном окне 27.11.2026 гейт остался выключенным (`0`): клиент 1.8.8 выполняет одиночные операции линии по v1, и при `1` канал для людей закрывается (урок 71, §10.9).
 
 ## 7. Rollback
 
@@ -259,28 +261,36 @@ docker run -d --name samosval-api-working-test \
   -p 127.0.0.1:18091:8080 \
   -v /home/iluxa/samosval-secrets:/secrets \
   --env-file <env-файл старого контейнера> \
-  -e SAMOSVAL_V2_SHIFTS=1 \
+  -e SAMOSVAL_V2_SHIFTS=0 \
   samosval-working-test:v2-1.8.8-20261127
 ```
 
+**Серверный гейт на этом шаге остаётся выключенным (`SAMOSVAL_V2_SHIFTS=0`).** Это не недоделка, а условие работоспособности канала: клиент 1.8.8 держит одиночную линию на v1, и при `1` линия не читается, а смена не открывается и не закрывается (§10.9, урок 71).
+
+Не путать два переключателя:
+
+| Переключатель | Где живёт | Что делает |
+|---|---|---|
+| `SAMOSVAL_V2_SHIFTS` | env контейнера API (`server/src/service-gate.mjs`) | закрывает восемь legacy-маршрутов одиночной смены ответом `426`; на клиент не влияет |
+| `WORKING_TEST_V2_SHIFTS` | клиент, `working-test/source/shell.html` (по умолчанию `true`) | поднимает v2-мост: список и снимки через `/api/v2/shifts*`; одиночные операции линии всё равно идут в v1 |
+
+Первый включается только вместе с клиентом, у которого `start`/`close`/`line`/`report`/`history`/`archive`/`control` уже переведены на v2. Второй уже включён и на гейт не влияет.
+
 ### 10.6. Проверки после окна
 
+Проверки выполняются при том значении гейта, с которым канал реально работает (`SAMOSVAL_V2_SHIFTS=0`).
+
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/health/ready          # 200
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v2/shifts         # 401 без токена
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/health/ready   # 200
 
-# восемь legacy-маршрутов → 426
-for p in shifts/start shifts/close; do
-  curl -s -o /dev/null -w "%{http_code} $p\n" -X POST "http://127.0.0.1:18091/api/v1/$p"
-done
-for p in line/snapshot history; do
-  curl -s -o /dev/null -w "%{http_code} $p\n" "http://127.0.0.1:18091/api/v1/$p"
-done
-for p in line/operations report/operations archive/operations controls; do
-  curl -s -o /dev/null -w "%{http_code} $p\n" -X POST "http://127.0.0.1:18091/api/v1/$p"
-done
+# одиночная линия обслуживается: без токена 401 (не 426)
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v1/line/snapshot
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v1/history
 
-# живы, но требуют токен → 401
+# v2-маршруты живы: без токена 401
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v2/shifts
+
+# остальные рабочие маршруты: 401 без токена
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v1/catalog
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v1/archive/snapshot
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v1/tabel/records
@@ -292,11 +302,13 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:18091/api/v1/a
 docker logs --tail 200 samosval-api-working-test   # без ошибок
 ```
 
-Те же проверки (200/401/426) повторяются через домен `https://samosval-test.iluxa.pro`.
+Те же коды повторяются через домен `https://samosval-test.iluxa.pro`.
+
+Главная проверка «канал открыт для людей» — `POST /api/v1/shifts/start`: `426` означает, что смена не откроется, и это ошибка конфигурации, а не норма окна (§10.9). Список `426` из §6 — это поведение **включённого** гейта, а не проверка завершённого окна.
 
 ### 10.7. Публикация канала в том же окне
 
-Старый клиент после окна получает `426` на запись, поэтому сборка публикуется здесь же, а не «потом».
+Сборка канала публикуется в том же окне, чтобы у пользователей оказался клиент с v2-мостом; при этом одиночная линия остаётся на v1 и работает (серверный гейт выключен, §10.9).
 
 - сборка 1.8.8, build `0ca837f5a799f14c`, 143 ресурса;
 - сайт канала — коммит `cdf1e6e`;
@@ -313,13 +325,15 @@ docker logs --tail 200 samosval-api-working-test   # без ошибок
 psql "$DSN_ADMIN" -c "ALTER DATABASE samosval_working_test_reserve RENAME TO samosval_working_test_v2_20261127"
 psql "$DSN_ADMIN" -c "ALTER DATABASE samosval_working_test_pre_v2_20261127 RENAME TO samosval_working_test_reserve"
 
-# 2. Вернуть прежний образ API.
+# 2. Вернуть прежний образ API. Гейт снова выключен: старый образ его не знает,
+#    а включённый гейт на старом клиенте закрыл бы канал целиком (§10.9).
 docker rm -f samosval-api-working-test
 docker run -d --name samosval-api-working-test \
   --network samosval-network --restart unless-stopped \
   -p 127.0.0.1:18091:8080 \
   -v /home/iluxa/samosval-secrets:/secrets \
   --env-file <env-файл старого контейнера> \
+  -e SAMOSVAL_V2_SHIFTS=0 \
   samosval-working-test:stage3b-20261123
 
 # 3. Включить сторож обратно.
@@ -328,3 +342,33 @@ systemctl is-active samosval-api-watchdog.timer   # active
 ```
 
 После отката сервера сборка 1.8.8 остаётся с включённым флагом v2 и живёт на прежнем v1-пути (урок 67) — это деградация, а не штатный режим, поэтому публикацию канала в таком случае тоже откатывают. Порядок отката: сначала сервер и база, затем клиент; иначе пользователи пишут в базу, которой уже нет.
+
+### 10.9. Условие включения серверного гейта
+
+Серверный гейт `SAMOSVAL_V2_SHIFTS=1` — это **последний** шаг перевода, а не часть окна миграции. Он закрывает восемь legacy-маршрутов одиночной смены `426 protocol-upgrade-required`:
+
+`/api/v1/shifts/start`, `/api/v1/shifts/close`, `/api/v1/line/snapshot`, `/api/v1/line/operations`, `/api/v1/report/operations`, `/api/v1/history`, `/api/v1/archive/operations`, `/api/v1/controls`.
+
+Клиент 1.8.8 (build `0ca837f5a799f14c`) все эти операции выполняет через v1: `readLine` → `GET /api/v1/line/snapshot` (`working-test/synology/session-client.mjs:164`, вызывается из `subscribeLine` и `nasRefreshLine`), `startShift` → `POST /api/v1/shifts/start` (строка 213), `closeShift` → `POST /api/v1/shifts/close` (строка 217, `prepare` → перенос материала → `finish`), плюс `submitReport`, `readHistory`/`submitHistory`, `submitArchive`, `submitControl`. Поэтому при включённом гейте линия пустая, смена не открывается и не закрывается — канал для людей нерабочий.
+
+**Условие включения:** гейт ставится в `1` только вместе с клиентом, у которого одиночные `start`/`close`/`line`/`report`/`history`/`archive`/`control` уже переведены на v2. До этого на канале `SAMOSVAL_V2_SHIFTS=0`.
+
+**Проверка перед включением (и после каждого рестарта):**
+
+```bash
+# должно быть НЕ 426; 401 без токена — норма
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:18091/api/v1/shifts/start
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v1/line/snapshot
+```
+
+Если `POST /api/v1/shifts/start` отдаёт `426`, канал для людей закрыт: вернуть `SAMOSVAL_V2_SHIFTS=0` и пересоздать контейнер. `GET /api/v1/session` и `/api/v1/authority` гейтом не закрываются никогда, поэтому их ответ ничего не доказывает.
+
+**Приёмка обязана идти при том же значении флага, что на канале.** Стенд `tools/phone-browser-launch.sh` поднимает свой API и раньше не задавал `SAMOSVAL_V2_SHIFTS` вовсе — то есть проверял конфигурацию с выключенным гейтом. Теперь флаг пробрасывается в стенд, если он задан в окружении запуска:
+
+```bash
+SAMOSVAL_V2_SHIFTS=1 PHONE_REVIEWED_COMMIT=$(git rev-parse HEAD) \
+  PHONE_SEED=tools/phone-parallel-seed.mjs \
+  PHONE_SCENARIO=tools/phone-parallel-shifts.mjs bash tools/phone-browser-launch.sh
+```
+
+Без переменной стенд работает как раньше (гейт выключен).
