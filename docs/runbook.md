@@ -17,7 +17,10 @@ curl -s https://samosval-test.iluxa.pro/health/ready       # база подкл
 curl -s 'https://iluxaspb.github.io/Samosval/?cb='$RANDOM  # рабочая страница отдаётся
 curl -s -o /dev/null -w '%{http_code}\n' https://samosval-test.iluxa.pro/api/v1/line/snapshot  # 401 без токена = норма
 sudo docker logs --tail 50 samosval-api-working-test
+sudo docker inspect samosval-api-working-test --format '{{.HostConfig.RestartPolicy.Name}}'  # должно быть unless-stopped
 ```
+
+**После перезагрузки сервера** первым делом проверять, что `samosval-api-working-test` в состоянии `Up`: 27.11.2026 он остался в `Exited` (была политика `no`), и рабочая версия писала «нет связи с сервером» при живых базе и Caddy. Подъём — `sudo docker start samosval-api-working-test` (см. `docs/opyt-oshibok.md`, п.15).
 
 ## Тесты
 
