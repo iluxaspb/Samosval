@@ -7,10 +7,14 @@ import {installAuthFixtureTransport} from './phone-auth-fixture.mjs';
 // Mobile acceptance of the parallel-shift flow (design §10.1, §10.2, §15).
 //
 // Independent Chromium profiles talk to the same isolated stand: admin, the day
-// foreman and the night foreman, plus one control profile without the v2 flag.
-// The flag is injected with Page.addScriptToEvaluateOnNewDocument BEFORE any
-// module loads; the control profile proves that the same server data keeps the
-// strip hidden and that the management sheet refuses to fake v1 commands.
+// foreman and the night foreman, plus one control profile with the v2 flag
+// forced off. The channel turns the flag on by default (shell.html, owner's
+// decision 27.11.2026), so the acceptance does not inject `true` for the working
+// profiles: it proves the shipped default. The control profile injects
+// `window.WORKING_TEST_V2_SHIFTS=false` with Page.addScriptToEvaluateOnNewDocument
+// BEFORE any module loads and proves that the shell does not overwrite a value
+// that was set earlier; the same server data then keeps the strip hidden and the
+// management sheet refuses to fake v1 commands.
 //
 // Where the product has a screen, the screen is the path (shift creation,
 // membership, shift switch, closing, archive, restored archive). The force
@@ -53,9 +57,12 @@ async function apiGet(path,token){
  return {status:response.status,data:await response.json()};
 }
 
-async function openProfile(name,port,flag){
+// `v2` — явное состояние флага параллельных смен для профиля: true/false
+// инжектится до загрузки модулей, undefined оставляет значение канала
+// по умолчанию (shell.html включает флаг для людей).
+async function openProfile(name,port,v2){
  const browser=await chromium(base,process.env.PHONE_CHROMIUM,port,name);
- const session={name,port,flag,browser,ev:browser.evaluate,read:expression=>navigationProbe(browser.evaluate,expression),closed:false};
+ const session={name,port,v2,browser,ev:browser.evaluate,read:expression=>navigationProbe(browser.evaluate,expression),closed:false};
  sessions.push(session);
  await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installAuthFixtureTransport.toString()})()`});
  // The isolated stand has no route, so Chromium reports `navigator.onLine` as
@@ -63,8 +70,11 @@ async function openProfile(name,port,flag){
  // actions ("Нет сети"), so the acceptance pins it to the online phone case and
  // flips it deliberately below to prove the offline marker still works. It is a
  // browser hint override, not a product-logic stub.
- if(flag)await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:"Object.defineProperty(Navigator.prototype,'onLine',{configurable:true,get(){return window.__qaOnline!==false;}});"});
- if(flag)await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:'window.WORKING_TEST_V2_SHIFTS=true;'});
+ await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:"Object.defineProperty(Navigator.prototype,'onLine',{configurable:true,get(){return window.__qaOnline!==false;}});"});
+ // Флаг выставляется до модулей. Оболочка канала не перезаписывает уже
+ // заданное значение, поэтому здесь проверяется и честное выключение.
+ if(v2===true)await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:'window.WORKING_TEST_V2_SHIFTS=true;'});
+ if(v2===false)await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:'window.WORKING_TEST_V2_SHIFTS=false;'});
  await browser.send('Page.navigate',{url:origin+'/index-working-test.html'});
  await until(()=>session.read("typeof handleLogin==='function' && !!document.getElementById('authEmail')"),'built application');
  return session;
@@ -99,7 +109,7 @@ let shiftA=null,shiftB=null;
 
 try{
  await until(async()=>{try{return (await fetch(API+'/health/live')).ok;}catch{return false;}},'API readiness');
- const admin=await openProfile('admin',19222,true);
+ const admin=await openProfile('admin',19222);
  await login(admin,'admin@example.test','admin');
  token=await admin.ev('wtAccessToken()');
  assert.ok(token);
@@ -136,7 +146,9 @@ try{
    selected:[...document.querySelectorAll('#shiftStrip .shift-tab')].filter(t=>t.getAttribute('aria-selected')==='true').map(t=>t.dataset.shiftId),
    labels:[...document.querySelectorAll('#shiftStrip .shift-tab')].map(t=>({shiftId:t.dataset.shiftId,text:(t.querySelector('.shift-tab-label')?.textContent||'')}))};})()`);
 
- await scenario('v2 bridge is injected before modules, the strip stays hidden until two shifts exist',async()=>{
+ await scenario('the channel turns the v2 bridge on by default and the strip stays hidden until two shifts exist',async()=>{
+  // Профиль администратора флаг не инжектирует: это значение самой оболочки
+  // канала (shell.html). Так приёмка доказывает именно поставку по умолчанию.
   assert.equal(await admin.ev('typeof WORKING_TEST_V2_SHIFTS'),'boolean');
   assert.equal(await admin.ev('WORKING_TEST_V2_SHIFTS'),true);
   assert.equal(await admin.ev("typeof nasV2Shifts==='function' && !!nasV2Shifts()"),true);
@@ -564,12 +576,15 @@ try{
   await admin.ev('document.getElementById("archiveSearchInput").value="";switchTab("line")');
  });
 
- await scenario('without the flag the same server data keeps the strip hidden and the sheet does not fake v1 commands',async()=>{
+ await scenario('with the flag forced off the same server data keeps the strip hidden and the sheet does not fake v1 commands',async()=>{
+  // Канал включает флаг по умолчанию, поэтому «выключено» — это явная
+  // инжекция до модулей: оболочка не перезаписывает уже заданное значение.
   const control=await openProfile('control',19223,false);
   try{
    await login(control,'admin@example.test','admin');
    const controlToken=await control.ev('wtAccessToken()');
-   assert.equal(await control.ev('typeof WORKING_TEST_V2_SHIFTS'),'undefined');
+   assert.equal(await control.ev('typeof WORKING_TEST_V2_SHIFTS'),'boolean');
+   assert.equal(await control.ev('WORKING_TEST_V2_SHIFTS'),false);
    assert.equal(await control.ev("typeof nasV2Shifts==='function' && nasV2Shifts()===null"),true);
    assert.equal((await apiGet('/api/v2/shifts?state=active,closing&limit=50',controlToken)).data.items.length,2);
    assert.equal(await control.ev("document.getElementById('shiftStrip').hidden"),true);
@@ -585,7 +600,7 @@ try{
  });
 
  await scenario('the day foreman sees only A, the night foreman only B, and a foreign snapshot is 404',async()=>{
-  const day=await openProfile('day',19224,true);
+  const day=await openProfile('day',19224);
   await login(day,'foreman-a@example.test','foreman');
   const dayToken=await day.ev('wtAccessToken()');
   await until(()=>day.ev('nasV2Shifts().store.visibleShifts().length===1'),'day visible list',20000);
@@ -605,7 +620,7 @@ try{
   assert.deepEqual((await apiGet('/api/v2/shifts?state=active,closing&limit=50',dayToken)).data.items.map(row=>row.shiftId),[shiftA]);
   assert.equal((await apiGet('/api/v2/shifts/'+shiftB+'/snapshot',dayToken)).status,404);
 
-  const night=await openProfile('night',19225,true);
+  const night=await openProfile('night',19225);
   await login(night,'foreman-b@example.test','foreman');
   const nightToken=await night.ev('wtAccessToken()');
   await until(()=>night.ev('nasV2Shifts().store.visibleShifts().length===1'),'night visible list',20000);

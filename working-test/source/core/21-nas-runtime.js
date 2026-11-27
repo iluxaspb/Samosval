@@ -12,6 +12,8 @@
   let nasRuntimeClient = null, nasRuntimeStop = null, nasRuntimeEpoch = 0, nasResumePolling=null, nasPollHolds=0, nasReadGeneration=0, nasPresenceTimer=null, nasGamesTimer=null;
   // Мост параллельных смен v2 (40-shift-contexts.js + 41-v2-transport.js).
   let nasV2Bridge = null;
+  // Сбой моста до первого успешного ответа пишется в консоль один раз.
+  let nasV2BridgeErrorLogged = false;
   // Пробуждение после смены сети: обработчики событий и защита от наложения.
   let nasWakeStop=null, nasWakeInFlight=false, nasWakeAt=0;
   // Активное обновление: пока приложение на экране, данные читаются сами.
@@ -367,15 +369,42 @@
   }
   // Мост параллельных смен v2: сервер v2 ↔ store контекстов (задача 13).
   // Каждый ответ несёт generation-токен, поэтому поздний ответ не публикуется и
-  // не меняет выбранную смену. Пока сервер v2 не включён флагом
-  // WORKING_TEST_V2_SHIFTS, мост молчит: v1-рантайм работает как раньше.
+  // не меняет выбранную смену. Мост работает только при включённом флаге
+  // WORKING_TEST_V2_SHIFTS (в канале он включён по умолчанию в shell.html);
+  // без флага v1-рантайм работает как раньше.
   function nasV2ShiftsEnabled(){
     return typeof WORKING_TEST_V2_SHIFTS!=='undefined'&&WORKING_TEST_V2_SHIFTS===true;
   }
   function nasV2Shifts(){return nasV2Bridge;}
   function nasStopV2Shifts(){
     try{nasV2Bridge?.handle?.close?.();}catch(_){}
-    nasV2Bridge=null;
+    nasV2Bridge=null;nasV2BridgeErrorLogged=false;
+  }
+  // Флаг включён в канале по умолчанию (shell.html), поэтому мост поднимается
+  // и там, где сервер v2 ещё не отвечает (старый сервер, нет маршрутов, связь
+  // пропала). Сбой дополнительной подсистемы не должен красить общий индикатор
+  // «Ошибка загрузки: nas-shifts»: пока мост ни разу не отдал данные, экран
+  // живёт на v1 и работает как раньше, а причина остаётся в консоли.
+  function nasV2BridgeError(store,error){
+    let rows=null;
+    try{rows=store?.visibleShifts?.();}catch(_){rows=null;}
+    if(!Array.isArray(rows)||rows.length===0){
+      if(!nasV2BridgeErrorLogged){nasV2BridgeErrorLogged=true;console.warn('[sync:nas-shifts]',error);}
+      return;
+    }
+    reportSyncError('nas-shifts',error);
+  }
+  // Успешный ответ моста снимает накопленную ошибку: иначе один сбой связи
+  // оставлял «Перечитываем: nas-shifts» навсегда, потому что v1-источники
+  // снимают только свои записи в syncState.errors.
+  function nasV2BridgeSynced(store){
+    nasV2BridgeErrorLogged=false;
+    try{
+      if(typeof syncState==='undefined'||!syncState||!syncState.errors||!syncState.errors['nas-shifts'])return;
+      if(typeof markSync!=='function')return;
+      const rows=store?.visibleShifts?.();
+      markSync('nas-shifts',false,false,Array.isArray(rows)?rows.length:0);
+    }catch(_){}
   }
   function nasStartV2Shifts(epoch,client){
     nasStopV2Shifts();
@@ -392,12 +421,14 @@
     const handle=transport.subscribeShifts({
       intervalMs:4000,
       onList:list=>{if(!live())return;
+        nasV2BridgeSynced(store);
         try{window.dispatchEvent(new CustomEvent('samosval-working-test-shifts',{detail:{generation:list.listGeneration,items:list.items,nextCursor:list.nextCursor}}));}catch(_){}
       },
       onSnapshot:result=>{if(!live())return;
+        nasV2BridgeSynced(store);
         try{window.dispatchEvent(new CustomEvent('samosval-working-test-shift-snapshot',{detail:{generation:result.generation,shiftId:result.shiftId,revision:result.revision,applied:result.applied,visible:result.visible}}));}catch(_){}
       },
-      onError:error=>{if(!live())return;reportSyncError('nas-shifts',error);}
+      onError:error=>{if(!live())return;nasV2BridgeError(store,error);}
     });
     nasV2Bridge={store,transport,handle,epoch};
     return nasV2Bridge;

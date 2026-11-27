@@ -657,9 +657,39 @@ test('транспорт никогда не откатывается на ма�
   for (const path of paths) assert.match(path, /^\/api\/v2\//, 'только v2: ' + path);
 });
 
-test('мост рантайма включает v2 только флагом и несёт generation в колбэках', () => {
+// Скрипт включения флага из оболочки канала: берём ровно тот текст, который
+// уходит в сборку, и исполняем его в vm. Так проверка не сверяет регулярку с
+// регуляркой, а доказывает поведение: значение по умолчанию и защиту от
+// перезаписи заранее выставленного (стенд, отладочное выключение).
+function runShellFlagScript(preset) {
+  const shell = readFileSync(new URL('../shell.html', import.meta.url), 'utf8');
+  const match = /<script>([^<]*WORKING_TEST_V2_SHIFTS[^<]*)<\/script>/.exec(shell);
+  assert.ok(match, 'в shell.html есть встроенный скрипт включения флага');
+  const window = {};
+  if (preset !== undefined) window.WORKING_TEST_V2_SHIFTS = preset;
+  vm.runInContext(match[1], vm.createContext({ window }));
+  return window.WORKING_TEST_V2_SHIFTS;
+}
+
+test('канал включает параллельные смены по умолчанию, но не перезаписывает заданное значение', () => {
+  const shell = readFileSync(new URL('../shell.html', import.meta.url), 'utf8');
+  const flagAt = shell.indexOf('WORKING_TEST_V2_SHIFTS');
+  assert.ok(flagAt > 0, 'флаг упоминается в оболочке канала');
+  assert.ok(flagAt < shell.indexOf('working-test/src/storage.js'), 'флаг выставляется до storage.js');
+  assert.ok(flagAt < shell.indexOf('<!-- TEST-MODULE:core -->'), 'флаг выставляется до модулей ядра');
+  // Включение защищено проверкой «значение ещё не задано»: переключателей
+  // через адрес страницы и localStorage нет, иначе «выключить» можно было бы
+  // только правкой кода.
+  assert.match(shell, /if \(typeof window\.WORKING_TEST_V2_SHIFTS === 'undefined'\) window\.WORKING_TEST_V2_SHIFTS = true;/);
+  assert.doesNotMatch(shell, /WORKING_TEST_V2_SHIFTS[^\n]*(localStorage|URLSearchParams)/, 'нет переключателя через localStorage или адрес');
+  assert.equal(runShellFlagScript(), true, 'по умолчанию в канале флаг включён');
+  assert.equal(runShellFlagScript(false), false, 'заранее выставленное false не перезаписывается');
+  assert.equal(runShellFlagScript(true), true, 'заранее выставленное true остаётся true');
+});
+
+test('мост рантайма включается флагом и несёт generation в колбэках', () => {
   const runtime = readFileSync(here + '21-nas-runtime.js', 'utf8');
-  assert.match(runtime, /WORKING_TEST_V2_SHIFTS/, 'включение только флагом');
+  assert.match(runtime, /typeof WORKING_TEST_V2_SHIFTS!=='undefined'&&WORKING_TEST_V2_SHIFTS===true/, 'включение только флагом');
   assert.match(runtime, /WorkingTestShiftContexts\.createShiftContextStore/, 'store контекстов задачи 13');
   assert.match(runtime, /WorkingTestV2Transport\.createV2Transport/, 'транспорт v2');
   assert.match(runtime, /client\.requestV2/, 'общий запрос session-client');

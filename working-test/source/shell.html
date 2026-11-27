@@ -1,6 +1,11 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <!-- Параллельные смены включены в канале по умолчанию (решение владельца
+       27.11.2026). Значение выставляется до storage.js и до модулей ядра, но
+       только если оно не задано раньше: стенд и отладочное выключение
+       (window.WORKING_TEST_V2_SHIFTS=false) не перезаписываются. -->
+  <script>if (typeof window.WORKING_TEST_V2_SHIFTS === 'undefined') window.WORKING_TEST_V2_SHIFTS = true;</script>
   <link rel="manifest" href="./manifest-working-test.webmanifest">
   <link rel="icon" type="image/svg+xml" href="./working-test/icons/icon-working-green-192.svg">
   <meta name="theme-color" content="#0f172a">
