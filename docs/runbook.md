@@ -5,24 +5,30 @@
 ## Окружение
 
 - Репозиторий: github.com/iluxaspb/Samosval. Приложения: GitHub Pages (рабочее — корень, тестовое — ветка wtest-канала, адреса в `docs/project-context.md`).
-- API: `https://samosval-test.iluxa.pro` (Caddy, TLS) → `127.0.0.1:18091` (контейнер `samosval-api-working-test`). База: контейнер `samosval-postgres-ubuntu` (порт не публикуется наружу). Тестовый API-кандидат: `127.0.0.1:18090` (`samosval-api-ubuntu-test`).
+- API РАБОЧЕЙ версии (с 27.11.2026): `https://api-samosval.iluxa.pro` (Caddy, TLS) → `127.0.0.1:18092` (контейнер `samosval-api-prod`) → база `samosval_working_test_reserve`.
+- API ТЕСТОВОГО канала: `https://samosval-test.iluxa.pro` (Caddy, TLS) → `127.0.0.1:18091` (контейнер `samosval-api-working-test`) → база `samosval_test_clean` (пустая, без данных).
+- Базы живут в контейнере `samosval-postgres-ubuntu` (порт наружу не публикуется). Тестовый API-кандидат: `127.0.0.1:18090` (`samosval-api-ubuntu-test`).
 - Секреты: `/home/iluxa/samosval-secrets` (монтируется в контейнер как /secrets; не публиковать, не логировать).
 
 ## Диагностика (быстрые проверки)
 
 ```
 sudo docker ps --format '{{.Names}}\t{{.Status}}' | grep samosval
-curl -s https://samosval-test.iluxa.pro/health/live        # живой API
-curl -s https://samosval-test.iluxa.pro/health/ready       # база подключена
+curl -s https://api-samosval.iluxa.pro/health/live              # живой API рабочей версии
+curl -s https://api-samosval.iluxa.pro/health/ready             # рабочая база подключена
+curl -s https://samosval-test.iluxa.pro/health/live             # живой API тестового канала
+curl -s https://samosval-test.iluxa.pro/health/ready            # тестовая база подключена
 curl -s 'https://iluxaspb.github.io/Samosval/?cb='$RANDOM  # рабочая страница отдаётся
-curl -s -o /dev/null -w '%{http_code}\n' https://samosval-test.iluxa.pro/api/v1/line/snapshot  # 401 без токена = норма
+curl -s -o /dev/null -w '%{http_code}\n' https://api-samosval.iluxa.pro/api/v1/line/snapshot  # 401 без токена = норма
+sudo docker logs --tail 50 samosval-api-prod
 sudo docker logs --tail 50 samosval-api-working-test
+sudo docker inspect samosval-api-prod --format '{{.HostConfig.RestartPolicy.Name}}'  # должно быть unless-stopped
 sudo docker inspect samosval-api-working-test --format '{{.HostConfig.RestartPolicy.Name}}'  # должно быть unless-stopped
 ```
 
 **После перезагрузки сервера** первым делом проверять, что `samosval-api-working-test` в состоянии `Up`: 27.11.2026 он остался в `Exited` (была политика `no`), и рабочая версия писала «нет связи с сервером» при живых базе и Caddy. Подъём — `sudo docker start samosval-api-working-test` (см. `docs/opyt-oshibok.md`, п.15).
 
-**Сторож API** (поставлен 27.11.2026): `systemctl status samosval-api-watchdog.timer` — должен быть `active (waiting)`, следующий запуск раз в минуту. Лог действий: `sudo tail -20 /var/log/samosval-api-watchdog.log`. Сторож сам поднимает `samosval-postgres-ubuntu` и `samosval-api-working-test`, держит политику `unless-stopped` и перезапускает API, если `health/ready` не 200. Отключить при необходимости: `sudo systemctl disable --now samosval-api-watchdog.timer`. Исходники сторожа в репозитории — `tools/systemd/`; установка: `sudo install -m 0755 tools/systemd/samosval-api-watchdog.sh /usr/local/bin/`, юниты — в `/etc/systemd/system/`, затем `sudo systemctl daemon-reload && sudo systemctl enable --now samosval-api-watchdog.timer`.
+**Сторож API** (поставлен 27.11.2026, расширен на рабочую версию): `systemctl status samosval-api-watchdog.timer` — должен быть `active (waiting)`, следующий запуск раз в минуту. Лог действий: `sudo tail -20 /var/log/samosval-api-watchdog.log`. Сторож сам поднимает `samosval-postgres-ubuntu`, оба API (`samosval-api-prod` и `samosval-api-working-test`), держит политику `unless-stopped` и перезапускает API, если `health/ready` не 200 (рабочая версия проверяется первой). Отключить при необходимости: `sudo systemctl disable --now samosval-api-watchdog.timer`. Исходники сторожа в репозитории — `tools/systemd/`; установка: `sudo install -m 0755 tools/systemd/samosval-api-watchdog.sh /usr/local/bin/`, юниты — в `/etc/systemd/system/`, затем `sudo systemctl daemon-reload && sudo systemctl enable --now samosval-api-watchdog.timer`.
 
 ## Тесты
 

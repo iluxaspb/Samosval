@@ -7,7 +7,8 @@
 - ВСЕ программы владельца выкладываются ТОЛЬКО на GitHub Pages; на собственном сервере приложения не выкладываются. «Опубликовано» = GitHub Pages реально отдаёт новую версию (curl с cache-buster).
 - РАБОЧАЯ версия: `https://iluxaspb.github.io/Samosval/` — синий значок (ветка `root`, прод-комплект из `working-test`).
 - ТЕСТОВАЯ версия: `https://iluxaspb.github.io/samosval-working-test/` — отдельное PWA «Самосвал Тест» с КРАСНЫМ значком на выделенном Pages-сайте (переезд из `/Samosval/wtest/` из-за вложенного scope; `wtest/index.html` и `index-test.html` в ветке root — редирект-заглушки, не удалять).
-- `https://samosval-test.iluxa.pro` — ТОЛЬКО API проекта (общий вход для рабочей и тестовой версий), НЕ адрес приложения. Домен не удалять (случайный снос 21.11.2026 ломал обе версии).
+- `https://api-samosval.iluxa.pro` — ТОЛЬКО API РАБОЧЕЙ версии (с 27.11.2026), НЕ адрес приложения.
+- `https://samosval-test.iluxa.pro` — ТОЛЬКО API тестового канала. Домены не удалять (случайный снос 21.11.2026 ломал обе версии).
 - Схема работы: правки сначала в тестовой версии, после проверки владельцем — выпуск в рабочую.
 - НЕ ТРОГАТЬ разводку PWA (scope/манифест/SW у версий разные) — иначе тест снова начнёт ставиться как рабочая.
 
@@ -15,11 +16,12 @@
 
 - Фронтенд: единая линия разработки `working-test/` (порядок модулей — build-manifest канала); прод-комплект — `index.html` в корне ветки `root`, собирается из `working-test` с production-обвязкой; отозванная модульная линия `app/src` + `tools/build-release.py` хранится как архив. История мёртвого канала `test-app/` (удалён 22.11.2026) — в git.
 - Бэкенд: `server/` — Node API на PostgreSQL (`src/line-rules.mjs`, `src/line-store.mjs`, `src/auth.mjs`, `src/index.mjs`, `src/line-read.mjs`, миграции `server/sql/`). Историческая ветка миграции с Synology описана в `docs/synology-*.md`.
-- Действующие контейнеры на Ubuntu (проверено 22.11.2026, `docker ps`):
-  - `samosval-api-working-test` (образ `samosval-working-test:phone-driver-1121b`) — API рабочей+тестовой линий, порт 127.0.0.1:18091 → 8080, секреты через том `/home/iluxa/samosval-secrets` → `/secrets`;
+- Действующие контейнеры на Ubuntu (проверено 27.11.2026, `docker ps`):
+  - `samosval-api-prod` (образ `samosval-working-test:v2-1.8.8-20261127c`) — API РАБОЧЕЙ версии, 127.0.0.1:18092 → 8080, база `samosval_working_test_reserve`, секреты через том `/home/iluxa/samosval-secrets` → `/secrets`;
+  - `samosval-api-working-test` (тот же образ) — API ТЕСТОВОГО канала, 127.0.0.1:18091 → 8080, база `samosval_test_clean` (пустая);
   - `samosval-api-ubuntu-test` (образ `samosval-test-candidate:authority-6-mario`) — 127.0.0.1:18090;
   - `samosval-postgres-ubuntu` — PostgreSQL (порт 5432 только внутри docker-сети).
-- Внешний вход API: `https://samosval-test.iluxa.pro` (Caddy → 18091). База общая на обе версии, данные не делятся.
+- Внешний вход API: рабочая версия — `https://api-samosval.iluxa.pro` (Caddy → 18092), тестовый канал — `https://samosval-test.iluxa.pro` (Caddy → 18091). Базы разделены: рабочая база осталась как есть, тестовая создана пустой 27.11.2026.
 - Рабочая версия приложения и её БД неприкосновенны; доступ OpenCode к рабочим каталогам — только чтение.
 
 ## Сущности и процессы (фронтенд/линия)
