@@ -58,7 +58,15 @@ export async function bootstrapParallelShiftRoles(client, options = {}) {
     const q = functionName(fn);
     await client.query(`DO $$ BEGIN IF to_regprocedure('public.${fn}') IS NOT NULL THEN REVOKE ALL ON FUNCTION ${q} FROM PUBLIC, samosval_runtime, samosval_maintenance; ALTER FUNCTION ${q} OWNER TO samosval_schema_owner; END IF; END $$`);
   }
-  await client.query('GRANT USAGE ON SCHEMA public TO samosval_runtime');
+  // USAGE on the schema is not a table privilege: it only lets the role resolve a
+  // relation name at all. `samosval_schema_owner` owns `shifts`, `shift_members`
+  // and `line_truck_statuses`, and PostgreSQL runs their referential-integrity
+  // checks as the table owner, so without USAGE every FK check on those tables
+  // fails with `42501 permission denied for schema public` — while the writer's
+  // own privilege on the target table is correct. A stock `public` grants USAGE
+  // to PUBLIC and hides this; a schema recreated with an explicit ACL (the
+  // isolated harness, or a window that revokes extra rights) does not.
+  await client.query('GRANT USAGE ON SCHEMA public TO samosval_runtime, samosval_schema_owner, samosval_migration_evidence_owner');
   for (const table of objects.tables ?? []) {
     const q = identifier(table, 'table');
     await client.query(`DO $$ BEGIN IF to_regclass('public.${table}') IS NOT NULL THEN GRANT SELECT ON TABLE public.${q} TO samosval_runtime; END IF; END $$`);

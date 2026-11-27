@@ -2,6 +2,7 @@ const unitFiles = [
   'auth-local', 'connection-check', 'control-rules', 'db-test-discovery',
   'db-test-manifest', 'firebase-scrypt', 'game-transfer', 'health',
   'identity-rules', 'isolated-db-cli', 'json-response', 'line-rules', 'line-transport',
+  'maintenance-parallel-shifts',
   'migration-import', 'migration-snapshot', 'nas-runtime', 'opencode-smoke',
   'presence-ui', 'seed-identity-unit', 'seed-objects-unit', 'service-rules',
   'session-client-background', 'session-client', 'service-gate', 'shift-archive',
@@ -14,7 +15,7 @@ const dbFiles = [
   'backup-store', 'control-store', 'game-store', 'history-store',
   'identity-store', 'legacy-shift-resolution', 'line-read', 'line-store',
   'notification-store',
-  'parallel-shifts-historicalization', 'parallel-shifts-migration-core',
+  'parallel-shifts-historicalization', 'parallel-shifts-maintenance-db', 'parallel-shifts-migration-core',
   'refresh-source', 'replica-materialize-parallel-shifts', 'replica-materialize',
 'restored-context-migration', 'replica-pending-materialize',
   'replica-exact-backup', 'replica-store', 'replica-stream-026', 'report-store',
@@ -209,6 +210,15 @@ const consumersByFile = {
     "tests/helpers/isolated-db.mjs:pg",
     "tests/parallel-shifts-historicalization.test.mjs:db-env",
     "tests/parallel-shifts-historicalization.test.mjs:pg"
+  ],
+  "parallel-shifts-maintenance-db": [
+    "scripts/apply-migrations.mjs:pg",
+    "scripts/parallel-shifts-role-bootstrap.mjs:pg",
+    "tests/helpers/isolated-db.mjs:db-env",
+    "tests/helpers/isolated-db.mjs:db-helper",
+    "tests/helpers/isolated-db.mjs:pg",
+    "tests/parallel-shifts-maintenance-db.test.mjs:db-env",
+    "tests/parallel-shifts-maintenance-db.test.mjs:pg"
   ],
   "parallel-shifts-migration-core": [
     "scripts/apply-migrations.mjs:pg",
@@ -441,6 +451,7 @@ const dbReasons = {
   'restored-context-migration': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact legacy restored copy-verify-delete migration',
   'restored-context-store': 'Imports pg and reads TEST_DATABASE_URL for restored context corrections with CAS, receipt and audit',
   'parallel-shifts-historicalization': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact-report legacy historicalization cutover',
+  'parallel-shifts-maintenance-db': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the full maintenance rehearsal: verified backup, exact report confirmation, role split, historicalization, 026/027 and post-window verify',
   'parallel-shifts-migration-core': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for destructive migration 025 integration',
   'refresh-source': 'Imports pg and reads TEST_DATABASE_URL for source refresh with import tables',
   'replica-exact-backup': 'Imports pg/apply-migrations and reads TEST_DATABASE_URL for the exact provenance bundle normalization, bootstrap fingerprint and replica restore',
@@ -471,6 +482,7 @@ const timeoutsByFile = {
   'archive-schema-025': 180_000,
   'legacy-shift-resolution': 180_000,
   'parallel-shifts-historicalization': 240_000,
+  'parallel-shifts-maintenance-db': 240_000,
   'parallel-shifts-migration-core': 240_000,
   'replica-exact-backup': 240_000,
   'replica-materialize-parallel-shifts': 180_000,
@@ -540,6 +552,7 @@ const bootstrapEnvByFile = {
   'archive-schema-025': ['bootstrap-url'],
   'legacy-shift-resolution': ['bootstrap-url'],
   'parallel-shifts-historicalization': ['bootstrap-url'],
+  'parallel-shifts-maintenance-db': ['bootstrap-url', 'runtime-password', 'maintenance-password'],
   'parallel-shifts-migration-core': ['bootstrap-url'],
   'replica-exact-backup': ['bootstrap-url'],
   'replica-materialize-parallel-shifts': ['bootstrap-url'],
@@ -599,7 +612,7 @@ const dbEntries = dbFiles.map(name => ({
   // `v2-shift-close-db` also starts from S25 and applies 026–029 itself: the
   // close gate needs the 028 detached table and its own 029 marker/token schema.
   baseline: ['v2-shift-access', 'v2-shift-members-db'].includes(name) ? 'S25' : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db', 'v2-derived-effects-db', 'v2-shift-close-db', 'v2-query-isolation-db', 'v2-parallel-acceptance-db'].includes(name) ? 'S25' : name === 'isolated-db-s26-fixtures' ? 'S25' : 'S24',
-migrationsThrough: ['v2-shift-close-db', 'v2-derived-effects-db', 'v2-query-isolation-db', 'v2-parallel-acceptance-db'].includes(name) ? 29 : ['v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db'].includes(name) ? 27 : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db'].includes(name) ? 28 : ['replica-stream-026', 'replica-store', 'replica-pending-materialize', 'replica-exact-backup'].includes(name) ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
+migrationsThrough: ['v2-shift-close-db', 'v2-derived-effects-db', 'v2-query-isolation-db', 'v2-parallel-acceptance-db'].includes(name) ? 29 : ['v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db'].includes(name) ? 27 : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db'].includes(name) ? 28 : ['replica-stream-026', 'replica-store', 'replica-pending-materialize', 'replica-exact-backup'].includes(name) ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : name === 'parallel-shifts-maintenance-db' ? 27 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],

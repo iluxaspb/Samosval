@@ -35,7 +35,8 @@ test('discovered_equals_manifest_including_existing_replica_root', async () => {
   // 98 = 97 + the Task 29A service-gate unit root, which is already present in
   // the shared worktree; the manifest owns every discovered root, so it is
   // registered here in the same commit instead of leaving discovery red.
-  assert.equal(discovery.roots.length, 98);
+  // 100 = 98 + the Task 30 maintenance rehearsal unit root and its db root.
+  assert.equal(discovery.roots.length, 100);
   assert.ok(discovery.roots.some(item => item.file === 'tests/isolated-db-s26-fixtures.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-truck-transfer-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/v2-detached-completion-db.test.mjs'));
