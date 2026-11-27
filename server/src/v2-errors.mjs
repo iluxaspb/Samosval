@@ -54,6 +54,22 @@ const CODES = Object.freeze({
   'operation-id-reused': 409,
   'archive-changed': 409,
   'archive-context-required': 409,
+  // Restored archive v2 routes (design §5.6): a context that is already
+  // published is immutable, and an archive whose bytes cannot describe a
+  // restorable shift is a stable refusal, never an internal error.
+  'archive-not-found': 404,
+  'archive-context-not-found': 404,
+  'archive-context-finalized': 409,
+  'archive-not-restorable': 409,
+  'archive-truck-not-available': 409,
+  'archive-not-ready': 409,
+  'invalid-archive-id': 400,
+  'invalid-archive-revision': 400,
+  'invalid-archive-data': 409,
+  'invalid-archive-operation': 400,
+  'invalid-restored-context': 400,
+  'invalid-restored-trip': 409,
+  'restored-trip-not-found': 404,
   // lifecycle
   'shift-closed': 410,
   'protocol-upgrade-required': 426,
@@ -77,6 +93,10 @@ const DETAIL_KEYS = Object.freeze(new Set([
   // Two-phase close (Task 22): the exact archive/marker counter that disagreed.
   'expectedArchiveRevision', 'actualArchiveRevision',
   'expectedMaterialMarkerRevision', 'actualMaterialMarkerRevision',
+  // Restored archive (§5.6): the addressed archive/context/revision and the
+  // corrected record. Already on the client's safe list, so a refusal keeps its
+  // numbers instead of arriving empty.
+  'archiveId', 'archiveRevision', 'restoredContextId', 'contextRevision', 'recordId', 'revision',
   'retryAfterSeconds', 'replayed'
 ]));
 
