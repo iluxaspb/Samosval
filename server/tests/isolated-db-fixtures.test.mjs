@@ -7,7 +7,7 @@ import { applyFixtures, FIXTURE_IDS } from '../scripts/isolated-db/fixtures.mjs'
 import { transformLegacyMigrationGuard } from '../scripts/isolated-db/legacy-guards.mjs';
 import { verifyS24Target } from '../scripts/isolated-db/templates.mjs';
 
-const allowed = ['import-schema','identity-empty','auth-schema-018','authority-main-ubuntu','authority-main-firebase','replica-admin','replica-empty-stream-cursors','parallel-shift-legacy-unresolved','parallel-shift-v2-night','parallel-shift-cutover-report','parallel-shift-restored-contexts','archive-immutable-revisions','restore-bootstrap-boundary','parallel-shift-runtime-role'];
+const allowed = ['import-schema','identity-empty','auth-schema-018','authority-main-ubuntu','authority-main-firebase','replica-admin','replica-empty-stream-cursors','parallel-shift-legacy-unresolved','parallel-shift-v2-night','parallel-shift-cutover-report','parallel-shift-restored-contexts','archive-immutable-revisions','restore-bootstrap-boundary','replica-pending-empty','replica-pending-out-of-order','full-exact-provenance-restore','parallel-shift-runtime-role'];
 const TARGET_NAME = 'samosval_parallel_shifts_test_abcdef012345_0123456789ab';
 const REGISTRY_TABLE = 'samosval_fixture_registry';
 const REGISTRY_DDL = /^CREATE TABLE IF NOT EXISTS samosval_fixture_registry\b/i;
@@ -77,7 +77,7 @@ test('fixture registry owns concrete semantics and accepts only a low-level targ
 
 test('fixture registry rejects future IDs, duplicates and template/wrong targets', async()=>{
   const queryFor=database=>async sql=>String(sql).includes('current_database')?{rows:[{database}]}:{rows:[]};
-  for(const id of ['parallel-shift-s26-future','replica-pending-empty','unknown'])
+  for(const id of ['parallel-shift-s26-future','unknown'])
     await assert.rejects(applyFixtures({query:queryFor(TARGET_NAME)},[id]),/unavailable/i);
   await assert.rejects(applyFixtures({query:queryFor(TARGET_NAME)},['import-schema','import-schema']),/duplicate/i);
   await assert.rejects(applyFixtures({query:queryFor('samosval_parallel_shifts_test_abcdef012345_tpl_s24')},['import-schema']),/target is not approved/i);

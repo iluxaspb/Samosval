@@ -7,25 +7,28 @@ import pg from 'pg';
 import { applyMigrations } from '../scripts/apply-migrations.mjs';
 import { createTemplateBroker, generateRunCapability } from '../scripts/isolated-db/admin.mjs';
 import { transformLegacyMigrationGuard } from '../scripts/isolated-db/legacy-guards.mjs';
-import { EXPECTED_S24_HASH, EXPECTED_S24_REGISTRY, EXPECTED_S25_HASH, EXPECTED_S25_REGISTRY, S25_KEY_OBJECTS, S25_KEY_TRIGGERS, inspectTemplateSeal, prepareTemplates, verifyS24Target, verifyS25Target, verifyTargetAuthority } from '../scripts/isolated-db/templates.mjs';
-import { GENERATED_DATABASE_PREFIX } from '../scripts/isolated-db/safety.mjs';
+import { EXPECTED_S24_HASH, EXPECTED_S24_REGISTRY, EXPECTED_S25_HASH, EXPECTED_S25_REGISTRY, EXPECTED_S26_HASH, EXPECTED_S26_REGISTRY, S25_KEY_OBJECTS, S25_KEY_TRIGGERS, S26_KEY_OBJECTS, S26_KEY_TRIGGERS, inspectTemplateSeal, prepareTemplates, templateDropOrder, verifyS24Target, verifyS25Target, verifyS26Target, verifyTargetAuthority } from '../scripts/isolated-db/templates.mjs';
+import { CLIENT_BACKEND_FILTER, GENERATED_DATABASE_PREFIX } from '../scripts/isolated-db/safety.mjs';
 import { FIXTURE_IDS } from '../scripts/isolated-db/fixtures.mjs';
 import manifest from './db-test-manifest.mjs';
 
 const runid = 'abcdef012345';
+const s26Name = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s26`;
 const emptyName = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_empty`;
 const s24Name = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s24`;
 const migration = filename => readFileSync(new URL(`../sql/${filename}`, import.meta.url), 'utf8');
 const OWNER = 'samosval_test_prepared_owner';
 const sealedCatalogRow = comment => ({ owner: OWNER, super: false, createdb: false, createrole: false, canlogin: false, allow_connections: false, sessions: 0, memberships: 0, comment, datacl: `{${OWNER}=CTc/${OWNER},=T/${OWNER}}` });
 const cleanAuthorityRow = { wrong_object_owners: 0, wrong_function_owners: 0, broad_object_acl: 0, broad_schema_acl: 0, default_acl_entries: 0 };
+const schema26 = { stream: true, cursor: true };
+const stagingEmpty = { stream: 0, heads: 0, pending: 0 };
 
 // Shared programmable context for orchestration-level unit checks (RULING I):
 // queued rows per call, no production-SQL parsing anywhere.
 function stubbedTemplateContext() {
   const calls = [];
   const capability = 'a'.repeat(64);
-  const broker = createTemplateBroker({ bootstrapClient: { query: async sql => String(sql.text ?? sql).includes('pg_advisory_unlock') ? { rows: [{ unlocked: true }] } : { rows: [{ count: 0 }] }, end: async () => {} }, runid, capability });
+  const broker = createTemplateBroker({ bootstrapClient: { query: async sql => String(sql.text ?? sql).includes('pg_advisory_unlock') ? { rows: [{ unlocked: true }] } : String(sql.text ?? sql).includes('pg_advisory_lock') ? { rows: [{ locked: true }] } : String(sql.text ?? sql).includes('pg_stat_activity') ? { rows: [{ count: 0 }] } : { rows: [] }, end: async () => {} }, runid, capability });
   const templateAnswers = [
     EXPECTED_S24_REGISTRY.map(x => ({ ...x })),
     [{ workspaces: true, users: true, authority: true, replica: true, phones: true }],
@@ -36,11 +39,18 @@ function stubbedTemplateContext() {
     [{ installed: true }],
     [{ enabled: S25_KEY_TRIGGERS.length }],
     [cleanAuthorityRow],
+    EXPECTED_S26_REGISTRY.map(x => ({ ...x })),
+    [schema26],
+    [{ present: S26_KEY_OBJECTS.length }],
+    [{ enabled: S26_KEY_TRIGGERS.length }],
+    [stagingEmpty],
+    [cleanAuthorityRow],
   ];
   const catalogAnswers = [
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=${OWNER}`)],
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S24;version=24;registry=${EXPECTED_S24_HASH};owner=${OWNER}`)],
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S25;version=25;registry=${EXPECTED_S25_HASH};owner=${OWNER}`)],
+    [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S26;version=26;registry=${EXPECTED_S26_HASH};owner=${OWNER}`)],
   ];
   return {
     runid,
@@ -82,25 +92,32 @@ test('trusted S24 verifier rejects missing, duplicate, extra, checksum, order an
 test('prepareTemplates consumes trusted queries, exact chain and complete authority inspection', async () => {
   const calls = [];
   const comments = new Map();
-  const broker = createTemplateBroker({ bootstrapClient: { query: async sql => String(sql.text ?? sql).includes('pg_advisory_unlock') ? { rows: [{ unlocked: true }] } : { rows: [{ count: 0 }] }, end: async () => {} }, runid, capability: 'a'.repeat(64) });
+  const broker = createTemplateBroker({ bootstrapClient: { query: async sql => String(sql.text ?? sql).includes('pg_advisory_unlock') ? { rows: [{ unlocked: true }] } : String(sql.text ?? sql).includes('pg_advisory_lock') ? { rows: [{ locked: true }] } : String(sql.text ?? sql).includes('pg_stat_activity') ? { rows: [{ count: 0 }] } : { rows: [] }, end: async () => {} }, runid, capability: 'a'.repeat(64) });
   // RULING I: a programmable stub, not a production-SQL double. Rows are queued
   // per call in orchestration order; the unit proves decisions/sequencing only,
   // while exact SQL stays covered by the real PostgreSQL test below.
   const templateAnswers = [
-    EXPECTED_S24_REGISTRY.map(x => ({ ...x })),        // verifyS24Target registry rows
-    [{ workspaces: true, users: true, authority: true, replica: true, phones: true }], // schema postconditions
-    [cleanAuthorityRow],                               // verifyTargetAuthority inventory
-    EXPECTED_S25_REGISTRY.map(x => ({ ...x })),        // verifyS25Target registry rows
-    [{ workspaces: true, users: true, authority: true, replica: true, phones: true }], // S25 schema postconditions
-    [{ present: S25_KEY_OBJECTS.length }],             // S25 key objects
-    [{ installed: true }],                             // S25 migration function
-    [{ enabled: S25_KEY_TRIGGERS.length }],            // S25 enabled triggers
-    [cleanAuthorityRow],                               // S25 authority inventory
+    EXPECTED_S24_REGISTRY.map(x => ({ ...x })),
+    [{ workspaces: true, users: true, authority: true, replica: true, phones: true }],
+    [cleanAuthorityRow],
+    EXPECTED_S25_REGISTRY.map(x => ({ ...x })),
+    [{ workspaces: true, users: true, authority: true, replica: true, phones: true }],
+    [{ present: S25_KEY_OBJECTS.length }],
+    [{ installed: true }],
+    [{ enabled: S25_KEY_TRIGGERS.length }],
+    [cleanAuthorityRow],
+    EXPECTED_S26_REGISTRY.map(x => ({ ...x })),
+    [schema26],
+    [{ present: S26_KEY_OBJECTS.length }],
+    [{ enabled: S26_KEY_TRIGGERS.length }],
+    [stagingEmpty],
+    [cleanAuthorityRow],
   ];
   const catalogAnswers = [
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=${OWNER}`)],
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S24;version=24;registry=${EXPECTED_S24_HASH};owner=${OWNER}`)],
     [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S25;version=25;registry=${EXPECTED_S25_HASH};owner=${OWNER}`)],
+    [sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=S26;version=26;registry=${EXPECTED_S26_HASH};owner=${OWNER}`)],
   ];
   const context = {
     runid,
@@ -110,12 +127,15 @@ test('prepareTemplates consumes trusted queries, exact chain and complete author
     async queryCatalog() { return { rows: catalogAnswers.shift() ?? [] }; },
   };
   const records = await prepareTemplates(context);
-  assert.deepEqual([...records.keys()], ['empty', 'S24', 'S25']);
+  assert.deepEqual([...records.keys()], ['empty', 'S24', 'S25', 'S26']);
   assert.equal(records.get('S24').registryHash, EXPECTED_S24_HASH);
   assert.equal(records.get('S25').registryHash, EXPECTED_S25_HASH);
   assert.equal(records.get('S25').source, records.get('S24').database);
   assert.equal(records.get('S25').version, 25);
-  assert.deepEqual(calls, ['createTemplate', 'freezeTemplate', 'createTemplate', 'migrate', 'freezeTemplate', 'createTemplate', 'migrate', 'freezeTemplate']);
+  assert.equal(records.get('S26').registryHash, EXPECTED_S26_HASH);
+  assert.equal(records.get('S26').source, records.get('S25').database);
+  assert.equal(records.get('S26').version, 26);
+  assert.deepEqual(calls, ['createTemplate', 'freezeTemplate', 'createTemplate', 'migrate', 'freezeTemplate', 'createTemplate', 'migrate', 'freezeTemplate', 'createTemplate', 'migrate', 'freezeTemplate']);
   assert.equal(templateAnswers.length, 0, 'every trusted template query must be consumed');
   assert.equal(catalogAnswers.length, 0, 'every trusted catalog inspection must be consumed');
 });
@@ -149,6 +169,36 @@ test('the seal counts memberships of the prepared owner itself, not of every rol
   const memberships = /(\(SELECT count\(\*\)::int FROM pg_auth_members[^)]*\)[^)]*memberships)/.exec(sql)?.[1] ?? '';
   assert.match(memberships, /JOIN pg_roles member ON member\.oid=m\.member WHERE member\.rolname=\$1/, 'the membership count must bind the member role on its own');
   assert.doesNotMatch(memberships, /member_role/, 'the membership count must not read the outer alias');
+});
+
+test('a sealed template counts only client backends, so a real autovacuum worker is not a held session', async () => {
+  // Regression: counting every pg_stat_activity row let a genuine autovacuum
+  // worker on a freshly migrated template look like a held session. The full
+  // isolated-db run then failed intermittently with CLOSED_ERROR while the same
+  // file passed in isolation (docs/opyt-oshibok.md).
+  assert.equal(CLIENT_BACKEND_FILTER, "backend_type='client backend'", 'the client predicate has one source of truth');
+
+  const sealed = sealedCatalogRow(`samosval-isolated-db:v1;kind=template;runid=${runid};baseline=empty;version=0;registry=empty;owner=${OWNER}`);
+  let sealSql = '';
+  await inspectTemplateSeal(async text => { sealSql = text; return { rows: [sealed] }; }, emptyName, sealed.comment);
+  const sealSessions = /(\(SELECT count\(\*\)::int FROM pg_stat_activity[^)]*\)\s*sessions)/.exec(sealSql)?.[1] ?? '';
+  assert.match(sealSessions, /backend_type='client backend'/, 'the seal must not count maintenance backends');
+
+  // The broker's freeze gate must use the same predicate: maintenance backends
+  // are invisible to it, while a real client session still closes the template.
+  const statements = [];
+  const client = { query: async config => {
+    const sql = String(config.text ?? config);
+    statements.push(sql);
+    if (sql.includes('pg_stat_activity')) return { rows: [{ count: 0 }] };
+    if (sql.includes('pg_advisory_unlock')) return { rows: [{ unlocked: true }] };
+    return { rows: [] };
+  }, end: async () => {} };
+  const broker = createTemplateBroker({ bootstrapClient: client, runid, capability: 'a'.repeat(64) });
+  await broker.run({ operation: 'freezeTemplate', database: emptyName, registryHash: 'empty', capability: 'a'.repeat(64) });
+  const gate = statements.filter(sql => sql.includes('count(*)') && sql.includes('pg_stat_activity'));
+  assert.ok(gate.length > 0, 'the freeze must check attached sessions');
+  for (const sql of gate) assert.match(sql, /backend_type='client backend'/, 'every session gate must count client backends only');
 });
 
 test('broker binds run/capability and derives exact semantic marker tuple', async () => {
@@ -212,21 +262,47 @@ test('trusted S25 verifier rejects missing, drifted, extra and 026 registry rows
   await assert.rejects(run(valid, { triggers: S25_KEY_TRIGGERS.length - 1 }), /S25 trigger verification failed closed/);
 });
 
-test('template and fixture registries expose S25 and still no S26 baseline', async () => {
+test('templateDropOrder drops tip-first and covers every kind prepareTemplates creates', async () => {
+  // The drop order must be the exact reverse of the clone chain: S26 first, then
+  // S25, S24 and the empty base. It is a pure function so it can be tested
+  // without a broker and without parsing the runner source.
+  assert.deepEqual(templateDropOrder(['empty', 'S24', 'S25', 'S26']), ['S26', 'S25', 'S24', 'empty']);
+  assert.deepEqual(templateDropOrder(['S25', 'empty', 'S26']), ['S26', 'S25', 'empty']);
+  assert.deepEqual(templateDropOrder(['S24', 'empty']), ['S24', 'empty']);
+  assert.deepEqual(templateDropOrder([]), []);
+  // Coverage invariant: every kind prepareTemplates creates appears in the order.
+  const records = await prepareTemplates(stubbedTemplateContext());
+  const kinds = [...records.keys()];
+  assert.deepEqual(kinds, ['empty', 'S24', 'S25', 'S26']);
+  assert.deepEqual(templateDropOrder(kinds), ['S26', 'S25', 'S24', 'empty']);
+  for (const kind of kinds) assert.ok(templateDropOrder(kinds).includes(kind), `drop order is missing prepared kind ${kind}`);
+  // An unknown kind must fail closed rather than be silently dropped.
+  assert.throws(() => templateDropOrder(['S27']), /unknown template kind/);
+  // dropTemplates delegates to the exported function instead of hard-coding a list.
+  const source = readFileSync(new URL('../scripts/test-isolated-db.mjs', import.meta.url), 'utf8');
+  const cleanup = source.match(/async function dropTemplates\(context\) \{([\s\S]*?)\n\}/)?.[1];
+  assert.ok(cleanup, 'dropTemplates implementation exists');
+  assert.match(cleanup, /templateDropOrder\(/, 'dropTemplates must use templateDropOrder');
+  assert.doesNotMatch(cleanup, /const names = \[/, 'dropTemplates must not hard-code its own order');
+});
+
+test('template and fixture registries expose the complete S26 chain and real fixture IDs', async () => {
   // Restored gate (RULING I): explicit and mutation-sensitive, not implied elsewhere.
   const records = await prepareTemplates(stubbedTemplateContext());
-  assert.deepEqual([...records.keys()], ['empty', 'S24', 'S25']);
+  assert.deepEqual([...records.keys()], ['empty', 'S24', 'S25', 'S26']);
   assert.equal(records.get('S25').version, 25);
   assert.equal(records.get('S25').registryHash, EXPECTED_S25_HASH);
   assert.equal(records.get('S25').source, records.get('S24').database);
-  assert.equal(records.has('S26'), false);
-  assert.deepEqual(FIXTURE_IDS, ['import-schema', 'identity-empty', 'auth-schema-018', 'authority-main-ubuntu', 'authority-main-firebase', 'replica-admin', 'replica-empty-stream-cursors', 'parallel-shift-legacy-unresolved', 'parallel-shift-v2-night', 'parallel-shift-cutover-report', 'parallel-shift-restored-contexts', 'archive-immutable-revisions', 'restore-bootstrap-boundary', 'parallel-shift-runtime-role']);
+  assert.equal(records.get('S26').version, 26);
+  assert.equal(records.get('S26').source, records.get('S25').database);
+  assert.deepEqual(FIXTURE_IDS, ['import-schema', 'identity-empty', 'auth-schema-018', 'authority-main-ubuntu', 'authority-main-firebase', 'replica-admin', 'replica-empty-stream-cursors', 'parallel-shift-legacy-unresolved', 'parallel-shift-v2-night', 'parallel-shift-cutover-report', 'parallel-shift-restored-contexts', 'archive-immutable-revisions', 'restore-bootstrap-boundary', 'replica-pending-empty', 'replica-pending-out-of-order', 'full-exact-provenance-restore', 'parallel-shift-runtime-role']);
   for (const entry of manifest.entries) {
     for (const fixture of entry.fixtures ?? []) assert.ok(FIXTURE_IDS.includes(fixture), `manifest fixture outside the closed registry: ${fixture}`);
-    assert.ok(!/S26/.test(entry.baseline ?? ''), `S26 baseline in manifest: ${entry.file}`);
-    if (entry.kind === 'db') assert.ok(['empty', 'S24', 'S25'].includes(entry.baseline), `unknown baseline in manifest: ${entry.file}`);
+    if (entry.kind === 'db') assert.ok(['empty', 'S24', 'S25', 'S26'].includes(entry.baseline), `unknown baseline in manifest: ${entry.file}`);
   }
-  assert.equal(manifest.entries.filter(entry => entry.baseline === 'S25').length, 0);
+  const s26Root = manifest.entries.find(entry => entry.file === 'tests/isolated-db-s26-fixtures.test.mjs');
+  assert.equal(s26Root?.kind, 'harness-contract');
+  assert.deepEqual(s26Root?.env, ['bootstrap-url']);
   const s25Root = manifest.entries.find(entry => entry.file === 'tests/isolated-db-s25-fixtures.test.mjs');
   assert.equal(s25Root?.kind, 'harness-contract');
   assert.deepEqual(s25Root?.env, ['bootstrap-url']);

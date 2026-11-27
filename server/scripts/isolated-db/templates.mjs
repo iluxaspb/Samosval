@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GENERATED_DATABASE_PREFIX, validateGeneratedIdentifier } from './safety.mjs';
+import { CLIENT_BACKEND_FILTER, GENERATED_DATABASE_PREFIX, validateGeneratedIdentifier } from './safety.mjs';
 
 const OWNER = 'samosval_test_prepared_owner';
 const here = dirname(fileURLToPath(import.meta.url));
@@ -25,6 +25,14 @@ export const EXPECTED_S25_REGISTRY = Object.freeze(readdirSync(sqlDir)
   .map(filename => Object.freeze({ filename, checksum: createHash('sha256').update(readFileSync(join(sqlDir, filename))).digest('hex') })));
 export const EXPECTED_S25_HASH = createHash('sha256').update(JSON.stringify(EXPECTED_S25_REGISTRY)).digest('hex');
 
+export const EXPECTED_S26_REGISTRY = Object.freeze(readdirSync(sqlDir)
+  .filter(f => numberOf(f) !== null && numberOf(f) <= 26)
+  .sort()
+  .map(filename => Object.freeze({ filename, checksum: createHash('sha256').update(readFileSync(join(sqlDir, filename))).digest('hex') })));
+export const EXPECTED_S26_HASH = createHash('sha256').update(JSON.stringify(EXPECTED_S26_REGISTRY)).digest('hex');
+export const S26_KEY_OBJECTS = Object.freeze(['replica_document_heads', 'replica_pending_documents']);
+export const S26_KEY_TRIGGERS = Object.freeze(['replica_document_heads_pending_invariant', 'replica_pending_documents_head_invariant']);
+
 // Key 025 objects and enabled triggers, named explicitly. A template that merely
 // claims version 25 but lacks one of these is rejected.
 export const S25_KEY_OBJECTS = Object.freeze([
@@ -44,6 +52,20 @@ export const S25_KEY_TRIGGERS = Object.freeze([
   'restored_context_migration_evidence_append_only',
 ]);
 export const S25_MIGRATE_FUNCTION = 'public.migrate_legacy_restored_context_exact(text,jsonb)';
+
+// Templates are cloned tip-from-base (empty → S24 → S25 → S26), so they must be
+// dropped in the reverse order: a template cannot be dropped while a database
+// cloned from it still exists. This is the single source of that order.
+const TEMPLATE_DROP_ORDER = Object.freeze(['S26', 'S25', 'S24', 'empty']);
+
+export function templateDropOrder(kinds) {
+  if (!Array.isArray(kinds)) throw new Error('template kinds are not approved');
+  const present = new Set(kinds);
+  for (const kind of present) {
+    if (!TEMPLATE_DROP_ORDER.includes(kind)) throw new Error(`unknown template kind: ${kind}`);
+  }
+  return TEMPLATE_DROP_ORDER.filter(kind => present.has(kind));
+}
 
 function templateName(runid, suffix) {
   const database = `${GENERATED_DATABASE_PREFIX}${runid}_${suffix}`;
@@ -86,6 +108,22 @@ export async function verifyS25Target(query) {
   return Object.freeze({ count: rows.length, version: 25, registryHash: EXPECTED_S25_HASH });
 }
 
+export async function verifyS26Target(query) {
+  if (typeof query !== 'function') throw new Error('S26 verifier query is not approved');
+  const rows = (await query(`SELECT filename,checksum FROM schema_migrations WHERE filename ~ '^[0-9]{3}_' ORDER BY filename`)).rows;
+  if (JSON.stringify(rows) !== JSON.stringify(EXPECTED_S26_REGISTRY)) throw new Error('S26 migration registry verification failed closed');
+  if (rows.at(-1)?.filename !== '026_parallel_shift_dependencies.sql') throw new Error('S26 migration registry verification failed closed');
+  const schema = (await query(`SELECT to_regclass('public.replica_stream') IS NOT NULL stream,to_regclass('public.replica_cursor') IS NOT NULL cursor`)).rows[0];
+  if (!schema || Object.values(schema).some(v => v !== true)) throw new Error('S26 schema verification failed closed');
+  const objects = (await query(`SELECT count(*)::int AS present FROM unnest($1::text[]) AS target(name) WHERE to_regclass('public.' || target.name) IS NOT NULL`, [S26_KEY_OBJECTS])).rows[0];
+  if (objects?.present !== S26_KEY_OBJECTS.length) throw new Error('S26 schema verification failed closed');
+  const triggers = (await query(`SELECT count(*)::int AS enabled FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND t.tgenabled='O' AND t.tgname = ANY($1::text[])`, [S26_KEY_TRIGGERS])).rows[0];
+  if (triggers?.enabled !== S26_KEY_TRIGGERS.length) throw new Error('S26 trigger verification failed closed');
+  const empty = (await query(`SELECT (SELECT count(*)::int FROM replica_stream) stream,(SELECT count(*)::int FROM replica_document_heads) heads,(SELECT count(*)::int FROM replica_pending_documents) pending`)).rows[0];
+  if (empty?.stream !== 0 || empty?.heads !== 0 || empty?.pending !== 0) throw new Error('S26 staging must be empty');
+  return Object.freeze({ count: rows.length, version: 26, registryHash: EXPECTED_S26_HASH });
+}
+
 export async function verifyTargetAuthority(query) {
   if (typeof query !== 'function') throw new Error('authority verifier query is not approved');
   const row = (await query(`SELECT
@@ -122,7 +160,7 @@ export async function inspectTemplateSeal(queryCatalog, database, expectedCommen
   const row = (await queryCatalog(`SELECT
     owner.rolname owner, owner.rolsuper super, owner.rolcreatedb createdb, owner.rolcreaterole createrole, owner.rolcanlogin canlogin,
     d.datallowconn allow_connections, d.datacl::text datacl, description.description comment,
-    (SELECT count(*)::int FROM pg_stat_activity WHERE datname=d.datname) sessions,
+    (SELECT count(*)::int FROM pg_stat_activity WHERE datname=d.datname AND ${CLIENT_BACKEND_FILTER}) sessions,
     (SELECT count(*)::int FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE member.rolname=$1) memberships
     FROM pg_database d
     JOIN pg_roles owner ON owner.oid=d.datdba
@@ -149,6 +187,7 @@ export async function prepareTemplates(context) {
   const empty = templateName(runid, 'tpl_empty');
   const s24 = templateName(runid, 'tpl_s24');
   const s25 = templateName(runid, 'tpl_s25');
+  const s26 = templateName(runid, 'tpl_s26');
   await context.templateOperation({ operation: 'createTemplate', database: empty, source: 'template0' });
   const emptySeal = await context.templateOperation({ operation: 'freezeTemplate', database: empty, registryHash: 'empty' });
   await inspectTemplateSeal(context.queryCatalog, empty, emptySeal.comment);
@@ -166,9 +205,16 @@ export async function prepareTemplates(context) {
   await verifyTargetAuthority((text, values) => context.queryTemplate(s25, text, values));
   const s25Seal = await context.templateOperation({ operation: 'freezeTemplate', database: s25, registryHash: s25Migration.registryHash });
   await inspectTemplateSeal(context.queryCatalog, s25, s25Seal.comment);
+  await context.templateOperation({ operation: 'createTemplate', database: s26, source: s25 });
+  await context.migrateTemplate({ database: s26, through: 26 });
+  const s26Migration = await verifyS26Target((text, values) => context.queryTemplate(s26, text, values));
+  await verifyTargetAuthority((text, values) => context.queryTemplate(s26, text, values));
+  const s26Seal = await context.templateOperation({ operation: 'freezeTemplate', database: s26, registryHash: s26Migration.registryHash });
+  await inspectTemplateSeal(context.queryCatalog, s26, s26Seal.comment);
   return new Map([
     ['empty', record('empty', empty, 'template0', 0, 'empty', emptySeal.comment)],
     ['S24', record('S24', s24, empty, 24, migration.registryHash, s24Seal.comment)],
     ['S25', record('S25', s25, s24, 25, s25Migration.registryHash, s25Seal.comment)],
+    ['S26', record('S26', s26, s25, 26, s26Migration.registryHash, s26Seal.comment)],
   ]);
 }

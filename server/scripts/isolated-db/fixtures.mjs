@@ -216,6 +216,40 @@ const RUNTIME_PROBE_FUNCTIONS=Object.freeze([
 async function catalog(query,names){return (await query(`SELECT c.relname,c.relkind,owner.rolname owner,COALESCE(array_to_string(c.relacl,','),'') acl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles owner ON owner.oid=c.relowner WHERE n.nspname='public' AND c.relname=ANY($1) ORDER BY c.relname`,[names])).rows;}
 function exactNames(rows,names){return rows.map(r=>r.relname).join('|')===[...names].sort().join('|');}
 
+// ---------------------------------------------------------------------------
+// S26 replica staging fixtures (I7). They materialize the real 026 contract on
+// a disposable clone: immutable replica_stream rows whose sha256 is computed by
+// PostgreSQL from the exact stored jsonb text (never a constant), the persistent
+// head ledger (settled set / settled delete / pending set) and the pending
+// transport row, which carries no payload copy. They do not imitate the restore
+// flow; `tests/replica-exact-backup.test.mjs` owns that proof.
+// ---------------------------------------------------------------------------
+const OO_WORKSPACE='fixture_out_of_order_workspace';
+const OO_OBJECT_ID='fixture_oo_object';
+const OO_USER_UID='fixture_oo_user';
+const OO_TRUCK_ID='fixture_oo_truck';
+const OO_ABSENT_SHIFT='fixture_oo_absent_shift';
+
+const FR_WORKSPACE='fixture_full_restore_workspace';
+const FR_OBJECT_ID='fixture_fr_object';
+const FR_USER_UID='fixture_fr_user';
+const FR_SHIFT_ID='fixture_fr_shift';
+const FR_TRUCK_ID='fixture_fr_truck';
+const FR_LOG_ID='fixture_fr_log';
+
+// pgcrypto is installed into the shared `postgres` database by bootstrap.sql,
+// but a target cloned from template0 does not inherit it. The fixture computes
+// the hash in SQL as the contract requires, so it installs the extension itself.
+const ensurePgcrypto=q=>q('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+const insertReplicaStream=(q,workspaceId,seq,operationId,kind,payload)=>q(
+  `INSERT INTO replica_stream(workspace_id,seq,direction,operation_id,kind,payload,sha256,protocol_version,hash_version)
+   VALUES ($1,$2,'f2s',$3,$4,$5::jsonb,encode(public.digest($5::jsonb::text,'sha256'),'hex'),2,2)`,
+  [workspaceId,seq,operationId,kind,JSON.stringify(payload)]);
+const insertReplicaHead=(q,head)=>q(
+  `INSERT INTO replica_document_heads(workspace_id,collection,document_id,head_seq,stream_direction,head_kind,shift_id,truck_id,object_id,user_uid,applied_seq,canonical_present)
+   VALUES ($1,$2,$3,$4,'f2s',$5,$6,$7,$8,$9,$10,$11)`,
+  [head.workspaceId,head.collection,head.documentId,head.headSeq,head.headKind,head.shiftId??null,head.truckId??null,head.objectId??null,head.userUid??null,head.appliedSeq??null,head.canonicalPresent]);
+
 const registry=new Map([
  ['import-schema',{order:10,async apply(q){await q(IMPORT_DDL);await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['import-schema',IMPORT_HASH]);},async verify(q){const objects=await catalog(q,['migration_imports','migration_documents']);const constraints=(await q(`SELECT con.conname,con.confdeltype::text delete_rule,con.confrelid::regclass::text referenced FROM pg_constraint con JOIN pg_namespace n ON n.oid=con.connamespace WHERE n.nspname='public' AND con.contype='f' AND con.conrelid=to_regclass('public.migration_documents')`)).rows;const invented=(await q(`SELECT count(*)::int n FROM pg_indexes WHERE schemaname='public' AND tablename IN ('migration_imports','migration_documents') AND indexname NOT IN ('migration_imports_pkey','migration_documents_pkey')`)).rows[0];const counts=(await q(`SELECT (SELECT count(*)::int FROM migration_imports) imports,(SELECT count(*)::int FROM migration_documents) documents,(SELECT source_hash FROM samosval_fixture_registry WHERE id='import-schema') hash`)).rows[0];return {objects:exactNames(objects,['migration_imports','migration_documents']),foreignKey:constraints.length===1&&constraints[0].conname==='migration_documents_import_sha256_fkey'&&constraints[0].delete_rule==='a'&&constraints[0].referenced==='migration_imports',noInventedIndexes:invented?.n===0,empty:counts?.imports===0&&counts?.documents===0,hash:counts?.hash===IMPORT_HASH};}}],
  ['identity-empty',{order:20,async apply(q){await q(`INSERT INTO samosval_fixture_registry(id,source_hash) VALUES ($1,$2)`,['identity-empty','baseline-s24']);},async verify(q){const row=(await q(`SELECT (SELECT count(*)::int FROM app_users) users,(SELECT count(*)::int FROM registration_requests) requests,(SELECT count(*)::int FROM identity_receipts) receipts,(SELECT count(*)::int FROM identity_audit) audit,(SELECT count(*)::int FROM identity_state WHERE initialized OR owner_uid IS NOT NULL) initialized`)).rows[0];return {empty:row&&Object.values(row).every(v=>v===0)};}}],
@@ -422,6 +456,98 @@ const registry=new Map([
    };
   }}],
 
+ ['replica-pending-empty',{order:170,async apply(q){await recordFixture(q,'replica-pending-empty','026-empty-staging');},async verify(q){const row=(await q(`SELECT (SELECT count(*)::int FROM replica_stream) stream,(SELECT count(*)::int FROM replica_document_heads) heads,(SELECT count(*)::int FROM replica_pending_documents) pending,(SELECT count(*)::int FROM information_schema.columns WHERE table_schema='public' AND table_name='replica_pending_documents' AND column_name='payload') payload_columns`)).rows[0];const triggers=(await q(`SELECT count(*)::int n FROM pg_trigger WHERE tgname=ANY($1::text[]) AND tgenabled='O'`,[['replica_document_heads_pending_invariant','replica_pending_documents_head_invariant']])).rows[0];return {empty:row?.stream===0&&row?.heads===0&&row?.pending===0,noPayload:row?.payload_columns===0,triggers:triggers?.n===2};}}],
+  ['replica-pending-out-of-order',{order:180,
+   // Measured counts are the contract, so they are declared here and compared
+   // exactly; the verifier's own numbers are never trusted on their own.
+   expect:{streamOperations:4,settledHeads:2,pendingDocuments:1,pendingPayloadColumns:0,parentAbsent:true},
+   async apply(q){
+    await ensurePgcrypto(q);
+    await q('INSERT INTO workspaces(id) VALUES ($1)',[OO_WORKSPACE]);
+    // Four real f2s operations. seq2 overlaps seq1 on the same object, so the
+    // head must point at seq2; seq3 is a soft delete of a user; seq4 stages a
+    // truckStatus whose shift parent is absent, so it can only be pending.
+    await insertReplicaStream(q,OO_WORKSPACE,1,'fixture_oo_op_1','doc.set',{collection:'objects',path:`workspaces/${OO_WORKSPACE}/objects/${OO_OBJECT_ID}`,data:{id:OO_OBJECT_ID,name:'Объект вне очереди'}});
+    await insertReplicaStream(q,OO_WORKSPACE,2,'fixture_oo_op_2','doc.set',{collection:'objects',path:`workspaces/${OO_WORKSPACE}/objects/${OO_OBJECT_ID}`,data:{id:OO_OBJECT_ID,name:'Объект вне очереди (обновлён)'}});
+    await insertReplicaStream(q,OO_WORKSPACE,3,'fixture_oo_op_3','doc.delete',{collection:'users',path:`users/${OO_USER_UID}`});
+    await insertReplicaStream(q,OO_WORKSPACE,4,'fixture_oo_op_4','doc.set',{collection:'truckStatus',path:`workspaces/${OO_WORKSPACE}/truckStatus/${OO_TRUCK_ID}`,data:{id:OO_TRUCK_ID,shiftId:OO_ABSENT_SHIFT,onLine:true}});
+    await insertReplicaHead(q,{workspaceId:OO_WORKSPACE,collection:'objects',documentId:OO_OBJECT_ID,headSeq:2,headKind:'doc.set',objectId:OO_OBJECT_ID,appliedSeq:2,canonicalPresent:true});
+    await insertReplicaHead(q,{workspaceId:OO_WORKSPACE,collection:'users',documentId:OO_USER_UID,headSeq:3,headKind:'doc.delete',userUid:OO_USER_UID,appliedSeq:3,canonicalPresent:false});
+    await insertReplicaHead(q,{workspaceId:OO_WORKSPACE,collection:'truckStatus',documentId:OO_TRUCK_ID,headSeq:4,headKind:'doc.set',truckId:OO_TRUCK_ID,shiftId:OO_ABSENT_SHIFT,appliedSeq:null,canonicalPresent:false});
+    await q(`INSERT INTO replica_pending_documents(workspace_id,collection,document_id,stream_seq,stream_direction,shift_id,truck_id,log_id,missing_shift,missing_truck)
+             VALUES ($1,'truckStatus',$2,4,'f2s',$3,$2,NULL,true,false)`,[OO_WORKSPACE,OO_TRUCK_ID,OO_ABSENT_SHIFT]);
+    await recordFixture(q,'replica-pending-out-of-order','out-of-order-settled-and-pending');
+   },
+   async verify(q){
+    const row=(await q(`SELECT
+      (SELECT count(*)::int FROM replica_stream WHERE workspace_id=$1 AND direction='f2s') AS stream_operations,
+      (SELECT count(*)::int FROM replica_document_heads WHERE workspace_id=$1 AND applied_seq IS NOT NULL) AS settled_heads,
+      (SELECT count(*)::int FROM replica_pending_documents WHERE workspace_id=$1) AS pending_documents,
+      (SELECT count(*)::int FROM information_schema.columns WHERE table_schema='public' AND table_name='replica_pending_documents' AND column_name='payload') AS pending_payload_columns`,[OO_WORKSPACE])).rows[0];
+    const parents=(await q(`SELECT
+      (SELECT count(*)::int FROM shifts WHERE workspace_id=$1 AND shift_id=$2) AS shift_rows,
+      (SELECT count(*)::int FROM line_truck_statuses WHERE workspace_id=$1 AND truck_id=$3) AS status_rows`,[OO_WORKSPACE,OO_ABSENT_SHIFT,OO_TRUCK_ID])).rows[0];
+    const report={
+     streamOperations:row?.stream_operations,
+     settledHeads:row?.settled_heads,
+     pendingDocuments:row?.pending_documents,
+     pendingPayloadColumns:row?.pending_payload_columns,
+     parentAbsent:parents?.shift_rows===0&&parents?.status_rows===0,
+    };
+    // The measured counts are returned for the report, so the verifier itself
+    // must fail closed on any drift instead of trusting a non-false number.
+    if(report.streamOperations!==4||report.settledHeads!==2||report.pendingDocuments!==1||report.pendingPayloadColumns!==0||report.parentAbsent!==true)throw new Error('replica-pending-out-of-order postcondition mismatch');
+    return report;
+   }}],
+  ['full-exact-provenance-restore',{order:190,
+   expect:{collections:6,exactProvenance:true,tombstones:2,pendingDocuments:0},
+   async apply(q){
+    await ensurePgcrypto(q);
+    await q('INSERT INTO workspaces(id) VALUES ($1)',[FR_WORKSPACE]);
+    // One exact stream operation per collection, so every head binds to a real
+    // stream row by applied_seq. objects/users are soft tombstones; the rest are
+    // settled sets with routing fields that satisfy the 026 shape CHECK.
+    const operations=[
+     [1,'fixture_fr_op_1','doc.delete',{collection:'objects',path:`workspaces/${FR_WORKSPACE}/objects/${FR_OBJECT_ID}`}],
+     [2,'fixture_fr_op_2','doc.delete',{collection:'users',path:`users/${FR_USER_UID}`}],
+     [3,'fixture_fr_op_3','doc.set',{collection:'shift',path:`workspaces/${FR_WORKSPACE}/shift/${FR_SHIFT_ID}`,data:{payloadSchemaVersion:2,id:FR_SHIFT_ID,shiftId:FR_SHIFT_ID,objectId:FR_OBJECT_ID,objectName:'Полный объект',startDate:'23.11.2026',date:'2026-11-23',startedAt:1795420800000,startedBy:'Мастер полного набора',isActive:true,state:'active',workShift:'day',type:'day'}}],
+     [4,'fixture_fr_op_4','doc.set',{collection:'trucks',path:`workspaces/${FR_WORKSPACE}/trucks/${FR_TRUCK_ID}`,data:{id:FR_TRUCK_ID,name:'Самосвал полного набора'}}],
+     [5,'fixture_fr_op_5','doc.set',{collection:'truckStatus',path:`workspaces/${FR_WORKSPACE}/truckStatus/${FR_TRUCK_ID}`,data:{id:FR_TRUCK_ID,shiftId:FR_SHIFT_ID,onLine:true}}],
+     [6,'fixture_fr_op_6','doc.set',{collection:'logs',path:`workspaces/${FR_WORKSPACE}/logs/${FR_LOG_ID}`,data:{id:FR_LOG_ID,shiftId:FR_SHIFT_ID,truckId:FR_TRUCK_ID,type:'trip',timestamp:1795424400000}}],
+    ];
+    for(const [seq,operationId,kind,payload] of operations) await insertReplicaStream(q,FR_WORKSPACE,seq,operationId,kind,payload);
+    const heads=[
+     {collection:'objects',documentId:FR_OBJECT_ID,headSeq:1,headKind:'doc.delete',objectId:FR_OBJECT_ID,appliedSeq:1,canonicalPresent:false},
+     {collection:'users',documentId:FR_USER_UID,headSeq:2,headKind:'doc.delete',userUid:FR_USER_UID,appliedSeq:2,canonicalPresent:false},
+     {collection:'shift',documentId:FR_SHIFT_ID,headSeq:3,headKind:'doc.set',shiftId:FR_SHIFT_ID,objectId:FR_OBJECT_ID,appliedSeq:3,canonicalPresent:true},
+     {collection:'trucks',documentId:FR_TRUCK_ID,headSeq:4,headKind:'doc.set',truckId:FR_TRUCK_ID,appliedSeq:4,canonicalPresent:true},
+     {collection:'truckStatus',documentId:FR_TRUCK_ID,headSeq:5,headKind:'doc.set',truckId:FR_TRUCK_ID,shiftId:FR_SHIFT_ID,appliedSeq:5,canonicalPresent:true},
+     {collection:'logs',documentId:FR_LOG_ID,headSeq:6,headKind:'doc.set',shiftId:FR_SHIFT_ID,truckId:FR_TRUCK_ID,appliedSeq:6,canonicalPresent:true},
+    ];
+    for(const head of heads) await insertReplicaHead(q,{workspaceId:FR_WORKSPACE,...head});
+    await recordFixture(q,'full-exact-provenance-restore','full-bundle-prepared;restore-flow=replica-exact-backup');
+   },
+   async verify(q){
+    const row=(await q(`SELECT
+      (SELECT count(DISTINCT collection)::int FROM replica_document_heads WHERE workspace_id=$1) AS collections,
+      (SELECT count(*)::int FROM replica_document_heads WHERE workspace_id=$1 AND head_kind='doc.delete') AS tombstones,
+      (SELECT count(*)::int FROM replica_pending_documents WHERE workspace_id=$1) AS pending_documents`,[FR_WORKSPACE])).rows[0];
+    const provenance=(await q(`SELECT
+      count(*)::int AS total,
+      (count(*) FILTER (WHERE s.seq IS NOT NULL AND s.kind=h.head_kind AND s.sha256=encode(public.digest(s.payload::text,'sha256'),'hex')))::int AS exact
+      FROM replica_document_heads h
+      LEFT JOIN replica_stream s
+        ON s.workspace_id=h.workspace_id AND s.direction=h.stream_direction AND s.seq=h.applied_seq
+      WHERE h.workspace_id=$1`,[FR_WORKSPACE])).rows[0];
+    const report={
+     collections:row?.collections,
+     exactProvenance:provenance?.total===6&&provenance?.exact===6,
+     tombstones:row?.tombstones,
+     pendingDocuments:row?.pending_documents,
+    };
+    if(report.collections!==6||report.exactProvenance!==true||report.tombstones!==2||report.pendingDocuments!==0)throw new Error('full-exact-provenance-restore postcondition mismatch');
+    return report;
+   }}],
  ['parallel-shift-runtime-role',{order:160,
   async apply(q){
    await recordFixture(q,'parallel-shift-runtime-role','runtime-read-only');
@@ -476,7 +602,27 @@ const registry=new Map([
   }}],
 ]);
 export const FIXTURE_IDS=Object.freeze([...registry.keys()]);
-function passed(report){return report&&Object.values(report).every(v=>v===true);}
+// Legacy fail-closed gate: a verifier without an explicit expectation may only
+// report boolean facts, and every one of them must be literally true. A number,
+// string or missing value is not a pass — only `true` is.
+function passed(report){return Boolean(report)&&typeof report==='object'&&!Array.isArray(report)&&Object.values(report).every(v=>v===true);}
+
+// Exact comparison for a verifier that reports measured values instead of
+// booleans (S26 staging counts). Same key set and strict value identity, numbers
+// included, so a wrong count fails closed instead of merely looking non-false.
+function exactReport(actual,expected){
+  if(!actual||typeof actual!=='object'||Array.isArray(actual))return false;
+  const actualKeys=Object.keys(actual),expectedKeys=Object.keys(expected);
+  if(actualKeys.length!==expectedKeys.length)return false;
+  return expectedKeys.every(key=>Object.prototype.hasOwnProperty.call(actual,key)&&Object.is(actual[key],expected[key]));
+}
+
+// The single gate used by applyFixtures and verifyFixtures. `expect` is a
+// separate contract argument and is never trusted as the report itself: the
+// value returned to callers is always the verifier's measured `postcondition`.
+export function postconditionSatisfied(postcondition,expect){
+  return expect!==undefined?exactReport(postcondition,expect):passed(postcondition);
+}
 export async function applyFixtures(context,requested){
  if(!context||Object.keys(context).join()!=='query'||typeof context.query!=='function')throw new Error('fixture context is not approved');
  if(!Array.isArray(requested))throw new Error('fixture list is not approved');
@@ -484,7 +630,7 @@ export async function applyFixtures(context,requested){
  const database=(await context.query('SELECT current_database() AS database')).rows[0]?.database;if(!TARGET.test(database))throw new Error('fixture target is not approved');
  const ordered=[...unique].sort((a,b)=>registry.get(a).order-registry.get(b).order);const reports=[];
  let registryReady=false;
-  for(const id of ordered){const fixture=registry.get(id);try{await context.query('BEGIN');if(!registryReady){await context.query(REGISTRY_DDL);registryReady=true;}await fixture.apply(context.query);const postcondition=await fixture.verify(context.query);if(!passed(postcondition))throw new Error(`fixture postcondition failed: ${id}`);await context.query('COMMIT');reports.push(Object.freeze({type:'samosval-fixture-report:v1',id,postcondition:Object.freeze(postcondition)}));}catch(error){await context.query('ROLLBACK').catch(()=>{});if(error?.code==='23505'||error?.code==='42P07')throw new Error(`fixture already applied: ${id}`);throw error;}}
+  for(const id of ordered){const fixture=registry.get(id);try{await context.query('BEGIN');if(!registryReady){await context.query(REGISTRY_DDL);registryReady=true;}await fixture.apply(context.query);const postcondition=await fixture.verify(context.query);if(!postconditionSatisfied(postcondition,fixture.expect))throw new Error(`fixture postcondition failed: ${id}`);await context.query('COMMIT');reports.push(Object.freeze({type:'samosval-fixture-report:v1',id,postcondition:Object.freeze(postcondition)}));}catch(error){await context.query('ROLLBACK').catch(()=>{});if(error?.code==='23505'||error?.code==='42P07')throw new Error(`fixture already applied: ${id}`);throw error;}}
  return reports;
 }
 
@@ -496,6 +642,6 @@ export async function verifyFixtures(context,requested){
  if(!Array.isArray(requested)||requested.length===0)throw new Error('fixture list is not approved');
  const database=(await context.query('SELECT current_database() AS database')).rows[0]?.database;if(!TARGET.test(database))throw new Error('fixture target is not approved');
  const reports=[];
- for(const id of requested){if(!registry.has(id))throw new Error(`fixture is unavailable: ${id}`);const postcondition=await registry.get(id).verify(context.query);if(!passed(postcondition))throw new Error(`fixture postcondition failed: ${id}`);reports.push(Object.freeze({type:'samosval-fixture-report:v1',id,postcondition:Object.freeze(postcondition)}));}
+ for(const id of requested){if(!registry.has(id))throw new Error(`fixture is unavailable: ${id}`);const fixture=registry.get(id);const postcondition=await fixture.verify(context.query);if(!postconditionSatisfied(postcondition,fixture.expect))throw new Error(`fixture postcondition failed: ${id}`);reports.push(Object.freeze({type:'samosval-fixture-report:v1',id,postcondition:Object.freeze(postcondition)}));}
  return reports;
 }

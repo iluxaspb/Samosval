@@ -20,7 +20,7 @@ import {
   recoverPartialTarget,
   targetUrl,
 } from './isolated-db/database.mjs';
-import { prepareTemplates } from './isolated-db/templates.mjs';
+import { prepareTemplates, templateDropOrder } from './isolated-db/templates.mjs';
 import { applyFixtures } from './isolated-db/fixtures.mjs';
 import manifest from '../tests/db-test-manifest.mjs';
 import { loadManifest } from './isolated-db/manifest.mjs';
@@ -194,8 +194,10 @@ async function makeRunContext(source) {
 }
 
 async function dropTemplates(context) {
-  const names = ['S25', 'S24', 'empty'];
-  for (const kind of names) {
+  // Child templates are dropped before the templates they were cloned from; the
+  // order lives in templates.mjs so it cannot drift from prepareTemplates.
+  const kinds = templateDropOrder([...context.lifecycle.templates.keys()]);
+  for (const kind of kinds) {
     const template = context.lifecycle.templates.get(kind);
     if (!template) continue;
     await context.templateBroker.run({

@@ -27,7 +27,7 @@ const dbFiles = [
 const harnessFiles = [
   'compose-isolated-db', 'isolated-db-bootstrap', 'isolated-db-env', 'isolated-db-fixtures', 'isolated-db-guard',
   'isolated-db-http-tree', 'isolated-db-integration', 'isolated-db-lifecycle', 'isolated-db-process', 'isolated-db-runner',
-  'isolated-db-s25-fixtures', 'isolated-db-templates', 'migration-registry', 'parallel-shifts-runtime-roles'
+  'isolated-db-s25-fixtures', 'isolated-db-s26-fixtures', 'isolated-db-templates', 'migration-registry', 'parallel-shifts-runtime-roles'
 ];
 
 const consumersByFile = {
@@ -41,6 +41,7 @@ const consumersByFile = {
     'scripts/apply-migrations.mjs:pg',
     'tests/isolated-db-s25-fixtures.test.mjs:pg'
   ],
+  'isolated-db-s26-fixtures': ['scripts/apply-migrations.mjs:pg', 'tests/isolated-db-s26-fixtures.test.mjs:pg'],
   'archive-consumers-latest': [
     'scripts/apply-migrations.mjs:pg',
     'tests/archive-consumers-latest.test.mjs:db-env',
@@ -518,7 +519,7 @@ const dbEntries = dbFiles.map(name => ({
   // `v2-shift-read-db` stays on S24 on purpose: an unresolved historical row and
   // a restored copy can only be legacy v1 rows inserted before 025, so the root
   // applies 025/026/027 itself (docs/opyt-oshibok.md, lesson 19).
-  baseline: ['v2-shift-access', 'v2-shift-members-db'].includes(name) ? 'S25' : 'S24',
+  baseline: ['v2-shift-access', 'v2-shift-members-db'].includes(name) ? 'S25' : name === 'isolated-db-s26-fixtures' ? 'S25' : 'S24',
 migrationsThrough: ['v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db'].includes(name) ? 27 : ['replica-stream-026', 'replica-store', 'replica-pending-materialize', 'replica-exact-backup'].includes(name) ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
@@ -569,6 +570,7 @@ const harnessEntries = harnessFiles.map(name => ({
     // never receives: it runs as samosval_test_app, so this is a harness
     // contract like isolated-db-fixtures.
     'isolated-db-s25-fixtures': ['bootstrap-url'],
+    'isolated-db-s26-fixtures': ['bootstrap-url'],
     // Verifies apply-migrations the way production runs it: on a fresh EMPTY
     // database, never in a decoy schema (025/026 are fully qualified on purpose).
     // That needs CREATE DATABASE/TEMPLATE and pg_authid-adjacent role checks,

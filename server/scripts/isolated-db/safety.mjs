@@ -1,6 +1,15 @@
 export const GENERATED_DATABASE_PREFIX = 'samosval_parallel_shifts_test_';
 export const BOOTSTRAP_MARKER = 'samosval-isolated-db-bootstrap:v1';
 
+// A template is sealed or dropped only while no client session is attached to it.
+// The rule names the only backend type a client can own: an autovacuum worker
+// that happens to reach a freshly migrated template is neither a reader nor a
+// writer of the sealed content, and PostgreSQL's own database-exclusivity check
+// ignores such backends. Counting every `pg_stat_activity` row turned a real
+// autovacuum worker into a false closed error inside `freezeTemplate` (see
+// `docs/opyt-oshibok.md`), so the filter lives here as one source of truth.
+export const CLIENT_BACKEND_FILTER = "backend_type='client backend'";
+
 const IDENTIFIER = /^[a-z][a-z0-9_]*$/;
 export const MAX_RUNID_LENGTH = 63 - Buffer.byteLength(GENERATED_DATABASE_PREFIX) - 1 - 12;
 const RUNID = new RegExp(`^[a-f0-9]{12,${MAX_RUNID_LENGTH}}$`);
@@ -33,7 +42,8 @@ export function validateGeneratedIdentifier(value, options = {}) {
     } else if (kind === 'template') {
       if (value !== `${GENERATED_DATABASE_PREFIX}${runid}_tpl_empty`
           && value !== `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s24`
-          && value !== `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s25`) reject('generated identifier');
+          && value !== `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s25`
+          && value !== `${GENERATED_DATABASE_PREFIX}${runid}_tpl_s26`) reject('generated identifier');
     } else reject('generated identifier');
   }
   return value;

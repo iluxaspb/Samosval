@@ -18,13 +18,13 @@ const ENV_NAMES = new Set([
 const DB_FIELDS = new Set([...COMMON_FIELDS, 'env', 'baseline', 'migrationsThrough', 'customSchema', 'importTables', 'fixtures', 'timeoutMs', 'serial', 'exclusive', 'allowedSkips']);
 const KINDS = new Set(['unit', 'db', 'harness-contract']);
 const DISCOVERY = new Set(['pure-import', 'direct', 'indirect-http', 'harness-contract']);
-const BASELINE_VERSIONS = new Map([['empty', 0], ['S24', 24], ['S25', 25]]);
+const BASELINE_VERSIONS = new Map([['empty', 0], ['S24', 24], ['S25', 25], ['S26', 26]]);
 const FIXTURES = new Set([
   'import-schema', 'identity-empty', 'auth-schema-018', 'authority-main-ubuntu', 'authority-main-firebase',
   'replica-admin', 'replica-empty-stream-cursors',
   'parallel-shift-legacy-unresolved', 'parallel-shift-v2-night', 'parallel-shift-cutover-report',
   'parallel-shift-restored-contexts', 'archive-immutable-revisions', 'restore-bootstrap-boundary',
-  'parallel-shift-runtime-role',
+  'parallel-shift-runtime-role', 'replica-pending-empty', 'replica-pending-out-of-order', 'full-exact-provenance-restore',
 ]);
 const CUSTOM_SCHEMA = new Set([]);
 const IMPORT_TABLES = new Set(['import-schema']);

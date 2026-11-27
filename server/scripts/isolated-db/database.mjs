@@ -15,13 +15,14 @@ const NEXT_STATE = Object.freeze({ creating: 'created', created: 'marked', marke
 const RECORD_STATES = new Set(Object.keys(NEXT_STATE).concat('running'));
 const CLEANUP_PHASES = new Set(['setup', 'fixtures', 'running', 'assertion', 'timeout']);
 const CLEANUP_STATES = new Set(['marked', 'running']);
-const TEMPLATE_KINDS = new Set(['empty', 'S24', 'S25']);
+const TEMPLATE_KINDS = new Set(['empty', 'S24', 'S25', 'S26']);
 // Frozen baseline chain: version and the template each baseline is cloned from.
 // S25 must come from S24 (never from `empty`), so exactly 025 is applied.
 const TEMPLATE_CHAIN = Object.freeze({
   empty: { version: 0, source: 'template0' },
   S24: { version: 24, source: 'empty' },
   S25: { version: 25, source: 'S24' },
+  S26: { version: 26, source: 'S25' },
 });
 const CONTEXT_KEYS = ['bootstrapClient', 'runid', 'capability', 'templates', 'onState'];
 const TEMPLATE_KEYS = ['kind', 'database', 'source', 'version', 'registryHash', 'owner', 'comment', 'immutable'];
@@ -213,7 +214,7 @@ function trackedTarget(context, record) {
 function classifyRow(runid, row, tracked) {
   const name = row.datname;
   const template = `${GENERATED_DATABASE_PREFIX}${runid}_tpl_`;
-  if (name === `${template}empty` || name === `${template}s24` || name === `${template}s25`) return 'template';
+  if (name === `${template}empty` || name === `${template}s24` || name === `${template}s25` || name === `${template}s26`) return 'template';
   // Anything else under the run prefix must be an exact marked target of this
   // run that the run tracker knows. Every other hit — a drifted marker or
   // owner, a foreign suffix, or a valid marker the run never tracked — is
