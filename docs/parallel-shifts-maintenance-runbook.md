@@ -160,3 +160,171 @@ node server/scripts/maintenance-parallel-shifts.mjs --phase report    --run-dir 
 - [ ] `verify` без нарушений, `report` без DSN/uid;
 - [ ] в окне backup взят напрямую в БД (`/api/v1/backups` закрыт `503`);
 - [ ] после окна восемь legacy-маршрутов отдают `426`, а `archive/snapshot`, `catalog` и `tabel/*` продолжают работать.
+
+## 10. Реальное окно на канале: фактическая последовательность
+
+Раздел фиксирует окно 27.11.2026, 20:13–20:35 МСК, на общей базе канала `samosval_working_test_reserve` — так, как оно реально выполнялось, а не как задумано в §5. Порядок важен: каждый следующий шаг опирается на артефакт предыдущего. Пароли и uid в документ не пишутся.
+
+### 10.1. До окна: смены закрыты, сторож погашен
+
+```bash
+# 1. Все смены закрыты В ПРИЛОЖЕНИИ. Проверка фактом в БД, а не по словам.
+psql "$DSN_LIVE" -c "select count(*) from shifts where is_active"
+# ожидается 0. Активная смена на момент 025 теряет управление навсегда (урок 70).
+
+# 2. Сторож API погашен на всё окно: иначе он поднимает остановленный контейнер,
+#    перезапускает неготовый и возвращает политику --restart unless-stopped.
+sudo systemctl stop samosval-api-watchdog.timer
+systemctl is-active samosval-api-watchdog.timer   # inactive
+
+# 3. Свежий дамп ПОСЛЕ закрытия смен.
+pg_dump "$DSN_LIVE" -Fc -f samosval-db-backups/window-20261127-2010.dump
+sha256sum samosval-db-backups/window-20261127-2010.dump
+stat -c%s samosval-db-backups/window-20261127-2010.dump
+# факт окна: 25 444 287 байт,
+# sha256 60fdc18ee26226702b74bbf6b7bbb6770646dd724a3684c144362bce48d62d99
+```
+
+### 10.2. Миграция копии, а не живой базы
+
+```bash
+# 4. Копия живой базы под именем, которое проходит гард скрипта окна.
+createdb -T template0 samosval_parallel_shifts_test_ddb1be960db2048e_fab27d899488
+pg_restore -d samosval_parallel_shifts_test_ddb1be960db2048e_fab27d899488 \
+  samosval-db-backups/window-20261127-2010.dump
+# факт окна: 16 с; счётчики совпали — 25 смен, 19 пользователей,
+# 519 записей истории, 16 архивов.
+
+# 5. Догон реестра миграций до факта: 001–017 применены, а в schema_migrations
+#    были только 019–024. 018 исключается, как в самом скрипте окна.
+#    Строки вставляются с sha256 фактических файлов.
+psql "$DSN_COPY" -f samosval-db-backups/migration-registry-catchup-20261127.sql
+psql "$DSN_COPY" -c "select count(*) from schema_migrations"   # 21
+```
+
+### 10.3. Фазы скрипта окна
+
+Все фазы идут против копии (`DSN_COPY`), не против живой базы. `--derive` не нужен: всё выполняется через `--apply`.
+
+```bash
+node server/scripts/maintenance-parallel-shifts.mjs --phase backup
+# факт окна: 53 таблицы, 28 965 строк, 6 мин 10 с,
+# sha f4534f5dd83dd6feac541538b5eb02e7f81217be492899dba29b56144622a4e0
+
+node server/scripts/maintenance-parallel-shifts.mjs --phase migrate --stage schema
+# 025
+
+node server/scripts/maintenance-parallel-shifts.mjs --phase preflight
+# факт окна: 18 строк, все historical,
+# sha отчёта b2dcf37f4d9e48f312fa024324a90292989a1266ee1a617fed283f2ad92f88f6
+
+node server/scripts/maintenance-parallel-shifts.mjs --phase confirm \
+  --report-sha256 b2dcf37f4d9e48f312fa024324a90292989a1266ee1a617fed283f2ad92f88f6 \
+  --owner-uid <uid владельца> --confirmation-id window-20261127-2018
+# факт окна: подтверждение window-20261127-2018 (uid в документ не пишется)
+
+node server/scripts/maintenance-parallel-shifts.mjs --phase migrate --stage data
+# факт окна: historicalized: 18; применены 026 и 027
+
+node server/scripts/maintenance-parallel-shifts.mjs --phase apply-migrations
+# факт окна: 028 и 029, «применено 2, пропущено 24»
+
+node server/scripts/maintenance-parallel-shifts.mjs --phase verify
+# факт окна: migrationVersion 029_shift_close_v2.sql, unresolvedRemaining 0,
+# historical 18, historicalizationAudit 18, confirmations 1,
+# invalidConstraints [], orphanPendingHeads 0, roleViolations [],
+# bootstrap.missing пуст
+
+node server/scripts/maintenance-parallel-shifts.mjs --phase report
+```
+
+### 10.4. Подмена базы (точка отката)
+
+```bash
+# 6. Прежняя база сохраняется под явным именем, копия встаёт на её место.
+psql "$DSN_ADMIN" -c "ALTER DATABASE samosval_working_test_reserve RENAME TO samosval_working_test_pre_v2_20261127"
+createdb -T samosval_parallel_shifts_test_ddb1be960db2048e_fab27d899488 samosval_working_test_reserve
+```
+
+### 10.5. Новый API
+
+```bash
+# 7. Контейнер создаётся заново с теми же параметрами и перенесённым env.
+#    AUTH_SESSION_SECRET обязан остаться прямым значением в env: код читает
+#    только его и не разбирает AUTH_SESSION_SECRET_FILE, иначе после каждого
+#    рестарта все пользователи входят заново.
+docker rm -f samosval-api-working-test
+docker run -d --name samosval-api-working-test \
+  --network samosval-network --restart unless-stopped \
+  -p 127.0.0.1:18091:8080 \
+  -v /home/iluxa/samosval-secrets:/secrets \
+  --env-file <env-файл старого контейнера> \
+  -e SAMOSVAL_V2_SHIFTS=1 \
+  samosval-working-test:v2-1.8.8-20261127
+```
+
+### 10.6. Проверки после окна
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/health/ready          # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v2/shifts         # 401 без токена
+
+# восемь legacy-маршрутов → 426
+for p in shifts/start shifts/close; do
+  curl -s -o /dev/null -w "%{http_code} $p\n" -X POST "http://127.0.0.1:18091/api/v1/$p"
+done
+for p in line/snapshot history; do
+  curl -s -o /dev/null -w "%{http_code} $p\n" "http://127.0.0.1:18091/api/v1/$p"
+done
+for p in line/operations report/operations archive/operations controls; do
+  curl -s -o /dev/null -w "%{http_code} $p\n" -X POST "http://127.0.0.1:18091/api/v1/$p"
+done
+
+# живы, но требуют токен → 401
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v1/catalog
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v1/archive/snapshot
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18091/api/v1/tabel/records
+
+# auth жив: неверный пароль → 401
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:18091/api/v1/auth/login \
+  -H 'content-type: application/json' -d '{"login":"...","password":"..."}'
+
+docker logs --tail 200 samosval-api-working-test   # без ошибок
+```
+
+Те же проверки (200/401/426) повторяются через домен `https://samosval-test.iluxa.pro`.
+
+### 10.7. Публикация канала в том же окне
+
+Старый клиент после окна получает `426` на запись, поэтому сборка публикуется здесь же, а не «потом».
+
+- сборка 1.8.8, build `0ca837f5a799f14c`, 143 ресурса;
+- сайт канала — коммит `cdf1e6e`;
+- live: 4 основных файла совпали байт-в-байт, 143/143 ресурса по SHA-256;
+- страница в Chromium 393×852: версия 1.8.8, `WORKING_TEST_V2_SHIFTS === true`, ошибок страницы и консоли нет, неудачных загрузок нет;
+- `core.js` собранной телефонной приёмки байт-в-байт равен `core.js` опубликованной сборки — приёмка относится к тому же коду.
+
+### 10.8. Откат
+
+Откат возможен, пока в v2 не появились реальные записи: подмена имён возвращает состояние на момент дампа. После первых v2-записей это потеря данных, и работает только путь «вперёд» (§7).
+
+```bash
+# 1. Вернуть прежнюю базу: сначала увести мигрированную, потом вернуть исходную.
+psql "$DSN_ADMIN" -c "ALTER DATABASE samosval_working_test_reserve RENAME TO samosval_working_test_v2_20261127"
+psql "$DSN_ADMIN" -c "ALTER DATABASE samosval_working_test_pre_v2_20261127 RENAME TO samosval_working_test_reserve"
+
+# 2. Вернуть прежний образ API.
+docker rm -f samosval-api-working-test
+docker run -d --name samosval-api-working-test \
+  --network samosval-network --restart unless-stopped \
+  -p 127.0.0.1:18091:8080 \
+  -v /home/iluxa/samosval-secrets:/secrets \
+  --env-file <env-файл старого контейнера> \
+  samosval-working-test:stage3b-20261123
+
+# 3. Включить сторож обратно.
+sudo systemctl start samosval-api-watchdog.timer
+systemctl is-active samosval-api-watchdog.timer   # active
+```
+
+После отката сервера сборка 1.8.8 остаётся с включённым флагом v2 и живёт на прежнем v1-пути (урок 67) — это деградация, а не штатный режим, поэтому публикацию канала в таком случае тоже откатывают. Порядок отката: сначала сервер и база, затем клиент; иначе пользователи пишут в базу, которой уже нет.
