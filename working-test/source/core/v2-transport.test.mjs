@@ -288,6 +288,36 @@ test('детали ошибки сокращаются до безопасног
   assert.equal(result.error.details.actorEmail, undefined);
 });
 
+test('конфликт ревизий доносит и ожидаемое, и фактическое число', async () => {
+  const { transport } = harness(() => {
+    throw nasError('api-http-409', {
+      status: 409,
+      retryable: false,
+      serverCode: 'revision-conflict',
+      serverDetails: {
+        expectedShiftRevision: 5, actualShiftRevision: 6,
+        expectedStatusRevision: 2, actualStatusRevision: 3,
+        expectedCycleRevision: 2, actualCycleRevision: 3,
+        expectedTtnRevision: 1, actualTtnRevision: 2,
+        uid: 'uid_secret', email: 'secret@example.com'
+      }
+    });
+  });
+  const result = await transport.addTruck({ shiftId: 'shift_a', operationId: 'op-3', truckId: 'truck_1', expectedShiftRevision: 5 });
+  assert.equal(result.error.code, 'revision-conflict');
+  // Пара expected/actual — единственное, чем можно честно объяснить конфликт.
+  // Клиентский белый список обязан совпадать с серверным DETAIL_KEYS.
+  const details = JSON.parse(JSON.stringify(result.error.details));
+  assert.deepEqual(details, {
+    expectedShiftRevision: 5, actualShiftRevision: 6,
+    expectedStatusRevision: 2, actualStatusRevision: 3,
+    expectedCycleRevision: 2, actualCycleRevision: 3,
+    expectedTtnRevision: 1, actualTtnRevision: 2
+  });
+  assert.equal(result.error.details.uid, undefined, 'uid не проходит');
+  assert.equal(result.error.details.email, undefined, 'e-mail не проходит');
+});
+
 test('квитанция с чужим operationId или protocolVersion отклоняется', async () => {
   const wrongId = harness(() => receipt('op-other', {}));
   let result = await wrongId.transport.createShift({ operationId: 'op-4', objectId: 'object_1', workDate: '2026-11-23', shiftType: 'day' });
@@ -333,10 +363,13 @@ test('перевод самосвала публикует обе смены т�
   assert.equal(store.context('shift_b').revisions.shift, 7);
   const post = calls.find(call => call.method === 'POST');
   assert.equal(post.path, '/api/v2/shifts/shift_b/trucks/truck_1/force-transfer');
+  // Смена назначения едет и в пути, и в теле: сервер сверяет их и без поля в
+  // теле отвечает invalid-command/destinationShiftId (контракт §5.4).
   assert.deepEqual(post.body, {
     operationId: 'op-6',
     protocolVersion: 2,
     sourceShiftId: 'shift_a',
+    destinationShiftId: 'shift_b',
     expectedSourceShiftRevision: 3,
     expectedDestinationShiftRevision: 5,
     expectedStatusRevision: 2,
@@ -344,6 +377,29 @@ test('перевод самосвала публикует обе смены т�
     expectedTtnRevision: 1,
     confirmTransfer: true
   });
+  assert.equal(post.body.destinationShiftId, 'shift_b', 'тело называет ту же смену, что и путь');
+});
+
+test('завершение отсоединённого рейса называет исходную смену и в теле', async () => {
+  const { transport, calls } = harness(call => {
+    if (call.method === 'POST') return receipt('op-8', {});
+    if (call.path.includes('/shift_a/')) return snapshot('shift_a', { shiftRevision: 6 });
+    return snapshot('shift_b', { shiftRevision: 7 });
+  });
+  const result = await transport.completeDetachedTrip({
+    operationId: 'op-8', sourceShiftId: 'shift_a', destinationShiftId: 'shift_b',
+    cycleId: 'cycle_1', truckId: 'truck_1', type: 'load',
+    expectedSourceShiftRevision: 3, expectedDestinationShiftRevision: 5,
+    expectedDetachedCycleRevision: 4, fields: { createdAt: 1764000000000 }
+  });
+  assert.equal(result.ok, true);
+  const post = calls.find(call => call.method === 'POST');
+  assert.equal(post.path, '/api/v2/shifts/shift_a/detached-trips/cycle_1/complete');
+  // Сервер читает sourceShiftId из тела и сверяет со сменой пути (§5.4):
+  // без поля команда отвечала invalid-command/sourceShiftId.
+  assert.equal(post.body.sourceShiftId, 'shift_a', 'исходная смена есть в теле');
+  assert.equal(post.body.destinationShiftId, 'shift_b');
+  assert.equal(post.body.createdAt, 1764000000000, 'момент подтверждения доходит до сервера');
 });
 
 test('несовпавший снимок второй смены не публикует ни одну', async () => {

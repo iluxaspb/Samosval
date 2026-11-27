@@ -56,7 +56,8 @@ function functionBody(src, name) {
 // ===== Часть 1: баннер только при реальной проблеме =====
 
 // vm-харнес реального getSyncStatus: зависимости описаны минимально, чтобы
-// путь «ошибка источника» ветвился ровно по ever_connected.
+// путь «ошибка источника» ветвился ровно по everConnected — так поле называется
+// в 00-config-state.js и так его пишет markSync.
 function runGetSyncStatus({ errors, everConnected, queued = 0, offline = false, role = 'driver' }) {
   let calls = 0;
   const context = {
@@ -64,7 +65,7 @@ function runGetSyncStatus({ errors, everConnected, queued = 0, offline = false, 
     offlineServerUnreachable: offline,
     offlineStatusSince: 0,
     OFFLINE_UI_GRACE_MS: 3000,
-    syncState: { errors, ever_connected: everConnected, fromCache: {}, docCount: {}, pendingWrites: {}, lastSuccessAt: 0 },
+    syncState: { errors, everConnected, fromCache: {}, docCount: {}, pendingWrites: {}, lastSuccessAt: 0 },
     navigator: { onLine: true },
     currentUserRole: role,
     initialized: true,
@@ -76,6 +77,13 @@ function runGetSyncStatus({ errors, everConnected, queued = 0, offline = false, 
   const result = vm.runInNewContext(functionBody(formattingSrc, 'getSyncStatus') + '\ngetSyncStatus()', context);
   return result;
 }
+
+test('v2: ожидаемый отказ legacy-снимка при двух сменах не рисует вечный сбой синхронизации', () => {
+  assert.match(runtimeSrc, /nasV2Shifts\(\)&&\(error\?\.serverCode\|\|error\?\.code\)==='multiple-active-shifts'\)return;/,
+    'при активном v2-мосте 409 multiple-active-shifts — ожидаемый отказ старого single-line чтения');
+  assert.match(runtimeSrc, /reportSyncError\('nas',error\)/,
+    'остальные ошибки legacy-снимка по-прежнему видны пользователю');
+});
 
 test('баннер: повторная ошибка источника после успешного чтения не показывает «Ошибка загрузки»', () => {
   const st = runGetSyncStatus({ errors: { 'nas-games': { code: 'unknown', message: 'x', at: 1 } }, everConnected: { 'nas-games': true } });

@@ -59,6 +59,9 @@
   window.shiftStripSelect = function (shiftId) {
     const ui = ensureShiftUi();
     if (!ui || !ui.selector.switchTo(shiftId)) return false;
+    // Снимок выбранной смены читается сразу, а не через интервал опроса:
+    // иначе после переключения экран ждал бы следующего тика.
+    try { ui.bridge.handle?.wake?.(); } catch (_) { /* тик не критичен для выбора */ }
     return true;
   };
   // Лист управления сменой: только реальные операции v2. Пока мост выключен,
@@ -137,7 +140,14 @@
       createButton.disabled = true;
       try {
         const result = await management.createShift({
-          objectId: objectSelect.value, workDate: dateInput.value, shiftType: typeSelect.value
+          objectId: objectSelect.value, workDate: dateInput.value, shiftType: typeSelect.value,
+          // `cycleMinutes` is a required field of the documented creation body
+          // (§5.2). Without it the server refuses every creation as
+          // `invalid-command`, so the sheet passes the configured cycle. The
+          // server accepts only a safe integer in 15…10080
+          // (requireCycleMinutes), so a fractional value from old settings or a
+          // hand-edited localStorage must be rounded before it reaches the body.
+          cycleMinutes: Math.min(10080, Math.max(15, Math.round(Number(settings.cycleMinutes) || 15)))
         });
         report(result, 'Смена создана');
         if (result.ok) renderAll();
@@ -278,11 +288,32 @@
   };
   window.addEventListener('samosval-working-test-shifts', function () {
     const ui = ensureShiftUi();
-    if (ui) ui.selector.render();
+    if (!ui) return;
+    ui.selector.render();
+    // Первый список (или смена активной смены) проецируется в старую линию:
+    // без этого экран остаётся «Смена не начата», хотя выбранная смена уже
+    // есть в полосе, а у прораба с одной сменой полосы нет вовсе.
+    const active = ui.selector.activeShiftId();
+    const current = state.shift && (state.shift.shiftId || state.shift.id);
+    if (active && active !== current) ui.selector.switchTo(active);
   });
-  window.addEventListener('samosval-working-test-shift-snapshot', function () {
+  window.addEventListener('samosval-working-test-shift-snapshot', function (event) {
     const ui = ensureShiftUi();
-    if (ui) ui.selector.refreshBadges();
+    if (!ui) return;
+    ui.selector.refreshBadges();
+    // Снимок выбранной смены — это её рейсы и статусы машин. Первый снимок
+    // почти всегда приходит уже ПОСЛЕ выбора смены (список виден раньше), и
+    // без перерисовки линия оставалась пустой: карточки не появлялись, пока
+    // пользователь не переключит смену вручную.
+    const detail = event && event.detail;
+    if (!detail || detail.applied !== true) return;
+    if (detail.shiftId !== ui.selector.activeShiftId()) return;
+    ui.bridge.store.projectActiveContextToLegacyState(state);
+    // Перерисовывается только то, что зависит от проекции: карточки линии и
+    // сводка шапки. Полный renderAll на каждый снимок гонял бы все вкладки
+    // каждые 4 секунды, а renderLine сам пропускает неизменные данные.
+    renderHeaderStats();
+    scheduleRenderLine();
   });
 
   function switchTab(name, btn) {

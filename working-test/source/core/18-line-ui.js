@@ -130,9 +130,24 @@
   }
 
   window.addEventListener('working-test-tabel-v2-records-change', () => scheduleRender('renderHeaderStats'));
+  // Шапка всегда показывает объект, календарную дату и тип выбранной смены
+  // (design §10.1). v1 хранит дату в startDate, v2 — в workDate (ГГГГ-ММ-ДД);
+  // тип приходит только от смены, а не выводится из времени.
+  const SHIFT_TYPE_HEADER = { day: 'День', night: 'Ночь' };
+  function shiftHeaderText() {
+    if (!state.shift) return 'Смена не начата';
+    const raw = String(state.shift.workDate || state.shift.startDate || '');
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    const date = iso ? iso[3] + '.' + iso[2] + '.' + iso[1] : raw;
+    // v1 line snapshot хранит тот же факт как workShift/type, v2-документ — как
+    // shiftType. Без алиасов тип пропадал из шапки после любого v1-обновления,
+    // хотя сама смена не менялась.
+    const type = SHIFT_TYPE_HEADER[state.shift.shiftType || state.shift.workShift || state.shift.type] || '';
+    return ['Смена от ' + (date || '—'), type].filter(Boolean).join(' · ');
+  }
   function renderHeaderStats() {
     window.dispatchEvent(new Event('line-equipment-change'));
-    let d = state.shift ? `Смена от ${state.shift.startDate}` : 'Смена не начата'; let o = state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : 'Не выбран';
+    let d = shiftHeaderText(); let o = state.shift ? objectTitle(state.shift.objectId,state.shift.objectName) : 'Не выбран';
     let act = state.shift ? getActiveLineIds().filter(id => { let t = findTruck(id); if (!t || t.isGAI) return false; return !state.truckStatus[id] || state.truckStatus[id].ttnStatus !== true; }).length : 0;
     let logs = getLogs(); let stdLogs = logs.filter(l => !l.isGAI); let v = stdLogs.reduce((s,l)=>s+l.volume,0);
     document.getElementById('shiftDate').textContent = d; document.getElementById('headerObject').textContent = 'Объект: ' + o;

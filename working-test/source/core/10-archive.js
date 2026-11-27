@@ -101,9 +101,16 @@
       ? api.selectRevision(provider.revisions, Number(view.revision))
       : null;
     const described = api.describeRevision(selected || latest);
-    const sorted = provider.revisions.slice().sort((a, b) => Number(b.archiveRevision) - Number(a.archiveRevision));
-    const options = sorted.map(revision => {
-      const item = api.describeRevision(revision);
+    // Сортировка идёт по нормализованному номеру: серверная форма ревизии
+    // (`revision`, `server/src/archive-latest.mjs`) не несёт `archiveRevision`,
+    // и прежнее `Number(b.archiveRevision) - Number(a.archiveRevision)` давало
+    // NaN, то есть список оставался в исходном порядке. Битые строки, которые
+    // describeRevision не может описать, в список не попадают.
+    const sorted = provider.revisions
+      .map(revision => api.describeRevision(revision))
+      .filter(item => item && Number.isSafeInteger(item.revision))
+      .sort((a, b) => b.revision - a.revision);
+    const options = sorted.map(item => {
       const label = 'Ревизия ' + item.revision + ' · ' + (item.publishedAt || 'дата неизвестна')
         + ' · ' + (item.sha256 ? item.sha256.slice(0, 12) : 'SHA-256 неизвестен');
       return '<option value="' + item.revision + '"' + (item.revision === described.revision ? ' selected' : '') + '>'
@@ -130,6 +137,12 @@
     }
     return '<div class="archive-provenance">' + provenanceHtml + '</div><div class="archive-revision-history">' + historyHtml + '</div>';
   }
+  // Полноэкранный просмотр архива (features/paper-viewer.js) подменяет
+  // window.openArchiveModal/renderArchiveModalContent и рисует только бумажный
+  // лист. Плашка архива и история ревизий живут отдельными секциями модалки,
+  // поэтому их рендерер публикуется наружу: без этого они оставались пустыми
+  // в собранном канале, хотя разметка и данные на месте.
+  if (typeof window !== 'undefined') window.__wtRenderArchiveMeta = renderArchiveMetaSections;
   // Explicit-просмотр ревизии: только выбор в модалке, default pointer не
   // меняется, правок не предлагается, сеть не вызывается.
   function openArchiveRevisionView(revision) {
@@ -226,7 +239,17 @@
         ? `Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date} для правок?\n\nАктивная смена «${objectTitle(state.shift.objectId,state.shift.objectName)}» продолжит работать — восстановленная смена редактируется параллельно.`
         : `Восстановить смену «${objectTitle(s.objectId,s.objectName)}» от ${s.date}?`;
       if(!(await appConfirm(msg)))return;
-      try{await nasArchiveAction('archive.restore',viewingArchiveId);closeArchiveModal();showToastEl(hasActive?'✅ Архивная смена восстановлена для правок — параллельно с активной':'Смена восстановлена на Ubuntu',false);}catch(error){showError('Ошибка восстановления: '+error.message);}return;
+      try{await nasArchiveAction('archive.restore',viewingArchiveId);closeArchiveModal();showToastEl(hasActive?'✅ Архивная смена восстановлена для правок — параллельно с активной':'Смена восстановлена на Ubuntu',false);}
+      catch(error){
+        // На канонической схеме (миграция 025) старый путь восстановления
+        // запрещён: restored archive не становится активной сменой (design
+        // §4.7, §3.4), его место — restored_shift_contexts, у которого пока нет
+        // маршрута. Сервер отвечает стабильным кодом, и пользователь должен
+        // увидеть причину, а не «api-http-409».
+        const code = error && (error.serverCode || error.code);
+        if (code === 'archive-restore-requires-v2') showError('Восстановление архивной смены в этом режиме недоступно: смена не создана, данные архива не изменены. Обратитесь к администратору.');
+        else showError('Ошибка восстановления: ' + error.message);
+      }return;
     }
     // Firebase-путь восстановления архива удалён (очистка 2026-11-23):
     // Ubuntu — единственный сервер данных, Firebase-режим недостижим.

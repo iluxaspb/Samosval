@@ -415,7 +415,11 @@
       if (!legacyState || typeof legacyState !== 'object') throw new TypeError('legacy-state-required');
       const target = activeShiftId ? contexts[activeShiftId] : null;
       const snapshot = target && target.snapshot;
-      legacyState.shift = target ? copy(target.shift) : null;
+      // Старый код адресует смену полем `id` (getLogs, captureLineIntent,
+      // офлайн-очередь). v2-документ несёт `shiftId`, поэтому проекция обязана
+      // дать оба поля: иначе выбранная смена выглядит «без id» и действия
+      // уходят без shiftId.
+      legacyState.shift = target ? Object.assign(copy(target.shift), { id: target.shiftId }) : null;
       legacyState.logs = snapshot && Array.isArray(snapshot.logs) ? copy(snapshot.logs) : [];
       const truckStatus = {};
       const statuses = snapshot && Array.isArray(snapshot.statuses) ? snapshot.statuses : [];

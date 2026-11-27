@@ -1,10 +1,13 @@
-// Регрессионный тест параллельного восстановления архива (решение владельца
-// 23.11.2026). Раньше на Ubuntu-бэкенде восстановление архивной смены
-// блокировалось, пока открыта активная смена («Сначала закройте текущую
-// смену…»). Теперь архивная смена восстанавливается для правок ПАРАЛЛЕЛЬНО
-// активной: restored-смена приходит из line-снапшота отдельно
-// (state.restoredShifts), её рейсы правятся в журнале отчёта, а возврат в
-// архив не затрагивает активную линию.
+// Тест отрисовки восстановленных смен и честного отказа восстановления
+// (решение владельца 23.11.2026, уточнение по канонической схеме 025).
+//
+// Важно про границы проверки: на канонической схеме (миграция 025) старый путь
+// восстановления запрещён дизайном — restored archive не становится active
+// shift (design §4.7, §3.4), его место `restored_shift_contexts`, у которого
+// пока нет маршрута. Поэтому восстановление через `archive.restore` обязано
+// получить стабильный отказ `archive-restore-requires-v2` и не оставить строк.
+// Блок `renderRestoredShifts` ниже — проверка ОТРИСОВКИ карточки на данных,
+// поданных напрямую, а не доказательство работающего восстановления.
 // Запуск: node --test working-test/source/core/archive-parallel-restore.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,7 +34,7 @@ function functionBody(src, name) {
   return src.slice(start, end + 1);
 }
 
-// === Часть 1: блокировка снята, сообщения объясняют параллельность ===
+// === Часть 1: сообщения восстановления и честный отказ канонической схемы ===
 test('исходник: в nas-ветке восстановления нет требования закрыть активную смену', () => {
   const body = functionBody(archiveSrc, 'restoreArchiveToShift');
   assert.ok(!body.includes('Сначала закройте текущую смену и подтвердите перенос'),
@@ -45,6 +48,61 @@ test('исходник: успех восстановления объясняе
   const body = functionBody(archiveSrc, 'restoreArchiveToShift');
   assert.match(body, /восстановлена для правок — параллельно с активной/,
     'тост сообщает о параллельных правках');
+});
+
+test('исходник: отказ archive-restore-requires-v2 переводится в понятный русский текст', () => {
+  const body = functionBody(archiveSrc, 'restoreArchiveToShift');
+  assert.match(body, /serverCode\s*\|\|\s*error\.code/, 'код сервера читается из serverCode');
+  assert.match(body, /archive-restore-requires-v2/, 'отказ канонической схемы распознан отдельно');
+  assert.match(body, /Восстановление архивной смены в этом режиме недоступно/, 'есть понятное объяснение');
+});
+
+test('поведение: отказ восстановления показывает объяснение, а не сырой HTTP-код', async () => {
+  const errors = [];
+  const context = {
+    console: { error() {} },
+    state: { shift: null, archive: [{ id: 'archive_1', objectId: 'object_1', objectName: 'Объект', date: '27.11.2026' }] },
+    viewingArchiveId: 'archive_1',
+    isNasRuntime: () => true,
+    requireEdit: () => true,
+    objectTitle: (id, name) => name || id,
+    appConfirm: async () => true,
+    nasArchiveAction: async () => {
+      const error = new Error('api-http-409');
+      error.code = 'api-http-409';
+      error.serverCode = 'archive-restore-requires-v2';
+      throw error;
+    },
+    closeArchiveModal: () => {},
+    showToastEl: () => {},
+    showError: message => errors.push(message)
+  };
+  vm.runInNewContext('async ' + functionBody(archiveSrc, 'restoreArchiveToShift') + '\nrestoreArchiveToShift();', context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(errors.length, 1, 'показана одна ошибка');
+  assert.match(errors[0], /Восстановление архивной смены в этом режиме недоступно/);
+  assert.match(errors[0], /смена не создана, данные архива не изменены/);
+  assert.equal(/api-http-\d+/.test(errors[0]), false, 'сырой код не доходит до пользователя');
+});
+
+test('поведение: прочие ошибки восстановления по-прежнему называют причину', async () => {
+  const errors = [];
+  const context = {
+    console: { error() {} },
+    state: { shift: null, archive: [{ id: 'archive_1', objectId: 'object_1', objectName: 'Объект', date: '27.11.2026' }] },
+    viewingArchiveId: 'archive_1',
+    isNasRuntime: () => true,
+    requireEdit: () => true,
+    objectTitle: (id, name) => name || id,
+    appConfirm: async () => true,
+    nasArchiveAction: async () => { throw new Error('Обновите архив'); },
+    closeArchiveModal: () => {},
+    showToastEl: () => {},
+    showError: message => errors.push(message)
+  };
+  vm.runInNewContext('async ' + functionBody(archiveSrc, 'restoreArchiveToShift') + '\nrestoreArchiveToShift();', context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(errors, ['Ошибка восстановления: Обновите архив']);
 });
 
 // === Часть 2: снапшот линии раскладывает restored-смены и не теряет их в офлайн-проекции ===

@@ -30,6 +30,17 @@ test('интеграция: без моста скрывает полосу, б�
   assert.doesNotMatch(navigation, /nasSaveRecord\(|startShiftWithObject\(|nasCloseCurrentShift\(/);
 });
 
+test('интеграция: снимок активной смены перерисовывает линию, а чужой — нет', () => {
+  // Список смен приходит раньше снимка. Если снимок выбранной смены не
+  // публиковать в старую линию, карточки машин не появляются вообще.
+  const handler = navigation.slice(navigation.indexOf("samosval-working-test-shift-snapshot"));
+  assert.match(handler, /detail\.applied !== true/);
+  assert.match(handler, /detail\.shiftId !== ui\.selector\.activeShiftId\(\)/);
+  assert.match(handler, /projectActiveContextToLegacyState\(state\)/);
+  assert.match(handler, /renderHeaderStats\(\)/);
+  assert.match(handler, /scheduleRenderLine\(\)/);
+});
+
 test('интеграция: горизонтальная полоса участвует в раскладке и не перекрывает карточки', () => {
   assert.match(style, /\.shift-strip\s*\{[^}]*position:\s*sticky/s);
   assert.match(style, /overflow-x:\s*auto/);

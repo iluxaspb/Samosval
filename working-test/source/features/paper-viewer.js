@@ -213,8 +213,12 @@
       trucks.set(id, savedName ? {id,brand:plate?plate[1]:savedName,number:plate?plate[2]:'',isGAI:!!ref.isGAI}
         : truck ? {...truck} : {id,brand:'Машина',number:'',isGAI:!!ref?.isGAI});
     });
-    const snapshot = {id:record.id,objectName:record.objectName||'—',date:record.date||'',logs,activeIds,ttn,trucks};
-    return Object.freeze({id:snapshot.id,objectName:snapshot.objectName,date:snapshot.date,
+    const snapshot = {id:record.id,objectName:record.objectName||'—',date:record.date||'',logs,activeIds,ttn,trucks,
+      // Provenance закрытой смены (кто открыл, тип смены, кто восстановил) —
+      // отдельная секция модалки, и замороженный просмотр обязан её сохранить:
+      // без этого плашка архивной смены не получала данных вовсе.
+      provenance:record.provenance||null};
+    return Object.freeze({id:snapshot.id,objectName:snapshot.objectName,date:snapshot.date,provenance:snapshot.provenance,
       regular:renderArchiveSheet(snapshot,false),gai:renderArchiveSheet(snapshot,true)});
   }
   function renderArchiveSheet(snapshot, gai) {
@@ -264,6 +268,14 @@
       const body=document.getElementById('modalArchiveBody');
       body.innerHTML='<div id="archive-paper-wrapper"><div class="paper-scroll-wrapper">'+archiveSnapshot[viewingArchiveGAITable?'gai':'regular']+'</div></div>'+
         (gaiAllowed('archive')?'<div class="archive-view-switch"><button type="button" class="archive-toggle-icon">📄</button></div>':'');
+      // Плашка архива и история ревизий — отдельные секции модалки, их рисует
+      // общий рендерер core/10. Этот замороженный просмотр подменяет
+      // renderArchiveModalContent, поэтому без явного вызова секции оставались
+      // пустыми. Хук вызывается всегда: без provenance он обязан очистить
+      // прежний HTML, а не оставить данные прошлой записи.
+      if(typeof window.__wtRenderArchiveMeta==='function'){
+        window.__wtRenderArchiveMeta({id:archiveSnapshot.id,provenance:archiveSnapshot.provenance||null});
+      }
       const button=body.querySelector('.archive-toggle-icon');
       if(button) {
         button.setAttribute('aria-pressed',String(viewingArchiveGAITable));

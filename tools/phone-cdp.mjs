@@ -98,22 +98,37 @@ export async function evaluateCdp(send,expression,lifecycle=cdpLifecycle()){
 }
 // Only explicitly read-only navigation probes may retry. Actions are never replayed.
 export async function navigationProbe(evaluate,expression){try{return await evaluate(expression);}catch(error){if(isContextLoss(error))return false;throw error;}}
-export async function chromium(base, executable){
- const child=spawn(executable,['--headless','--no-sandbox','--ignore-certificate-errors','--disable-background-networking','--disable-dev-shm-usage','--host-resolver-rules=MAP samosval-test.iluxa.pro 127.0.0.1, MAP * ~NOTFOUND','--user-data-dir='+base+'/chrome','--remote-debugging-port=19222','about:blank'],{stdio:['ignore','ignore','pipe']});
+// `profile` names the user-data directory. Two independent users need two
+// Chromium profiles, and one shared directory would make the second launch join
+// (or fight) the first. The default keeps the single-profile behaviour.
+export async function chromium(base, executable, port = 19222, profile = 'chrome'){
+ const child=spawn(executable,['--headless','--no-sandbox','--ignore-certificate-errors','--disable-background-networking','--disable-dev-shm-usage','--host-resolver-rules=MAP samosval-test.iluxa.pro 127.0.0.1, MAP * ~NOTFOUND','--user-data-dir='+base+'/'+profile,'--remote-debugging-port='+port,'about:blank'],{stdio:['ignore','ignore','pipe']});
  child.stderr.on('data',()=>{});
  let target;
- for(let i=0;i<150;i++){try{target=(await (await fetch('http://127.0.0.1:19222/json/list')).json()).find(t=>t.type==='page');if(target)break;}catch{}await new Promise(r=>setTimeout(r,100));}
+ for(let i=0;i<150;i++){try{target=(await (await fetch('http://127.0.0.1:'+port+'/json/list')).json()).find(t=>t.type==='page');if(target)break;}catch{}await new Promise(r=>setTimeout(r,100));}
  if(!target){child.kill();throw Error('Chromium CDP readiness timeout');}
  const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});
- let seq=0;const pending=new Map(),network=[],lifecycle=cdpLifecycle(),collector=cdpErrorCollector();
+ let seq=0;const pending=new Map(),network=[],api=[],apiById=new Map(),lifecycle=cdpLifecycle(),collector=cdpErrorCollector(),listeners=new Map();
+ const on=(method,handler)=>{const set=listeners.get(method)||new Set();set.add(handler);listeners.set(method,set);return()=>set.delete(handler);};
  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);if(p){pending.delete(m.id);clearTimeout(p.timer);m.error?p.reject(Object.assign(Error(m.error.message),{code:m.error.code,method:p.method})):p.resolve(m.result);}}else{
   lifecycle.event(m.method);
   collector.event(m.method,m.params);
-  if(m.method==='Network.requestWillBeSent')network.push({url:m.params.request.url,method:m.params.request.method});
+  for(const handler of listeners.get(m.method)||[])handler(m.params);
+  if(m.method==='Network.requestWillBeSent'){
+   network.push({url:m.params.request.url,method:m.params.request.method});
+   // Application API status is evidence: a module load or a command failure must
+   // be visible by status, not inferred from a missing side effect.
+   if(/\/api\//.test(m.params.request.url)){const row={url:m.params.request.url,method:m.params.request.method,status:null,complete:false,transportFailure:false};api.push(row);apiById.set(m.params.requestId,row);}
+  }
+  if(m.method==='Network.responseReceived'){const row=apiById.get(m.params.requestId);if(row)row.status=m.params.response.status;}
+  if(m.method==='Network.loadingFailed'){const row=apiById.get(m.params.requestId);if(row){row.transportFailure=true;row.complete=true;}apiById.delete(m.params.requestId);}
+  if(m.method==='Network.loadingFinished'){const row=apiById.get(m.params.requestId);if(row)row.complete=true;apiById.delete(m.params.requestId);}
  }};
  const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq,timer=setTimeout(()=>{pending.delete(id);reject(Error('CDP timeout: '+method));},45000);pending.set(id,{resolve,reject,timer,method});ws.send(JSON.stringify({id,method,params}));});
  const evaluate=expression=>evaluateCdp(send,expression,lifecycle);
  await send('Page.enable');await send('Runtime.enable');await send('Network.enable');await send('Emulation.setDeviceMetricsOverride',{width:393,height:852,deviceScaleFactor:1,mobile:true});
- return {send,evaluate,collector,get errors(){return collector.errors;},network,diagnostic:()=>lifecycle.snapshot(),async close(){writeFileSync(base+'/cdp-lifecycle.json',JSON.stringify(lifecycle.snapshot(),null,2));writeFileSync(base+'/network.json',JSON.stringify(network,null,2));writeFileSync(base+'/pageerrors.json',JSON.stringify(collector.errors,null,2));writeFileSync(base+'/auth-http.json',JSON.stringify(collector.snapshot().auth,null,2));writeFileSync(base+'/cdp-errors.json',JSON.stringify(collector.snapshot(),null,2));try{await send('Browser.close');}catch{}ws.close();child.kill();}};
+ return {send,evaluate,on,collector,get errors(){return collector.errors;},network,api,diagnostic:()=>lifecycle.snapshot(),async close(){
+  const suffix=profile==='chrome'?'':profile+'-';
+  writeFileSync(base+'/'+suffix+'cdp-lifecycle.json',JSON.stringify(lifecycle.snapshot(),null,2));writeFileSync(base+'/'+suffix+'network.json',JSON.stringify(network,null,2));writeFileSync(base+'/'+suffix+'api-http.json',JSON.stringify(api,null,2));writeFileSync(base+'/'+suffix+'pageerrors.json',JSON.stringify(collector.errors,null,2));writeFileSync(base+'/'+suffix+'auth-http.json',JSON.stringify(collector.snapshot().auth,null,2));writeFileSync(base+'/'+suffix+'cdp-errors.json',JSON.stringify(collector.snapshot(),null,2));try{await send('Browser.close');}catch{}ws.close();child.kill();}};
 }
 export async function until(fn,label,ms=30000){const end=Date.now()+ms;while(Date.now()<end){if(await fn())return;await new Promise(r=>setTimeout(r,100));}throw Error('Timeout: '+label);}

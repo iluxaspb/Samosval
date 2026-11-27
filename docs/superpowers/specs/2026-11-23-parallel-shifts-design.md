@@ -559,6 +559,12 @@ Rollback preserves data: before applying 025, old build remains possible; after 
 
 **POST `/api/v2/shifts/{sourceShiftId}/detached-trips/{cycleId}/complete`** body `{operationId,protocolVersion:2,truckId,destinationShiftId,type,...typeFields,expectedSourceShiftRevision,expectedDestinationShiftRevision,expectedDetachedCycleRevision}`. Только online. Сервер допускает admin либо активного участника source **или текущей destination** с обычным правом соответствующего завершающего line action; блокирует detached row, current status и обе shifts. Команда может только завершить сохранённую стадию, записывает результат и все производные эффекты в source shift, помечает detached `completed`, не меняет стадии/current cycle destination status и аудирует завершившего. Replay идемпотентен.
 
+> **Уточнение по факту реализации (27.11.2026, Tasks 20/29C).** Два поля тела здесь не перечислены, но сервер их требует и сверяет — это фактический контракт, подтверждённый `server/src/shift-transfer-v2.mjs` и `server/tests/v2-detached-completion-db.test.mjs`:
+> - `sourceShiftId` — читается из тела и сверяется со сменой в пути (`409 transfer-context-changed` при расхождении); смена не может быть задана только путём;
+> - `createdAt` — обязательный timestamp (`400 invalid-command {field:'createdAt'}` без него).
+>
+> То же для `force-transfer`: смена назначения обязана быть и в теле (`destinationShiftId`), и в пути. Клиент, отправлявший её только в пути, не мог выполнить ни перевод, ни завершение рейса; найдено приёмкой в настоящем браузере (уроки 58–59 в `docs/opyt-oshibok.md`).
+
 **POST `/api/v2/shifts/{shiftId}/line-operations`** body включает `{operationId,protocolVersion:2,type,truckId,expectedShiftRevision,expectedStatusRevision,expectedCycleRevision,expectedTtnRevision,...typeFields}`. Path shiftId обязан совпасть с immutable body/hash context; response содержит новые shift/status/cycle/ttn revisions. Первый confirmed `arrive` фиксирует объект. Обычный endpoint никогда не обращается к detached trip.
 
 ### 5.5. Закрытие

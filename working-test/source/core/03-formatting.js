@@ -93,7 +93,12 @@
       // хотя бы раз успешно читался, не мельтешит баннером: ошибка видна
       // цветом точки синхронизации, её подсказкой и в диагностике по нажатию.
       const failed = Object.keys(syncState.errors);
-      if (failed.every(source => syncState.ever_connected[source])) return { state: 'degraded', text: 'Перечитываем: ' + failed.join(', ') };
+      // Поле называется `everConnected` (его пишет markSync выше и читает
+      // проверка `required` ниже). Обращение к несуществующему
+      // `ever_connected` бросало TypeError прямо в renderAll, поэтому любой
+      // фоновый сбой одного источника (например, nas-settings) ломал
+      // отрисовку всего экрана вместо жёлтой точки синхронизации.
+      if (failed.every(source => syncState.everConnected[source])) return { state: 'degraded', text: 'Перечитываем: ' + failed.join(', ') };
       return {state:'error',text:'Ошибка загрузки: ' + failed.join(', ')};
     }
     if (!currentUserRole) return {state:'init',text:'Проверка учётной записи…'};

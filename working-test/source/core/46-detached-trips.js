@@ -76,11 +76,15 @@
   }
 
   // Подпись исходной смены: объект, дата, день/ночь и стадия незавершённого
-  // цикла — ровно из полей detached-записи.
+  // цикла — ровно из полей detached-записи. Серверный снимок отдаёт смену
+  // вложенным объектом `sourceShift`, поэтому сначала читаем его: без этого
+  // подпись всегда была «Объект не указан · Дата не указана».
   function sourceLabel(trip) {
-    const object = firstText(trip.sourceObjectName, trip.sourceObjectId, trip.objectName, trip.objectId);
-    const date = firstText(trip.sourceWorkDate, trip.workDate, trip.startDate);
-    const type = firstText(trip.sourceShiftType, trip.shiftType);
+    const source = isRecord(trip.sourceShift) ? trip.sourceShift : {};
+    const object = firstText(trip.sourceObjectName, source.objectName,
+      trip.sourceObjectId, source.objectId, trip.objectName, trip.objectId);
+    const date = firstText(trip.sourceWorkDate, source.workDate, source.date, trip.workDate, trip.startDate);
+    const type = firstText(trip.sourceShiftType, source.shiftType, source.workShift, source.type, trip.shiftType);
     const typeLabel = SHIFT_TYPE_LABELS[type] || type;
     return [object || 'Объект не указан', date || 'Дата не указана', typeLabel || 'Тип смены не подтверждён', stageLabel(trip)]
       .join(' · ');
@@ -177,7 +181,15 @@
         type: firstText(settings.type, trip.type, trip.stage),
         expectedSourceShiftRevision: revisionOf(trip, SOURCE_REVISION_KEYS),
         expectedDestinationShiftRevision: revisionOf(trip, DESTINATION_REVISION_KEYS),
-        expectedDetachedCycleRevision: cycleRevision
+        expectedDetachedCycleRevision: cycleRevision,
+        // v2-команда завершения требует createdAt (§5.4). Экран передаёт момент
+        // подтверждения, а без него берётся текущий — это время самой команды,
+        // а не выдуманный факт о рейсе.
+        fields: {
+          createdAt: Number.isSafeInteger(settings.createdAt) && settings.createdAt > 0
+            ? settings.createdAt
+            : Date.now()
+        }
       });
     }
 

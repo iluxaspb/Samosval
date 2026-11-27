@@ -107,6 +107,21 @@ test('подпись крупно и точно повторяет исходн�
   assert.equal(described.canComplete, true, 'online и ревизия известны');
 });
 
+test('вложенная запись снимка тоже даёт полную подпись исходной смены', () => {
+  // Сервер отдаёт смену объектом `sourceShift`, а не плоскими полями. Без
+  // чтения вложенной формы подпись всегда была «Объект не указан».
+  const nested = openTrip({
+    sourceObjectName: undefined, sourceWorkDate: undefined, sourceShiftType: undefined,
+    sourceShift: {
+      shiftId: 'shift_a', objectId: 'object_1', objectName: 'Невский проспект',
+      workDate: '2026-11-23', shiftType: 'day'
+    },
+    destinationShift: { shiftId: 'shift_b', shiftType: 'night' }
+  });
+  const described = api.createDetachedTrips({ online: true }).describe(nested);
+  assert.equal(described.sourceLabel, 'Невский проспект · 2026-11-23 · День · Погрузка');
+});
+
 test('офлайн — read-only с причиной и без вызова транспорта', async () => {
   const transport = spyTransport();
   const queue = spyQueue();
@@ -137,6 +152,16 @@ test('online-команда уходит ровно в транспорт с р�
   assert.equal(call.input.expectedDestinationShiftRevision, 9);
   assert.equal(call.input.expectedDetachedCycleRevision, 4);
   assert.equal(queue.calls.length, 0, 'офлайн-очередь не тронута');
+  // v2-команда завершения требует createdAt: без него сервер отвечает
+  // invalid-command/createdAt и рейс не закрывается никогда.
+  assert.ok(Number.isSafeInteger(call.input.fields.createdAt), 'createdAt уходит в команду');
+});
+
+test('экран может передать свой момент подтверждения', async () => {
+  const transport = spyTransport();
+  const instance = api.createDetachedTrips({ online: true, transport });
+  await instance.complete({ operationId: 'op_1', trip: openTrip(), createdAt: 1764000000000 });
+  assert.equal(transport.calls[0].input.fields.createdAt, 1764000000000, 'переданное время не подменяется');
 });
 
 test('без ревизии detached-цикла команда не отправляется', async () => {

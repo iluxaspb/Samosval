@@ -435,7 +435,14 @@
           if(session.profile?.status==='active'&&(session.permissions.tabs.includes('line')||session.permissions.tabs.includes('trucks')||session.permissions.tabs.includes('timesheet')))void refreshNasObjects().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-objects',error);});
           if(canAdmin())void refreshNasAdministration().catch(error=>{if(epoch===nasRuntimeEpoch)reportSyncError('nas-admin',error);});},
         onSnapshot:snapshot=>{if(epoch!==nasRuntimeEpoch)return;acceptNasLineSnapshot(snapshot);void replayNasOfflineJournal().catch(()=>{});},
-        onError:error=>{if(epoch!==nasRuntimeEpoch)return;reportSyncError('nas',error);}
+        onError:error=>{if(epoch!==nasRuntimeEpoch)return;
+          // Пока открыты две смены, legacy-чтение линии отвечает 409
+          // `multiple-active-shifts`: линия одна по контракту v1, и выбрать
+          // владельца сервер не имеет права. Линию в этом режиме ведёт v2-мост,
+          // поэтому постоянная плашка «Перечитываем: nas» была бы ложью о сбое.
+          // Без моста (старый клиент) отказ остаётся видимым: там он настоящий.
+          if(nasV2Shifts()&&(error?.serverCode||error?.code)==='multiple-active-shifts')return;
+          reportSyncError('nas',error);}
       });};nasResumePolling();
       // Отсчёт тишины подписки начинается сразу: иначе до первого сеанса
       // надзиратель каждые 2,5 секунды заново перезапускал бы подписку.

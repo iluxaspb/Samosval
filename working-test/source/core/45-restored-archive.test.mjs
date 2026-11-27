@@ -173,6 +173,72 @@ test('при отсутствии восстановившего исходны�
   assert.ok(!info.unresolved.includes('opener'), 'исходный автор не стал неразрешённым');
 });
 
+// Плоская серверная форма provenance (server/src/restored-context-store.mjs):
+// originalOpenedByUid/Name, originalShiftType(+Resolution), restoredByName,
+// unresolvedAuthor, unresolvedShiftType, authorText, shiftTypeText.
+const serverProvenance = (overrides = {}) => ({
+  originalOpenedByUid: 'uid_a',
+  originalOpenedByName: 'Сидоров',
+  originalIdentityResolution: 'resolved',
+  originalShiftType: 'day',
+  originalShiftTypeResolution: 'resolved',
+  restoredByUid: 'uid_b',
+  restoredByName: 'Петров',
+  restoredAt: '2026-11-23T09:00:00+03:00',
+  restoreOperationId: 'op_1',
+  baseArchiveRevision: 3,
+  baseArchiveSha256: 'sha-three',
+  unresolvedAuthor: false,
+  unresolvedShiftType: false,
+  authorText: 'Сидоров',
+  shiftTypeText: 'day',
+  ...overrides
+});
+
+test('плоская серверная provenance даёт автора, тип смены и восстановившего', () => {
+  const info = archive().describeProvenance(serverProvenance());
+  assert.equal(info.opener, 'Сидоров', 'автор из серверного литерала');
+  assert.equal(info.shiftType, 'День', 'тип смены из shiftTypeText');
+  assert.equal(info.restoringActor, 'Петров', 'восстановивший из restoredByName');
+  assert.ok(info.lines.includes('Автор: Сидоров'));
+  assert.ok(info.lines.includes('Тип смены: День'));
+  assert.ok(info.lines.includes('Восстановил: Петров'));
+  assert.equal(info.unresolved.join(','), '', 'сервер доказал автора и тип');
+});
+
+test('плоская серверная provenance: ночь и запасной автор из uid', () => {
+  const info = archive().describeProvenance(serverProvenance({
+    originalOpenedByName: null,
+    authorText: null,
+    originalShiftType: 'night',
+    shiftTypeText: null
+  }));
+  assert.equal(info.opener, 'uid_a', 'без имени автор берётся из originalOpenedByUid');
+  assert.equal(info.shiftType, 'Ночь', 'originalShiftType переводится словарём');
+  assert.ok(info.lines.includes('Автор: uid_a'));
+  assert.ok(info.lines.includes('Тип смены: Ночь'));
+  assert.equal(info.unresolved.join(','), '');
+});
+
+test('плоская серверная provenance с unresolved-флагами даёт ровно буквальные тексты', () => {
+  const info = archive().describeProvenance(serverProvenance({
+    originalOpenedByUid: null,
+    originalOpenedByName: null,
+    originalShiftType: null,
+    unresolvedAuthor: true,
+    unresolvedShiftType: true,
+    authorText: 'автор не установлен',
+    shiftTypeText: 'тип смены не подтверждён'
+  }));
+  assert.equal(info.opener, MISSING_AUTHOR, 'буквальный текст автора');
+  assert.equal(info.shiftType, MISSING_TYPE, 'буквальный текст типа');
+  assert.ok(info.lines.includes('Автор: ' + MISSING_AUTHOR));
+  assert.ok(info.lines.includes('Тип смены: ' + MISSING_TYPE));
+  assert.equal(info.unresolved.join(','), 'opener,shiftType');
+  assert.equal(info.restoringActor, 'Петров', 'восстановивший не подменяет автора');
+  assert.ok(!info.lines.includes('Автор: Петров'));
+});
+
 test('по умолчанию берётся последняя опубликованная ревизия', () => {
   const latest = archive().resolveDefault(revisions());
   assert.equal(latest.archiveRevision, 3, 'черновик 4 не является default');
@@ -261,6 +327,51 @@ test('восстановленная строка распознаётся по 
   assert.equal(instance.isRestoredRow({ shiftId: 'shift_a', state: 'active' }), false, 'активная смена — не restored');
   assert.equal(instance.isRestoredRow({ shiftId: 'shift_b', state: 'closed' }), false);
   assert.equal(instance.isRestoredRow(null), false);
+});
+
+// Серверная форма ревизий (server/src/archive-latest.mjs, toRevision):
+// {archiveId, revision, sha256, payloadSchemaVersion, previousRevision,
+//  previousSha256, sourceKind, sourceLocator, createdAt, createdByUid}.
+// Поля finalized нет: строка серии уже финализирована по определению.
+function serverRevisions() {
+  return [
+    { archiveId: 'archive_1', revision: 1, sha256: 'sha-one', createdAt: '2026-11-20T10:00:00.000Z', createdByUid: 'uid_a' },
+    { archiveId: 'archive_1', revision: 2, sha256: 'sha-two', createdAt: '2026-11-21T10:00:00.000Z', createdByUid: 'uid_a' },
+    { archiveId: 'archive_1', revision: 3, sha256: 'sha-three', createdAt: '2026-11-22T10:00:00.000Z', createdByUid: 'uid_b' }
+  ];
+}
+
+test('серверная форма ревизий: default — старшая, описание с номером/sha/датой', () => {
+  const instance = archive({ latestRevision: 3 });
+  const list = serverRevisions();
+  const latest = instance.resolveDefault(list);
+  assert.equal(latest.revision, 3, 'default — последняя ревизия серии');
+  assert.equal(latest.sha256, 'sha-three');
+  assert.equal(latest.explicit, false);
+  assert.equal(latest.archiveRevision, 3, 'UI-алиас номера ревизии');
+  assert.equal(latest.archiveSha256, 'sha-three', 'UI-алиас sha');
+  const described = instance.describeRevision(latest);
+  assert.equal(described.revision, 3);
+  assert.equal(described.sha256, 'sha-three');
+  assert.equal(described.publishedAt, '2026-11-22T10:00:00.000Z');
+  assert.equal(described.readOnly, false, 'последняя ревизия доступна для правок');
+  assert.match(described.label, /Ревизия 3 · опубликована/);
+});
+
+test('серверная форма ревизий: старая и explicit-ревизия только для чтения', () => {
+  const instance = archive({ latestRevision: 3 });
+  const list = serverRevisions();
+  const selected = instance.selectRevision(list, 1);
+  assert.equal(selected.revision, 1);
+  assert.equal(selected.sha256, 'sha-one');
+  assert.equal(selected.explicit, true);
+  assert.equal(instance.describeRevision(selected).readOnly, true, 'explicit read-only');
+  assert.equal(instance.describeRevision(list[0]).readOnly, true, 'старая ревизия read-only');
+  assert.equal(instance.describeRevision(list[1]).readOnly, true, 'ревизия 2 тоже не latest');
+  assert.equal(instance.describeRevision({ ...list[2], explicit: true }).readOnly, true, 'explicit поверх latest');
+  assert.equal(instance.resolveDefault(list).revision, 3, 'явный выбор не сдвигает default');
+  assert.equal(instance.selectRevision(list, 99), null);
+  assert.equal(instance.resolveDefault([{ revision: 'x' }, {}]), null, 'битые строки не дают default');
 });
 
 // Связка с полосой смен 43: восстановленный/исторический ряд не становится
@@ -368,7 +479,7 @@ test('без данных provenance карточка восстановленн
 });
 
 // Интеграция с модалкой архива (10-archive.js): честный текст и ревизии.
-function loadArchiveModal(withProvider) {
+function loadArchiveModal(withProvider, providerOverride) {
   const archiveFile = here + '10-archive.js';
   const ids = {};
   for (const id of [
@@ -382,7 +493,7 @@ function loadArchiveModal(withProvider) {
   };
   const windowStub = {};
   if (withProvider) {
-    windowStub.__wtArchiveRevisionProvider = {
+    windowStub.__wtArchiveRevisionProvider = providerOverride || {
       archiveId: 'archive_1',
       revisions: revisions(),
       provenance: {
@@ -433,6 +544,50 @@ test('модалка архива показывает provenance и после�
   assert.match(history, /2026-11-22T10:00:00\+03:00/, 'дата публикации видна');
   assert.match(history, /openArchiveRevision\(/, 'есть explicit-выбор ревизии');
   assert.doesNotMatch(history, /onclick="(arrive|load|reset|closeShift|addTruck|removeTruck|addMember|removeMember)/, 'никаких активных line-команд');
+});
+
+// Серверная форма ревизий (`server/src/archive-latest.mjs`, toRevision) не несёт
+// `archiveRevision`: список ревизий должен строиться по нормализованному номеру,
+// иначе `Number(undefined) - Number(undefined)` = NaN и порядок остаётся исходным.
+test('серверная форма ревизий: список в модалке отсортирован по номеру, битые строки отброшены', () => {
+  const { ids } = loadArchiveModal(true, {
+    archiveId: 'archive_1',
+    revisions: [
+      { revision: 2, sha256: 'sha-two', createdAt: '2026-11-21T10:00:00+03:00' },
+      { revision: 3, sha256: 'sha-three', createdAt: '2026-11-22T10:00:00+03:00' },
+      { revision: 1, sha256: 'sha-one', createdAt: '2026-11-20T10:00:00+03:00' },
+      { sha256: 'sha-broken' }
+    ],
+    provenance: null
+  });
+  const history = ids.archiveRevisionHistory.innerHTML;
+  assert.match(history, /По умолчанию: ревизия 3/, 'default — старшая серверная ревизия');
+  const options = [...history.matchAll(/<option value="(\d+)"/g)].map(match => Number(match[1]));
+  assert.deepEqual(options, [3, 2, 1], 'порядок по убыванию, без NaN и без битой строки');
+  assert.match(history, /sha-three/, 'SHA-256 виден в списке');
+});
+
+test('рендерер секций опубликован: замороженный просмотр архива тоже их заполняет', () => {
+  // features/paper-viewer.js подменяет renderArchiveModalContent и рисует
+  // только бумажный лист. Секции плашки и истории ревизий остаются в модалке,
+  // поэтому core/10 обязан отдать их рендерер наружу — иначе в собранном
+  // канале они пустые, хотя данные есть.
+  const { ids, window, context } = loadArchiveModal(true);
+  assert.equal(typeof window.__wtRenderArchiveMeta, 'function');
+  ids.archiveProvenanceSection.innerHTML = '';
+  ids.archiveRevisionHistory.innerHTML = '';
+  assert.equal(vm.runInContext('window.__wtRenderArchiveMeta(state.archive[0])', context), '');
+  assert.match(ids.archiveProvenanceSection.innerHTML, /Архивная смена · только правки рейсов\/ТТН/);
+  assert.match(ids.archiveRevisionHistory.innerHTML, /По умолчанию: ревизия 3/);
+});
+
+test('замороженный просмотр архива заполняет секции и сохраняет provenance', () => {
+  const paperViewer = readFileSync(new URL('../features/paper-viewer.js', import.meta.url), 'utf8');
+  assert.match(paperViewer, /window\.__wtRenderArchiveMeta\(/, 'paper-viewer заполняет секции плашки и ревизий');
+  // Вызов идёт всегда, а не только при наличии данных: иначе на записи без
+  // provenance в секциях оставался HTML предыдущей записи.
+  assert.match(paperViewer, /provenance:record\.provenance\|\|null/, 'снимок хранит provenance закрытой смены');
+  assert.match(paperViewer, /provenance:archiveSnapshot\.provenance\|\|null/, 'хук получает provenance снимка');
 });
 
 test('явный просмотр ревизии не меняет default и помечается только для чтения', () => {

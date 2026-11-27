@@ -35,15 +35,29 @@
   // Разрешимые конфликты: код и безопасные details остаются пользователю.
   const CONFLICT_REJECTIONS = ['shift-changed', 'revision-conflict', 'truck-not-on-shift', 'archive-changed', 'operation-id-reused', 'operation-hash-conflict'];
   // Только эти поля серверных details можно хранить и показывать: никаких
-  // телефонов, почты, uid и вложенных объектов.
+  // телефонов, почты, uid и вложенных объектов. Список совпадает с серверным
+  // `DETAIL_KEYS` (server/src/v2-errors.mjs) плюс поля клиента: иначе журнал
+  // терял половину `actual*` и не мог объяснить конфликт ревизий.
   const SAFE_DETAIL_KEYS = [
-    'reason', 'field', 'phase', 'stage', 'type', 'conflict',
-    'sourceShiftId', 'destinationShiftId', 'objectId', 'objectName',
-    'workDate', 'shiftType', 'truckId', 'archiveId', 'archiveRevision',
+    // серверный закрытый список (v2-errors.mjs)
+    'field', 'reason', 'state', 'limit', 'cursor',
+    'operationId', 'protocolVersion',
+    'shiftId', 'objectId', 'workDate', 'shiftType', 'truckId',
+    'sourceShiftId', 'destinationShiftId', 'cycleId', 'stage',
+    'expectedRevision', 'actualRevision',
+    'expectedShiftRevision', 'actualShiftRevision',
+    'expectedMembershipRevision', 'actualMembershipRevision',
+    'expectedStatusRevision', 'actualStatusRevision',
+    'expectedCycleRevision', 'actualCycleRevision',
+    'expectedTtnRevision', 'actualTtnRevision',
+    'expectedDetachedCycleRevision', 'actualDetachedCycleRevision',
+    'expectedArchiveRevision', 'actualArchiveRevision',
+    'expectedMaterialMarkerRevision', 'actualMaterialMarkerRevision',
+    'retryAfterSeconds', 'replayed',
+    // поля, которые клиент формирует сам
+    'phase', 'type', 'conflict', 'objectName', 'archiveId', 'archiveRevision',
     'recordId', 'restoredContextId', 'contextRevision',
-    'expectedRevision', 'currentRevision', 'expectedShiftRevision',
-    'expectedStatusRevision', 'expectedCycleRevision', 'expectedTtnRevision',
-    'shiftRevision', 'status'
+    'currentRevision', 'shiftRevision', 'status'
   ];
   const MAX_DETAIL_LENGTH = 200;
   const SHA256_K = [

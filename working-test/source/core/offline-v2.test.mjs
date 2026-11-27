@@ -282,6 +282,22 @@ test('conflict: shift-changed/revision-conflict/truck-not-on-shift — код и
   }
 });
 
+test('журнал сохраняет пару expected/actual конфликта ревизий', () => {
+  const journal = makeJournal();
+  journal.enqueue(command({ operationId: 'op_pair' }));
+  const result = journal.markRejected('op_pair', 'revision-conflict', {
+    expectedStatusRevision: 2, actualStatusRevision: 3,
+    expectedCycleRevision: 2, actualCycleRevision: 3,
+    uid: 'uid_secret', email: 'secret@example.com'
+  });
+  assert.equal(result.ok, true);
+  const record = journal.readQueue('shift_a').find(row => row.operationId === 'op_pair');
+  assert.deepEqual(plain(record.rejection.details), {
+    expectedStatusRevision: 2, actualStatusRevision: 3,
+    expectedCycleRevision: 2, actualCycleRevision: 3
+  }, 'фактические числа сохраняются: без них конфликт не объяснить');
+});
+
 test('повтор с тем же hash возвращает receipt, другой hash — конфликт, а не второй запрос', () => {
   const journal = makeJournal();
   const enqueued = journal.enqueue(command({ operationId: 'op_receipt' }));

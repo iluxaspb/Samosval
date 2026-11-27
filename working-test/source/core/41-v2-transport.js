@@ -18,15 +18,32 @@
   const DEFAULT_INTERVAL_MS = 4000;
   const MAX_DETAIL_LENGTH = 200;
   // Только эти поля серверных details безопасно показывать: никаких телефонов,
-  // почты, uid и вложенных объектов.
+  // почты, uid и вложенных объектов. Список обязан совпадать с серверным
+  // `DETAIL_KEYS` (server/src/v2-errors.mjs) плюс поля, которые клиент выводит
+  // сам. Раньше он разошёлся с сервером и выбрасывал всю половину `actual*`,
+  // поэтому конфликт ревизий приходил без фактических чисел: «было 2, стало 5»
+  // сказать было нечем. Сервер уже отфильтровал PII, повторная фильтрация
+  // списком не должна терять пару expected/actual.
   const SAFE_DETAIL_KEYS = [
-    'reason', 'field', 'phase', 'stage', 'type', 'conflict',
-    'sourceShiftId', 'destinationShiftId', 'objectId', 'objectName',
-    'workDate', 'shiftType', 'truckId', 'archiveId', 'archiveRevision',
+    // серверный закрытый список (v2-errors.mjs)
+    'field', 'reason', 'state', 'limit', 'cursor',
+    'operationId', 'protocolVersion',
+    'shiftId', 'objectId', 'workDate', 'shiftType', 'truckId',
+    'sourceShiftId', 'destinationShiftId', 'cycleId', 'stage',
+    'expectedRevision', 'actualRevision',
+    'expectedShiftRevision', 'actualShiftRevision',
+    'expectedMembershipRevision', 'actualMembershipRevision',
+    'expectedStatusRevision', 'actualStatusRevision',
+    'expectedCycleRevision', 'actualCycleRevision',
+    'expectedTtnRevision', 'actualTtnRevision',
+    'expectedDetachedCycleRevision', 'actualDetachedCycleRevision',
+    'expectedArchiveRevision', 'actualArchiveRevision',
+    'expectedMaterialMarkerRevision', 'actualMaterialMarkerRevision',
+    'retryAfterSeconds', 'replayed',
+    // поля, которые клиент формирует сам (квитанции и проверки снимков)
+    'phase', 'type', 'conflict', 'objectName', 'archiveId', 'archiveRevision',
     'recordId', 'restoredContextId', 'contextRevision',
-    'expectedRevision', 'currentRevision', 'expectedShiftRevision',
-    'expectedStatusRevision', 'expectedCycleRevision', 'expectedTtnRevision',
-    'shiftRevision', 'retryAfterMs'
+    'currentRevision', 'shiftRevision', 'retryAfterMs'
   ];
 
   function isRecord(value) {
@@ -460,6 +477,10 @@
         shiftId: settings.destinationShiftId,
         body: {
           sourceShiftId: settings.sourceShiftId,
+          // Смена назначения обязана быть и в теле: сервер сверяет её с путём
+          // и отказывает в переносе, если тело называет другую смену (§5.4).
+          // Без поля команда всегда падала с invalid-command/destinationShiftId.
+          destinationShiftId: settings.destinationShiftId,
           expectedSourceShiftRevision: settings.expectedSourceShiftRevision,
           expectedDestinationShiftRevision: settings.expectedDestinationShiftRevision,
           expectedStatusRevision: settings.expectedStatusRevision,
@@ -491,6 +512,10 @@
         operationId: settings.operationId,
         shiftId: settings.sourceShiftId,
         body: Object.assign({}, isRecord(settings.fields) ? settings.fields : {}, compact({
+          // Исходная смена едет и в пути, и в теле: сервер читает
+          // `sourceShiftId` из тела и сверяет со сменой пути (§5.4). Без поля
+          // команда всегда падала с invalid-command/sourceShiftId.
+          sourceShiftId: settings.sourceShiftId,
           truckId: settings.truckId,
           destinationShiftId: settings.destinationShiftId,
           type: settings.type,
