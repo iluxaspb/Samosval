@@ -10,6 +10,8 @@ import {
   resetIsolatedDatabase,
   withAdminClient,
 } from './helpers/isolated-db.mjs';
+import { submitArchive, shiftsAreCanonicalV2 } from '../src/archive-store.mjs';
+import { readArchiveSnapshot } from '../src/archive-read.mjs';
 
 const connectionString = process.env.TEST_DATABASE_URL;
 let approved = false;
@@ -1060,4 +1062,120 @@ test('latest_finalized_* stays the only default pointer and no synthetic current
     )).rows;
     assert.deepEqual(stateColumns.map(row => `${row.table_name}.${row.column_name}`), ['restored_shift_contexts.context_state']);
   });
+});
+
+// ---------- 13. legacy archive restore on the canonical schema ----------
+
+// Восстановление архивной смены legacy-путём пишет в `shifts` v1-документ, а на
+// канонической схеме мост `shifts_legacy_bridge` требует строгий v2-документ
+// (23514, что API отдавал как 500 server-error). Design §4.7/§3.4 запрещает
+// restored archive как active shift — его место `restored_shift_contexts`,
+// поэтому отказ обязан быть честным и стабильным (409) и приходить до любой
+// записи: ни `shifts`, ни `line_logs`, ни `line_truck_statuses`, ни
+// `archive_overrides`, ни receipt/audit.
+test('archive restore refuses on the canonical schema before writing anything', { skip: !approved }, async () => {
+  const ws = 'workspace_archive_restore_025';
+  const uid = 'admin_archive_restore_025';
+  const recordId = 'restored_025';
+  const operationId = 'restore_refused_025';
+  const importSha = sha(`archive-restore-025:${ws}`);
+  const archive = {
+    objectId: 'object_archive_restore_025',
+    objectName: 'Объект',
+    date: '24.11.2026',
+    activeLineIds: [TRUCK],
+    ttnStatus: { [TRUCK]: 'pending' },
+    sourceShiftId: 'shift_archive_source_025',
+    logs: [{ id: 'trip_restore_025', truckId: TRUCK, timestamp: 10, volume: 24 }],
+  };
+  const pool = new pg.Pool({ connectionString, max: 2 });
+  let originalState;
+  try {
+    // import-таблицы создаёт привилегированное соединение: у app-роли нет
+    // CREATE на schema public. `grant: true` выдаёт app-роли DML на созданное,
+    // как это делает runner между провижинингом и стартом ребёнка.
+    await withAdminClient(async admin => {
+      await admin.query('CREATE TABLE IF NOT EXISTS migration_imports (sha256 text PRIMARY KEY,workspace_id text NOT NULL,source_project text NOT NULL,exported_at bigint NOT NULL,imported_at timestamptz NOT NULL DEFAULT now(),counts jsonb NOT NULL)');
+      await admin.query('CREATE TABLE IF NOT EXISTS migration_documents (import_sha256 text NOT NULL REFERENCES migration_imports(sha256),document_path text NOT NULL,payload jsonb NOT NULL,PRIMARY KEY(import_sha256,document_path))');
+    }, { grant: true });
+    await withClient(async client => {
+      originalState = (await client.query('SELECT initialized,owner_uid,import_sha256 FROM identity_state WHERE id=1')).rows[0];
+      await client.query('INSERT INTO workspaces(id) VALUES($1) ON CONFLICT(id) DO NOTHING', [ws]);
+      await client.query(
+        `INSERT INTO app_users(uid,email,display_name,role,status)
+         VALUES($1,'restore025@example.test',$1,'admin','active') ON CONFLICT(uid) DO NOTHING`,
+        [uid],
+      );
+      await client.query(
+        `INSERT INTO migration_imports(sha256,workspace_id,source_project,exported_at,counts)
+         VALUES($1,$2,'samosval-offline',1000,'{}')`,
+        [importSha, ws],
+      );
+      await client.query('UPDATE identity_state SET initialized=true,import_sha256=$1 WHERE id=1', [importSha]);
+      await client.query(
+        'INSERT INTO migration_documents(import_sha256,document_path,payload) VALUES($1,$2,$3)',
+        [importSha, `workspaces/${ws}/archive/${recordId}`, archive],
+      );
+      // Объект и самосвал на месте: без отказа операция дошла бы до INSERT в
+      // `shifts` и упала бы на мосту смены (23514) — это и есть исходный 500.
+      await client.query(
+        'INSERT INTO workspace_objects(workspace_id,object_id,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
+        [ws, archive.objectId, { name: 'Объект' }],
+      );
+      await client.query(
+        'INSERT INTO line_trucks(workspace_id,truck_id,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
+        [ws, TRUCK, { brand: 'Fixture', number: 'A025AA77', defaultVol: 24 }],
+      );
+    });
+
+    // Отказ: стабильный код и статус, а не 500 из триггера.
+    await assert.rejects(
+      submitArchive(pool, uid, { id: operationId, type: 'archive.restore', recordId, expectedRevision: 1 }, ws),
+      error => {
+        assert.equal(error.code, 'archive-restore-requires-v2');
+        assert.equal(error.status, 409);
+        return true;
+      },
+    );
+
+    await withClient(async client => {
+      // Условие отказа действительно выполнено, и старый путь здесь невозможен:
+      // прямой v1-INSERT в `shifts` (то, что делал legacy-restore) отбивает мост.
+      assert.equal(await shiftsAreCanonicalV2(client), true, 'схема каноническая');
+      await assert.rejects(
+        client.query('INSERT INTO shifts(workspace_id,shift_id,is_active,payload) VALUES($1,$2,true,$3)', [ws, 'legacy_probe_025', { id: 'legacy_probe_025' }]),
+        code('23514'),
+      );
+      // Ни одной записи после отказа.
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM shifts WHERE workspace_id=$1', [ws])).rows[0].n, 0, 'в shifts нет строки');
+      assert.equal((await client.query("SELECT count(*)::int AS n FROM shifts WHERE workspace_id=$1 AND payload->>'restored'='true'", [ws])).rows[0].n, 0);
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM line_logs WHERE workspace_id=$1', [ws])).rows[0].n, 0, 'в line_logs пусто');
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM line_truck_statuses WHERE workspace_id=$1', [ws])).rows[0].n, 0, 'в line_truck_statuses пусто');
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM archive_overrides WHERE workspace_id=$1 AND record_id=$2', [ws, recordId])).rows[0].n, 0, 'override не появился');
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM workspace_service_receipts WHERE workspace_id=$1 AND operation_id=$2', [ws, operationId])).rows[0].n, 0, 'receipt не создан');
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM workspace_service_audit WHERE workspace_id=$1', [ws])).rows[0].n, 0, 'audit не создан');
+    });
+    // Источник архива тоже не тронут: запись остаётся в архиве как была.
+    assert.deepEqual((await readArchiveSnapshot(pool, uid, ws)).archives.map(row => row.id), [recordId]);
+  } finally {
+    try {
+      await withClient(async client => {
+        if (originalState) {
+          await client.query(
+            'UPDATE identity_state SET initialized=$1,owner_uid=$2,import_sha256=$3 WHERE id=1',
+            [originalState.initialized, originalState.owner_uid, originalState.import_sha256],
+          );
+        }
+        for (const table of ['workspace_service_audit', 'workspace_service_receipts', 'archive_overrides', 'line_logs', 'line_truck_statuses', 'line_trucks', 'workspace_objects', 'shifts']) {
+          await client.query(`DELETE FROM ${table} WHERE workspace_id=$1`, [ws]);
+        }
+        await client.query('DELETE FROM migration_documents WHERE import_sha256=$1', [importSha]);
+        await client.query('DELETE FROM migration_imports WHERE sha256=$1', [importSha]);
+        await client.query('DELETE FROM workspaces WHERE id=$1', [ws]);
+        await client.query('DELETE FROM app_users WHERE uid=$1', [uid]);
+      });
+    } finally {
+      await pool.end();
+    }
+  }
 });

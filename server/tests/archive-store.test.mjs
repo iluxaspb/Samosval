@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import pg from 'pg';
-import {submitArchive} from '../src/archive-store.mjs';
+import {submitArchive, shiftsAreCanonicalV2} from '../src/archive-store.mjs';
 import {readArchiveSnapshot} from '../src/archive-read.mjs';
 import {submitRestoredCorrection} from '../src/restored-context-store.mjs';
 import {finalizeRestoredContext} from '../src/archive-revisions.mjs';
@@ -117,4 +117,32 @@ test('restored finalize refuses an invalid session or command before touching th
     null,
   ])await assert.rejects(finalizeRestoredContext(pool,{uid:'gate_user'},'ctx_fin',bad),{code:'invalid-archive-operation'});
   assert.equal(connects,0);
+});
+// Единственное условие отказа `archive-restore-requires-v2` — каноническая
+// схема смен 025. Проверяем предикат без БД: подставной клиент фиксирует, что
+// он спрашивает каталог `information_schema` ровно про обе канонические
+// колонки, и что кешируется только положительный ответ — «колонок ещё нет»
+// (baseline S24) обязано перепроверяться, иначе применённая позже 025
+// оставила бы старый путь восстановления включённым.
+test('canonical shift schema detection asks for both 025 columns and caches only the positive answer',async()=>{
+  const stub=found=>{
+    const client={queries:[],async query(sql){this.queries.push(sql);return {rows:[{found}]};}};
+    return client;
+  };
+  const canonical=stub(2);
+  assert.equal(await shiftsAreCanonicalV2(canonical),true);
+  assert.equal(await shiftsAreCanonicalV2(canonical),true,'положительный ответ кешируется');
+  assert.equal(canonical.queries.length,1);
+  assert.match(canonical.queries[0],/information_schema\.columns/);
+  assert.match(canonical.queries[0],/table_name='shifts'/);
+  assert.match(canonical.queries[0],/'state'/);
+  assert.match(canonical.queries[0],/'payload_schema_version'/);
+  // S24: ни одной канонической колонки (или только одна) — это не v2-схема,
+  // и повторный вызов снова идёт в каталог.
+  for(const found of [0,1]){
+    const legacy=stub(found);
+    assert.equal(await shiftsAreCanonicalV2(legacy),false);
+    assert.equal(await shiftsAreCanonicalV2(legacy),false);
+    assert.equal(legacy.queries.length,2,'отрицательный ответ не кешируется');
+  }
 });

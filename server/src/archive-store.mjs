@@ -14,6 +14,23 @@ async function revisionsExist(client,ws,archiveId){
   if(!(await hasRevisionChain(client)))return false;
   return (await client.query('SELECT 1 FROM shift_archive_revisions WHERE workspace_id=$1 AND archive_id=$2 LIMIT 1',[ws,archiveId])).rowCount>0;
 }
+// Каноническая схема смен (миграция 025) добавляет в `shifts` колонки
+// `state`/`payload_schema_version` и вешает на таблицу триггер
+// `shifts_legacy_bridge`, который на любую запись требует строгий v2-документ.
+// Legacy-восстановление архивной смены пишет в `shifts` v1-строку, поэтому на
+// такой схеме оно принципиально несовместимо: design §4.7 — canonical
+// восстановление создаёт `restored_shift_contexts`, а не active shift (§3.4:
+// restored archive не становится active shift). Проверка дешёвая; кешируем
+// только положительный ответ (как `hasRevisionChain`): устаревший false после
+// применения 025 был бы опаснее лишнего запроса к каталогу.
+const canonicalShifts=new WeakMap();
+export async function shiftsAreCanonicalV2(client){
+  if(canonicalShifts.get(client)===true)return true;
+  const {rows}=await client.query("SELECT count(*)::int AS found FROM information_schema.columns WHERE table_schema='public' AND table_name='shifts' AND column_name IN ('state','payload_schema_version')");
+  const present=rows[0]?.found===2;
+  if(present)canonicalShifts.set(client,true);
+  return present;
+}
 // Hash нормализованной архивной команды — ровно то же правило, что применяет
 // serviceCommand к своим receipt'ам: sha256 от JSON нормализованной команды (без
 // полей тела вроде uid). Нужен вызывающим, которые пишут receipt/publication сами
@@ -85,6 +102,12 @@ export function submitArchive(pool,uid,input,ws=WS){
       // редактирования параллельно с активной сменой линии. Классический путь
       // (линия свободна) сохранён: restored-смена становится единственной
       // активной линией со статусами самосвалов.
+      // На канонической схеме 025 этот путь запрещён дизайном (§4.7, §3.4):
+      // restored archive не становится active shift, его место —
+      // `restored_shift_contexts`, у которого пока нет маршрута. Отказ честный
+      // и стабильный (409), до любой записи: ни `shifts`, ни `line_logs`, ни
+      // `line_truck_statuses`, ни override/receipt.
+      if(await shiftsAreCanonicalV2(client))throw fail('archive-restore-requires-v2',409);
       const active=(await client.query("SELECT shift_id,payload FROM shifts WHERE workspace_id=$1 AND is_active AND payload->>'restored' IS DISTINCT FROM 'true' AND payload->>'closing' IS DISTINCT FROM 'true' FOR UPDATE",[ws])).rows;
       const restoredOpen=(await client.query("SELECT shift_id FROM shifts WHERE workspace_id=$1 AND is_active AND payload->>'restored'='true' FOR UPDATE",[ws])).rows;
       if(restoredOpen.length)throw fail('restored-shift-in-progress',409);
