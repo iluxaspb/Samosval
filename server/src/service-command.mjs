@@ -8,6 +8,13 @@ export async function serviceActor(client,uid,permission,{admin=false,lock=true}
   if(permission&&actor.role!=='admin'&&!(await client.query('SELECT allowed FROM role_permissions WHERE role=$1 AND action=$2'+(lock?' FOR SHARE':''),[actor.role,permission])).rows[0]?.allowed)throw fail('forbidden',403);
   return actor;
 }
+// Чтение снимка: проверка доступа отдельным коротким запросом, без транзакции —
+// сам снимок собирается вне транзакции и только при промахе кэша версии.
+export async function readActor(pool,uid){
+  const actor=(await pool.query('SELECT uid,email,display_name,role,status,profile FROM app_users WHERE uid=$1',[uid])).rows[0];
+  if(!actor||actor.status!=='active'||actor.profile?.deleted)throw fail('forbidden',403);
+  return actor;
+}
 // Recheck access before replay; keep receipt, mutation and audit in one transaction.
 export async function serviceCommand(pool,uid,op,ws,authorize,mutate){
   if(!map(op)||!validId(op.id))throw fail('invalid-operation');

@@ -41,10 +41,12 @@ export async function auxiliaryEntries(client,ws){
  }
  return data;
 }
-export async function readAuxiliary(pool,uid,ws=WS){
+// Снимок журнала без привязки к пользователю: собирается один раз на версию
+// данных, фильтры по роли применяются в presentAuxiliary.
+export async function loadAuxiliary(pool,ws=WS){
  const client=await pool.connect();
  try{
-  await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const actor=await serviceActor(client,uid,null,{lock:false});
+  await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   const data=await auxiliaryEntries(client,ws);
   // Derive ticker entries from authoritative committed actions, never a second client write.
   const rows=(await client.query('SELECT h.*,u.email,u.display_name,t.payload AS truck_data FROM line_history h LEFT JOIN app_users u ON u.uid=h.uid LEFT JOIN line_trucks t ON t.workspace_id=h.workspace_id AND t.truck_id=h.truck_id WHERE h.workspace_id=$1 ORDER BY h.created_at DESC LIMIT 300',[ws])).rows;
@@ -57,9 +59,58 @@ export async function readAuxiliary(pool,uid,ws=WS){
    const events=(await client.query(`SELECT * FROM ${table} ${table==='identity_audit'?'':'WHERE workspace_id=$1'} ORDER BY created_at DESC LIMIT 200`,table==='identity_audit'?[]:[ws])).rows;
    for(const e of events){const at=new Date(e.created_at).getTime();data.audit.set(table+'_'+e.operation_id,{id:table+'_'+e.operation_id,timestamp:at,eventType:e.type,text:e.type,userName:e.uid,timeStr:new Date(at).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}),...(table==='control_audit'?{history:{operations:[{collection:e.type.startsWith('line.')?'truckStatus':e.type.startsWith('truck.')?'trucks':'objects',id:e.after_data?.id||e.before_data?.id||'',before:e.before_data,after:e.after_data}]}}:{})});}
   }
-  let plugins=[...data.plugins.values()];if(actor.role!=='admin')plugins=plugins.filter(p=>p.enabled&&!p.removed&&(!p.allowedRoles?.length||p.allowedRoles.includes(actor.role)));
-  await client.query('COMMIT');const result={format:'samosval-auxiliary',version:1,source:'ubuntu',workspaceId:ws,plugins,patches:[...data.patches.values()].filter(p=>actor.role==='admin'||p.enabled),audit:[...data.audit.values()].sort((a,b)=>(b.timestamp||0)-(a.timestamp||0)),notifications:[...data.notifications.values()].sort((a,b)=>(b.timestamp||0)-(a.timestamp||0)).slice(0,100)};return actor.role==='admin'?result:publicAuxiliary(result);
+  await client.query('COMMIT');
+  return {plugins:[...data.plugins.values()],patches:[...data.patches.values()],
+    audit:[...data.audit.values()].sort((a,b)=>(b.timestamp||0)-(a.timestamp||0)),
+    notifications:[...data.notifications.values()].sort((a,b)=>(b.timestamp||0)-(a.timestamp||0)).slice(0,100)};
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
+}
+export function presentAuxiliary(data,actor,ws=WS){
+ let plugins=data.plugins;
+ if(actor.role!=='admin')plugins=plugins.filter(p=>p.enabled&&!p.removed&&(!p.allowedRoles?.length||p.allowedRoles.includes(actor.role)));
+ const result={format:'samosval-auxiliary',version:1,source:'ubuntu',workspaceId:ws,plugins,
+  patches:data.patches.filter(p=>actor.role==='admin'||p.enabled),audit:data.audit,notifications:data.notifications};
+ return actor.role==='admin'?result:publicAuxiliary(result);
+}
+// Журнал (audit) — самая тяжёлая часть ответа и одинаковая для всех ролей.
+// Сериализуем его один раз на версию данных, плагины и патчи собираем по роли.
+const SENSITIVE=/password|token|secret|^maxUrl$|^maxChatId$/i;
+function hasSensitive(value,depth=0){
+ if(depth>8||!value||typeof value!=='object')return false;
+ for(const [k,v] of Object.entries(value))if(SENSITIVE.test(k)||hasSensitive(v,depth+1))return true;
+ return false;
+}
+export async function loadAuxiliarySnapshot(pool,ws=WS){
+ const data=await loadAuxiliary(pool,ws);
+ // publicAuxiliary вычищает служебные поля; для журнала проверяем это один раз,
+ // чтобы не перебирать 3,5 МБ на каждый запрос.
+ const needsFilter=hasSensitive(data.audit)||hasSensitive(data.notifications);
+ return {plugins:data.plugins,patches:data.patches,
+  auditText:JSON.stringify(data.audit),notificationsText:JSON.stringify(data.notifications),needsFilter};
+}
+export function auxiliaryText(snapshot,actor,ws=WS){
+ let plugins=snapshot.plugins;
+ if(actor.role!=='admin')plugins=plugins.filter(p=>p.enabled&&!p.removed&&(!p.allowedRoles?.length||p.allowedRoles.includes(actor.role)));
+ let patches=snapshot.patches.filter(p=>actor.role==='admin'||p.enabled);
+ // Служебные поля плагинов (адреса, чаты) чистятся так же, как раньше в
+ // presentAuxiliary; журнал чистим отдельно и только если в нём есть что чистить.
+ if(actor.role!=='admin'){plugins=publicAuxiliary(plugins);patches=publicAuxiliary(patches);}
+ const head='{"format":"samosval-auxiliary","version":1,"source":"ubuntu","workspaceId":'+JSON.stringify(ws)
+  +',"plugins":'+JSON.stringify(plugins)+',"patches":'+JSON.stringify(patches)+',"audit":';
+ const tail=',"notifications":'+snapshot.notificationsText+'}';
+ if(actor.role==='admin'||!snapshot.needsFilter)return head+snapshot.auditText+tail;
+ return JSON.stringify(publicAuxiliary({format:'samosval-auxiliary',version:1,source:'ubuntu',workspaceId:ws,plugins,patches,
+  audit:JSON.parse(snapshot.auditText),notifications:JSON.parse(snapshot.notificationsText)}));
+}
+export async function readAuxiliary(pool,uid,ws=WS,load=loadAuxiliary){
+ const client=await pool.connect();
+ let actor;
+ try{
+  await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  actor=await serviceActor(client,uid,null,{lock:false});
+  await client.query('COMMIT');
+ }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
+ return presentAuxiliary(await load(pool,ws),actor,ws);
 }
 export function normalizeAuxiliary(input){
  if(map(input)&&validId(input.id)&&input.type==='backup.import'){

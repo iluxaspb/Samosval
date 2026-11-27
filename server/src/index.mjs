@@ -2,6 +2,7 @@ import {truckPhones} from './truck-phone.mjs';
 import http from 'node:http';
 import {readServerControl,submitServerCommand,observeServerRequest} from './server-control.mjs';
 import {sendJson as send} from './json-response.mjs';
+import {dataVersion,sharedValue,sendVersioned} from './snapshot-cache.mjs';
 import {readNotifications,submitNotificationTest,deliverNotification} from './notification-store.mjs';
 import {installDatasetGuard,datasetRequest} from './dataset-guard.mjs';
 import {readBackups,submitBackup} from './backup-store.mjs';
@@ -25,8 +26,9 @@ import { startShiftOperation } from './shift-start.mjs';
 import { readCatalog, submitControl } from './control-store.mjs';
 import {readSettings,submitSettings} from './settings-store.mjs';
 import {submitArchive} from './archive-store.mjs';
-import {readGames,submitGame} from './game-store.mjs';
-import {readAuxiliary,submitAuxiliary} from './auxiliary-store.mjs';
+import {readGames,submitGame,loadGamesSnapshot,gamesText} from './game-store.mjs';
+import {readAuxiliary,submitAuxiliary,loadAuxiliarySnapshot,auxiliaryText} from './auxiliary-store.mjs';
+import {readActor} from './service-command.mjs';
 import {handleHealthRequest} from './health.mjs';
 import {handleV2Request} from './v2-router.mjs';
 import {readAuthorityState,switchAuthority,assertWriteAuthority,touchPresence} from './authority.mjs';
@@ -288,7 +290,18 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
   if(path==='/api/v1/auxiliary'&&['GET','POST'].includes(req.method)){
     const uid=await verifyRequestUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
     try{
-      if(req.method==='GET')return send(res,200,await readAuxiliary(pool,uid));
+      if(req.method==='GET'){
+        // Журнал одинаков для всех ролей, а плагины и патчи зависят от роли.
+        // Поэтому тяжёлый журнал собирается один раз на версию данных, а ответ
+        // роли склеивается из готовых частей без повторной сериализации.
+        const version=await dataVersion(pool);
+        if(version===null)return send(res,200,await readAuxiliary(pool,uid));
+        const actor=await readActor(pool,uid);
+        return sendVersioned(req,res,{scope:'auxiliary:'+actor.role,version,build:async()=>{
+          const snapshot=await sharedValue('auxiliary',version,()=>loadAuxiliarySnapshot(pool));
+          return auxiliaryText(snapshot,actor);
+        }});
+      }
       if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
       return send(res,200,await submitAuxiliary(pool,uid,await readJson(req,8000000)));
     }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[auxiliary-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}
@@ -311,7 +324,17 @@ const server=http.createServer((req,res)=>datasetRequest(pool,req,res,async()=>{
   if(path==='/api/v1/games'&&['GET','POST'].includes(req.method)){
     const uid=await verifyRequestUser(req);if(!uid)return send(res,401,{error:'unauthorized'});
     try{
-      if(req.method==='GET')return send(res,200,await readGames(pool,uid));
+      if(req.method==='GET'){
+        // Записи раундов и история одинаковы для всех: сериализуются один раз
+        // на версию данных. Свои поправки монет каждый видит только сам.
+        const version=await dataVersion(pool);
+        if(version===null)return send(res,200,await readGames(pool,uid));
+        const actor=await readActor(pool,uid);
+        return sendVersioned(req,res,{scope:'games:'+uid,version,build:async()=>{
+          const snapshot=await sharedValue('games',version,()=>loadGamesSnapshot(pool));
+          return gamesText(snapshot,actor,uid);
+        }});
+      }
       if(!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json'))return send(res,415,{error:'unsupported-media-type'});
       return send(res,200,await submitGame(pool,uid,await readJson(req)));
     }catch(e){const status=[400,403,409,413].includes(e.status)?e.status:500;if(status===500)console.error('[game-api] request failed',e?.code||e?.name||'unknown');return send(res,status,{error:status===500?'server-error':e.code||e.message});}

@@ -62,15 +62,48 @@ async function gameData(client,ws){
   }
   return {records,adjustments,head,players};
 }
-export async function readGames(pool,uid,ws=WS){
+// Снимок книги без привязки к пользователю: его можно собрать один раз на
+// версию данных и отдать всем (фильтр поправок применяется в presentGames).
+export async function loadGames(pool,ws=WS){
   const client=await pool.connect();
   try{
-    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const actor=await serviceActor(client,uid,null,{lock:false});
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const data=await gameData(client,ws);
-    if(actor.role!=='admin')data.adjustments=data.adjustments.filter(r=>r.targetUid===uid);
-    data.records=data.records.map(gameTransferRecord);
-    await client.query('COMMIT');return {format:'samosval-games',version:1,source:'ubuntu',workspaceId:ws,...data};
+    await client.query('COMMIT');
+    return {records:data.records.map(gameTransferRecord),adjustments:data.adjustments,head:data.head,players:data.players};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
+}
+// Тяжёлая часть книги (записи раундов и история) сериализуется один раз на
+// версию данных и переиспользуется всеми пользователями.
+export async function loadGamesSnapshot(pool,ws=WS){
+  const data=await loadGames(pool,ws);
+  return {recordsText:JSON.stringify(data.records),adjustments:data.adjustments,head:data.head,players:data.players};
+}
+// Текст ответа в том же порядке полей, что и раньше: поправки монет каждый
+// видит только свои, остальное одинаково.
+export function gamesText(snapshot,actor,uid,ws=WS){
+  const adjustments=actor.role==='admin'?snapshot.adjustments:snapshot.adjustments.filter(r=>r.targetUid===uid);
+  return '{"format":"samosval-games","version":1,"source":"ubuntu","workspaceId":'+JSON.stringify(ws)
+    +',"records":'+snapshot.recordsText
+    +',"adjustments":'+JSON.stringify(adjustments)
+    +',"head":'+JSON.stringify(snapshot.head)
+    +',"players":'+JSON.stringify(snapshot.players)+'}';
+}
+export function presentGames(data,actor,uid,ws=WS){
+  return {format:'samosval-games',version:1,source:'ubuntu',workspaceId:ws,
+    records:data.records,
+    adjustments:actor.role==='admin'?data.adjustments:data.adjustments.filter(r=>r.targetUid===uid),
+    head:data.head,players:data.players};
+}
+export async function readGames(pool,uid,ws=WS,load=loadGames){
+  const client=await pool.connect();
+  let actor;
+  try{
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    actor=await serviceActor(client,uid,null,{lock:false});
+    await client.query('COMMIT');
+  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
+  return presentGames(await load(pool,ws),actor,uid,ws);
 }
 export function submitGame(pool,uid,input,ws=WS){
   const op=normalizeGame(input);

@@ -23,6 +23,7 @@ node-проверки и отрицательные сценарии, а так�
 """
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -49,7 +50,7 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.8.8'
+REQUIRED_VERSION = '1.9.0'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
 FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
@@ -107,8 +108,23 @@ ALLOWED_NEW_FILES = {
     'server/src/arcade-rules.mjs',
     'server/src/game-store.mjs',
     'server/src/shift-start.mjs',
+    # Ускорение синхронизации (версия 1.9.0): снимки журнала и игр собираются
+    # один раз на версию данных, ответы сжимаются на прокси.
+    'server/src/snapshot-cache.mjs',
+    'server/src/auxiliary-store.mjs',
+    'server/src/service-command.mjs',
+    'server/src/index.mjs',
+    'server/tests/snapshot-cache.test.mjs',
+    'server/tests/snapshot-text.test.mjs',
+    'server/tests/db-test-manifest.mjs',
 }
 ALLOWED_NEW_PREFIXES = ('working-test/',)
+
+# Проект собирается и тестируется на Node 22 (см. .github/workflows и
+# server/Dockerfile). На более старом Node часть тестов не запускается:
+# например, глобальный crypto появился только в Node 19. Если локальный node
+# старее, укажите совместимый бинарник через SAMOSVAL_NODE_BIN.
+NODE_BIN = os.environ.get('SAMOSVAL_NODE_BIN', 'node')
 
 failures = []
 notes = []
@@ -271,7 +287,14 @@ def check_release_sources():
     if not HISTORY_MODULE.is_file():
         fail('релиз/история', 'нет модуля истории %s' % rel(HISTORY_MODULE))
         return
-    versions = version_field.findall(read(HISTORY_MODULE))
+    history_text = read(HISTORY_MODULE)
+    # Заголовок модуля `window.WORKING_TEST_RELEASE` повторяет номер версии и не
+    # является записью истории: считаем версии только внутри массива releases.
+    releases_match = re.search(r'const\s+releases\s*=\s*\[', history_text)
+    if not releases_match:
+        fail('релиз/история', '%s не содержит массива releases' % rel(HISTORY_MODULE))
+        return
+    versions = version_field.findall(history_text[releases_match.end():])
     if not versions:
         fail('релиз/история', '%s не содержит записей version' % rel(HISTORY_MODULE))
         return
@@ -361,7 +384,13 @@ def check_modules(entry_text, model, manifest, build_id):
         'ticker-name', 'nav-sort', 'fix-log-delete', 'anim-speeds',
         'admin-compact', 'nas-connection',
     }
-    WT_REMOVED_MODULES = {'built-in-patches'}
+    WT_REMOVED_MODULES = {
+        'built-in-patches',
+        # В канале working-test Firebase SDK не загружается вовсе (см. shell.html),
+        # поэтому модули учёта Firebase-трафика к нему не относятся и осознанно
+        # отсутствуют: без SDK они нечем измерять трафик.
+        'firebase-traffic-hook', 'firebase-traffic-inference', 'firebase-traffic-dashboard',
+    }
     if REFERENCE_MODEL.is_file():
         reference = [m.get('name') for m in json.loads(read(REFERENCE_MODEL))['modules']]
         mapped = ['working-test-release' if name == 'test-release' else name for name in reference]
@@ -885,7 +914,18 @@ def check_authority_document(sources):
 # ---------- 11. синтаксис, inline-eval патчей, тесты ----------
 
 def node_available():
-    return shutil.which('node') is not None
+    return shutil.which(NODE_BIN) is not None
+
+
+def node_version():
+    """Версия Node выбранного бинарника: проект требует 22 (как в CI)."""
+    try:
+        result = subprocess.run([NODE_BIN, '-v'], capture_output=True, text=True,
+                                timeout=60, env=child_env())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r'v(\d+)\.', result.stdout or '')
+    return int(match.group(1)) if match else None
 
 
 def node_check(paths, section='node-проверки'):
@@ -895,7 +935,7 @@ def node_check(paths, section='node-проверки'):
     ok = True
     for path in paths:
         try:
-            result = subprocess.run(['node', '--check', str(path)],
+            result = subprocess.run([NODE_BIN, '--check', str(path)],
                                     capture_output=True, text=True, timeout=120,
                                     env=child_env())
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -984,8 +1024,13 @@ def node_tests():
     if not node_available():
         skip('node-тесты', 'node недоступен в среде — тесты не запущены')
         return
+    major = node_version()
+    if major is not None and major < 22:
+        fail('node-тесты', 'Node %s старее требуемого 22: часть тестов на нём не '
+             'запускается. Укажите SAMOSVAL_NODE_BIN=путь/к/node22' % major)
+        return
     try:
-        result = subprocess.run(['node', '--test', *[str(p) for p in tests]],
+        result = subprocess.run([NODE_BIN, '--test', *[str(p) for p in tests]],
                                 cwd=str(ROOT), capture_output=True, text=True,
                                 timeout=600, env=child_env())
     except (OSError, subprocess.TimeoutExpired) as error:
