@@ -9,6 +9,7 @@ import {
 } from './shift-members-v2.mjs';
 import { assignTruck, removeTruck } from './shift-trucks-v2.mjs';
 import { completeDetachedTrip, forceTransferTruck } from './shift-transfer-v2.mjs';
+import { submitLineOperationV2 } from './line-store-v2.mjs';
 
 // `/api/v2` router (design §5, §14, plan Tasks 18–19).
 //
@@ -31,6 +32,7 @@ const TRUCKS_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/trucks$/;
 const TRUCK_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/trucks\/([^/]+)$/;
 const FORCE_TRANSFER_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/trucks\/([^/]+)\/force-transfer$/;
 const DETACHED_COMPLETE_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/detached-trips\/([^/]+)\/complete$/;
+const LINE_OPERATIONS_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/line-operations$/;
 
 // Only the plain token form is an id; `%61`/`a%20b` are not silently normalised
 // into another shift or user.
@@ -65,6 +67,11 @@ function resolveV2Path(pathname) {
       const shiftId = decodeToken(detached[1]);
       const cycleId = decodeToken(detached[2]);
       return shiftId && cycleId ? { kind: 'detached-complete', shiftId, cycleId } : null;
+    }
+    const lineOperations = LINE_OPERATIONS_ROUTE.exec(pathname);
+    if (lineOperations) {
+      const shiftId = decodeToken(lineOperations[1]);
+      return shiftId ? { kind: 'line-operations', shiftId } : null;
     }
     const truck = TRUCK_ROUTE.exec(pathname);
     if (truck) {
@@ -118,6 +125,8 @@ export function matchV2Route(pathname, method = 'GET') {
       return method === 'POST'
         ? { kind: 'detached-complete', shiftId: path.shiftId, cycleId: path.cycleId }
         : null;
+    case 'line-operations':
+      return method === 'POST' ? { kind: 'line-operations', shiftId: path.shiftId } : null;
     default:
       return null;
   }
@@ -207,6 +216,7 @@ export async function handleV2Request(options) {
   const removeTruckCommand = services.removeTruck ?? removeTruck;
   const forceTransferCommand = services.forceTransferTruck ?? forceTransferTruck;
   const completeDetachedCommand = services.completeDetachedTrip ?? completeDetachedTrip;
+  const lineOperationCommand = services.submitLineOperationV2 ?? submitLineOperationV2;
   const workspaceId = input.workspaceId ?? process.env.WORKSPACE_ID ?? 'main_workspace';
 
   try {
@@ -264,6 +274,14 @@ export async function handleV2Request(options) {
       refuseOfflineRequest(req);
       send(res, 200, await forceTransferCommand(pool, actor, {
         ...command, shiftId: route.shiftId, truckId: route.truckId,
+      }));
+      return true;
+    }
+    if (route.kind === 'line-operations') {
+      // The path shift is the only addressed shift. The raw body value is passed
+      // separately so a disagreement is refused instead of silently ignored.
+      send(res, 200, await lineOperationCommand(pool, actor, {
+        ...command, shiftId: route.shiftId, bodyShiftId: body.shiftId,
       }));
       return true;
     }
