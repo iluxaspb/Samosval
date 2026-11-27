@@ -11,6 +11,7 @@ import { assignTruck, removeTruck } from './shift-trucks-v2.mjs';
 import { completeDetachedTrip, forceTransferTruck } from './shift-transfer-v2.mjs';
 import { submitLineOperationV2 } from './line-store-v2.mjs';
 import { finishShiftClose, confirmShiftMaterial, prepareShiftClose } from './shift-close-v2.mjs';
+import { openRestoredArchive, submitArchiveOperationV2 } from './archive-restored-v2.mjs';
 
 // `/api/v2` router (design §5, §14, plan Tasks 18–19).
 //
@@ -37,6 +38,9 @@ const LINE_OPERATIONS_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/line-operations$/;
 const CLOSE_PREPARE_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/close\/prepare$/;
 const CLOSE_MATERIAL_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/close\/material$/;
 const CLOSE_FINISH_ROUTE = /^\/api\/v2\/shifts\/([^/]+)\/close\/finish$/;
+// Restored archive (design §5.6): opening a context and correcting its trips/TTN.
+const ARCHIVE_RESTORED_ROUTE = /^\/api\/v2\/archives\/([^/]+)\/restored$/;
+const ARCHIVE_OPERATIONS_ROUTE = /^\/api\/v2\/archives\/([^/]+)\/operations$/;
 
 // Only the plain token form is an id; `%61`/`a%20b` are not silently normalised
 // into another shift or user.
@@ -53,6 +57,16 @@ function decodeToken(raw) {
 
 function resolveV2Path(pathname) {
   if (pathname === '/api/v2/shifts') return { kind: 'shifts' };
+  const restored = ARCHIVE_RESTORED_ROUTE.exec(pathname);
+  if (restored) {
+    const archiveId = decodeToken(restored[1]);
+    return archiveId ? { kind: 'archive-restored', archiveId } : null;
+  }
+  const archiveOperations = ARCHIVE_OPERATIONS_ROUTE.exec(pathname);
+  if (archiveOperations) {
+    const archiveId = decodeToken(archiveOperations[1]);
+    return archiveId ? { kind: 'archive-operations', archiveId } : null;
+  }
   const snapshot = SNAPSHOT_ROUTE.exec(pathname);
   if (snapshot) {
     const shiftId = decodeToken(snapshot[1]);
@@ -152,6 +166,10 @@ export function matchV2Route(pathname, method = 'GET') {
       return method === 'POST' ? { kind: 'close-material', shiftId: path.shiftId } : null;
     case 'close-finish':
       return method === 'POST' ? { kind: 'close-finish', shiftId: path.shiftId } : null;
+    case 'archive-restored':
+      return method === 'GET' ? { kind: 'archive-restored', archiveId: path.archiveId } : null;
+    case 'archive-operations':
+      return method === 'POST' ? { kind: 'archive-operations', archiveId: path.archiveId } : null;
     default:
       return null;
   }
@@ -178,6 +196,16 @@ async function readCommandBody(input, req) {
     throw v2Error('invalid-command', 400, { field: 'body' });
   }
   return requirePlainBody(parsed);
+}
+
+// A query parameter that must be a positive integer. `?revision=1.5`, `?limit=-2`
+// and `?limit=abc` are schema errors, never a silently different page or revision.
+function queryPositiveInteger(value, field) {
+  if (value === null || value === undefined) return undefined;
+  if (!/^[0-9]+$/.test(value)) throw v2Error('invalid-command', 400, { field });
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) throw v2Error('invalid-command', 400, { field });
+  return parsed;
 }
 
 function protocolUpgrade(declared) {
@@ -245,6 +273,8 @@ export async function handleV2Request(options) {
   const prepareCloseCommand = services.prepareShiftClose ?? prepareShiftClose;
   const confirmMaterialCommand = services.confirmShiftMaterial ?? confirmShiftMaterial;
   const finishCloseCommand = services.finishShiftClose ?? finishShiftClose;
+  const openArchiveCommand = services.openRestoredArchive ?? openRestoredArchive;
+  const archiveOperationCommand = services.submitArchiveOperationV2 ?? submitArchiveOperationV2;
   const workspaceId = input.workspaceId ?? process.env.WORKSPACE_ID ?? 'main_workspace';
 
   try {
@@ -263,6 +293,25 @@ export async function handleV2Request(options) {
     }
     if (route.kind === 'snapshot') {
       send(res, 200, await readSnapshot(pool, actor, { workspaceId, shiftId: route.shiftId }));
+      return true;
+    }
+    if (route.kind === 'archive-restored') {
+      // The query is validated here as well as in the domain: a bad `revision`,
+      // `limit` or `cursor` is a 400 before any read or write.
+      const revision = queryPositiveInteger(url.searchParams.get('revision'), 'revision');
+      const limit = queryPositiveInteger(url.searchParams.get('limit'), 'limit');
+      if (limit !== undefined && limit > 200) throw v2Error('invalid-command', 400, { field: 'limit' });
+      const rawCursor = url.searchParams.get('cursor');
+      if (rawCursor !== null && !SHIFT_TOKEN.test(rawCursor)) {
+        throw v2Error('invalid-command', 400, { field: 'cursor' });
+      }
+      send(res, 200, await openArchiveCommand(pool, actor, {
+        workspaceId,
+        archiveId: route.archiveId,
+        revision,
+        limit,
+        cursor: rawCursor ?? undefined,
+      }));
       return true;
     }
     // Commands: the body never supplies the workspace or the addressed shift —
@@ -323,6 +372,12 @@ export async function handleV2Request(options) {
     }
     if (route.kind === 'close-finish') {
       send(res, 200, await finishCloseCommand(pool, actor, { ...command, shiftId: route.shiftId }));
+      return true;
+    }
+    if (route.kind === 'archive-operations') {
+      // The path names the archive; the context and the source shift come from
+      // the body and the stored context. Nothing here can address an active line.
+      send(res, 200, await archiveOperationCommand(pool, actor, { ...command, archiveId: route.archiveId }));
       return true;
     }
     refuseOfflineRequest(req);
