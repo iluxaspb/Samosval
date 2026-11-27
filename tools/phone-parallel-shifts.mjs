@@ -646,7 +646,10 @@ try{
   // shared section renderer it now calls. Nothing is invoked by hand here: this
   // is the real user path, opened from the archive list.
   const withoutProvider=await admin.ev("document.getElementById('archiveRevisionHistory').textContent");
-  assert.ok(withoutProvider.includes('История ревизий недоступна в этом канале'),withoutProvider);
+  // Канал без маршрута истории ревизий не должен показывать заголовок и
+  // оговорку «недоступна»: пользователю нечего с этим делать, а выглядело бы
+  // это как анонс неработающей функции. Секция остаётся пустой.
+  assert.equal(withoutProvider,'',withoutProvider);
   assert.equal(await admin.ev("document.getElementById('archiveProvenanceSection').innerHTML"),'','no invented provenance');
 
   // This channel has no archive-revision route; the documented host hook is fed

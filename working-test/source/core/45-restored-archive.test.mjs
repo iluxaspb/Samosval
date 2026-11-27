@@ -525,10 +525,18 @@ function loadArchiveModal(withProvider, providerOverride) {
   return { ids, window: windowStub, context: archiveContext };
 }
 
-test('без провайдера ревизий модалка архива честно говорит «История ревизий недоступна в этом канале»', () => {
+test('без провайдера ревизий секция истории не показывается вовсе', () => {
   const { ids } = loadArchiveModal(false);
-  assert.match(ids.archiveRevisionHistory.innerHTML, /История ревизий недоступна в этом канале/);
+  // Заголовок «История ревизий» без данных выглядел бы как реклама
+  // недоступной функции: в канале без маршрута истории пользователю нечего
+  // показывать, поэтому секция пуста, а не заполнена оговоркой.
+  assert.equal(ids.archiveRevisionHistory.innerHTML, '', 'нет ни заголовка, ни оговорки');
   assert.equal(ids.archiveProvenanceSection.innerHTML, '', 'выдуманного provenance нет');
+});
+
+test('провайдер без единой ревизии честно говорит «История ревизий недоступна в этом канале»', () => {
+  const { ids } = loadArchiveModal(true, { archiveId: 'archive_1', revisions: [], provenance: null });
+  assert.match(ids.archiveRevisionHistory.innerHTML, /История ревизий недоступна в этом канале/);
 });
 
 test('модалка архива показывает provenance и последнюю ревизию с SHA-256 и датой', () => {

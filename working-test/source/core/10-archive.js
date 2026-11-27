@@ -89,7 +89,12 @@
     const unavailable = '<div class="archive-revision-empty">История ревизий недоступна в этом канале</div>';
     const provider = archiveRevisionProvider();
     const api = archiveRestoredApi();
-    if (!provider || !api || !Array.isArray(provider.revisions) || !provider.revisions.length) {
+    // Без провайдера ревизий секции нет вовсе. Это не то же самое, что
+    // «ревизий нет»: в канале без маршрута истории пользователю нечего
+    // показывать, а заголовок с честной оговоркой выглядел бы как реклама
+    // недоступной функции. Пустая секция ничего не обещает.
+    if (!provider || !api) return '';
+    if (!Array.isArray(provider.revisions) || !provider.revisions.length) {
       return '<div class="archive-revision-title">История ревизий</div>' + unavailable;
     }
     const latest = api.resolveDefault(provider.revisions);
