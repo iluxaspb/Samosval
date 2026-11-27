@@ -130,56 +130,71 @@ function makeView(overrides = {}) {
   }, overrides);
 }
 
-// Фейковый сервер: держит контекст, проверяет CAS и повторяет форму ответа
-// `applyRestoredCorrection` (result без второго уровня вложенности).
+// Фейковый СЕРВЕР на уровне HTTP-запроса: возвращает ровно тот конверт, что
+// отдаёт `runV2Command` (`{protocolVersion,operationId,replayed,result}`), а
+// транспорт — НАСТОЯЩИЙ `41-v2-transport.js`. Фейковый транспорт, повторяющий
+// мою же догадку о форме ответа, и был причиной пропущенного дефекта (стенд
+// 393×852): HTTP 200, `response.data.result` = undefined, экран не менялся.
+function loadTransportModule() {
+  const sandbox = { console, URLSearchParams };
+  vm.runInNewContext(read('41-v2-transport.js'), sandbox, { filename: '41-v2-transport.js' });
+  return sandbox.WorkingTestV2Transport;
+}
+
 function fakeServer(view = makeView()) {
   const calls = [];
   let failNext = null;
-  const transport = {
-    async readRestoredArchive() {
-      return { ok: true, data: JSON.parse(JSON.stringify(view)) };
-    },
-    async submitArchiveV2(input) {
-      calls.push(JSON.parse(JSON.stringify(input)));
-      if (failNext) {
-        const error = failNext;
-        failNext = null;
-        if (error.bumpRevision) view.contextRevision = error.bumpRevision;
-        return { ok: false, error: { code: error.code, status: error.status } };
-      }
-      if (input.expectedContextRevision !== view.contextRevision) {
-        return { ok: false, error: { code: 'archive-changed', status: 409 } };
-      }
-      const result = {
-        restoredContextId: view.restoredContextId,
-        archiveId: view.archiveId,
-        contextRevision: view.contextRevision + 1,
-        type: input.type,
-        recordId: input.recordId
-      };
-      if (input.type === 'trip.update') {
-        const row = view.trips.find(t => t.logId === input.recordId);
-        if (!row) return { ok: false, error: { code: 'restored-trip-not-found', status: 404 } };
-        Object.assign(row.payload, {
-          volume: input.fields.volume, timeStr: input.fields.timeStr, comment: input.fields.comment
-        });
-        row.logRevision += 1;
-        result.log = JSON.parse(JSON.stringify(row.payload));
-      } else if (input.type === 'trip.delete') {
-        view.trips = view.trips.filter(t => t.logId !== input.recordId);
-      } else if (input.type === 'ttn.update') {
-        const row = view.ttn.find(t => t.truckId === input.recordId);
-        if (row) row.ttnStatus = input.fields.ttnStatus;
-        result.ttn = { truckId: input.recordId, ttnStatus: input.fields.ttnStatus };
-      } else if (input.type === 'ttn.delete') {
-        const row = view.ttn.find(t => t.truckId === input.recordId);
-        if (row) row.ttnStatus = null;
-        result.ttn = { truckId: input.recordId, ttnStatus: null };
-      }
-      view.contextRevision += 1;
-      return { ok: true, data: { result } };
+  const request = async (path, options = {}) => {
+    const method = options.method || 'GET';
+    if (method === 'GET') {
+      if (!/\/restored$/.test(path.split('?')[0])) throw Object.assign(new Error('not found'), { serverCode: 'not-found', status: 404 });
+      return JSON.parse(JSON.stringify(view));
     }
+    const body = options.operation || {};
+    calls.push(JSON.parse(JSON.stringify(body)));
+    if (failNext) {
+      const error = failNext;
+      failNext = null;
+      if (error.bumpRevision) view.contextRevision = error.bumpRevision;
+      throw Object.assign(new Error(error.code), { serverCode: error.code, status: error.status });
+    }
+    if (body.expectedContextRevision !== view.contextRevision) {
+      throw Object.assign(new Error('archive-changed'), { serverCode: 'archive-changed', status: 409 });
+    }
+    const result = {
+      restoredContextId: view.restoredContextId,
+      archiveId: view.archiveId,
+      archiveRevision: view.archiveRevision,
+      archiveSha256: view.baseArchiveSha256,
+      contextRevision: view.contextRevision + 1,
+      actionId: 'restored_action',
+      type: body.type,
+      recordId: body.recordId
+    };
+    if (body.type === 'trip.update') {
+      const row = view.trips.find(t => t.logId === body.recordId);
+      if (!row) throw Object.assign(new Error('restored-trip-not-found'), { serverCode: 'restored-trip-not-found', status: 404 });
+      Object.assign(row.payload, { volume: body.volume, timeStr: body.timeStr, comment: body.comment });
+      row.logRevision += 1;
+      result.log = JSON.parse(JSON.stringify(row.payload));
+    } else if (body.type === 'trip.delete') {
+      view.trips = view.trips.filter(t => t.logId !== body.recordId);
+      result.log = null;
+    } else if (body.type === 'ttn.update') {
+      const row = view.ttn.find(t => t.truckId === body.recordId);
+      if (row) row.ttnStatus = body.ttnStatus;
+      result.ttn = { truckId: body.recordId, ttnStatus: body.ttnStatus };
+    } else if (body.type === 'ttn.delete') {
+      const row = view.ttn.find(t => t.truckId === body.recordId);
+      if (row) row.ttnStatus = null;
+      result.ttn = { truckId: body.recordId, ttnStatus: null };
+    }
+    view.contextRevision += 1;
+    return { protocolVersion: 2, operationId: body.operationId, replayed: false, result };
   };
+  const transport = loadTransportModule().createV2Transport({
+    request, uid: 'uid_a', workspaceId: 'main_workspace'
+  });
   return {
     view, calls, transport,
     failOnce(error) { failNext = error; }
@@ -447,7 +462,9 @@ test('рантайм: отметка ТТН архивного рейса идё
   await runtime.nasRestoreArchivedShift('archive_1');
   await runtime.nasRestoredTtnChange('ctx_1', 'truck_1', true);
   assert.equal(server.calls[0].type, 'ttn.update');
-  assert.deepEqual(server.calls[0].fields, { ttnStatus: true });
+  // На проводе поля операции лежат на верхнем уровне тела (сервер читает
+  // command.data.ttnStatus), а не во вложенном `fields`.
+  assert.equal(server.calls[0].ttnStatus, true);
   assert.equal(sandbox.state.restoredShifts[0].ttn[0].ttnStatus, true);
 });
 

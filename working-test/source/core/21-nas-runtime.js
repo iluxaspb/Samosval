@@ -544,8 +544,18 @@
       const error=Error(api.correctionText(code,status));
       error.serverCode=code;error.status=status;throw error;
     }
-    const result=response.data?.result;
-    entry.card=api.applyResult(entry.card,result||{});
+    // Конверт команды (`41-v2-transport.js` → `command`) плоский:
+    // `{ok,operationId,replayed,retried,result}`. Чтение `response.data.result`
+    // давало undefined, и правка молча «применялась» к пустому объекту: HTTP 200,
+    // ноль изменений на экране (нашёл стенд 393×852). Отсутствие результата —
+    // ошибка, а не повод сделать вид, что всё сохранилось.
+    const result=response.result;
+    if(!result||typeof result!=='object'||Array.isArray(result)){
+      const error=Error(api.correctionText('invalid-api-response',0));
+      error.serverCode='invalid-api-response';
+      throw error;
+    }
+    entry.card=api.applyResult(entry.card,result);
     nasApplyRestoredShifts();
     return result;
   }
