@@ -593,6 +593,9 @@
     renderHeaderStats();
     // П4: перерисовка линии идёт через расписание, чтобы уважать удержания.
     if (hasTabAccess('line')) scheduleRenderLine();
+    // Полоса открытых смен — отдельный элемент, а не карточки линии: порядок
+    // хуков и удержаний она не меняет (задача 25).
+    window.__wtRenderShiftStrip?.();
     if (hasTabAccess('report')) renderReport();
     if (hasTabAccess('archive')) renderArchive();
     if (hasTabAccess('trucks')) { renderGlobalTrucksManage(); renderGlobalObjectsManage(); }

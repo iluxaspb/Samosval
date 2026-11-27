@@ -56,7 +56,9 @@
         "core/22-server-control.js",
         "core/40-shift-contexts.js",
         "core/41-v2-transport.js",
-        "core/42-offline-v2.js"
+        "core/42-offline-v2.js",
+        "core/43-shift-selector.js",
+        "core/44-shift-management.js"
       ]
     },
     {

@@ -97,6 +97,7 @@
     <div id="activeShiftContainer" style="display: none;">
       <div class="line-toolbar">
         <button class="btn btn-secondary btn-small flex-1" id="selectTrucksBtn" onclick="openSelectorModal()">🔍 Выбрать машины из базы на смену</button>
+        <button class="btn btn-secondary btn-small" id="shiftManagementBtn" onclick="openShiftManagement()">🗂 Смены</button>
       </div>
       <div id="tabelV2Counts" hidden class="tabel-counts"></div>
       <div id="trucksLineList"></div>
@@ -429,6 +430,13 @@
   </div>
 </div>
 
+<div id="shiftManagementModal" class="modal" onclick="if(event.target===this)closeShiftManagement()">
+  <div class="modal-content">
+    <div class="modal-head-row"><h3>Смены линии</h3><button class="btn-del" onclick="closeShiftManagement()">✕</button></div>
+    <div class="modal-body" id="shiftManagementBody"></div>
+  </div>
+</div>
+
 <div id="archiveModal" class="modal" onclick="if(event.target===this)closeArchiveModal()">
   <div class="modal-content">
     <div class="modal-head-row"><h3 id="modalArchiveTitle">Отчет</h3><button class="btn-del" onclick="closeArchiveModal()">✕</button></div>
@@ -465,6 +473,8 @@
 </div>
 
 <div id="toast" class="toast">Сохранено</div>
+
+<div id="shiftStrip" class="shift-strip" role="tablist" aria-label="Открытые смены" hidden></div>
 
 <nav id="bottomNav">
   <button class="nav-btn" id="nav-tabel-v2" onclick="openTabelV2(false)"><span class="nav-icon">▦</span><span class="nav-text">Табель</span></button>
