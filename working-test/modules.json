@@ -58,7 +58,9 @@
         "core/41-v2-transport.js",
         "core/42-offline-v2.js",
         "core/43-shift-selector.js",
-        "core/44-shift-management.js"
+        "core/44-shift-management.js",
+        "core/45-restored-archive.js",
+        "core/46-detached-trips.js"
       ]
     },
     {

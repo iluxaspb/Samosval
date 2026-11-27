@@ -268,6 +268,14 @@
     const modal = document.getElementById('shiftManagementModal');
     if (modal) modal.classList.remove('open');
   };
+  // Explicit-просмотр архивной ревизии: без сети и без v1-подмен. Меняется
+  // только выбранная ревизия в модалке архива, default pointer остаётся прежним.
+  window.openArchiveRevision = function (revision) {
+    return typeof openArchiveRevisionView === 'function' ? openArchiveRevisionView(revision) : false;
+  };
+  window.closeArchiveRevision = function () {
+    return typeof closeArchiveRevisionView === 'function' ? closeArchiveRevisionView() : false;
+  };
   window.addEventListener('samosval-working-test-shifts', function () {
     const ui = ensureShiftUi();
     if (ui) ui.selector.render();

@@ -118,11 +118,19 @@
       const s = r.shift, stdLogs = (r.logs||[]).filter(l=>!l.isGAI), gaiLogs=(r.logs||[]).filter(l=>l.isGAI);
       const volume = stdLogs.reduce((sum,l)=>sum+Number(l.volume||0),0);
       const title = escapeHtml(objectTitle(s.objectId, s.objectName)) + ' · ' + escapeHtml(s.startDate||'');
+      // Provenance исходного архива: автор/тип и отдельный восстановивший.
+      // Без данных блок выглядит как раньше — строки не добавляются.
+      let provenanceHtml = '';
+      if (typeof WorkingTestRestoredArchive !== 'undefined' && r.provenance && typeof r.provenance === 'object') {
+        const info = WorkingTestRestoredArchive.createRestoredArchive({}).describeProvenance(r.provenance);
+        provenanceHtml = `<div class="restored-shift-provenance" data-restored-provenance="${escapeHtml(s.id)}"><div class="restored-archive-badge">Архивная смена · только правки рейсов/ТТН</div>${info.lines.map(line=>`<div class="restored-provenance-line">${escapeHtml(line)}</div>`).join('')}</div>`;
+      }
       return `<div class="restored-shift-card" data-restored-shift="${escapeHtml(s.id)}">
         <div class="restored-shift-head">
           <div><b>♻️ Восстановленная смена: ${title}</b><div class="restored-shift-note">Редактируется параллельно с активной сменой. Правки рейсов — в журнале ниже.</div></div>
           ${canEdit?`<button class="btn btn-secondary btn-small" onclick="closeRestoredShift('${escapeHtml(s.id)}')">📥 Вернуть в архив</button>`:''}
         </div>
+        ${provenanceHtml}
         <div class="restored-shift-stats">Объём: <b>${volume} м³</b> · Рейсов: <b>${stdLogs.length}</b>${gaiLogs.length?` · ГАИ: <b>${gaiLogs.length}</b>`:''}</div>
       </div>`;
     }).join('');

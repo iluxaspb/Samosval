@@ -54,8 +54,109 @@
   }
   function renderTrash() { let c = document.getElementById('trashContainer'); if(!state.trash.length) { c.innerHTML=''; return; } let e = hasPermission('archive_edit'); c.innerHTML = `<div class="trash-group"><div class="trash-header">Корзина</div><div class="trash-list">${state.trash.map(i=>`<div class="trash-item"><div class="info"><b>${escapeHtml(objectTitle(i.shift.objectId,i.shift.objectName))}</b> · ${escapeHtml(i.shift.date)}</div>${e?`<button class="btn-del" onclick="purgeFromTrash('${i.id}')">X</button>`:''}</div>`).join('')}</div></div>`; }
   async function purgeFromTrash(id) { if(!requireEdit('archive_delete') || !(await appConfirm('Удалить навсегда?'))) return; try{if(isNasRuntime()){await nasArchiveAction('trash.purge',id);return;}await tfAwait(refs.trash.doc(id).delete());}catch(e){showError(e.message);} }
-  function openArchiveModal(id) { let s = state.archive.find(x=>x.id===id); if(!s) return; viewingArchiveId=id; viewingArchiveGAITable = false; renderArchiveModalContent(s); document.getElementById('archiveModal').classList.add('open'); }
+  function openArchiveModal(id) { let s = state.archive.find(x=>x.id===id); if(!s) return; if (viewingArchiveId !== id) { viewingArchiveId=id; if (typeof window !== 'undefined') window.__wtArchiveRevisionView = null; } viewingArchiveGAITable = false; renderArchiveModalContent(s); document.getElementById('archiveModal').classList.add('open'); }
   function toggleArchiveReportType() { viewingArchiveGAITable = !viewingArchiveGAITable; let s = state.archive.find(x=>x.id===viewingArchiveId); if (s) renderArchiveModalContent(s); }
+  // История ревизий и provenance приходят только инжектированным провайдером:
+  // серверных маршрутов /api/v2/archives/... в этом канале нет, поэтому без
+  // данных UI честно говорит «недоступна», а не выдумывает ревизию 1.
+  function archiveRevisionProvider() {
+    const provider = typeof window !== 'undefined' ? window.__wtArchiveRevisionProvider : null;
+    if (!provider) return null;
+    try {
+      const value = typeof provider === 'function' ? provider() : provider;
+      return value && typeof value === 'object' ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+  function archiveRestoredApi() {
+    return typeof WorkingTestRestoredArchive !== 'undefined'
+      ? WorkingTestRestoredArchive.createRestoredArchive({})
+      : null;
+  }
+  function archiveExplicitView() {
+    const view = typeof window !== 'undefined' ? window.__wtArchiveRevisionView : null;
+    return view && typeof view === 'object' ? view : null;
+  }
+  function archiveProvenanceHtml(provenance) {
+    const api = archiveRestoredApi();
+    if (!api || !provenance || typeof provenance !== 'object') return '';
+    const info = api.describeProvenance(provenance);
+    return '<div class="archive-archive-badge">Архивная смена · только правки рейсов/ТТН</div>'
+      + info.lines.map(line => '<div class="archive-provenance-line">' + escapeHtml(line) + '</div>').join('');
+  }
+  function archiveRevisionSectionHtml() {
+    const unavailable = '<div class="archive-revision-empty">История ревизий недоступна в этом канале</div>';
+    const provider = archiveRevisionProvider();
+    const api = archiveRestoredApi();
+    if (!provider || !api || !Array.isArray(provider.revisions) || !provider.revisions.length) {
+      return '<div class="archive-revision-title">История ревизий</div>' + unavailable;
+    }
+    const latest = api.resolveDefault(provider.revisions);
+    if (!latest) {
+      return '<div class="archive-revision-title">История ревизий</div>' + unavailable;
+    }
+    const view = archiveExplicitView();
+    const selected = view && Number.isSafeInteger(Number(view.revision))
+      ? api.selectRevision(provider.revisions, Number(view.revision))
+      : null;
+    const described = api.describeRevision(selected || latest);
+    const sorted = provider.revisions.slice().sort((a, b) => Number(b.archiveRevision) - Number(a.archiveRevision));
+    const options = sorted.map(revision => {
+      const item = api.describeRevision(revision);
+      const label = 'Ревизия ' + item.revision + ' · ' + (item.publishedAt || 'дата неизвестна')
+        + ' · ' + (item.sha256 ? item.sha256.slice(0, 12) : 'SHA-256 неизвестен');
+      return '<option value="' + item.revision + '"' + (item.revision === described.revision ? ' selected' : '') + '>'
+        + escapeHtml(label) + '</option>';
+    }).join('');
+    return '<div class="archive-revision-title">История ревизий</div>'
+      + '<div class="archive-revision-current">' + (selected ? 'Выбрана ревизия ' : 'По умолчанию: ревизия ')
+      + described.revision + ' · SHA-256 ' + escapeHtml(described.sha256 || '—')
+      + ' · ' + escapeHtml(described.publishedAt || '—') + '</div>'
+      + '<select class="form-control archive-revision-select" onchange="openArchiveRevision(this.value)">' + options + '</select>'
+      + (described.readOnly ? '<div class="archive-revision-readonly">Просмотр ревизии только для чтения. Правки доступны в последней опубликованной ревизии.</div>' : '');
+  }
+  function renderArchiveMetaSections(s) {
+    const provider = archiveRevisionProvider();
+    const provenance = (s && s.provenance) || (provider && provider.provenance) || null;
+    const provenanceHtml = archiveProvenanceHtml(provenance);
+    const historyHtml = archiveRevisionSectionHtml();
+    const provenanceEl = document.getElementById('archiveProvenanceSection');
+    const historyEl = document.getElementById('archiveRevisionHistory');
+    if (provenanceEl || historyEl) {
+      if (provenanceEl) provenanceEl.innerHTML = provenanceHtml;
+      if (historyEl) historyEl.innerHTML = historyHtml;
+      return '';
+    }
+    return '<div class="archive-provenance">' + provenanceHtml + '</div><div class="archive-revision-history">' + historyHtml + '</div>';
+  }
+  // Explicit-просмотр ревизии: только выбор в модалке, default pointer не
+  // меняется, правок не предлагается, сеть не вызывается.
+  function openArchiveRevisionView(revision) {
+    const provider = archiveRevisionProvider();
+    const api = archiveRestoredApi();
+    if (!provider || !api || !Array.isArray(provider.revisions)) return false;
+    const selected = api.selectRevision(provider.revisions, revision);
+    if (!selected) return false;
+    if (typeof window !== 'undefined') {
+      window.__wtArchiveRevisionView = {
+        archiveId: provider.archiveId || viewingArchiveId,
+        revision: selected.archiveRevision,
+        sha256: selected.archiveSha256 || '',
+        explicit: true,
+        readOnly: true
+      };
+    }
+    const shift = (state.archive || []).find(item => item.id === viewingArchiveId);
+    if (shift) renderArchiveModalContent(shift);
+    return true;
+  }
+  function closeArchiveRevisionView() {
+    if (typeof window !== 'undefined') window.__wtArchiveRevisionView = null;
+    const shift = (state.archive || []).find(item => item.id === viewingArchiveId);
+    if (shift) renderArchiveModalContent(shift);
+    return true;
+  }
   function renderArchiveModalContent(s) {
     if (!hasTabAccess('archive')) return; // === SECURITY ===
     // Ф3: фоновые снапшоты вызывают renderArchive → openArchiveModal →
@@ -105,11 +206,14 @@
         } return `<tr><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.name)} <span class="paper-truck-volume">Рейсов: ${l.length}</span>${dupHtml}</div></td>${cells}</tr>`; }).join('');
       html = `<div style="position:relative;" id="archive-paper-wrapper"><div class="paper-scroll-wrapper" style="margin:0;"><div class="paper-report-container compact" style="zoom:0.75;"><div class="paper-header"><div class="paper-object-name">Объект: ${escapeHtml(objectTitle(s.objectId,s.objectName))} (ГАИ)</div><div class="paper-date-vol-row"><div class="paper-report-title">${escapeHtml(s.date)}</div><div class="paper-total-info">Рейсов ГАИ: <b>${gaiLogs.length}</b></div></div></div><table class="paper-table"><thead><tr><th>Самосвал</th>${hC}</tr></thead><tbody>${mH}</tbody></table></div></div></div>`;
     }
-    document.getElementById('modalArchiveBody').innerHTML = toggleBtnHtml + html;
+    // Секции provenance/истории ревизий необязательны: без модуля 45 или без
+    // провайдера данных отчёт архива выглядит и работает как раньше.
+    const metaHtml = typeof renderArchiveMetaSections === 'function' ? renderArchiveMetaSections(s) : '';
+    document.getElementById('modalArchiveBody').innerHTML = toggleBtnHtml + html + metaHtml;
     const keepWrapper=document.getElementById('modalArchiveBody').querySelector('.paper-scroll-wrapper');
     if (keepWrapper && keepScrollLeft) keepWrapper.scrollLeft = keepScrollLeft;
   }
-  function closeArchiveModal() { document.getElementById('archiveModal').classList.remove('open'); viewingArchiveId=null; }
+  function closeArchiveModal() { document.getElementById('archiveModal').classList.remove('open'); viewingArchiveId=null; if (typeof window !== 'undefined') window.__wtArchiveRevisionView = null; }
   async function restoreArchiveToShift() {
     if(state.shift?.closing){showError('Сначала завершите закрытие текущей смены');return;}
     if (!requireEdit('archive_edit') || !viewingArchiveId) return;
