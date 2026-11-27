@@ -1,0 +1,9 @@
+[Unit]
+Description=Сторож API «Учёт самосвалов» (working-test): проверка готовности и подъём контейнера
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/samosval-api-watchdog.sh
+TimeoutStartSec=60

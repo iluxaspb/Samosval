@@ -22,6 +22,8 @@ sudo docker inspect samosval-api-working-test --format '{{.HostConfig.RestartPol
 
 **После перезагрузки сервера** первым делом проверять, что `samosval-api-working-test` в состоянии `Up`: 27.11.2026 он остался в `Exited` (была политика `no`), и рабочая версия писала «нет связи с сервером» при живых базе и Caddy. Подъём — `sudo docker start samosval-api-working-test` (см. `docs/opyt-oshibok.md`, п.15).
 
+**Сторож API** (поставлен 27.11.2026): `systemctl status samosval-api-watchdog.timer` — должен быть `active (waiting)`, следующий запуск раз в минуту. Лог действий: `sudo tail -20 /var/log/samosval-api-watchdog.log`. Сторож сам поднимает `samosval-postgres-ubuntu` и `samosval-api-working-test`, держит политику `unless-stopped` и перезапускает API, если `health/ready` не 200. Отключить при необходимости: `sudo systemctl disable --now samosval-api-watchdog.timer`. Исходники сторожа в репозитории — `tools/systemd/`; установка: `sudo install -m 0755 tools/systemd/samosval-api-watchdog.sh /usr/local/bin/`, юниты — в `/etc/systemd/system/`, затем `sudo systemctl daemon-reload && sudo systemctl enable --now samosval-api-watchdog.timer`.
+
 ## Тесты
 
 - Юнит/доменные (сервер): `cd /home/iluxa/Samosval-repo-main/server && npm test` (или `node --test tests/`); CI GitHub Actions гоняет их с изолированной PostgreSQL.

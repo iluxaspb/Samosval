@@ -1,0 +1,11 @@
+[Unit]
+Description=Таймер сторожа API «Учёт самосвалов» (каждую минуту и после загрузки сервера)
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Unit=samosval-api-watchdog.service
+
+[Install]
+WantedBy=timers.target
