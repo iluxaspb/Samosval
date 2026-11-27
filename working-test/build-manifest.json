@@ -1,11 +1,11 @@
 {
-  "version": "eb4ffda80ac65ac4",
-  "channel": "working-1.8.6",
+  "version": "57e1be34a07f5da2",
+  "channel": "working-1.8.7",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index-working-test.html",
-      "sha256": "9609a6137d124c31d67043109ffd5acd0b6b286432697481c52445a1a1019be5"
+      "sha256": "384ff10ab7cb224b68e6a1be5459dd1e5285b2080e86be42b7b9309e618409a6"
     },
     {
       "url": "./manifest-working-test.webmanifest",
@@ -61,7 +61,7 @@
     },
     {
       "url": "./working-test/synology/session-client.mjs",
-      "sha256": "afcf913bd83760a74f9e6e15232ffa355d45006bcf9fefe1c7541b398991700b"
+      "sha256": "8f085d0c5dfc93ee925e18a1fe781739d1e5d1203ed82d411a83ed669a2124f7"
     },
     {
       "url": "./working-test/synology/tabel-remote.mjs",
@@ -289,7 +289,7 @@
     },
     {
       "url": "./working-test/tabel-v2/material-transfer.mjs",
-      "sha256": "382203c9287da4783929cd0b9c7c91f12695813690fade2f26b00018b63ee821"
+      "sha256": "b337e6509c768856ecb94ca01f6096080df0a29b8b2f316a424554de71dc3bdf"
     },
     {
       "url": "./working-test/tabel-v2/merge-record.mjs",
@@ -350,6 +350,10 @@
     {
       "url": "./working-test/tabel-v2/sheet-access.mjs",
       "sha256": "46d29ea6e8bea20d8723a42c022b2db8b052c2b45e762ed4876958112175cd91"
+    },
+    {
+      "url": "./working-test/tabel-v2/shift-attribution.mjs",
+      "sha256": "9a8154cab618bd7fe021a7a2241463ce7fe196ea1937d0980a54c4ed36595ca2"
     },
     {
       "url": "./working-test/tabel-v2/shift-cards.mjs",
@@ -448,128 +452,128 @@
       "sha256": "57ec8efe1d2e4f631388a0ef3fbf3a654e6fc2f160bcb3225d2a35c287813548"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/admin-compact.js",
+      "url": "./working-test/build/57e1be34a07f5da2/admin-compact.js",
       "sha256": "b1e486079ebefc26e2a7da884368700d97212369dc3b6f35e56503970dca2ba3"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/analytics-v2.js",
+      "url": "./working-test/build/57e1be34a07f5da2/analytics-v2.js",
       "sha256": "af3f3dfeba84508c872e0f9c6004bd07891a2a6e4f308dbcc6e34f210147554e"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/anim-speeds.js",
+      "url": "./working-test/build/57e1be34a07f5da2/anim-speeds.js",
       "sha256": "ad51852599ec7101ff5813dd960e291954eeb113e9646307d882661ec06f0cb5"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/auto-backup.js",
+      "url": "./working-test/build/57e1be34a07f5da2/auto-backup.js",
       "sha256": "c04e222b588b5a67cc9cc95436637288a4afd5b8d6971997d71ddae159f9a317"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/closed-shift-duplicates.js",
+      "url": "./working-test/build/57e1be34a07f5da2/closed-shift-duplicates.js",
       "sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/confirm-bridge.js",
+      "url": "./working-test/build/57e1be34a07f5da2/confirm-bridge.js",
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/core.js",
-      "sha256": "f51a76670624439562e160ba22bcdbbd4a49ed49ea6ebdf3be5426d593cc2869"
+      "url": "./working-test/build/57e1be34a07f5da2/core.js",
+      "sha256": "377443a1b0ad68271bb646caf34aa985f46af3118931e381114b2cf43274fd7b"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/fix-log-delete.js",
+      "url": "./working-test/build/57e1be34a07f5da2/fix-log-delete.js",
       "sha256": "f1e5cd94d94a0187d96aa942e23aa22a79acd72d2491e3966022932d23003cd9"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/gai-report-toggle.js",
+      "url": "./working-test/build/57e1be34a07f5da2/gai-report-toggle.js",
       "sha256": "584a1b9bfb8c3edd8229fe73be5db55788dc251c182b545c27a4cac1b9c1455a"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/game-coins-v2.js",
+      "url": "./working-test/build/57e1be34a07f5da2/game-coins-v2.js",
       "sha256": "fed591b2a21131883724a33d9ce97f55c4d90738ca8b2efeb83a32828d5256aa"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/global-interface-haptics.js",
+      "url": "./working-test/build/57e1be34a07f5da2/global-interface-haptics.js",
       "sha256": "f1b8613f85be1745740cecd2c7f57287a8408644a1109360972897ef8401578b"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/history-recorder.js",
+      "url": "./working-test/build/57e1be34a07f5da2/history-recorder.js",
       "sha256": "e8712ee58da70e891d040de339d126a5b23f012eb033c18af08a80202a55299d"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/line-card-layers.js",
+      "url": "./working-test/build/57e1be34a07f5da2/line-card-layers.js",
       "sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/nav-sort.js",
+      "url": "./working-test/build/57e1be34a07f5da2/nav-sort.js",
       "sha256": "f3dcd96edb1d4d7cdb73821b87f903ded07fcae820ad2c9616e3c8cbe533ddf3"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/offline-feedback.js",
+      "url": "./working-test/build/57e1be34a07f5da2/offline-feedback.js",
       "sha256": "e1b849e3afc04b839e0115171fade2b2d9e7dec78d42e571d2970fbdc3b55641"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/paper-viewer.js",
-      "sha256": "81fc33f0faf0bdd09f8778dc3bfba25ae9568bd2ae8af999f0ff297accacb125"
+      "url": "./working-test/build/57e1be34a07f5da2/paper-viewer.js",
+      "sha256": "a11843daf6115d4113ad058c5599d190ceeb3ff7758a3f33ede7c437d09e091d"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/pretty-confirm.js",
+      "url": "./working-test/build/57e1be34a07f5da2/pretty-confirm.js",
       "sha256": "039eab5aaa5d9aa9cedd1aea095cbaa446e7721987b4c34704a6c4ec8e00fd1f"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/release-history.js",
-      "sha256": "8a534640baf1b11009405581528172b58cbf76f34b2c526f71e9e835a81f0227"
+      "url": "./working-test/build/57e1be34a07f5da2/release-history.js",
+      "sha256": "51497861de01576c9347e83b7346f7177feb57c3edbaa4c326304e8ccb972b30"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/reset-hold.js",
+      "url": "./working-test/build/57e1be34a07f5da2/reset-hold.js",
       "sha256": "926eb9b879ae490384d17fc54c28d49061d3182b1daf9f72739dfaca7b16c674"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/reset-settings.js",
+      "url": "./working-test/build/57e1be34a07f5da2/reset-settings.js",
       "sha256": "45bd5eba801d2d67758dfac630657ce95666c83fd187d80b58349a450b507775"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/road-arcade-core.js",
+      "url": "./working-test/build/57e1be34a07f5da2/road-arcade-core.js",
       "sha256": "3a67b434412880843eb6bec89e33b0da2aa55940806d18787451fb20c72d0ae2"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/road-arcade-runtime.js",
+      "url": "./working-test/build/57e1be34a07f5da2/road-arcade-runtime.js",
       "sha256": "a46e9bb06ca605d3919bcd04b415d7c0ffd8b1623a7c92733d1a103d35a2e63a"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/road-arcade-ui.js",
+      "url": "./working-test/build/57e1be34a07f5da2/road-arcade-ui.js",
       "sha256": "f61a5bfd335f2213d8da3d75f69c51e18b3e0317de73fefc4d2d87e835982a5a"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/road-jokes-v1.js",
+      "url": "./working-test/build/57e1be34a07f5da2/road-jokes-v1.js",
       "sha256": "a25b2e30bfd8a2c8c3bf9665b3c8aa3ec2768df99085b0df90ed637c155d1bfa"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/road-season-effects-v1.js",
+      "url": "./working-test/build/57e1be34a07f5da2/road-season-effects-v1.js",
       "sha256": "1447fe55145ad75200008647e0071d8b65d8bf9c9eaa2eef10a6a5b86f7e1592"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/road-shop-v1.js",
+      "url": "./working-test/build/57e1be34a07f5da2/road-shop-v1.js",
       "sha256": "37279a9991c2dff3a4434eae11ebb8974dde0b91c59bd28e105383b86345c821"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/settings-hub.js",
+      "url": "./working-test/build/57e1be34a07f5da2/settings-hub.js",
       "sha256": "2dc9114447d2ebcfe4f0b1ee9927fac170a1c70e83449229329ae74ef5592bcd"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/ticker-name.js",
+      "url": "./working-test/build/57e1be34a07f5da2/ticker-name.js",
       "sha256": "c3c5d0a42867f385683dee426df51a82a8ae98a107672889d705eb2a361dc16f"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/trip-analytics.js",
+      "url": "./working-test/build/57e1be34a07f5da2/trip-analytics.js",
       "sha256": "2d16315e037c948907a52fa579f159f2dc67412a2221c72ac33ba55e07d1a35b"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/undo-redo.js",
+      "url": "./working-test/build/57e1be34a07f5da2/undo-redo.js",
       "sha256": "90f20a8c66026d89181aa7a20a927bc15c90bafe8ee9bc08d0e490aab0a1a9ae"
     },
     {
-      "url": "./working-test/build/eb4ffda80ac65ac4/working-test-release.js",
-      "sha256": "c3f02ea2a2291880c945ad58c550c980020755934073e7b47991e108d0541923"
+      "url": "./working-test/build/57e1be34a07f5da2/working-test-release.js",
+      "sha256": "1d89c88c92aa138504cf0afbf7794a50a279c29a578cf46a9ecf17ff0cf01aab"
     }
   ]
 }
