@@ -17,6 +17,10 @@ import { fileURLToPath } from 'node:url';
 const here = fileURLToPath(new URL('./', import.meta.url));
 const configSrc = readFileSync(here + '00-config-state.js', 'utf8');
 const lineUiSrc = readFileSync(here + '18-line-ui.js', 'utf8');
+// Полосу в браузере рисует features/ticker-name.js: он загружается после ядра и
+// перетирает renderStatusTicker из 18-line-ui.js. Проверять только ядро нельзя —
+// именно так первый вариант правки прошёл юнит-тесты и не изменил экран.
+const tickerSrc = readFileSync(here + '../features/ticker-name.js', 'utf8');
 const navigationSrc = readFileSync(here + '19-navigation.js', 'utf8');
 const styleSrc = readFileSync(here + '../styles/style-05.css', 'utf8');
 
@@ -48,19 +52,30 @@ test('проверка погрузки по подтверждённому ре
 });
 
 test('заголовок полосы называет объект, когда открыто несколько смен', () => {
-  assert.match(lineUiSrc, /function scopeLabel\(item\)/,
-    'подпись полосы вычисляется отдельно');
-  assert.match(lineUiSrc, /window\.__wtVisibleShiftCount/,
+  assert.match(tickerSrc, /function tickerScopeLabel\(item\)/,
+    'подпись полосы вычисляется в фактическом рендере полосы');
+  assert.match(tickerSrc, /window\.__wtVisibleShiftCount/,
     'число открытых смен приходит из полосы смен');
-  assert.match(lineUiSrc, /ПОСЛЕДНЕЕ ДЕЙСТВИЕ · /,
+  assert.match(tickerSrc, /base \+ ' · ' \+ name/,
     'при двух сменах в заголовке виден объект');
-  assert.match(lineUiSrc, /id="tickerScope"/,
+  assert.match(tickerSrc, /id="tickerScope"/,
     'заголовок обновляется вместе с переключением смены');
+  assert.match(tickerSrc, /scopeEl\.textContent !== scopeText/,
+    'после переключения смены заголовок правится без полной перестройки');
+});
+
+test('фактический рендер полосы тоже отбирает уведомление выбранной смены', () => {
+  assert.match(tickerSrc, /function getLastNotification\(\)[\s\S]*?tickerBelongsToShift\(item, shiftId\)/,
+    'features/ticker-name.js фильтрует записи по смене, а не берёт общий журнал');
+  assert.match(tickerSrc, /const shiftId = state\.shift && state\.shift\.id \? state\.shift\.id : ''/,
+    'смена берётся из выбранного контекста');
 });
 
 test('полоса обновляет точки на вкладках смен', () => {
-  assert.match(lineUiSrc, /window\.__wtRefreshShiftBadges/,
+  assert.match(tickerSrc, /window\.__wtRefreshShiftBadges/,
     'новое уведомление пересчитывает точки на вкладках');
+  assert.match(lineUiSrc, /window\.__wtRefreshShiftBadges/,
+    'резервный рендер ядра делает то же самое');
   assert.match(navigationSrc, /lastActionAt: shiftActionAt/,
     'полоса смен получает время последнего действия смены');
   assert.match(navigationSrc, /seenAt: shiftSeenAt/,
