@@ -23,6 +23,7 @@ const lineUiSrc = readFileSync(here + '18-line-ui.js', 'utf8');
 const tickerSrc = readFileSync(here + '../features/ticker-name.js', 'utf8');
 const navigationSrc = readFileSync(here + '19-navigation.js', 'utf8');
 const styleSrc = readFileSync(here + '../styles/style-05.css', 'utf8');
+const offlineSrc = readFileSync(here + '16-offline-replay.js', 'utf8');
 
 test('полоса отбирает уведомление выбранной смены, а не общий журнал', () => {
   assert.match(configSrc, /function tickerBelongsToShift\(item, shiftId\)/,
@@ -91,6 +92,13 @@ test('отметка просмотра хранится на устройств
     'просмотр пишется по конкретной смене');
   assert.match(navigationSrc, /item\.shiftId !== shiftId/,
     'время действия берётся только своей смены');
+});
+
+test('локальное офлайн-действие попадает в полосу своей смены', () => {
+  // offlineProjectTicker кладёт запись в общий журнал. Без shiftId полоса
+  // выбранной смены её отбросит, и оператор не увидит своё же действие.
+  assert.match(offlineSrc, /shiftId:state\.shift\.id/,
+    'локальная запись офлайн-очереди помечается выбранной сменой');
 });
 
 test('точка на вкладке описана стилем и не мешает прежним бейджам', () => {

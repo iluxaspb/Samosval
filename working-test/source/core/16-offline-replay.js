@@ -143,7 +143,9 @@
     // ticker-v9 reads state.notifications: present a temporary local entry.
     state.notifications=(state.notifications||[]).filter(x=>!x.offlinePending);
     const local=offlineLocalTicker();
-    if(local)state.notifications.unshift({...local,userName:getUserName(),createdBy:getUserName()});
+    // Полоса отбирает записи по shiftId: локальное действие офлайн-очереди
+    // принадлежит выбранной смене и обязано попасть именно в её полосу.
+    if(local)state.notifications.unshift({...local,shiftId:state.shift.id,userName:getUserName(),createdBy:getUserName()});
   }
   function offlineProjection(before,op){
     if(!before||!before.onLine||before.shiftId!==op.shiftId)return {status:before};
