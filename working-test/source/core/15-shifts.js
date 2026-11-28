@@ -67,6 +67,9 @@
       if (!(await appConfirm(state.shift.closing?'Завершить закрытие смены?':'Закрыть смену?'))) return;
       if(button){button.disabled=true;button.textContent='⏳ Сохраняем и закрываем смену…';}
       if(isNasRuntime()){
+        // Фаза нужна только для честного текста ошибки: без неё любой сбой
+        // серверного закрытия выдавался за отказ «(подтверждение)».
+        phase='закрытие на сервере';
         await nasCloseCurrentShift(shiftId);showToastEl('Смена закрыта',false);return;
       }
       // Firebase-путь закрытия смены удалён (очистка 2026-11-23): Ubuntu —
