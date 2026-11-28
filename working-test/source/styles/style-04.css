@@ -482,6 +482,11 @@
     .shift-question { font-size:13px;margin-bottom:6px; }
     .edit-log-info { margin-bottom:12px;font-size:14px; }
     .selector-search { margin-top:10px; }
+    /* Название объекта, на который добавляется самосвал: сверху окна выбора,
+       чтобы при нескольких открытых сменах не перепутать линию. */
+    .selector-object { display:flex;gap:6px;align-items:baseline;margin-top:10px;font-size:13px;color:var(--muted); }
+    .selector-object b { color:var(--text);font-size:14px;overflow-wrap:anywhere; }
+    .selector-object[hidden] { display:none !important; }
     .archive-actions { display:flex;gap:8px;margin-top:10px;flex-wrap:wrap; }
     .flex-gap-10 { display:flex;gap:10px; }
 

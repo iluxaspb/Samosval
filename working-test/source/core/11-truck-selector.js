@@ -1,4 +1,26 @@
+  // Объект выбранной смены: имя из снимка v2, иначе из базы объектов по id.
+  // Показывается в окне выбора самосвалов, чтобы при нескольких открытых
+  // сменах было видно, на какую линию добавляется машина.
+  function selectorObjectName() {
+    const shift = state.shift || null;
+    if (!shift) return '';
+    const direct = String(shift.objectName || '').trim();
+    if (direct) return direct;
+    const id = String(shift.objectId || '').trim();
+    if (!id) return '';
+    const found = (state.objects || []).find(o => o && o.id === id);
+    return found ? String(found.name || '').trim() : '';
+  }
+  function renderSelectorObjectName() {
+    const box = document.getElementById('selectorObjectName');
+    if (!box) return;
+    const value = document.getElementById('selectorObjectValue');
+    const name = selectorObjectName();
+    if (value) value.textContent = name;
+    box.hidden = !name;
+  }
   function renderSelectorList() {
+    renderSelectorObjectName();
     let q = (document.getElementById('truckSearchInput').value||'').toLowerCase();
     let c = document.getElementById('selectorListContainer');
     let f = state.trucks.filter(t=>(t.brand+' '+t.number).toLowerCase().includes(q));
