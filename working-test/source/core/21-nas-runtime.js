@@ -155,7 +155,7 @@
   // The browser can safely render its verified catalog without changing NAS data.
   function presentNasLineNotification(item){
     if(!item||typeof item.id!=='string'||!item.id.startsWith('nas_')||!['arrive','load','ttn','reset','no-return'].includes(item.type))return item;
-    const labels={arrive:'Прибытие на линию',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера','no-return':'Самосвал не приехал'};
+    const labels={arrive:'Прибытие на линию',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера','no-return':'Самосвал больше не приедет'};
     const truck=state.trucks.find(row=>row.id===item.truckId);
     const visibleTruck=truck?truckLabelHtml(item.truckId):'<b>Самосвал</b>';
     const log=item.type==='load'&&!item.logId?state.logs.find(row=>row.clientOperationId===item.actionId&&row.truckId===item.truckId&&row.shiftId===item.shiftId):null;

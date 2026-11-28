@@ -239,7 +239,7 @@
     const rows=ids.map((id,index)=>{
       const truck=snapshot.trucks.get(id), trips=orderedLogs.filter(log=>log.truckId===id), ttn=snapshot.ttn[id];
       const absentFallback=(typeof window.__closedShiftDupEnabled==='function' && window.__closedShiftDupEnabled()) ? (trips.length>0 && ttn!==true && ttn!=='pending') : (trips.length>0 && !ttn);
-      const dup=absentFallback?'<span class="paper-absent-badge" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</span>':'';
+      const dup=absentFallback?'<span class="paper-absent-badge" title="Самосвал больше не приедет" aria-label="Самосвал больше не приедет">Д</span>':'';
       let cells='';
       for(let i=0;i<max;i++) {
         const log=trips[i];

@@ -105,7 +105,7 @@ const firebaseConfig = {
   const ACTION_LABELS = {
     timesheet_edit: 'Табель: часы и материалы', timesheet_manage: 'Табель: справочники и экипажи', timesheet_export: 'Табель: выгрузка CSV',
     start_shift: 'Начать смену', close_shift: 'Закрыть смену', edit_line: 'Изменять линию',
-    action_arrive: 'Кнопка «Приехал»', action_load: 'Кнопка «Погрузка»', action_ttn: 'Кнопка «ТТН»', action_no_return: 'Кнопка «Дубликат» (самосвал не приехал)', line_timer_reset: 'Сброс таймера ходки',
+    action_arrive: 'Кнопка «Приехал»', action_load: 'Кнопка «Погрузка»', action_ttn: 'Кнопка «ТТН»', action_no_return: 'Кнопка «Самосвал больше не приедет»', line_timer_reset: 'Сброс таймера ходки',
     undo_action: 'Отменять СВОИ действия', undo_any: 'Отменять действия ЛЮБОГО пользователя',
     view_truck_phone: 'Читать телефон самосвала', call_truck_phone: 'Кнопка Позвонить', add_truck_phone: 'Добавлять отсутствующий телефон',
     edit_logs: 'Редактировать рейсы', manage_trucks: 'Управлять базой самосвалов', manage_objects: 'Управлять базой объектов',

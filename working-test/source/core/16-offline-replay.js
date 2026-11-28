@@ -135,7 +135,7 @@
   function offlineLocalTicker(){
     if(!state.shift)return null;
     const op=offlineShiftPending(state.shift.id).slice(-1)[0];if(!op)return null;
-    const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):op.type==='no-return'?'🚫 Не приехал':(op.wantArrived===false?'↩️ Снял прибытие':'🚛 Приехал');
+    const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):op.type==='no-return'?'🚫 Больше не приедет':(op.wantArrived===false?'↩️ Снял прибытие':'🚛 Приехал');
     return {id:op.id,type:'offline',offlinePending:true,createdByEmail:op.email,timestamp:op.createdAt,
       html:label+' · '+truckLabelHtml(op.truckId)+' <span style="color:#f59e0b;font-size:10px">☁️ ОФЛАЙН</span>'};
   }
@@ -289,7 +289,7 @@
       items.push(op);offlineJournalWrite(items); // Commit locally first; never silently lose an action.
       try{window.__gameCoinQueued?.(op);}catch(e){console.warn('[game animation]',e);}
       const old=state.truckStatus[id];offlineProjectState();signalLineTransition(id,old,state.truckStatus[id]);refreshLineViews();
-      const label=type==='reset'?'🔄 Сброс таймера':type==='load'?'⚡ Погрузка':type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):type==='no-return'?'🚫 Не приехал':(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
+      const label=type==='reset'?'🔄 Сброс таймера':type==='load'?'⚡ Погрузка':type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):type==='no-return'?'🚫 Больше не приедет':(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
       showToastEl(label+' · '+truckLabelHtml(id),false);
       if(navigator.onLine)offlineReplayJournal();
       return true;
@@ -348,7 +348,7 @@
     try{
       const ref=refs.notifications.doc('offline_'+op.id),snap=await ref.get({source:'server'});
       if(!snap.exists){
-        const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):op.type==='no-return'?'🚫 Не приехал':(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
+        const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):op.type==='no-return'?'🚫 Больше не приедет':(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
         await ref.set({...offlineUndoFields(op,result.beforeStatus||op.beforeStatus),gamePenaltyKey:window.__gamePenaltyKey(op.type,op.truckId,result.status||{},result.log?.id,op.id),type:op.type,truckId:op.truckId,logId:result.log?.id||null,
           createdBy:op.actor,createdByEmail:op.email||'',timestamp:op.createdAt,shiftId:op.shiftId,objectId:op.objectId||'',objectName:op.objectName||'',
           html:label+' · '+truckLabelHtml(op.truckId)});
@@ -358,7 +358,7 @@
       const ref=refs.audit.doc('offline_'+op.id),snap=await ref.get({source:'server'});
       if(!snap.exists){
         const names={reset:'🔄 Сброс таймера',arrive:op.wantArrived?'🚛 Прибытие на линию':'↩️ Снято прибытие на линию',
-          load:'⚡ Погрузка самосвала',ttn:op.collect?'📄 Забрана ТТН':'↩️ Снята отметка ТТН','no-return':'🚫 Самосвал не приехал'};
+          load:'⚡ Погрузка самосвала',ttn:op.collect?'📄 Забрана ТТН':'↩️ Снята отметка ТТН','no-return':'🚫 Самосвал больше не приедет'};
         await ref.set({text:(names[op.type]||op.type)+': '+op.truckName,
           timeStr:new Date(op.createdAt).toLocaleString('ru-RU'),
           objectName:state.shift?.objectName||'—',objectId:state.shift?.objectId||'',
@@ -502,6 +502,7 @@
                 if(op.type==='load'&&appConfig.notifyLoad)enqueueMax('⚡ Погрузка\n🚛 '+name+'\n👤 '+actor,{truckId:op.truckId,logId:result.log?.id||'',reis:getLogs().filter(l=>l.truckId===op.truckId).length});
                 if(op.type==='arrive'&&op.wantArrived&&appConfig.notifyArrive)enqueueMax('🚛 Приехал на объект\n🚛 '+name+'\n👤 '+actor);
                 if(op.type==='ttn'&&op.collect&&appConfig.notifyTtn)enqueueMax('📄 Забрал ТТН\n🚛 '+name+'\n👤 '+actor);
+                if(op.type==='no-return')enqueueMax('🚫 Самосвал больше не приедет\n🚛 '+name+'\n👤 '+actor);
               }
             }
             offlineNotifyAccepted(op,result).catch(e=>console.warn('[offline effects]',e));

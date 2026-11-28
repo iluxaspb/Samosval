@@ -10,7 +10,7 @@ const recordId=x=>typeof x==='string'&&x.length>0&&x.length<=200&&!x.includes('/
 /** Render public history events using a readable, escaped truck label, never the internal truck ID. */
 export function presentLineHistory(h){
  const actor=h.game_actor||{},at=new Date(h.created_at).getTime();
- const label=({arrive:'Прибытие на линию',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера','no-return':'Самосвал не приехал'})[h.type]||h.type;
+ const label=({arrive:'Прибытие на линию',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера','no-return':'Самосвал больше не приедет'})[h.type]||h.type;
  const truck=map(h.truck_data)?h.truck_data:{};
  const brand=typeof truck.brand==='string'?truck.brand.trim():'';
  const number=typeof truck.number==='string'?truck.number.trim():'';

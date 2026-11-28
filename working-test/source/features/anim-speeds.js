@@ -99,7 +99,7 @@
     .truck-card .info-row.info-arrive b { color: #f59e0b !important; }
     .truck-card .action-row {
       flex: 0 0 44px !important; height: 44px !important; margin: 0 !important;
-      display: grid !important; grid-template-columns: auto 2fr 1fr auto !important;
+      display: grid !important; grid-template-columns: auto 1fr 46px 46px !important;
       gap: 5px !important; align-items: stretch !important;
     }
     .truck-card .btn {
@@ -109,8 +109,15 @@
     }
     .truck-card .btn-arrive .idle-timer { font-size: 14px !important; }
     .truck-card .btn-arrive .idle-label { font-size: 8px !important; }
-    .truck-card .btn-ttn { font-size: 10.5px !important; }
-    .truck-card .btn-no-return { font-size: 9.5px !important; padding: 2px 4px !important; }
+    .truck-card .btn-ttn { font-size: 17px !important; padding: 0 !important; background: #ef9a9a !important; color: #4c0d0d !important; border: 1px solid #f8c9c9 !important; }
+    .truck-card .btn-ttn.active-ttn { background: #166534 !important; color: #f0fdf4 !important; border: 1px solid #4ade80 !important; }
+    .truck-card .btn-no-return { font-size: 18px !important; padding: 0 !important; background: #4b5563 !important; color: #ef4444 !important; border: 1px solid #6b7280 !important; }
+    /* Выключенная кнопка не должна сохранять свой цвет: у ТТН и «не приедет»
+       цвет задан с !important, поэтому серый disabled повторяется здесь. */
+    .truck-card .btn:disabled {
+      background: #475569 !important; color: #94a3b8 !important;
+      border-color: transparent !important; opacity: 0.6 !important;
+    }
     .truck-card.anim-up { z-index: 100 !important; }
     .truck-card.anim-down { z-index: 1 !important; }
     .truck-card.anim-loading {
@@ -369,7 +376,7 @@
       const tripsCount = tLogs.length;
 
       let arrBtn;
-      // «Не приехал» снимается только кнопкой «Приехал»: кулдаун ходки не
+      // «Больше не приедет» снимается только кнопкой «Приехал»: кулдаун ходки не
       // должен запирать машину в этом статусе.
       if (inC && !absent) {
         arrBtn = `<button class="btn btn-arrive" disabled><span style="display:flex;flex-direction:column;align-items:center;line-height:1.1;"><span class="idle-label">Ходка</span><span class="cooldown-timer" style="font-size:14px;" data-load-ts="${lastL}">${formatIdleDuration(cyc - (now - lastL))}</span></span></button>`;
@@ -379,7 +386,10 @@
         arrBtn = `<button class="btn btn-arrive" ${canEditArrive ? `onpointerdown="startArriveHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''} ${!canEditArrive ? 'disabled' : ''}>🚛 Приехал</button>`;
       }
 
-      const ttnTxt = ttn ? '📄 ТТН ✓' : '📄 ТТН';
+      // Значок листка без слова: кнопка узкая, смысл держат цвет и подпись
+      // для экранного диктора. Собранная ТТН — зелёная кнопка (active-ttn).
+      const ttnTxt = '<span aria-hidden="true">📄</span>';
+      const ttnAria = ttn ? 'ТТН забрана' : 'Забрать ТТН';
       const loadBtnTxt = '⚡ Погрузка';
 
       let infoHtml = '';
@@ -399,7 +409,7 @@
         <div class="truck-top">
           <div class="truck-identity">
             <div class="truck-brand">${escapeHtml(t.brand)}</div>
-            ${absent ? '<span class="absent-mark">не приехал</span>' : ''}
+            ${absent ? '<span class="absent-mark">Больше не приедет</span>' : ''}
             <div class="truck-plate-wrap">${renderRussianPlate(t.number)}</div>
             ${truckPhoneIcon(t)}
           </div>
@@ -408,8 +418,8 @@
         <div class="action-row">
           ${arrBtn}
           <button class="btn btn-quick" ${!canEditLoad || !isA ? 'disabled' : ''} ${canEditLoad && isA ? `onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${loadBtnTxt}</button>
-          <button class="btn btn-ttn ${ttn ? 'active-ttn' : ''}" ${!canEditTtn || absent ? 'disabled' : ''} ${canEditTtn && !absent ? `onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${ttnTxt}</button>
-          <button class="btn btn-no-return" ${!canEditNoReturn || absent ? 'disabled' : ''} ${canEditNoReturn && !absent ? `onpointerdown="startNoReturnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>Дубликат</button>
+          <button class="btn btn-ttn ${ttn ? 'active-ttn' : ''}" aria-label="${ttnAria}" ${!canEditTtn || absent ? 'disabled' : ''} ${canEditTtn && !absent ? `onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${ttnTxt}</button>
+          <button class="btn btn-no-return" aria-label="Самосвал больше не приедет" ${!canEditNoReturn || absent ? 'disabled' : ''} ${canEditNoReturn && !absent ? `onpointerdown="startNoReturnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}><span aria-hidden="true">🚫</span></button>
         </div>
       </div>`;
     }).join('');

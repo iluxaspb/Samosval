@@ -52,13 +52,13 @@
       const sum = tLogs.reduce((s, l) => s + l.volume, 0);
       let st = state.truckStatus[t.id] || {};
       let savedTtn = reportTtnStatus ? reportTtnStatus[t.id] : st.ttnStatus;
-      // Живой лист: латинской D больше нет, статус «не приехал» — серверный флаг.
+      // Живой лист: латинской D больше нет, статус «больше не приедет» — серверный флаг.
       // Закрытая смена (isClosed) сохраняет архивный резервный признак «рейсы есть, ТТН не забрана».
       let absent = !isClosed && st.noReturn === true;
       let archivedDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled())
         ? (isClosed && tLogs.length > 0 && savedTtn !== true && savedTtn !== 'pending')
         : (isClosed && tLogs.length > 0 && st.ttnStatus !== true);
-      let absentBadge = (absent || archivedDup) ? '<span class="paper-absent-badge" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</span>' : '';
+      let absentBadge = (absent || archivedDup) ? '<span class="paper-absent-badge" title="Самосвал больше не приедет" aria-label="Самосвал больше не приедет">Д</span>' : '';
       const brandCell = type === 'gai' ? `${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tLogs.length}</span>${t.number ? '' : absentBadge}` : `${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³ / ${tLogs.length} р</span>${t.number ? '' : absentBadge}`;
       html += `<tr><td style="font-weight:bold;">${idx + 1}</td><td class="truck-cell"><div class="paper-truck-brand">${brandCell}</div>${t.number ? renderRussianPlate(t.number) + absentBadge : ''}</td>`;
       for (let i = 0; i < maxTrips; i++) {
@@ -68,10 +68,10 @@
           const cH = (checkTTN && checkTTN(t.id, l.id, isLast)) ? '<div class="hand-drawn-circle"></div>' : '';
           let commHtml = l.comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(l.comment)}</div>` : '';
           // Свободной клетки после последнего рейса нет — Д поверх последней клетки.
-          const overMark = (absent && isLast && tLogs.length >= maxTrips) ? '<div class="paper-absent-mark overlay" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</div>' : '';
+          const overMark = (absent && isLast && tLogs.length >= maxTrips) ? '<div class="paper-absent-mark overlay" title="Самосвал больше не приедет" aria-label="Самосвал больше не приедет">Д</div>' : '';
           html += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(l.timeStr)}</div><div class="paper-trip-num">${i + 1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(l.createdByEmail, l.createdBy))}</div>${commHtml}${overMark}</div></td>`;
         } else if (i === tLogs.length && absent) {
-          html += '<td><div class="cell-content"><div class="paper-absent-mark" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</div></div></td>';
+          html += '<td><div class="cell-content"><div class="paper-absent-mark" title="Самосвал больше не приедет" aria-label="Самосвал больше не приедет">Д</div></div></td>';
         } else if (type !== 'gai' && i === tLogs.length && st.ttnStatus === 'pending') {
           let dotHtml = st.arriveStatus ? `<div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div>` : '';
           html += `<td><div class="cell-content"><div class="hand-drawn-circle"></div>${dotHtml}</div></td>`;

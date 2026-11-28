@@ -19,7 +19,7 @@
     const deletedLoad=ops.find(o=>o.collection==='logs'&&o.before&&!o.after);
     if(deletedLoad&&status)return 'Отмена погрузки · '+(deletedLoad.before.truckName||deletedLoad.id);
     if(load&&status)return 'Погрузка · '+(load.after.truckName||load.id);
-    if(status&&ops.length===1){const a=status.before||{},b=status.after||{},truck=typeof truckName==='function'?truckName(status.id):status.id;return (a.lastLoadTimestamp&&!b.lastLoadTimestamp?'Сброс таймера':a.arriveTimestamp!==b.arriveTimestamp?(b.arriveTimestamp?'Прибытие':'Снятие прибытия'):a.ttnStatus!==b.ttnStatus?'Отметка ТТН':!status.before?'Добавление на линию':!status.after?'Снятие с линии':'Изменение состояния')+' · '+truck;}
+    if(status&&ops.length===1){const a=status.before||{},b=status.after||{},truck=typeof truckName==='function'?truckName(status.id):status.id;return (a.lastLoadTimestamp&&!b.lastLoadTimestamp?'Сброс таймера':a.arriveTimestamp!==b.arriveTimestamp?(b.arriveTimestamp?'Прибытие':'Снятие прибытия'):a.ttnStatus!==b.ttnStatus?'Отметка ТТН':!!a.noReturn!==!!b.noReturn?(b.noReturn?'Больше не приедет':'Снова приедет'):!status.before?'Добавление на линию':!status.after?'Снятие с линии':'Изменение состояния')+' · '+truck;}
     const names={trucks:'Самосвал',objects:'Объект',logs:'Рейс',shift:'Смена',archive:'Архив',trash:'Корзина',users:'Пользователь',settings:'Настройки',registration_requests:'Заявка',plugins:'Расширение',patches:'Патч',truckStatus:'Линия'};
     return ops.map(o=>(names[o.collection]||o.collection)+' · '+(!o.before?'создание':!o.after?'удаление':'изменение')+' · '+((o.after||o.before)?.number||(o.after||o.before)?.name||(o.after||o.before)?.email||o.id)).slice(0,3).join('; ')+(ops.length>3?' · ещё '+(ops.length-3):'');
   }

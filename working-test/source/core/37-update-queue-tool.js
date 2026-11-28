@@ -71,7 +71,7 @@
     if(ops.length){
       categories.push({id:'trips',title:'Рейсы',count:ops.length,items:ops.map(op=>({
         id:op.id,
-        title:({arrive:'Прибытие',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'})[op.type]+' · '+nasToolTruckLabel(op.truckId,op.truckName||''),
+        title:({arrive:'Прибытие',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера','no-return':'Больше не приедет'})[op.type]+' · '+nasToolTruckLabel(op.truckId,op.truckName||''),
         detail:(op.createdAt?new Date(op.createdAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})+' — ':'')+'не отправлено: '+(noLink?'нет связи':'ожидает отправки')
       }))});
     }

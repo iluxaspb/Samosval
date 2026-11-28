@@ -1,10 +1,12 @@
-// Кнопка «Дубликат» — отметка «самосвал не приехал» (решение владельца 28.11.2026).
+// Кнопка «Самосвал больше не приедет» — отметка «больше не приедет» (решения
+// владельца 28.11.2026: сначала сама отметка, затем значки вместо слов).
 //
 // Требования, которые держит этот файл:
 // 1) право action_no_return есть в матрице и включено мастеру, прорабу и
 //    старшему прорабу; у лопатёра и наблюдателя его нет;
-// 2) кнопка «Дубликат» нарисована в ОБОИХ рендерерах линии (ядро и
-//    анимационный anim-speeds), с удержанием 0,5 с по умолчанию;
+// 2) кнопка нарисована в ОБОИХ рендерерах линии (ядро и анимационный
+//    anim-speeds), с удержанием 0,5 с по умолчанию; на кнопках только значки
+//    (📄 у ТТН и 🚫 у «больше не приедет»), слова не помещаются в ряд;
 // 3) статус noReturn затемняет карточку и уводит её в самый конец списка;
 // 4) «Приехал» снимает статус и не запирается кулдауном ходки;
 // 5) в листках Д — русская, красная, крупная после последнего рейса и
@@ -34,7 +36,7 @@ const sessionClientSrc = readFileSync(path.join(here, '..', '..', 'synology', 's
 
 test('право action_no_return включено мастеру, прорабу и старшему прорабу', () => {
   assert.match(configSrc, /'action_no_return'/, 'право должно быть в ALL_ACTIONS');
-  assert.match(configSrc, /action_no_return: 'Кнопка «Дубликат»/);
+  assert.match(configSrc, /action_no_return: 'Кнопка «Самосвал больше не приедет»'/);
   const block = /const DEFAULT_PERMISSIONS = \{([\s\S]*?)\n  \};/.exec(configSrc);
   assert.ok(block, 'DEFAULT_PERMISSIONS должен быть в 00-config-state.js');
   const roles = {};
@@ -48,16 +50,27 @@ test('право action_no_return включено мастеру, прораб�
   });
 });
 
-test('кнопка «Дубликат» нарисована в обоих рендерерах линии', () => {
+test('кнопка «больше не приедет» нарисована в обоих рендерерах линии', () => {
   for (const [name, src] of [['18-line-ui.js', lineUiSrc], ['anim-speeds.js', animSrc]]) {
-    assert.match(src, /btn-no-return/, `${name}: кнопка Дубликат`);
+    assert.match(src, /btn-no-return/, `${name}: кнопка отметки`);
     assert.match(src, /startNoReturnHold\(event/, `${name}: удержание кнопки`);
     assert.match(src, /canEditNoReturn/, `${name}: право на кнопку`);
-    assert.match(src, /absent-mark/, `${name}: видимая метка «не приехал»`);
+    assert.match(src, /absent-mark[\s\S]{0,60}Больше не приедет/, `${name}: видимая метка «Больше не приедет»`);
   }
   assert.match(actionsSrc, /function startNoReturnHold/);
   assert.match(actionsSrc, /settings\.holdNoReturn\?\?0\.5/, 'по умолчанию удержание 0,5 с');
   assert.match(actionsSrc, /function toggleNoReturn/, 'действие уходит через очередь линии');
+});
+
+test('на кнопках только значки, слова не занимают место в ряду', () => {
+  for (const [name, src] of [['18-line-ui.js', lineUiSrc], ['anim-speeds.js', animSrc]]) {
+    assert.doesNotMatch(src, />Дубликат</, `${name}: слово «Дубликат» с кнопки убрано`);
+    assert.doesNotMatch(src, /Забрать ТТН<\/button>|📄 ТТН/, `${name}: подпись ТТН с кнопки убрана`);
+    assert.match(src, /btn-no-return"[^>]*aria-label="Самосвал больше не приедет"/, `${name}: знак назван для диктора`);
+    assert.match(src, /btn-ttn[^>]*aria-label="\$\{ttnAria\}"/, `${name}: ТТН названа для диктора`);
+    assert.match(src, /aria-hidden="true">🚫</, `${name}: знак «не приедет» — пиктограмма`);
+    assert.match(src, /aria-hidden="true">📄</, `${name}: знак ТТН — пиктограмма`);
+  }
 });
 
 test('статус noReturn затемняет карточку и уводит её в конец списка', () => {
