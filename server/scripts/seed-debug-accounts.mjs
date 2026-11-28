@@ -77,7 +77,10 @@ export async function seedDebugAccounts(pool, options = {}) {
       throw new Error('база ' + database + ' похожа на рабочую; запуск остановлен (нужен --force)');
     }
     const admin = await resolveAdmin(client, options.admin);
-    const credential = (await client.query('SELECT password_hash,salt,algorithm FROM user_credentials WHERE uid=$1', [admin.uid])).rows[0];
+    // Копировать целиком: рабочая тестовая база может содержать Firebase
+    // SCRYPT credentials (password_hash/salt/algorithm/password_reset_required),
+    // а не только локальные scrypt-sha256 записи.
+    const credential = (await client.query('SELECT password_hash,salt,algorithm,password_reset_required FROM user_credentials WHERE uid=$1', [admin.uid])).rows[0];
     if (!credential) throw new Error('у администратора нет пароля: ' + admin.email);
 
     const summary = { database, admin: admin.email, dryRun: !!options.dryRun, accounts: [] };
@@ -102,11 +105,14 @@ export async function seedDebugAccounts(pool, options = {}) {
           [account.uid, account.email, account.name, account.role, { debugAccount: true, createdAt: Date.now() }],
         );
         await client.query(
-          `INSERT INTO user_credentials(uid,password_hash,salt,algorithm)
-           VALUES ($1,$2,$3,$4)
+          `INSERT INTO user_credentials(uid,password_hash,salt,algorithm,password_reset_required)
+           VALUES ($1,$2,$3,$4,$5)
            ON CONFLICT (uid) DO UPDATE
-             SET password_hash=EXCLUDED.password_hash, salt=EXCLUDED.salt, algorithm=EXCLUDED.algorithm`,
-          [account.uid, credential.password_hash, credential.salt, credential.algorithm],
+             SET password_hash=EXCLUDED.password_hash, salt=EXCLUDED.salt,
+                 algorithm=EXCLUDED.algorithm,
+                 password_reset_required=EXCLUDED.password_reset_required,
+                 changed_at=now()`,
+          [account.uid, credential.password_hash, credential.salt, credential.algorithm, !!credential.password_reset_required],
         );
         summary.accounts.push({ uid: account.uid, role: account.role, email: account.email, action: existing ? 'updated' : 'created' });
       }
