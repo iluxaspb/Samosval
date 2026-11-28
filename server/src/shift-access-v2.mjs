@@ -40,6 +40,7 @@ export const SHIFT_ACTIONS = Object.freeze({
   'shift.line.load': Object.freeze({ rights: Object.freeze(['action_load']), closing: 'blocked' }),
   'shift.line.ttn': Object.freeze({ rights: Object.freeze(['action_ttn']), closing: 'blocked' }),
   'shift.line.reset': Object.freeze({ rights: Object.freeze(['line_timer_reset']), closing: 'blocked' }),
+  'shift.line.no-return': Object.freeze({ rights: Object.freeze(['action_no_return']), closing: 'blocked' }),
   // The completing right depends on the saved stage (`lineAction`), so it is
   // resolved per call instead of being fixed here.
   'shift.detached.complete': Object.freeze({ rights: Object.freeze([]), closing: 'blocked' }),

@@ -32,15 +32,18 @@
     let hHtml = '<th>№</th><th style="text-align:left;">Самосвал</th>'; for(let i=1; i<=maxT; i++) hHtml += `<th>Рейс ${i}</th>`; mH.innerHTML = hHtml;
     mB.innerHTML = rTrucks.map((t, idx)=>{
       let tL = stdLogs.filter(l=>l.truckId===t.id).slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) || String(a.id||'').localeCompare(String(b.id||''))), st = state.truckStatus[t.id]||{}, sum = tL.reduce((s,l)=>s+l.volume,0);
-      let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
-      let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
+      let absent = st.noReturn === true;
       let cells = '';
       for(let i=0; i<maxT; i++) {
         if(tL[i]) {
           let cH = (st.ttnStatus === true && st.ttnLogId === tL[i].id) ? '<div class="hand-drawn-circle"></div>' : '';
           let commHtml = tL[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(tL[i].comment)}</div>` : '';
-          cells += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(tL[i].timeStr)}${tL[i].offlinePending?` <span title="Рейс сохранён на устройстве" style="color:#d97706;font-size:10px">☁</span>`:''} </div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(tL[i].createdByEmail, tL[i].createdBy))}</div>${commHtml}</div></td>`;
+          // Свободной клетки после последнего рейса нет (рейсов ровно maxT) —
+          // Д рисуется поверх последней клетки, ширина таблицы не меняется.
+          let overMark = (absent && i === tL.length - 1 && tL.length >= maxT) ? '<div class="paper-absent-mark overlay" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</div>' : '';
+          cells += `<td><div class="cell-content">${cH}<div class="paper-time">${escapeHtml(tL[i].timeStr)}${tL[i].offlinePending?` <span title="Рейс сохранён на устройстве" style="color:#d97706;font-size:10px">☁</span>`:''} </div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(tL[i].createdByEmail, tL[i].createdBy))}</div>${commHtml}${overMark}</div></td>`;
         }
+        else if(i===tL.length && absent) cells += '<td><div class="cell-content"><div class="paper-absent-mark" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</div></div></td>';
         else if(i===tL.length && st.ttnStatus === 'pending') {
           let dotHtml = st.arriveStatus ? `<div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div>` : '';
           cells += `<td><div class="cell-content"><div class="hand-drawn-circle"></div>${dotHtml}</div></td>`;
@@ -48,7 +51,8 @@
         else if(i===tL.length && st.arriveStatus) cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(st.arriveStatus)}</div><div class="paper-dot">•</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(null, st.arriveBy))}</div></div></td>`;
         else cells += '<td></td>';
       }
-      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³ / ${tL.length} р</span>${dupHtml}</div>${t.number?renderRussianPlate(t.number):''}</td>${cells}</tr>`;
+      let absentBadge = absent ? '<span class="paper-absent-badge" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</span>' : '';
+      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">${sum} м³ / ${tL.length} р</span>${t.number?'':absentBadge}</div>${t.number?renderRussianPlate(t.number)+absentBadge:''}</td>${cells}</tr>`;
     }).join('');
     gaiV.textContent = gaiLogs.length;
     let gaiLineIds = getActiveLineIds().filter(id => { let t = findTruck(id); return t && t.isGAI; });
@@ -61,17 +65,20 @@
     gaiB.innerHTML = gaiTrucks.map((t, idx)=>{
       let tL = gaiLogs.filter(l=>l.truckId===t.id).slice().sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0) || String(a.id||'').localeCompare(String(b.id||'')));
       let st = state.truckStatus[t.id] || {};
-      let isDup = (typeof window.__closedShiftDupEnabled === 'function' && window.__closedShiftDupEnabled()) ? false : (tL.length > 0 && st.ttnStatus !== true);
-      let dupHtml = isDup ? ' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>' : '';
+      let absent = st.noReturn === true;
       let cells = '';
       for(let i=0; i<gaiMaxT; i++) {
         if(tL[i]) {
           let commHtml = tL[i].comment ? `<div style="font-size:10px; color:#c2410c; margin-top:2px; font-family:sans-serif; line-height:1.1;">${escapeHtml(tL[i].comment)}</div>` : '';
-          cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(tL[i].timeStr)}${tL[i].offlinePending?` <span title="Рейс сохранён на устройстве" style="color:#d97706;font-size:10px">☁</span>`:''} </div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(tL[i].createdByEmail, tL[i].createdBy))}</div>${commHtml}</div></td>`;
+          // Свободной клетки после последнего рейса нет — Д поверх последней клетки.
+          let overMark = (absent && i === tL.length - 1 && tL.length >= gaiMaxT) ? '<div class="paper-absent-mark overlay" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</div>' : '';
+          cells += `<td><div class="cell-content"><div class="paper-time">${escapeHtml(tL[i].timeStr)}${tL[i].offlinePending?` <span title="Рейс сохранён на устройстве" style="color:#d97706;font-size:10px">☁</span>`:''} </div><div class="paper-trip-num">${i+1}</div><div class="paper-author">${escapeHtml(resolveUserDisplayName(tL[i].createdByEmail, tL[i].createdBy))}</div>${commHtml}${overMark}</div></td>`;
         }
+        else if(i===tL.length && absent) cells += '<td><div class="cell-content"><div class="paper-absent-mark" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</div></div></td>';
         else cells += '<td></td>';
       }
-      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tL.length}</span>${dupHtml}</div>${t.number?renderRussianPlate(t.number):''}</td>${cells}</tr>`;
+      let absentBadge = absent ? '<span class="paper-absent-badge" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</span>' : '';
+      return `<tr><td style="font-weight:bold;">${idx+1}</td><td class="truck-cell"><div class="paper-truck-brand">${escapeHtml(t.brand)} <span class="paper-truck-volume">Рейсов: ${tL.length}</span>${t.number?'':absentBadge}</div>${t.number?renderRussianPlate(t.number)+absentBadge:''}</td>${cells}</tr>`;
     }).join('');
     let canEditL = hasPermission('edit_logs');
     // Журнал показывает и рейсы восстановленных архивных смен: они редактируются

@@ -135,7 +135,7 @@
   function offlineLocalTicker(){
     if(!state.shift)return null;
     const op=offlineShiftPending(state.shift.id).slice(-1)[0];if(!op)return null;
-    const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived===false?'↩️ Снял прибытие':'🚛 Приехал');
+    const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):op.type==='no-return'?'🚫 Не приехал':(op.wantArrived===false?'↩️ Снял прибытие':'🚛 Приехал');
     return {id:op.id,type:'offline',offlinePending:true,createdByEmail:op.email,timestamp:op.createdAt,
       html:label+' · '+truckLabelHtml(op.truckId)+' <span style="color:#f59e0b;font-size:10px">☁️ ОФЛАЙН</span>'};
   }
@@ -157,6 +157,7 @@
         st.arriveStatus=new Date(ts).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
         st.arriveTimestamp=ts;st.arriveBy=op.actor;st.loadedAfterArrive=false;
       }else{st.arriveStatus=null;st.arriveTimestamp=null;st.arriveBy=null;st.loadedAfterArrive=false;}
+      st.noReturn=false;st.noReturnAt=null;st.noReturnBy=null;
       st.cycleRevision=Number(st.cycleRevision||0)+1;
     }else if(op.type==='load'){
       const timestamp=Math.max(t,Number(st.arriveTimestamp||0)+1,Number(st.lastLoadTimestamp||0)+1);
@@ -169,6 +170,10 @@
       st.cycleRevision=Number(st.cycleRevision||0)+1;st.arriveStatus=null;st.arriveTimestamp=null;st.arriveBy=null;st.loadedAfterArrive=true;
       if(st.ttnStatus==='pending'){st.ttnStatus=true;st.ttnLogId=logId;}
       return {status:st,log};
+    }else if(op.type==='no-return'){
+      st.noReturn=true;st.noReturnAt=t;st.noReturnBy=op.actor;
+      st.arriveStatus=null;st.arriveTimestamp=null;st.arriveBy=null;
+      st.cycleRevision=Number(st.cycleRevision||0)+1;
     }else if(op.type==='ttn'){
       st.ttnStatus=op.collect?(st.loadedAfterArrive&&st.lastLoadLogId?true:'pending'):null;
       st.ttnBy=op.collect?op.actor:null;st.ttnLogId=op.collect&&st.loadedAfterArrive?st.lastLoadLogId:null;
@@ -255,8 +260,9 @@
     if(!currentUid||!intent||!intent.status||!state.shift||state.shift.id!==intent.shiftId)return false;
     if(type==='reset'&&!canAdmin()){showError('Только для администратора');return false;}
     const before=intent.status,now=Date.now(),gap=Math.max(MIN_CYCLE_MINUTES,settings.cycleMinutes||MIN_CYCLE_MINUTES)*60000;
+    if(type==='no-return'&&before.noReturn===true){showToastEl('Вернуть машину — кнопкой «Приехал»',false);return false;}
     if(type==='load'&&!before.arriveStatus){showError('Сначала отметьте прибытие');return false;}
-    if((type==='load'||(type==='arrive'&&!before.arriveStatus))&&before.lastLoadTimestamp&&now-before.lastLoadTimestamp<gap){
+    if((type==='load'||(type==='arrive'&&!before.arriveStatus&&before.noReturn!==true))&&before.lastLoadTimestamp&&now-before.lastLoadTimestamp<gap){
       showError('Ещё не истекло время ходки');return false;
     }
     const truck=findTruck(id);if(!truck){showError('Самосвал не найден');return false;}
@@ -283,7 +289,7 @@
       items.push(op);offlineJournalWrite(items); // Commit locally first; never silently lose an action.
       try{window.__gameCoinQueued?.(op);}catch(e){console.warn('[game animation]',e);}
       const old=state.truckStatus[id];offlineProjectState();signalLineTransition(id,old,state.truckStatus[id]);refreshLineViews();
-      const label=type==='reset'?'🔄 Сброс таймера':type==='load'?'⚡ Погрузка':type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
+      const label=type==='reset'?'🔄 Сброс таймера':type==='load'?'⚡ Погрузка':type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):type==='no-return'?'🚫 Не приехал':(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
       showToastEl(label+' · '+truckLabelHtml(id),false);
       if(navigator.onLine)offlineReplayJournal();
       return true;
@@ -342,7 +348,7 @@
     try{
       const ref=refs.notifications.doc('offline_'+op.id),snap=await ref.get({source:'server'});
       if(!snap.exists){
-        const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
+        const label=op.type==='reset'?'🔄 Сброс таймера':op.type==='load'?'⚡ Погрузка':op.type==='ttn'?(op.collect?'📄 Забрал ТТН':'↩️ Снял ТТН'):op.type==='no-return'?'🚫 Не приехал':(op.wantArrived?'🚛 Приехал':'↩️ Снял прибытие');
         await ref.set({...offlineUndoFields(op,result.beforeStatus||op.beforeStatus),gamePenaltyKey:window.__gamePenaltyKey(op.type,op.truckId,result.status||{},result.log?.id,op.id),type:op.type,truckId:op.truckId,logId:result.log?.id||null,
           createdBy:op.actor,createdByEmail:op.email||'',timestamp:op.createdAt,shiftId:op.shiftId,objectId:op.objectId||'',objectName:op.objectName||'',
           html:label+' · '+truckLabelHtml(op.truckId)});
@@ -352,7 +358,7 @@
       const ref=refs.audit.doc('offline_'+op.id),snap=await ref.get({source:'server'});
       if(!snap.exists){
         const names={reset:'🔄 Сброс таймера',arrive:op.wantArrived?'🚛 Прибытие на линию':'↩️ Снято прибытие на линию',
-          load:'⚡ Погрузка самосвала',ttn:op.collect?'📄 Забрана ТТН':'↩️ Снята отметка ТТН'};
+          load:'⚡ Погрузка самосвала',ttn:op.collect?'📄 Забрана ТТН':'↩️ Снята отметка ТТН','no-return':'🚫 Самосвал не приехал'};
         await ref.set({text:(names[op.type]||op.type)+': '+op.truckName,
           timeStr:new Date(op.createdAt).toLocaleString('ru-RU'),
           objectName:state.shift?.objectName||'—',objectId:state.shift?.objectId||'',
@@ -367,6 +373,7 @@
     if(!b)return {};
     if(op.type==='load')return previousLoadSnapshot(b);
     if(op.type==='arrive')return {wasArrived:!!b.arriveStatus,prevTime:b.arriveStatus||null,prevTs:b.arriveTimestamp||null,prevArriveBy:b.arriveBy||null};
+    if(op.type==='no-return')return {prevNoReturn:true,prevNoReturnAt:b.noReturnAt||null,prevNoReturnBy:b.noReturnBy||null};
     return {prevTtn:b.ttnStatus??null,prevTtnBy:b.ttnBy||null,prevTtnLogId:b.ttnLogId||null};
   }
   async function offlineReplayJournal(){

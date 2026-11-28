@@ -97,7 +97,7 @@ const firebaseConfig = {
 
   const ALL_ACTIONS = [
     'timesheet_edit', 'timesheet_manage', 'timesheet_export',
-    'start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'line_timer_reset', 'undo_action',
+    'start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'action_no_return', 'line_timer_reset', 'undo_action',
     'view_truck_phone', 'call_truck_phone', 'add_truck_phone',
     'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'import_backup',
     'view_card_stats', 'view_header', 'undo_any', 'view_gai_report', 'view_reis_in_ticker'
@@ -105,7 +105,7 @@ const firebaseConfig = {
   const ACTION_LABELS = {
     timesheet_edit: 'Табель: часы и материалы', timesheet_manage: 'Табель: справочники и экипажи', timesheet_export: 'Табель: выгрузка CSV',
     start_shift: 'Начать смену', close_shift: 'Закрыть смену', edit_line: 'Изменять линию',
-    action_arrive: 'Кнопка «Приехал»', action_load: 'Кнопка «Погрузка»', action_ttn: 'Кнопка «ТТН»', line_timer_reset: 'Сброс таймера ходки',
+    action_arrive: 'Кнопка «Приехал»', action_load: 'Кнопка «Погрузка»', action_ttn: 'Кнопка «ТТН»', action_no_return: 'Кнопка «Дубликат» (самосвал не приехал)', line_timer_reset: 'Сброс таймера ходки',
     undo_action: 'Отменять СВОИ действия', undo_any: 'Отменять действия ЛЮБОГО пользователя',
     view_truck_phone: 'Читать телефон самосвала', call_truck_phone: 'Кнопка Позвонить', add_truck_phone: 'Добавлять отсутствующий телефон',
     edit_logs: 'Редактировать рейсы', manage_trucks: 'Управлять базой самосвалов', manage_objects: 'Управлять базой объектов',
@@ -122,9 +122,9 @@ const firebaseConfig = {
   Object.assign(ACTION_LABELS,{"tabel_tab_shift": "Табель: Смена", "tabel_tab_table": "Табель: Таблица", "tabel_tab_request": "Табель: Заявки", "tabel_tab_catalog": "Табель: Справочник", "tabel_tab_history": "Табель: История"});
   const DEFAULT_PERMISSIONS = {
     // Старший прораб: все права прораба плюс сброс таймера ходки.
-    senior_foreman: { tabs: ['line', 'report', 'archive', 'trucks', 'analytics', 'backup'], actions: ['start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'line_timer_reset', 'undo_action', 'undo_any', 'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
-    foreman: { tabs: ['line', 'report', 'archive', 'trucks', 'analytics', 'backup'], actions: ['start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'undo_action', 'undo_any', 'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
-    master: { tabs: ['line', 'report', 'archive', 'analytics'], actions: ['start_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'undo_action', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
+    senior_foreman: { tabs: ['line', 'report', 'archive', 'trucks', 'analytics', 'backup'], actions: ['start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'action_no_return', 'line_timer_reset', 'undo_action', 'undo_any', 'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
+    foreman: { tabs: ['line', 'report', 'archive', 'trucks', 'analytics', 'backup'], actions: ['start_shift', 'close_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'action_no_return', 'undo_action', 'undo_any', 'edit_logs', 'manage_trucks', 'manage_objects', 'archive_edit', 'archive_delete', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
+    master: { tabs: ['line', 'report', 'archive', 'analytics'], actions: ['start_shift', 'edit_line', 'action_arrive', 'action_load', 'action_ttn', 'action_no_return', 'undo_action', 'view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] },
     lopater: { tabs: ['line', 'report'], actions: ['action_arrive', 'action_load', 'undo_action', 'view_card_stats', 'view_header'] },
     viewer: { tabs: ['line', 'report', 'archive', 'analytics'], actions: ['view_card_stats', 'view_header', 'view_gai_report', 'view_reis_in_ticker'] }
   };

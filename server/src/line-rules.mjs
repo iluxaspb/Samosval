@@ -7,7 +7,7 @@ export function validateLineOperation(input, now=Date.now()) {
   for (const key of ['id','shiftId','truckId']) {
     if (typeof input[key]!=='string' || input[key].length<1 || input[key].length>128 || !/^[\w-]+$/.test(input[key])) return 'invalid-'+key;
   }
-  if (!['arrive','load','ttn','reset'].includes(input.type)) return 'invalid-type';
+  if (!['arrive','load','ttn','reset','no-return'].includes(input.type)) return 'invalid-type';
   if (!Number.isSafeInteger(input.createdAt) || input.createdAt<=0 || input.createdAt>now+300000) return 'invalid-createdAt';
   for(const key of ['expectedRevision','expectedTtnRevision','arrivalTimestamp','lastLoadTimestamp']){
     if (!Number.isSafeInteger(input[key]) || input[key]<0) return 'invalid-'+key;
@@ -26,7 +26,7 @@ export function applyLineOperation({op, before, truck, actor, cycleMinutes=15, n
   const gap = Math.max(15, Number(cycleMinutes) || 15, Number(op.cycleMinutes) || 15) * 60000;
   const reject = reason => ({outcome:'rejected', reason, status:before});
   if (!before.onLine || before.shiftId !== op.shiftId) return reject('truck-not-on-line');
-  if (!['arrive', 'load', 'ttn', 'reset'].includes(op.type)) return reject('unsupported');
+  if (!['arrive', 'load', 'ttn', 'reset', 'no-return'].includes(op.type)) return reject('unsupported');
   if (op.type === 'reset') {
     if (!actor.isAdmin && !actor.canResetTimer) return reject('permission-denied');
     if (revision !== expectedRevision || Number(before.lastLoadTimestamp||0)!==Number(op.lastLoadTimestamp||0))
@@ -38,14 +38,15 @@ export function applyLineOperation({op, before, truck, actor, cycleMinutes=15, n
     const want = op.wantArrived !== false;
     if (revision!==expectedRevision || Number(before.arriveTimestamp||0)!==Number(op.arrivalTimestamp||0) || !!before.arriveStatus===want)
       return reject('arrival-changed');
-    if (want && before.lastLoadTimestamp && op.createdAt-before.lastLoadTimestamp<gap)
+    if (want && before.noReturn !== true && before.lastLoadTimestamp && op.createdAt-before.lastLoadTimestamp<gap)
       return reject('cycle-time');
     const ts=Math.max(Number(op.createdAt),Number(before.lastLoadTimestamp||0)+1);
-    const changes=want?{arriveStatus:timeStr(ts),arriveTimestamp:ts,arriveBy:actor.name,loadedAfterArrive:false,cycleRevision:revision+1}:
-      {arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:revision+1};
+    const changes=want?{arriveStatus:timeStr(ts),arriveTimestamp:ts,arriveBy:actor.name,loadedAfterArrive:false,cycleRevision:revision+1,noReturn:false,noReturnAt:null,noReturnBy:null}:
+      {arriveStatus:null,arriveTimestamp:null,arriveBy:null,loadedAfterArrive:false,cycleRevision:revision+1,noReturn:false,noReturnAt:null,noReturnBy:null};
     return {outcome:'confirmed',status:{...before,...changes},eventTime:ts,changed:true};
   }
   if (op.type === 'load') {
+    if (before.noReturn === true) return reject('truck-absent');
     if (!before.arriveStatus || revision!==expectedRevision || Number(before.arriveTimestamp||0)!==Number(op.arrivalTimestamp||0))
       return reject('duplicate-or-arrival-changed');
     if (before.lastLoadTimestamp && op.createdAt-before.lastLoadTimestamp<gap)
@@ -63,6 +64,15 @@ export function applyLineOperation({op, before, truck, actor, cycleMinutes=15, n
     if (before.ttnStatus==='pending') {changes.ttnStatus=true;changes.ttnLogId=logId;}
     return {outcome:'confirmed',status:{...before,...changes},log,eventTime:ts,changed:true};
   }
+  if (op.type === 'no-return') {
+    if (before.noReturn === true) return reject('already-absent');
+    if (revision !== expectedRevision) return reject('arrival-changed');
+    const ts=Math.max(Number(op.createdAt)||0,Number(before.lastLoadTimestamp||0)+1);
+    const changes={noReturn:true,noReturnAt:ts,noReturnBy:actor.name,noReturnOperationId:op.id,
+      arriveStatus:null,arriveTimestamp:null,arriveBy:null,cycleRevision:revision+1};
+    return {outcome:'confirmed',status:{...before,...changes},eventTime:ts,changed:true};
+  }
+  if (before.noReturn === true) return reject('truck-absent');
   if (ttnRevision!==expectedTtnRevision || !!before.ttnStatus===!!op.collect) return reject('ttn-changed');
   const logId=before.lastLoadLogId||null;
   const changes=op.collect?{ttnStatus:before.loadedAfterArrive&&logId?true:'pending',ttnBy:actor.name,

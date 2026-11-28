@@ -124,6 +124,8 @@
     .truck-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; transition: opacity 0.2s, border-color 0.2s, background 0.2s; will-change: transform; }
     .truck-card.arrived { border: 2px solid var(--warning); background: #332611; box-shadow: 0 0 10px rgba(245, 158, 11, 0.2); }
     .truck-card.faded { opacity: 0.35; filter: grayscale(50%); background: #131b2e; }
+    .absent-mark { color: #ef4444; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .02em; }
+    .truck-card.faded .absent-mark { color: #f87171; }
 
     .truck-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px; }
     .truck-name { font-size: 18px; font-weight: 700; }
@@ -131,22 +133,23 @@
     .truck-summary b { color: var(--text); }
     .last-load-info { font-size: 12px; color: #38bdf8; margin-bottom: 12px; }
 
-    .action-row { display: grid; grid-template-columns: auto 2fr 1fr; gap: 8px; }
+    .action-row { display: grid; grid-template-columns: auto 2fr 1fr auto; gap: 8px; }
     .btn { border: none; border-radius: 10px; padding: 10px 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; color: #fff; min-height: 48px; text-align: center; position: relative; overflow: hidden; user-select: none; -webkit-user-select: none; transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.2s ease; }
     .btn:active { transform: scale(0.97); opacity: 0.92; }
-    .btn-arrive, .btn-quick, .btn-ttn { position: relative; z-index: 1; }
-    .btn-arrive::after, .btn-quick::after, .btn-ttn::after { content: ""; position: absolute; top: 0; left: 0; bottom: 0; right: 0; background: rgba(0, 0, 0, 0.28); width: 0%; z-index: -1; }
-    .btn-arrive.holding::after, .btn-quick.holding::after, .btn-ttn.holding::after { width: 100%; transition: width var(--hold-duration, 0.5s) linear; }
+    .btn-arrive, .btn-quick, .btn-ttn, .btn-no-return { position: relative; z-index: 1; }
+    .btn-arrive::after, .btn-quick::after, .btn-ttn::after, .btn-no-return::after { content: ""; position: absolute; top: 0; left: 0; bottom: 0; right: 0; background: rgba(0, 0, 0, 0.28); width: 0%; z-index: -1; }
+    .btn-arrive.holding::after, .btn-quick.holding::after, .btn-ttn.holding::after, .btn-no-return.holding::after { width: 100%; transition: width var(--hold-duration, 0.5s) linear; }
 
     .btn-arrive { background: var(--warning); color: #000; font-size: 12px; padding: 8px 10px; }
     .btn-arrive.active-arrive { background: #d97706; color: #fff; border: 1px solid #fcd34d; padding: 4px 8px; }
-    .btn-arrive:disabled, .btn-quick:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; opacity: 0.6; pointer-events: none; }
+    .btn-arrive:disabled, .btn-quick:disabled, .btn-no-return:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; opacity: 0.6; pointer-events: none; }
 
     .idle-label { font-size: 9px; opacity: 0.85; font-weight: 600; letter-spacing: 0.2px; line-height: 1; }
     .idle-timer { font-size: 16px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
 
     .btn-quick { background: var(--success); font-size: 14px; }
     .btn-ttn { background: var(--danger); font-size: 12px; }
+    .btn-no-return { background: var(--danger); font-size: 10px; padding: 4px 6px; }
     .btn-ttn.active-ttn { background: #166534; border: 1px solid #4ade80; }
 
     .btn-danger { background: var(--danger); }
@@ -196,6 +199,12 @@
     .paper-author { font-size: 12px; color: #1e40af; font-family: 'Caveat', cursive; line-height: 1; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     .paper-truck-brand { font-size: 14px; color: #333; font-family: sans-serif; font-weight: bold; line-height: 1.2; margin-bottom: 2px; }
     .paper-truck-volume { font-size: 14px; color: #1e40af; font-family: sans-serif; font-weight: 900; margin-left: 4px; }
+
+    /* «Самосвал не приехал»: крупная Д в клетке после последнего рейса и
+       маленькая Д рядом с названием. Размер клетки (48px) не меняется. */
+    .paper-absent-mark { font-family:'Caveat',cursive; font-weight:900; font-size:32px; line-height:1; color:#dc2626; }
+    .paper-absent-mark.overlay { position:absolute; right:0; top:50%; transform:translateY(-50%); font-size:20px; line-height:1; text-shadow:0 0 2px #fff,0 0 3px #fff; }
+    .paper-absent-badge { color:#dc2626; font-family:'Caveat',cursive; font-weight:900; font-size:14px; margin-left:4px; }
 
     .table-responsive { width: 100%; overflow-x: auto; background: var(--card); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }

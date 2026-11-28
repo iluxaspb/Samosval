@@ -130,7 +130,7 @@
     try{
       // Рабочая версия всегда NAS: журнал истории приходит из Ubuntu API.
       const client=nasRuntimeClient,snapshot=await client.readHistory();if(currentUid!==historyUid||client!==nasRuntimeClient)return;
-      const rows=snapshot.items.map(x=>({...x,nas:true,user:x.userName,description:({arrive:'Прибытие',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера'}[x.type]||x.type)+' · '+truckName(x.truckId),operations:[]})).sort((a,b)=>a.timestamp-b.timestamp);
+      const rows=snapshot.items.map(x=>({...x,nas:true,user:x.userName,description:({arrive:'Прибытие',load:'Погрузка',ttn:'Отметка ТТН',reset:'Сброс таймера','no-return':'Не приехал'}[x.type]||x.type)+' · '+truckName(x.truckId),operations:[]})).sort((a,b)=>a.timestamp-b.timestamp);
       undoStack=rows.filter(x=>!x.undone);redoStack=rows.filter(x=>x.undone);saveStacks();refreshUI();return;
     }catch(e){console.warn('Журнал:',e.message);}finally{cloudHistoryLoading=false;}
   }
@@ -415,7 +415,7 @@
     if(pending.length){
       const section=document.createElement('div');section.className='form-card';
       const title=document.createElement('div');title.textContent='На устройстве, ожидают синхронизации: '+pending.length;section.appendChild(title);
-      for(const op of pending){const row=document.createElement('div');row.textContent=({load:'Погрузка',arrive:'Прибытие',ttn:'ТТН',reset:'Сброс таймера'}[op.type]||op.type)+' · '+op.truckName;section.appendChild(row);}
+      for(const op of pending){const row=document.createElement('div');row.textContent=({load:'Погрузка',arrive:'Прибытие',ttn:'ТТН',reset:'Сброс таймера','no-return':'Не приехал'}[op.type]||op.type)+' · '+op.truckName;section.appendChild(row);}
       const cancel=document.createElement('button');cancel.className='btn btn-secondary';cancel.textContent='Отменить последнее локальное действие';cancel.onclick=()=>{undoLastOfflineAction();renderHistoryModal();};section.appendChild(cancel);body.appendChild(section);
     }
     body.appendChild(renderSection('↶ Можно отменить', undoStack, 'undo'));

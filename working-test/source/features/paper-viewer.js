@@ -238,8 +238,8 @@
     for(let i=1;i<=max;i++)head+=`<th>Рейс ${i}</th>`;
     const rows=ids.map((id,index)=>{
       const truck=snapshot.trucks.get(id), trips=orderedLogs.filter(log=>log.truckId===id), ttn=snapshot.ttn[id];
-      const duplicate=(typeof window.__closedShiftDupEnabled==='function' && window.__closedShiftDupEnabled()) ? (trips.length>0 && ttn!==true && ttn!=='pending') : (trips.length>0 && !ttn);
-      const dup=duplicate?' <span style="color:red; font-weight:900; font-size:12px; margin-left:4px;" title="Дубликат" aria-label="Дубликат">D</span>':'';
+      const absentFallback=(typeof window.__closedShiftDupEnabled==='function' && window.__closedShiftDupEnabled()) ? (trips.length>0 && ttn!==true && ttn!=='pending') : (trips.length>0 && !ttn);
+      const dup=absentFallback?'<span class="paper-absent-badge" title="Самосвал не приехал" aria-label="Самосвал не приехал">Д</span>':'';
       let cells='';
       for(let i=0;i<max;i++) {
         const log=trips[i];
@@ -251,7 +251,7 @@
         else cells+='<td></td>';
       }
       const volume=gai?'Рейсов: '+trips.length:trips.reduce((sum,log)=>sum+log.volume,0)+' м³ / '+trips.length+' р';
-      return `<tr><td style="font-weight:bold;">${index+1}</td><td class="truck-cell"><div class="paper-truck-brand">${esc(truck.brand)} <span class="paper-truck-volume">${volume}</span>${dup}</div>${truck.number?renderRussianPlate(truck.number):''}</td>${cells}</tr>`;
+      return `<tr><td style="font-weight:bold;">${index+1}</td><td class="truck-cell"><div class="paper-truck-brand">${esc(truck.brand)} <span class="paper-truck-volume">${volume}</span>${truck.number?'':dup}</div>${truck.number?renderRussianPlate(truck.number)+dup:''}</td>${cells}</tr>`;
     }).join('');
     const total=gai?'Всего рейсов ГАИ: <b>'+logs.length+'</b>':'Общий объем: <b>'+logs.reduce((sum,log)=>sum+log.volume,0)+' м³</b>';
     return `<div class="paper-report-container compact"><div class="paper-header"><div class="paper-object-name">Объект: ${esc(snapshot.objectName)}</div><div class="paper-date-vol-row"><div class="paper-report-title">${esc(snapshot.date)}</div><div class="paper-total-info">${total}</div></div></div><table class="paper-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;

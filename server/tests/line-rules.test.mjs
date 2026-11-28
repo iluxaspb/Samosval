@@ -57,3 +57,59 @@ test('reject malformed, future and untrusted inputs',()=>{
   assert.equal(validateLineOperation(op('load',{id:'../x'}),now),'invalid-id');
   assert.equal(validateLineOperation(op('load',{expectedRevision:-1}),now),'invalid-expectedRevision');
 });
+test('no-return marks the truck absent and clears the arrival',()=>{
+  const arrival=applyLineOperation({op:op('arrive'),before:idle,truck,actor,now});
+  const absent=applyLineOperation({op:op('no-return',{id:'op_126',expectedRevision:1,createdAt:now-5000}),
+    before:arrival.status,truck,actor,now});
+  assert.equal(absent.outcome,'confirmed');
+  assert.equal(absent.status.noReturn,true);
+  assert.equal(absent.status.noReturnBy,actor.name);
+  assert.equal(absent.status.noReturnOperationId,'op_126');
+  assert.equal(absent.status.arriveStatus,null);
+  assert.equal(absent.status.arriveTimestamp,null);
+  assert.equal(absent.status.arriveBy,null);
+  assert.equal(absent.status.cycleRevision,2);
+  assert.equal(absent.status.lastLoadTimestamp,arrival.status.lastLoadTimestamp);
+  assert.equal(validateLineOperation(op('no-return'),now),null);
+});
+test('second no-return on the same truck is already-absent',()=>{
+  const absent=applyLineOperation({op:op('no-return',{expectedRevision:0}),before:idle,truck,actor,now});
+  assert.equal(absent.outcome,'confirmed');
+  const again=applyLineOperation({op:op('no-return',{id:'op_127',expectedRevision:1}),before:absent.status,truck,actor,now});
+  assert.equal(again.outcome,'rejected');
+  assert.equal(again.reason,'already-absent');
+});
+test('load and ttn are refused while the truck is absent',()=>{
+  const arrival=applyLineOperation({op:op('arrive'),before:idle,truck,actor,now});
+  const absent=applyLineOperation({op:op('no-return',{id:'op_128',expectedRevision:1}),before:arrival.status,truck,actor,now});
+  assert.equal(absent.outcome,'confirmed');
+  const load=applyLineOperation({op:op('load',{id:'op_129',expectedRevision:2,arrivalTimestamp:arrival.status.arriveTimestamp}),
+    before:absent.status,truck,actor,now});
+  assert.equal(load.reason,'truck-absent');
+  const ttn=applyLineOperation({op:op('ttn',{id:'op_130',expectedRevision:2}),before:absent.status,truck,actor,now});
+  assert.equal(ttn.reason,'truck-absent');
+});
+test('arrive returns an absent truck to the line',()=>{
+  const absent=applyLineOperation({op:op('no-return',{expectedRevision:0}),before:idle,truck,actor,now});
+  assert.equal(absent.outcome,'confirmed');
+  const back=applyLineOperation({op:op('arrive',{id:'op_131',expectedRevision:1,createdAt:now-4000}),
+    before:absent.status,truck,actor,now});
+  assert.equal(back.outcome,'confirmed');
+  assert.equal(back.status.noReturn,false);
+  assert.equal(back.status.noReturnAt,null);
+  assert.equal(back.status.noReturnBy,null);
+  assert.match(back.status.arriveStatus,/^\d{2}:\d{2}$/);
+  assert.equal(back.status.cycleRevision,2);
+});
+test('arrive of an absent truck ignores the cycle cooldown',()=>{
+  const loaded={...idle,cycleRevision:1,lastLoadTimestamp:now-60000,loadedAfterArrive:true};
+  const absent=applyLineOperation({op:op('no-return',{expectedRevision:1}),before:loaded,truck,actor,now});
+  assert.equal(absent.outcome,'confirmed');
+  const back=applyLineOperation({op:op('arrive',{id:'op_132',expectedRevision:2,createdAt:now-4000}),
+    before:absent.status,truck,actor,now});
+  assert.equal(back.outcome,'confirmed','cooldown must not block the return of an absent truck');
+  assert.equal(back.status.noReturn,false);
+  // Обычное прибытие (машина не «не приехал») кулдаун по-прежнему соблюдает.
+  const busy=applyLineOperation({op:op('arrive',{id:'op_133',expectedRevision:1}),before:loaded,truck,actor,now});
+  assert.equal(busy.reason,'cycle-time');
+});

@@ -99,7 +99,7 @@
     .truck-card .info-row.info-arrive b { color: #f59e0b !important; }
     .truck-card .action-row {
       flex: 0 0 44px !important; height: 44px !important; margin: 0 !important;
-      display: grid !important; grid-template-columns: auto 2fr 1fr !important;
+      display: grid !important; grid-template-columns: auto 2fr 1fr auto !important;
       gap: 5px !important; align-items: stretch !important;
     }
     .truck-card .btn {
@@ -110,6 +110,7 @@
     .truck-card .btn-arrive .idle-timer { font-size: 14px !important; }
     .truck-card .btn-arrive .idle-label { font-size: 8px !important; }
     .truck-card .btn-ttn { font-size: 10.5px !important; }
+    .truck-card .btn-no-return { font-size: 9.5px !important; padding: 2px 4px !important; }
     .truck-card.anim-up { z-index: 100 !important; }
     .truck-card.anim-down { z-index: 1 !important; }
     .truck-card.anim-loading {
@@ -332,6 +333,8 @@
     let trucks = ids.map(id => findTruck(id)).filter(Boolean);
     trucks.sort((a, b) => {
       const sA = state.truckStatus[a.id], sB = state.truckStatus[b.id];
+      const nA = sA.noReturn === true ? 1 : 0, nB = sB.noReturn === true ? 1 : 0;
+      if (nA !== nB) return nA - nB;
       const aA = sA.arriveStatus ? 1 : 0, aB = sB.arriveStatus ? 1 : 0;
       if (aA !== aB) return aB - aA;
       const tA = sA.ttnStatus === true ? 1 : 0, tB = sB.ttnStatus === true ? 1 : 0;
@@ -348,6 +351,7 @@
     const canEditArrive = hasPermission('action_arrive');
     const canEditLoad = hasPermission('action_load');
     const canEditTtn = hasPermission('action_ttn');
+    const canEditNoReturn = hasPermission('action_no_return');
     const showStats = hasPermission('view_card_stats');
 
     c.innerHTML = trucks.map(t => {
@@ -358,13 +362,16 @@
       const lastL = st.lastLoadTimestamp || 0;
       const inC = lastL > 0 && (now - lastL) < cyc;
       const ttn = st.ttnStatus;
-      const faded = ttn === true && !isA;
+      const absent = st.noReturn === true;
+      const faded = (ttn === true && !isA) || absent;
       const lTs = Math.max(Number(lastL)||0,...tLogs.map(log=>Number(log.timestamp)||0));
       const isGAI = !!t.isGAI;
       const tripsCount = tLogs.length;
 
       let arrBtn;
-      if (inC) {
+      // «Не приехал» снимается только кнопкой «Приехал»: кулдаун ходки не
+      // должен запирать машину в этом статусе.
+      if (inC && !absent) {
         arrBtn = `<button class="btn btn-arrive" disabled><span style="display:flex;flex-direction:column;align-items:center;line-height:1.1;"><span class="idle-label">Ходка</span><span class="cooldown-timer" style="font-size:14px;" data-load-ts="${lastL}">${formatIdleDuration(cyc - (now - lastL))}</span></span></button>`;
       } else if (isA) {
         arrBtn = `<button class="btn btn-arrive active-arrive" ${canEditArrive ? `onpointerdown="startArriveHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''} ${!canEditArrive ? 'disabled' : ''}><span style="display:flex;flex-direction:column;align-items:center;line-height:1.1;"><span class="idle-label">Простой</span><span class="idle-timer" data-since="${st.arriveTimestamp || now}">${formatIdleDuration(now - (st.arriveTimestamp || now))}</span></span></button>`;
@@ -392,6 +399,7 @@
         <div class="truck-top">
           <div class="truck-identity">
             <div class="truck-brand">${escapeHtml(t.brand)}</div>
+            ${absent ? '<span class="absent-mark">не приехал</span>' : ''}
             <div class="truck-plate-wrap">${renderRussianPlate(t.number)}</div>
             ${truckPhoneIcon(t)}
           </div>
@@ -400,7 +408,8 @@
         <div class="action-row">
           ${arrBtn}
           <button class="btn btn-quick" ${!canEditLoad || !isA ? 'disabled' : ''} ${canEditLoad && isA ? `onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${loadBtnTxt}</button>
-          <button class="btn btn-ttn ${ttn ? 'active-ttn' : ''}" ${!canEditTtn ? 'disabled' : ''} ${canEditTtn ? `onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${ttnTxt}</button>
+          <button class="btn btn-ttn ${ttn ? 'active-ttn' : ''}" ${!canEditTtn || absent ? 'disabled' : ''} ${canEditTtn && !absent ? `onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${ttnTxt}</button>
+          <button class="btn btn-no-return" ${!canEditNoReturn || absent ? 'disabled' : ''} ${canEditNoReturn && !absent ? `onpointerdown="startNoReturnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>Дубликат</button>
         </div>
       </div>`;
     }).join('');

@@ -50,7 +50,7 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.10.5'
+REQUIRED_VERSION = '1.10.6'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
 FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
@@ -128,6 +128,16 @@ ALLOWED_NEW_FILES = {
     'server/sql/030_line_status_payload_mirror.sql',
     'server/tests/line-status-mirror-db.test.mjs',
     'server/tests/migration-registry.test.mjs',
+    # 1.10.6: кнопка «Дубликат» — операция линии no-return и право action_no_return.
+    'server/sql/031_no_return_permission.sql',
+    'server/src/line-rules.mjs',
+    'server/src/line-store.mjs',
+    'server/src/line-store-v2.mjs',
+    'server/src/shift-access-v2.mjs',
+    'server/src/identity-rules.mjs',
+    'server/src/shift-trucks-v2.mjs',
+    'server/src/auxiliary-store.mjs',
+    'server/tests/line-rules.test.mjs',
     'docs/opyt-oshibok.md',
 }
 # Планы и дизайн-документы задачи тоже живут в репозитории и не являются

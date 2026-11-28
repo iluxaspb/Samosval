@@ -242,7 +242,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   async function submitLine(operation,{operationScope}={}) {
     guard();
     if(operationScope!==scope)throw new NasClientError('outbox-scope-mismatch');
-    if(!record(operation)||typeof operation.id!=='string'||!operation.id||!['arrive','load','ttn','reset'].includes(operation.type))throw new NasClientError('invalid-line-operation');
+    if(!record(operation)||typeof operation.id!=='string'||!operation.id||!['arrive','load','ttn','reset','no-return'].includes(operation.type))throw new NasClientError('invalid-line-operation');
     return request('/api/v1/line/operations',{operation,validate:receipt});
   }
   // Single lightweight probe for external recovery after a network change.

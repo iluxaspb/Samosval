@@ -111,10 +111,10 @@ const registry = pool => pool
 test('apply-migrations: применяет все файлы sql/ на пустой базе, пишет sha256 и повторяется как no-op', { skip: bootstrapUrl ? false : 'SAMOSVAL_TEST_BOOTSTRAP_URL (или TEST_DATABASE_URL) не задан' }, async () => {
   await withScratchDatabase(async ({ name, pool }) => {
     // 018 применим только в базе резерва samosval_working_test_reserve (guard имени БД).
-    // 28 файлов в sql/ минус 018 = 27 применяемых миграций (последняя — 030).
+    // 29 файлов в sql/ минус 018 = 28 применяемых миграций (последняя — 031).
     const options = optionsFor(name);
     const first = await applyMigrations(pool, options);
-    assert.equal(first.length, 27, `ожидали 27 миграций (28 файлов минус 018), применено ${first.length}`);
+    assert.equal(first.length, 28, `ожидали 28 миграций (29 файлов минус 018), применено ${first.length}`);
     assert.ok(first.every(r => r.status === 'applied'));
 
     // Реестр заполнен целиком, чексуммы — sha256 реальных файлов.
@@ -126,6 +126,7 @@ test('apply-migrations: применяет все файлы sql/ на пуст�
     assert.ok(afterFirst.some(row => row.filename === '026_parallel_shift_dependencies.sql'), 'реестр содержит 026_parallel_shift_dependencies.sql');
     assert.ok(afterFirst.some(row => row.filename === '029_shift_close_v2.sql'), 'реестр содержит 029_shift_close_v2.sql');
     assert.ok(afterFirst.some(row => row.filename === '030_line_status_payload_mirror.sql'), 'реестр содержит 030_line_status_payload_mirror.sql');
+    assert.ok(afterFirst.some(row => row.filename === '031_no_return_permission.sql'), 'реестр содержит 031_no_return_permission.sql');
 
     // 025 действительно создал в public то, что индексирует 026: прежний
     // search_path-притворщик ломался именно здесь (42P01).

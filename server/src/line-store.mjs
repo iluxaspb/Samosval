@@ -3,7 +3,7 @@ import {recordLineHistory} from './history-store.mjs';
 import { applyLineOperation, validateLineOperation } from './line-rules.mjs';
 
 const WORKSPACE_ID = process.env.WORKSPACE_ID || 'main_workspace';
-const ACTIONS = { arrive: 'action_arrive', load: 'action_load', ttn: 'action_ttn', reset: 'line_timer_reset' };
+const ACTIONS = { arrive: 'action_arrive', load: 'action_load', ttn: 'action_ttn', reset: 'line_timer_reset', 'no-return': 'action_no_return' };
 const REPLAY_FIELDS = ['id','type','truckId','shiftId','createdAt','expectedRevision','expectedTtnRevision',
   'arrivalTimestamp','lastLoadTimestamp','wantArrived','collect','cycleMinutes','logId'];
 const forbidden = () => Object.assign(new Error('Forbidden'), {status:403,code:'forbidden'});

@@ -48,12 +48,13 @@ import {
 // `object_locked_at` read happens in the same transaction on the already locked
 // row, so it cannot race.
 
-const LINE_TYPES = Object.freeze(['arrive', 'load', 'ttn', 'reset']);
+const LINE_TYPES = Object.freeze(['arrive', 'load', 'ttn', 'reset', 'no-return']);
 const LINE_ACTIONS = Object.freeze({
   arrive: 'shift.line.arrive',
   load: 'shift.line.load',
   ttn: 'shift.line.ttn',
   reset: 'shift.line.reset',
+  'no-return': 'shift.line.no-return',
 });
 
 const STATUS_FIELDS = 'truck_id,shift_id,status_revision,cycle_revision,ttn_revision,payload';
@@ -104,6 +105,10 @@ function domainRefusal(reason, context) {
       return v2Error('truck-not-on-shift', 409, { truckId: context.truckId, shiftId: context.shiftId });
     case 'permission-denied':
       return v2Error('forbidden', 403, { reason: 'missing-right' });
+    case 'truck-absent':
+      return v2Error('truck-not-on-shift', 409, { truckId: context.truckId, shiftId: context.shiftId, reason: 'truck-absent' });
+    case 'already-absent':
+      return v2Error('invalid-command', 400, { field: 'type' });
     case 'arrival-changed':
     case 'duplicate-or-arrival-changed':
       return statusConflict('CycleRevision', context.expectedCycleRevision, context.actualCycleRevision);

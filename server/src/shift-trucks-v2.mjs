@@ -147,6 +147,9 @@ export async function lockStatus(client, workspaceId, truckId) {
 //   * nothing is pending                                     -> null (finished)
 export function deriveStage(payload) {
   const source = payload ?? {};
+  // «Самосвал не приехал» не имеет незавершённого этапа: прибытие снято,
+  // а прошлая ходка не ждёт ТТН, пока машина не вернётся на линию.
+  if (source.noReturn === true) return null;
   const loaded = Number(source.lastLoadTimestamp || 0) > 0;
   if (loaded) return source.ttnStatus === true ? null : 'ttn';
   const arrived = Number(source.arriveTimestamp || 0) > 0
