@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import pg from 'pg';
-import {adminUrl, applyMigrationsThrough, requireIsolatedDatabase, seedParallelShiftFixture} from './helpers/isolated-db.mjs';
+import {applyMigrationsThrough, requireIsolatedDatabase, seedParallelShiftFixture} from './helpers/isolated-db.mjs';
 
 // 030: нормализованные ревизии статуса машины всегда совпадают с payload.
 //
@@ -34,7 +34,9 @@ test('payload revisions mirror into normalized status columns', {skip: approved 
   // поэтому порядок как в legacy-тестах — сначала данные, потом 025.
   const ids = await seedParallelShiftFixture({suffix, workspaceId: WORKSPACE});
   await applyMigrationsThrough(25);
-  const pool = new pg.Pool({connectionString: adminUrl().href, max: 2});
+  // Проверки идут той же непривилегированной ролью, что и v1 line-store:
+  // триггер обязан работать для обычного писателя, а не только для админа.
+  const pool = new pg.Pool({connectionString: requireIsolatedDatabase(process.env.TEST_DATABASE_URL).href, max: 2});
   pool.on('error', () => {});
   try {
     // 0. До 030 колонки и payload расходятся: ровно так выглядела живая база,

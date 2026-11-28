@@ -591,7 +591,12 @@ const bootstrapEnvByFile = {
   'v2-shift-close-db': ['bootstrap-url'],
   'v2-query-isolation-db': ['bootstrap-url'],
   'v2-parallel-acceptance-db': ['bootstrap-url'],
-  'v2-archive-restore-db': ['bootstrap-url']
+  'v2-archive-restore-db': ['bootstrap-url'],
+  // 030 проверяется на клоне S24: тест сам ставит 025, создаёт расхождение
+  // «колонка против payload» и только потом 030. DDL (и CREATE TABLE IF NOT
+  // EXISTS schema_migrations) недоступен роли samosval_test_app, поэтому
+  // миграции идут через привилегированный bootstrap, а проверки — как app.
+  'line-status-mirror-db': ['bootstrap-url']
 };
 
 // Roots that start the real src/index.mjs child on a fixed port are discovered
@@ -690,10 +695,7 @@ const harnessEntries = harnessFiles.map(name => ({
     // which a db child never gets as samosval_test_app, so the root is a
     // harness contract like isolated-db-fixtures.
     'migration-registry': ['bootstrap-url'],
-    'parallel-shifts-runtime-roles': ['bootstrap-url', 'runtime-password', 'maintenance-password'],
-    // 030 ставит сам тест (baseline S25), поэтому ему нужен привилегированный
-    // bootstrap-доступ: db-ребёнок работает как samosval_test_app и схемы не меняет.
-    'line-status-mirror-db': ['bootstrap-url']
+    'parallel-shifts-runtime-roles': ['bootstrap-url', 'runtime-password', 'maintenance-password']
   }[name] ?? []
 }));
 
