@@ -80,13 +80,13 @@ function runGetSyncStatus({ errors, everConnected, queued = 0, offline = false, 
 
 test('v2: legacy-снимок выключается сразу после старта моста', () => {
   assert.match(runtimeSrc, /lineEnabled:nasLegacyLineReadAllowed/, 'v1-подписка проверяет владельца линии');
-  assert.match(runtimeSrc, /function nasLegacyLineReadAllowed\(\)[\s\S]*?if\(nasV2BridgeActive&&!nasV2Unsupported\)return false;/,
-    'пока мост поднят, v1-снимок не запрашивается даже до первого ответа');
+  assert.match(runtimeSrc, /function nasLegacyLineReadAllowed\(\)[\s\S]*?if\(nasV2BridgeActive&&!nasV2Unsupported\)\{[\s\S]*?return !nasV2Visible;/,
+    'пока мост поднят и у пользователя есть видимая смена, v1-снимок не запрашивается');
   assert.match(runtimeSrc, /nasV2BridgeActive=true/,
     'мост объявляет себя владельцем линии при старте');
   assert.match(runtimeSrc, /status===404\|\|status===405\|\|status===426\|\|status===501\)nasV2Unsupported=true/,
     'старый сервер без v2-маршрутов возвращает линию на v1');
-  assert.match(runtimeSrc, /nasV2BridgeLive=false;nasV2LineRefused=false;\n\s*nasV2BridgeActive=false;nasV2Unsupported=false;/,
+  assert.match(runtimeSrc, /nasV2BridgeLive=false;nasV2LineRefused=false;\n\s*nasV2BridgeActive=false;nasV2Unsupported=false;nasV2Visible=false;/,
     'при остановке моста политика сбрасывается');
   assert.match(runtimeSrc, /nasV2LineRefused=true/,
     'ожидаемый отказ v1 фиксируется, чтобы не повторять бессмысленный запрос');
@@ -94,6 +94,39 @@ test('v2: legacy-снимок выключается сразу после ст�
     'ручное обновление будит v2-мост вместо заведомо конфликтного v1-запроса');
   assert.match(runtimeSrc, /reportSyncError\('nas',error\)/,
     'остальные ошибки legacy-снимка по-прежнему видны пользователю');
+});
+
+// Жалоба владельца 28.11.2026 после смены аккаунта на тестовую роль: вход
+// проходит, имя роли в шапке есть, а приложение навсегда остаётся на
+// «Загрузка данных и прав…» — ни линии, ни ошибки. Причина: тестовая учётка
+// не участник активной смены, v2-список смен пуст, а v1-снимок был выключен
+// одним фактом поднятого моста. Линию стало некому загрузить.
+test('v2: пустой список смен не блокирует v1-снимок (иначе вечная загрузка)', () => {
+  const run = (state) => {
+    const context = {
+      WORKING_TEST_V2_SHIFTS: state.v2 !== false,
+      nasV2BridgeActive: state.bridgeActive !== false,
+      nasV2Unsupported: state.unsupported === true,
+      nasV2Visible: state.visible === true,
+      nasV2LineRefused: state.refused === true,
+      nasV2BridgeLive: state.live === true,
+    };
+    const body = functionBody(runtimeSrc, 'nasV2ShiftsEnabled') + '\n'
+      + functionBody(runtimeSrc, 'nasLegacyLineReadAllowed') + '\nnasLegacyLineReadAllowed()';
+    return vm.runInNewContext(body, context);
+  };
+  assert.equal(run({ visible: false }), true,
+    'мост поднят, но видимых смен нет: линию читает v1-снимок');
+  assert.equal(run({ visible: true }), false,
+    'у пользователя есть видимая смена: линию ведёт v2-мост');
+  assert.equal(run({ visible: false, refused: true }), false,
+    'сервер уже ответил multiple-active-shifts: бессмысленный повтор не нужен');
+  assert.equal(run({ visible: false, unsupported: true }), true,
+    'старый сервер без v2: линия всегда на v1');
+  assert.equal(run({ visible: true, v2: false }), true,
+    'флаг параллельных смен выключен: линия на v1');
+  assert.match(runtimeSrc, /nasV2Visible=Array\.isArray\(list\?\.items\)&&list\.items\.length>0;/,
+    'мост сообщает, есть ли у пользователя видимая смена');
 });
 
 test('баннер: повторная ошибка источника после успешного чтения не показывает «Ошибка загрузки»', () => {

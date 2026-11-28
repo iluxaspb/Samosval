@@ -26,6 +26,11 @@
   let nasV2BridgeActive = false;
   // Сервер не знает маршрутов v2 (старый релиз): линия возвращается на v1.
   let nasV2Unsupported = false;
+  // Мост уже отдал этому пользователю хотя бы одну видимую смену. Если список
+  // пуст (пользователь не участник ни одной смены, а администратор смену не
+  // открывал), линию читает v1-снимок: иначе приходит сеанс и права, а линия
+  // не приходит никогда, и шапка навсегда остаётся «Загрузка данных и прав…».
+  let nasV2Visible = false;
   // Пробуждение после смены сети: обработчики событий и защита от наложения.
   let nasWakeStop=null, nasWakeInFlight=false, nasWakeAt=0;
   // Активное обновление: пока приложение на экране, данные читаются сами.
@@ -399,15 +404,20 @@
   // Без живого моста (старый сервер, выключенный флаг) работает прежний путь.
   function nasLegacyLineReadAllowed(){
     if(!nasV2ShiftsEnabled())return true;
-    // v2 включён и мост поднят — линия его. Отказ сервера «маршрута нет»
-    // возвращает прежний путь, чтобы канал не остался без линии вовсе.
-    if(nasV2BridgeActive&&!nasV2Unsupported)return false;
+    // v2 включён и мост поднят — линия его, но только если этому пользователю
+    // есть что показывать. Пустой список смен (не участник активной смены,
+    // смена не открыта) не должен гасить v1-снимок: без него линия не грузится
+    // вовсе, шапка висит на «Загрузка данных и прав…» и ошибок нет.
+    if(nasV2BridgeActive&&!nasV2Unsupported){
+      if(nasV2LineRefused)return false;
+      return !nasV2Visible;
+    }
     return !nasV2BridgeLive&&!nasV2LineRefused;
   }
   function nasStopV2Shifts(){
     try{nasV2Bridge?.handle?.close?.();}catch(_){}
     nasV2Bridge=null;nasV2BridgeErrorLogged=false;nasV2BridgeLive=false;nasV2LineRefused=false;
-    nasV2BridgeActive=false;nasV2Unsupported=false;
+    nasV2BridgeActive=false;nasV2Unsupported=false;nasV2Visible=false;
     nasRestoredV1=[];nasRestoredContexts=[];nasRestoredRead=null;nasRestoredReadAt=0;
   }
 
@@ -677,6 +687,7 @@
       intervalMs:4000,
       onList:list=>{if(!live())return;
         nasV2BridgeSynced(store);
+        nasV2Visible=Array.isArray(list?.items)&&list.items.length>0;
         try{window.dispatchEvent(new CustomEvent('samosval-working-test-shifts',{detail:{generation:list.listGeneration,items:list.items,nextCursor:list.nextCursor}}));}catch(_){}
       },
       onSnapshot:result=>{if(!live())return;

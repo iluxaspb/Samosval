@@ -1,11 +1,11 @@
 {
-  "version": "d874631d9ed3b53e",
-  "channel": "working-1.10.10",
+  "version": "5e108d710969339c",
+  "channel": "working-1.10.11",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index-working-test.html",
-      "sha256": "0e5458d3365450ae729261dc0d4470faf5f1f86e8a6eee72bf044769df6df5ac"
+      "sha256": "c41ae8e6cdf9b8f01b20a233c4aef4ff429017454208cc3e7708b4941a1bd761"
     },
     {
       "url": "./manifest-working-test.webmanifest",
@@ -452,132 +452,132 @@
       "sha256": "57ec8efe1d2e4f631388a0ef3fbf3a654e6fc2f160bcb3225d2a35c287813548"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/admin-compact.js",
+      "url": "./working-test/build/5e108d710969339c/admin-compact.js",
       "sha256": "b1e486079ebefc26e2a7da884368700d97212369dc3b6f35e56503970dca2ba3"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/analytics-v2.js",
+      "url": "./working-test/build/5e108d710969339c/analytics-v2.js",
       "sha256": "af3f3dfeba84508c872e0f9c6004bd07891a2a6e4f308dbcc6e34f210147554e"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/anim-speeds.js",
+      "url": "./working-test/build/5e108d710969339c/anim-speeds.js",
       "sha256": "94d6362b3d378ff7ab4e03c1e442816bed937754b50a61fd3e303a21045e252d"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/auto-backup.js",
+      "url": "./working-test/build/5e108d710969339c/auto-backup.js",
       "sha256": "c04e222b588b5a67cc9cc95436637288a4afd5b8d6971997d71ddae159f9a317"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/closed-shift-duplicates.js",
+      "url": "./working-test/build/5e108d710969339c/closed-shift-duplicates.js",
       "sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/confirm-bridge.js",
+      "url": "./working-test/build/5e108d710969339c/confirm-bridge.js",
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/core.js",
-      "sha256": "aa40331a0496fbf084765cb7d75bdfed47b35cad3c88b23cf18ec694f7cec8ae"
+      "url": "./working-test/build/5e108d710969339c/core.js",
+      "sha256": "33a3cdf2ea0816f3809f495904c79f1d1b5517fae53c307f2925d4aa80fc1886"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/debug-accounts.js",
+      "url": "./working-test/build/5e108d710969339c/debug-accounts.js",
       "sha256": "8220eb90ded1e356956e3accb287e877a84eeaf9c01eddbfbaaae08935151f20"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/fix-log-delete.js",
+      "url": "./working-test/build/5e108d710969339c/fix-log-delete.js",
       "sha256": "f1e5cd94d94a0187d96aa942e23aa22a79acd72d2491e3966022932d23003cd9"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/gai-report-toggle.js",
+      "url": "./working-test/build/5e108d710969339c/gai-report-toggle.js",
       "sha256": "584a1b9bfb8c3edd8229fe73be5db55788dc251c182b545c27a4cac1b9c1455a"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/game-coins-v2.js",
+      "url": "./working-test/build/5e108d710969339c/game-coins-v2.js",
       "sha256": "96d4de394351d066185a6bebd75553c20d603e89ad43d38843c390f48c64c902"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/global-interface-haptics.js",
+      "url": "./working-test/build/5e108d710969339c/global-interface-haptics.js",
       "sha256": "f1b8613f85be1745740cecd2c7f57287a8408644a1109360972897ef8401578b"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/history-recorder.js",
+      "url": "./working-test/build/5e108d710969339c/history-recorder.js",
       "sha256": "1dad9884259db090129ea186829163d27f0f3438e4ef5192eb431532938c2832"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/line-card-layers.js",
+      "url": "./working-test/build/5e108d710969339c/line-card-layers.js",
       "sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/nav-sort.js",
+      "url": "./working-test/build/5e108d710969339c/nav-sort.js",
       "sha256": "f3dcd96edb1d4d7cdb73821b87f903ded07fcae820ad2c9616e3c8cbe533ddf3"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/offline-feedback.js",
+      "url": "./working-test/build/5e108d710969339c/offline-feedback.js",
       "sha256": "e1b849e3afc04b839e0115171fade2b2d9e7dec78d42e571d2970fbdc3b55641"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/paper-viewer.js",
+      "url": "./working-test/build/5e108d710969339c/paper-viewer.js",
       "sha256": "f4dbedbec7557236402220ad5a8e4d46bad0be2f383b67894d9f15c777cc5eb8"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/pretty-confirm.js",
+      "url": "./working-test/build/5e108d710969339c/pretty-confirm.js",
       "sha256": "8018b09383b4dbac66f49ffde12da2f4e1a18691ebf300870fea99e793db955d"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/release-history.js",
-      "sha256": "c7cc5c03a1ba0b2c91c6039f56fbc342977fbfe18dc32b37fb5847978dc6cdc5"
+      "url": "./working-test/build/5e108d710969339c/release-history.js",
+      "sha256": "4e8d67606bbd46bba048694c610e691e132a7ed37e1e1578f1ec9060bc3c2cb0"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/reset-hold.js",
+      "url": "./working-test/build/5e108d710969339c/reset-hold.js",
       "sha256": "926eb9b879ae490384d17fc54c28d49061d3182b1daf9f72739dfaca7b16c674"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/reset-settings.js",
+      "url": "./working-test/build/5e108d710969339c/reset-settings.js",
       "sha256": "45bd5eba801d2d67758dfac630657ce95666c83fd187d80b58349a450b507775"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/road-arcade-core.js",
+      "url": "./working-test/build/5e108d710969339c/road-arcade-core.js",
       "sha256": "3a67b434412880843eb6bec89e33b0da2aa55940806d18787451fb20c72d0ae2"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/road-arcade-runtime.js",
+      "url": "./working-test/build/5e108d710969339c/road-arcade-runtime.js",
       "sha256": "a46e9bb06ca605d3919bcd04b415d7c0ffd8b1623a7c92733d1a103d35a2e63a"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/road-arcade-ui.js",
+      "url": "./working-test/build/5e108d710969339c/road-arcade-ui.js",
       "sha256": "f61a5bfd335f2213d8da3d75f69c51e18b3e0317de73fefc4d2d87e835982a5a"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/road-jokes-v1.js",
+      "url": "./working-test/build/5e108d710969339c/road-jokes-v1.js",
       "sha256": "a25b2e30bfd8a2c8c3bf9665b3c8aa3ec2768df99085b0df90ed637c155d1bfa"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/road-season-effects-v1.js",
+      "url": "./working-test/build/5e108d710969339c/road-season-effects-v1.js",
       "sha256": "1447fe55145ad75200008647e0071d8b65d8bf9c9eaa2eef10a6a5b86f7e1592"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/road-shop-v1.js",
+      "url": "./working-test/build/5e108d710969339c/road-shop-v1.js",
       "sha256": "37279a9991c2dff3a4434eae11ebb8974dde0b91c59bd28e105383b86345c821"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/settings-hub.js",
+      "url": "./working-test/build/5e108d710969339c/settings-hub.js",
       "sha256": "2dc9114447d2ebcfe4f0b1ee9927fac170a1c70e83449229329ae74ef5592bcd"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/ticker-name.js",
+      "url": "./working-test/build/5e108d710969339c/ticker-name.js",
       "sha256": "1bf5425f9f46b97b7788ec362dcfc7cf63d417f6331ba321402d01da1ae036f4"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/trip-analytics.js",
+      "url": "./working-test/build/5e108d710969339c/trip-analytics.js",
       "sha256": "2d16315e037c948907a52fa579f159f2dc67412a2221c72ac33ba55e07d1a35b"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/undo-redo.js",
+      "url": "./working-test/build/5e108d710969339c/undo-redo.js",
       "sha256": "7c731d2a095e5dbbe61e416c11a2520ed63d37beb2056bb5747c350cc5abf591"
     },
     {
-      "url": "./working-test/build/d874631d9ed3b53e/working-test-release.js",
-      "sha256": "a969748dd24e2081c6b2fc15b8dc48149d23d461d8fe1c852e4ca889267191cb"
+      "url": "./working-test/build/5e108d710969339c/working-test-release.js",
+      "sha256": "52738a0774af3a71eec6043801f4b0d37f155b99dbb6b90fed425990a5d10c5c"
     }
   ]
 }
