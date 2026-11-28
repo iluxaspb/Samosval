@@ -168,10 +168,27 @@
     function getLastNotification() {
       try {
         if (typeof state !== 'undefined' && state && state.notifications && state.notifications.length > 0) {
-          return state.notifications.find(item => !undoneTickerIds.has(item.id) && validTickerNotification(item)) || null;
+          const shiftId = state.shift && state.shift.id ? state.shift.id : '';
+          return state.notifications.find(item => !undoneTickerIds.has(item.id) && validTickerNotification(item)
+            && (typeof tickerBelongsToShift !== 'function' || tickerBelongsToShift(item, shiftId))) || null;
         }
       } catch(e) {}
       return null;
+    }
+
+    // Заголовок полосы называет объект, когда открыто несколько смен: без
+    // этого действие одного объекта читается как действие другого.
+    function tickerScopeLabel(item) {
+      const base = 'ПОСЛЕДНЕЕ ДЕЙСТВИЕ';
+      let count = 0;
+      try { count = Number(window.__wtVisibleShiftCount && window.__wtVisibleShiftCount()) || 0; } catch(_) { count = 0; }
+      if (count < 2) return base;
+      const name = String((item && item.objectName) || (state.shift && state.shift.objectName) || '').trim();
+      return name ? base + ' · ' + name : base;
+    }
+
+    function refreshShiftStripBadges() {
+      try { window.__wtRefreshShiftBadges && window.__wtRefreshShiftBadges(); } catch(_) {}
     }
 
     function getUserNameForTicker(last) {
@@ -280,6 +297,7 @@
 
       const last = getLastNotification();
       if (!last) {
+        refreshShiftStripBadges();
         const reverseEnabled = true;
         const outgoing = t.querySelector('.ticker-left.active');
         if (reverseEnabled && outgoing) {
@@ -317,7 +335,7 @@
         t.innerHTML = `
           <div class="ticker-row-top">
             <span class="ticker-name-line">
-              <span>ПОСЛЕДНЕЕ ДЕЙСТВИЕ</span>
+              <span id="tickerScope">${escapeHtml(tickerScopeLabel(last))}</span>
               <span class="ticker-user">${userLabel ? escapeHtml(userLabel) : ''}</span>
             </span>
             <span id="tickerTimeAgo" class="ticker-time" data-timestamp="${last.timestamp||Date.now()}">${formatTimeAgo(last.timestamp)}</span>
@@ -334,6 +352,7 @@
         t.classList.remove('flash');
         void t.offsetWidth;
         t.classList.add('flash');
+        refreshShiftStripBadges();
         return;
       }
 
@@ -396,6 +415,13 @@
 
       // Имя всегда обновляем (не зависит от анимации нижней строки)
       injectUserName();
+
+      // Смена могла переключиться, а запись остаться той же: заголовок полосы
+      // обязан называть объект выбранной смены.
+      const scopeEl = document.getElementById('tickerScope');
+      const scopeText = tickerScopeLabel(last);
+      if (scopeEl && scopeEl.textContent !== scopeText) scopeEl.textContent = scopeText;
+      refreshShiftStripBadges();
     };
 
     // ===== pushNotification — сохраняем имя =====

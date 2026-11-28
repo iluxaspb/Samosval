@@ -180,9 +180,17 @@
         syncBadges(entry);
       }
       // Выбранная смена считается просмотренной: её полоса уже показана,
-      // поэтому точка непросмотренного действия на ней не нужна.
+      // поэтому точка непросмотренного действия на ней не нужна. Отметку
+      // пишем только когда в смене есть действие новее прежней отметки —
+      // иначе каждое обновление полосы дёргало бы локальное хранилище.
       if (selectedId && typeof config.markSeen === 'function') {
-        try { config.markSeen(selectedId); } catch (_) { /* отметка просмотра не критична */ }
+        const actionAt = typeof config.lastActionAt === 'function'
+          ? Number(config.lastActionAt(selectedId)) || 0 : 0;
+        const seenAt = typeof config.seenAt === 'function'
+          ? Number(config.seenAt(selectedId)) || 0 : 0;
+        if (actionAt > seenAt) {
+          try { config.markSeen(selectedId); } catch (_) { /* отметка просмотра не критична */ }
+        }
       }
     }
 

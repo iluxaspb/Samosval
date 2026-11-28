@@ -511,3 +511,20 @@ test('отметка просмотра не мешает прежним бей�
   assert.match(tabOf(mount, 'shift_b').textContent, /закрывается/, 'closing остался');
   assert.ok(actionDot(tabOf(mount, 'shift_b')), 'точка добавлена рядом с прежними бейджами');
 });
+
+test('простой перерендер не перезаписывает время просмотра раньше времени действия', () => {
+  const actions = { shift_a: 1000, shift_b: 2000 };
+  const seen = { shift_a: 0, shift_b: 0 };
+  const { mount, selector } = setup({
+    rows: [shiftA, shiftB], active: 'shift_a',
+    lastActionAt: id => actions[id] || 0,
+    seenAt: id => seen[id] || 0,
+    markSeen: id => { seen[id] = Date.now(); }
+  });
+  selector.render();
+  const viewedAt = seen.shift_a;
+  assert.ok(viewedAt >= 1000, 'выбранная смена отмечена просмотренной');
+  selector.refreshBadges();
+  assert.equal(seen.shift_a, viewedAt, 'рендер бейджей не сдвигает просмотр без нового действия');
+  assert.ok(actionDot(tabOf(mount, 'shift_b')), 'точка другой смены осталась');
+});
