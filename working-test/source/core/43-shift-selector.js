@@ -126,11 +126,17 @@
       }
       const badge = context && isRecord(context.badge) ? context.badge : {};
       const pending = Number(badge.pending);
+      // Непросмотренное действие другой смены: точка на вкладке. Время
+      // действия и время просмотра приходят снаружи (store уведомлений и
+      // локальная отметка устройства), полоса сама ничего не хранит.
+      const actionAt = typeof config.lastActionAt === 'function' ? Number(config.lastActionAt(row.shiftId)) || 0 : 0;
+      const seenAt = typeof config.seenAt === 'function' ? Number(config.seenAt(row.shiftId)) || 0 : 0;
       return {
         closing: stateOf(row) === 'closing' || badge.closing === true,
         conflict: badge.conflict === true,
         offline: badge.offline === true || offlineNow(),
-        pending: Number.isFinite(pending) && pending > 0 ? Math.floor(pending) : 0
+        pending: Number.isFinite(pending) && pending > 0 ? Math.floor(pending) : 0,
+        fresh: row.shiftId !== selectedId && actionAt > seenAt
       };
     }
 
@@ -139,6 +145,7 @@
       if (state.closing) list.push(['closing', 'закрывается']);
       if (state.conflict) list.push(['conflict', 'конфликт']);
       if (state.offline) list.push(['offline', 'офлайн']);
+      if (state.fresh) list.push(['action', '•']);
       if (state.pending > 0) list.push(['pending', String(state.pending)]);
       return list;
     }
@@ -150,6 +157,10 @@
         const badge = doc.createElement('span');
         badge.className = 'shift-tab-badge shift-tab-' + kind;
         badge.textContent = text;
+        if (kind === 'action') {
+          badge.setAttribute('title', 'новое действие в этой смене');
+          badge.setAttribute('aria-label', 'новое действие в этой смене');
+        }
         entry.badgesEl.appendChild(badge);
       }
       entry.tab.className = 'shift-tab'
@@ -167,6 +178,11 @@
         entry.tab.setAttribute('aria-selected', entry.shiftId === selectedId ? 'true' : 'false');
         syncLabel(entry);
         syncBadges(entry);
+      }
+      // Выбранная смена считается просмотренной: её полоса уже показана,
+      // поэтому точка непросмотренного действия на ней не нужна.
+      if (selectedId && typeof config.markSeen === 'function') {
+        try { config.markSeen(selectedId); } catch (_) { /* отметка просмотра не критична */ }
       }
     }
 

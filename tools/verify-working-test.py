@@ -50,7 +50,7 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.10.1'
+REQUIRED_VERSION = '1.10.2'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
 FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
@@ -130,7 +130,9 @@ ALLOWED_NEW_FILES = {
     'server/tests/migration-registry.test.mjs',
     'docs/opyt-oshibok.md',
 }
-ALLOWED_NEW_PREFIXES = ('working-test/',)
+# Планы и дизайн-документы задачи тоже живут в репозитории и не являются
+# изменением продукта.
+ALLOWED_NEW_PREFIXES = ('working-test/', 'docs/superpowers/')
 
 # Проект собирается и тестируется на Node 22 (см. .github/workflows и
 # server/Dockerfile). На более старом Node часть тестов не запускается:

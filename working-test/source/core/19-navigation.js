@@ -30,6 +30,69 @@
   function shiftBridge() {
     try { return typeof nasV2Shifts === 'function' ? nasV2Shifts() : null; } catch (_) { return null; }
   }
+  // Отметки просмотра уведомлений по сменам. Хранятся на устройстве: сервер
+  // не должен знать, что именно оператор уже увидел, а точка на вкладке —
+  // подсказка этому устройству, а не общая отметка «прочитано».
+  const SHIFT_SEEN_KEY = 'samosval-wt-shift-seen-v1';
+  let shiftSeenCache = null;
+  let shiftSeenCacheKey = '';
+  function shiftSeenStorageKey() {
+    const workspace = typeof WORKSPACE_ID === 'string' && WORKSPACE_ID ? WORKSPACE_ID : 'workspace';
+    const uid = typeof currentUid === 'string' && currentUid ? currentUid : 'anon';
+    return SHIFT_SEEN_KEY + ':' + workspace + ':' + uid;
+  }
+  function shiftSeenMap() {
+    const key = shiftSeenStorageKey();
+    if (shiftSeenCache && shiftSeenCacheKey === key) return shiftSeenCache;
+    let map = {};
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed;
+    } catch (_) {
+      map = {};
+    }
+    shiftSeenCache = map;
+    shiftSeenCacheKey = key;
+    return map;
+  }
+  function shiftSeenAt(shiftId) {
+    if (typeof shiftId !== 'string' || !shiftId) return 0;
+    const value = Number(shiftSeenMap()[shiftId]);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+  function markShiftSeen(shiftId) {
+    if (typeof shiftId !== 'string' || !shiftId) return;
+    const map = shiftSeenMap();
+    map[shiftId] = Date.now();
+    try { localStorage.setItem(shiftSeenCacheKey, JSON.stringify(map)); } catch (_) { /* место в хранилище не критично */ }
+  }
+  // Самое свежее уведомление смены: по нему вкладка понимает, что там было
+  // действие, которое оператор ещё не видел.
+  function shiftActionAt(shiftId) {
+    if (typeof shiftId !== 'string' || !shiftId) return 0;
+    let newest = 0;
+    for (const item of (state.notifications || [])) {
+      if (!item || item.shiftId !== shiftId) continue;
+      const ts = Number(item.timestamp) || 0;
+      if (ts > newest) newest = ts;
+    }
+    return newest;
+  }
+  function visibleShiftCount() {
+    const bridge = shiftBridge();
+    if (!bridge || !bridge.store || typeof bridge.store.visibleShifts !== 'function') return 0;
+    try {
+      const rows = bridge.store.visibleShifts();
+      return Array.isArray(rows) ? rows.length : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+  window.__wtVisibleShiftCount = visibleShiftCount;
+  window.__wtRefreshShiftBadges = function () {
+    try { if (shiftSelector) shiftSelector.refreshBadges(); } catch (_) { /* полосы нет — обновлять нечего */ }
+  };
   function ensureShiftUi() {
     const bridge = shiftBridge();
     const mount = document.getElementById('shiftStrip');
@@ -61,6 +124,9 @@
         store: bridge.store, doc: document, mount, legacyState: state,
         onSwitch: function () { renderAll(); },
         select: function (id) { return window.shiftStripSelect(id); },
+        lastActionAt: shiftActionAt,
+        seenAt: shiftSeenAt,
+        markSeen: markShiftSeen,
         offline: function () { return typeof navigator !== 'undefined' && navigator.onLine === false; }
       });
       shiftManagement = WorkingTestShiftManagement.createShiftManagement({

@@ -464,14 +464,29 @@
 
   function renderStatusTicker() {
     let t = document.getElementById('statusTicker'); if (!t) return;
+    // Заголовок полосы называет объект, когда открыто несколько смен: иначе
+    // действие одного объекта легко принять за действие другого.
+    function scopeLabel(item) {
+      let count = 0;
+      try { count = Number(window.__wtVisibleShiftCount && window.__wtVisibleShiftCount()) || 0; } catch (_) { count = 0; }
+      if (count < 2) return 'ПОСЛЕДНЕЕ ДЕЙСТВИЕ';
+      const name = String((item && item.objectName) || (state.shift && state.shift.objectName) || '').trim();
+      return name ? 'ПОСЛЕДНЕЕ ДЕЙСТВИЕ · ' + name : 'ПОСЛЕДНЕЕ ДЕЙСТВИЕ';
+    }
+    function refreshStripBadges() { try { window.__wtRefreshShiftBadges && window.__wtRefreshShiftBadges(); } catch (_) {} }
     let last = offlineLocalTicker() || lastValidNotification();
-    if (!last) { t.style.display = 'none'; t.innerHTML = ''; lastTickerTs = 0; lastTickerId = null; return; }
+    if (!last) { t.style.display = 'none'; t.innerHTML = ''; lastTickerTs = 0; lastTickerId = null; refreshStripBadges(); return; }
     let isNew = (last.timestamp || 0) !== lastTickerTs; let isNewId = last.id !== lastTickerId;
     if (t.style.display === 'none' || !t.querySelector('.ticker-text-wrapper')) {
       t.style.display = 'flex';
-      t.innerHTML = `<div class="ticker-row-top"><span>ПОСЛЕДНЕЕ ДЕЙСТВИЕ</span><span id="tickerTimeAgo" class="ticker-time" data-timestamp="${last.timestamp||Date.now()}">${formatTimeAgo(last.timestamp)}</span></div><div class="ticker-row-bottom"><div class="ticker-text-wrapper"><div class="ticker-left active">${last.html||''}</div></div>${canUndoCurrent(last) ? `<button class="btn-undo" onclick="${last.offlinePending?'undoLastOfflineAction()':'undoLastAction()'}" title="Отменить">↩</button>` : ''}</div>`;
-      lastTickerTs = last.timestamp || 0; lastTickerId = last.id; t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); return;
+      t.innerHTML = `<div class="ticker-row-top"><span id="tickerScope">${escapeHtml(scopeLabel(last))}</span><span id="tickerTimeAgo" class="ticker-time" data-timestamp="${last.timestamp||Date.now()}">${formatTimeAgo(last.timestamp)}</span></div><div class="ticker-row-bottom"><div class="ticker-text-wrapper"><div class="ticker-left active">${last.html||''}</div></div>${canUndoCurrent(last) ? `<button class="btn-undo" onclick="${last.offlinePending?'undoLastOfflineAction()':'undoLastAction()'}" title="Отменить">↩</button>` : ''}</div>`;
+      lastTickerTs = last.timestamp || 0; lastTickerId = last.id; t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); refreshStripBadges(); return;
     }
+    // Смена могла переключиться, а запись остаться той же: заголовок полосы
+    // обязан называть объект выбранной смены, иначе он врёт.
+    const scopeEl = document.getElementById('tickerScope');
+    const scopeText = scopeLabel(last);
+    if (scopeEl && scopeEl.textContent !== scopeText) scopeEl.textContent = scopeText;
     if (isNew && isNewId) {
       let wrapper = t.querySelector('.ticker-text-wrapper'); let oldText = wrapper.querySelector('.ticker-left.active');
       if (oldText) { let newText = document.createElement('div'); newText.className = 'ticker-left enter'; newText.innerHTML = last.html || ''; wrapper.appendChild(newText); void newText.offsetWidth; oldText.classList.remove('active'); oldText.classList.add('leave'); newText.classList.remove('enter'); newText.classList.add('active'); setTimeout(() => { if (oldText.parentNode) oldText.remove(); }, 800); }

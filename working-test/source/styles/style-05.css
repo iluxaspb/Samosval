@@ -52,6 +52,8 @@
 .shift-tab-conflict { background: rgba(239,68,68,.2); color: var(--danger); }
 .shift-tab-offline { background: rgba(148,163,184,.25); color: var(--muted); }
 .shift-tab-pending { background: rgba(59,130,246,.2); color: var(--primary); }
+/* Точка непросмотренного действия: заметная, но не спорит с названием смены. */
+.shift-tab-action { padding: 0; width: 9px; height: 9px; display: inline-flex; align-items: center; justify-content: center; background: #fde68a; color: #fde68a; font-size: 0; line-height: 1; box-shadow: 0 0 0 2px rgba(253,230,138,.25); }
 .shift-management-note { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .shift-management-status { margin: 0 0 12px; padding: 9px 11px; border-radius: 9px; font-size: 13px; line-height: 1.4; }
 .shift-management-status.is-ok { background: rgba(34,197,94,.16); color: var(--success); }

@@ -115,7 +115,8 @@ function makeStore(rows, options = {}) {
   };
 }
 
-function setup({ rows, contexts = {}, active, legacyState, minShifts, onSwitch, offline, transport, queue } = {}) {
+function setup({ rows, contexts = {}, active, legacyState, minShifts, onSwitch, offline, transport, queue,
+                 lastActionAt, seenAt, markSeen } = {}) {
   const doc = makeDoc();
   const mount = new FakeElement('div');
   // Разметку контейнера задаёт shell.html: полоса не обязана её переписывать.
@@ -136,6 +137,9 @@ function setup({ rows, contexts = {}, active, legacyState, minShifts, onSwitch, 
     offline,
     transport,
     queue,
+    lastActionAt,
+    seenAt,
+    markSeen,
     window: windowStub
   });
   return { doc, mount, store, selector, state, switches };
@@ -435,4 +439,75 @@ test('destroy убирает полосу и вкладки', () => {
   selector.destroy();
   assert.equal(tabs(mount).length, 0, 'вкладки удалены');
   assert.equal(mount.hidden, true, 'полоса скрыта');
+});
+
+// Точка непросмотренного действия (решение владельца 28.11.2026): уведомления
+// разных смен не смешиваются, а вкладка чужой смены подсказывает, что там было
+// действие. Точка гаснет, когда смену открыли.
+function actionDot(tab) {
+  if (!tab) return null;
+  const badges = tab.children.filter(child => String(child.className || '').includes('shift-tab-badges'));
+  const list = badges.length ? badges[0].children : [];
+  return list.find(badge => String(badge.className || '').includes('shift-tab-action')) || null;
+}
+
+test('точка непросмотренного действия: у другой смены есть, у выбранной нет', () => {
+  const actions = { shift_a: 1000, shift_b: 2000 };
+  const seen = { shift_a: 0, shift_b: 0 };
+  const { mount, selector } = setup({
+    rows: [shiftA, shiftB], active: 'shift_a',
+    lastActionAt: id => actions[id] || 0,
+    seenAt: id => seen[id] || 0,
+    markSeen: id => { seen[id] = Date.now(); }
+  });
+  selector.render();
+  assert.equal(actionDot(tabOf(mount, 'shift_a')), null, 'у выбранной смены точки нет');
+  const dot = actionDot(tabOf(mount, 'shift_b'));
+  assert.ok(dot, 'у другой смены точка есть');
+  assert.equal(dot.getAttribute('title'), 'новое действие в этой смене');
+});
+
+test('точка гаснет после просмотра смены и возвращается при новом действии', () => {
+  const actions = { shift_a: 1000, shift_b: 2000 };
+  const seen = { shift_a: 0, shift_b: 0 };
+  const { mount, selector } = setup({
+    rows: [shiftA, shiftB], active: 'shift_a',
+    lastActionAt: id => actions[id] || 0,
+    seenAt: id => seen[id] || 0,
+    markSeen: id => { seen[id] = Date.now(); }
+  });
+  selector.render();
+  assert.ok(actionDot(tabOf(mount, 'shift_b')), 'до просмотра точка есть');
+
+  assert.equal(selector.switchTo('shift_b'), true);
+  assert.equal(selector.switchTo('shift_a'), true);
+  assert.equal(actionDot(tabOf(mount, 'shift_b')), null, 'после просмотра точка погасла');
+
+  actions.shift_b = Date.now() + 5000;
+  selector.refreshBadges();
+  assert.ok(actionDot(tabOf(mount, 'shift_b')), 'новое действие снова поднимает точку');
+});
+
+test('без колбэков полоса работает как раньше: точек нет', () => {
+  const { mount, selector } = setup({ rows: [shiftA, shiftB], active: 'shift_a' });
+  selector.render();
+  assert.equal(actionDot(tabOf(mount, 'shift_b')), null);
+  assert.equal(actionDot(tabOf(mount, 'shift_a')), null);
+});
+
+test('отметка просмотра не мешает прежним бейджам pending и closing', () => {
+  const contexts = {
+    shift_a: { shiftId: 'shift_a', revisions: { shift: 3 }, badge: { pending: 2, closing: false, conflict: false } },
+    shift_b: { shiftId: 'shift_b', revisions: { shift: 5 }, badge: { pending: 0, closing: true, conflict: false } }
+  };
+  const { mount, selector } = setup({
+    rows: [shiftA, shiftB], contexts, active: 'shift_a',
+    lastActionAt: () => 5000,
+    seenAt: () => 0,
+    markSeen: () => {}
+  });
+  selector.render();
+  assert.match(tabOf(mount, 'shift_a').textContent, /2/, 'pending своей смены остался');
+  assert.match(tabOf(mount, 'shift_b').textContent, /закрывается/, 'closing остался');
+  assert.ok(actionDot(tabOf(mount, 'shift_b')), 'точка добавлена рядом с прежними бейджами');
 });

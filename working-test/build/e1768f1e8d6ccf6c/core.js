@@ -241,8 +241,19 @@ const firebaseConfig = {
       && state.logs.some(log => log.id === item.logId
         && (!state.shift || log.shiftId === state.shift.id));
   }
+  // Полоса «Последнее действие» принадлежит выбранной смене. Журнал
+  // уведомлений общий на рабочее пространство: без фильтра по shiftId
+  // прибытие на одном объекте висело в шапке, когда открыта другая смена.
+  function tickerBelongsToShift(item, shiftId) {
+    if (!item || typeof shiftId !== 'string' || !shiftId) return false;
+    if (typeof item.shiftId === 'string' && item.shiftId) return item.shiftId === shiftId;
+    // Запись без смены (старый канал) не показываем в конкретной смене:
+    // иначе чужое действие снова смешивается с выбранной.
+    return false;
+  }
   function lastValidNotification() {
-    return (state.notifications || []).find(validTickerNotification) || null;
+    const shiftId = state.shift && state.shift.id;
+    return (state.notifications || []).find(item => validTickerNotification(item) && tickerBelongsToShift(item, shiftId)) || null;
   }
   let lastTickerId = null;
   let lastTickerTs = 0;
@@ -5477,14 +5488,29 @@ function addTruckPhone(id){
 
   function renderStatusTicker() {
     let t = document.getElementById('statusTicker'); if (!t) return;
+    // Заголовок полосы называет объект, когда открыто несколько смен: иначе
+    // действие одного объекта легко принять за действие другого.
+    function scopeLabel(item) {
+      let count = 0;
+      try { count = Number(window.__wtVisibleShiftCount && window.__wtVisibleShiftCount()) || 0; } catch (_) { count = 0; }
+      if (count < 2) return 'ПОСЛЕДНЕЕ ДЕЙСТВИЕ';
+      const name = String((item && item.objectName) || (state.shift && state.shift.objectName) || '').trim();
+      return name ? 'ПОСЛЕДНЕЕ ДЕЙСТВИЕ · ' + name : 'ПОСЛЕДНЕЕ ДЕЙСТВИЕ';
+    }
+    function refreshStripBadges() { try { window.__wtRefreshShiftBadges && window.__wtRefreshShiftBadges(); } catch (_) {} }
     let last = offlineLocalTicker() || lastValidNotification();
-    if (!last) { t.style.display = 'none'; t.innerHTML = ''; lastTickerTs = 0; lastTickerId = null; return; }
+    if (!last) { t.style.display = 'none'; t.innerHTML = ''; lastTickerTs = 0; lastTickerId = null; refreshStripBadges(); return; }
     let isNew = (last.timestamp || 0) !== lastTickerTs; let isNewId = last.id !== lastTickerId;
     if (t.style.display === 'none' || !t.querySelector('.ticker-text-wrapper')) {
       t.style.display = 'flex';
-      t.innerHTML = `<div class="ticker-row-top"><span>ПОСЛЕДНЕЕ ДЕЙСТВИЕ</span><span id="tickerTimeAgo" class="ticker-time" data-timestamp="${last.timestamp||Date.now()}">${formatTimeAgo(last.timestamp)}</span></div><div class="ticker-row-bottom"><div class="ticker-text-wrapper"><div class="ticker-left active">${last.html||''}</div></div>${canUndoCurrent(last) ? `<button class="btn-undo" onclick="${last.offlinePending?'undoLastOfflineAction()':'undoLastAction()'}" title="Отменить">↩</button>` : ''}</div>`;
-      lastTickerTs = last.timestamp || 0; lastTickerId = last.id; t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); return;
+      t.innerHTML = `<div class="ticker-row-top"><span id="tickerScope">${escapeHtml(scopeLabel(last))}</span><span id="tickerTimeAgo" class="ticker-time" data-timestamp="${last.timestamp||Date.now()}">${formatTimeAgo(last.timestamp)}</span></div><div class="ticker-row-bottom"><div class="ticker-text-wrapper"><div class="ticker-left active">${last.html||''}</div></div>${canUndoCurrent(last) ? `<button class="btn-undo" onclick="${last.offlinePending?'undoLastOfflineAction()':'undoLastAction()'}" title="Отменить">↩</button>` : ''}</div>`;
+      lastTickerTs = last.timestamp || 0; lastTickerId = last.id; t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); refreshStripBadges(); return;
     }
+    // Смена могла переключиться, а запись остаться той же: заголовок полосы
+    // обязан называть объект выбранной смены, иначе он врёт.
+    const scopeEl = document.getElementById('tickerScope');
+    const scopeText = scopeLabel(last);
+    if (scopeEl && scopeEl.textContent !== scopeText) scopeEl.textContent = scopeText;
     if (isNew && isNewId) {
       let wrapper = t.querySelector('.ticker-text-wrapper'); let oldText = wrapper.querySelector('.ticker-left.active');
       if (oldText) { let newText = document.createElement('div'); newText.className = 'ticker-left enter'; newText.innerHTML = last.html || ''; wrapper.appendChild(newText); void newText.offsetWidth; oldText.classList.remove('active'); oldText.classList.add('leave'); newText.classList.remove('enter'); newText.classList.add('active'); setTimeout(() => { if (oldText.parentNode) oldText.remove(); }, 800); }
@@ -5669,6 +5695,69 @@ function addTruckPhone(id){
   function shiftBridge() {
     try { return typeof nasV2Shifts === 'function' ? nasV2Shifts() : null; } catch (_) { return null; }
   }
+  // Отметки просмотра уведомлений по сменам. Хранятся на устройстве: сервер
+  // не должен знать, что именно оператор уже увидел, а точка на вкладке —
+  // подсказка этому устройству, а не общая отметка «прочитано».
+  const SHIFT_SEEN_KEY = 'samosval-wt-shift-seen-v1';
+  let shiftSeenCache = null;
+  let shiftSeenCacheKey = '';
+  function shiftSeenStorageKey() {
+    const workspace = typeof WORKSPACE_ID === 'string' && WORKSPACE_ID ? WORKSPACE_ID : 'workspace';
+    const uid = typeof currentUid === 'string' && currentUid ? currentUid : 'anon';
+    return SHIFT_SEEN_KEY + ':' + workspace + ':' + uid;
+  }
+  function shiftSeenMap() {
+    const key = shiftSeenStorageKey();
+    if (shiftSeenCache && shiftSeenCacheKey === key) return shiftSeenCache;
+    let map = {};
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed;
+    } catch (_) {
+      map = {};
+    }
+    shiftSeenCache = map;
+    shiftSeenCacheKey = key;
+    return map;
+  }
+  function shiftSeenAt(shiftId) {
+    if (typeof shiftId !== 'string' || !shiftId) return 0;
+    const value = Number(shiftSeenMap()[shiftId]);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+  function markShiftSeen(shiftId) {
+    if (typeof shiftId !== 'string' || !shiftId) return;
+    const map = shiftSeenMap();
+    map[shiftId] = Date.now();
+    try { localStorage.setItem(shiftSeenCacheKey, JSON.stringify(map)); } catch (_) { /* место в хранилище не критично */ }
+  }
+  // Самое свежее уведомление смены: по нему вкладка понимает, что там было
+  // действие, которое оператор ещё не видел.
+  function shiftActionAt(shiftId) {
+    if (typeof shiftId !== 'string' || !shiftId) return 0;
+    let newest = 0;
+    for (const item of (state.notifications || [])) {
+      if (!item || item.shiftId !== shiftId) continue;
+      const ts = Number(item.timestamp) || 0;
+      if (ts > newest) newest = ts;
+    }
+    return newest;
+  }
+  function visibleShiftCount() {
+    const bridge = shiftBridge();
+    if (!bridge || !bridge.store || typeof bridge.store.visibleShifts !== 'function') return 0;
+    try {
+      const rows = bridge.store.visibleShifts();
+      return Array.isArray(rows) ? rows.length : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+  window.__wtVisibleShiftCount = visibleShiftCount;
+  window.__wtRefreshShiftBadges = function () {
+    try { if (shiftSelector) shiftSelector.refreshBadges(); } catch (_) { /* полосы нет — обновлять нечего */ }
+  };
   function ensureShiftUi() {
     const bridge = shiftBridge();
     const mount = document.getElementById('shiftStrip');
@@ -5700,6 +5789,9 @@ function addTruckPhone(id){
         store: bridge.store, doc: document, mount, legacyState: state,
         onSwitch: function () { renderAll(); },
         select: function (id) { return window.shiftStripSelect(id); },
+        lastActionAt: shiftActionAt,
+        seenAt: shiftSeenAt,
+        markSeen: markShiftSeen,
         offline: function () { return typeof navigator !== 'undefined' && navigator.onLine === false; }
       });
       shiftManagement = WorkingTestShiftManagement.createShiftManagement({
@@ -8680,11 +8772,17 @@ window.addEventListener('DOMContentLoaded',()=>{
       }
       const badge = context && isRecord(context.badge) ? context.badge : {};
       const pending = Number(badge.pending);
+      // Непросмотренное действие другой смены: точка на вкладке. Время
+      // действия и время просмотра приходят снаружи (store уведомлений и
+      // локальная отметка устройства), полоса сама ничего не хранит.
+      const actionAt = typeof config.lastActionAt === 'function' ? Number(config.lastActionAt(row.shiftId)) || 0 : 0;
+      const seenAt = typeof config.seenAt === 'function' ? Number(config.seenAt(row.shiftId)) || 0 : 0;
       return {
         closing: stateOf(row) === 'closing' || badge.closing === true,
         conflict: badge.conflict === true,
         offline: badge.offline === true || offlineNow(),
-        pending: Number.isFinite(pending) && pending > 0 ? Math.floor(pending) : 0
+        pending: Number.isFinite(pending) && pending > 0 ? Math.floor(pending) : 0,
+        fresh: row.shiftId !== selectedId && actionAt > seenAt
       };
     }
 
@@ -8693,6 +8791,7 @@ window.addEventListener('DOMContentLoaded',()=>{
       if (state.closing) list.push(['closing', 'закрывается']);
       if (state.conflict) list.push(['conflict', 'конфликт']);
       if (state.offline) list.push(['offline', 'офлайн']);
+      if (state.fresh) list.push(['action', '•']);
       if (state.pending > 0) list.push(['pending', String(state.pending)]);
       return list;
     }
@@ -8704,6 +8803,10 @@ window.addEventListener('DOMContentLoaded',()=>{
         const badge = doc.createElement('span');
         badge.className = 'shift-tab-badge shift-tab-' + kind;
         badge.textContent = text;
+        if (kind === 'action') {
+          badge.setAttribute('title', 'новое действие в этой смене');
+          badge.setAttribute('aria-label', 'новое действие в этой смене');
+        }
         entry.badgesEl.appendChild(badge);
       }
       entry.tab.className = 'shift-tab'
@@ -8721,6 +8824,11 @@ window.addEventListener('DOMContentLoaded',()=>{
         entry.tab.setAttribute('aria-selected', entry.shiftId === selectedId ? 'true' : 'false');
         syncLabel(entry);
         syncBadges(entry);
+      }
+      // Выбранная смена считается просмотренной: её полоса уже показана,
+      // поэтому точка непросмотренного действия на ней не нужна.
+      if (selectedId && typeof config.markSeen === 'function') {
+        try { config.markSeen(selectedId); } catch (_) { /* отметка просмотра не критична */ }
       }
     }
 

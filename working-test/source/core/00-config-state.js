@@ -241,8 +241,19 @@ const firebaseConfig = {
       && state.logs.some(log => log.id === item.logId
         && (!state.shift || log.shiftId === state.shift.id));
   }
+  // Полоса «Последнее действие» принадлежит выбранной смене. Журнал
+  // уведомлений общий на рабочее пространство: без фильтра по shiftId
+  // прибытие на одном объекте висело в шапке, когда открыта другая смена.
+  function tickerBelongsToShift(item, shiftId) {
+    if (!item || typeof shiftId !== 'string' || !shiftId) return false;
+    if (typeof item.shiftId === 'string' && item.shiftId) return item.shiftId === shiftId;
+    // Запись без смены (старый канал) не показываем в конкретной смене:
+    // иначе чужое действие снова смешивается с выбранной.
+    return false;
+  }
   function lastValidNotification() {
-    return (state.notifications || []).find(validTickerNotification) || null;
+    const shiftId = state.shift && state.shift.id;
+    return (state.notifications || []).find(item => validTickerNotification(item) && tickerBelongsToShift(item, shiftId)) || null;
   }
   let lastTickerId = null;
   let lastTickerTs = 0;
