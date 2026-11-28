@@ -14,11 +14,11 @@ import {createHash} from 'node:crypto';
 // игр и 3,5 МБ журнала на каждый опрос каждого клиента. Однопоточный Node
 // тратил на это почти всё время, пул из 5 соединений переполнялся, и остальные
 // запросы (табель, линия, погрузка, автомат) ждали по несколько секунд.
-const SHARED_LIMIT = 6;
 const ETAG_LIMIT = 2048;
-const shared = new Map();  // "имя@версия" → разделяемая часть снимка
+const shared = new Map();  // имя → {версия, значение, текущая сборка}
+const wanted = new Map();  // имя → самая новая версия, которую уже кто-то ждёт
 const etags = new Map();   // "область@версия" → ETag готового ответа
-const builds = new Map();  // "имя@версия" / "ответ:область@версия" → Promise
+const builds = new Map();  // "ответ:область@версия" → Promise
 
 export async function dataVersion(pool) {
   try {
@@ -33,29 +33,37 @@ export async function dataVersion(pool) {
 
 // Разделяемая часть снимка: одинаковая для всех пользователей и ролей.
 // Собирается один раз на версию; параллельные запросы ждут одну сборку.
+//
+// Если во время сборки появилась более новая версия (пользователи пишут), то
+// следующая сборка идёт сразу для самой новой запрошенной версии, а не для
+// каждой промежуточной. Данные при этом только свежее: сборка читает базу
+// после того, как версия уже была замечена, а счётчик версии не убывает.
+// Пять одновременных вращений автомата дают две сборки вместо пяти.
 export async function sharedValue(name, version, build) {
-  const key = name + '@' + version;
-  if (shared.has(key)) {
-    const value = shared.get(key);
-    shared.delete(key);
-    shared.set(key, value); // обновляем порядок вытеснения
-    return value;
+  const ask = Number(version);
+  if (!wanted.has(name) || wanted.get(name) < ask) wanted.set(name, ask);
+  for (;;) {
+    const slot = shared.get(name);
+    if (slot && slot.version !== null && slot.version >= ask) return slot.value;
+    if (slot && slot.promise) {
+      await slot.promise.catch(() => {});
+      continue;
+    }
+    const target = Math.max(ask, wanted.get(name) ?? ask);
+    const promise = Promise.resolve().then(build);
+    const next = {version: null, value: undefined, promise};
+    shared.set(name, next);
+    try {
+      const value = await promise;
+      next.value = value;
+      next.version = target;
+      next.promise = null;
+      return value;
+    } catch (error) {
+      if (shared.get(name) === next) shared.delete(name);
+      throw error;
+    }
   }
-  let pending = builds.get(key);
-  if (!pending) {
-    pending = Promise.resolve().then(build);
-    builds.set(key, pending);
-    pending.then(
-      (value) => {
-        if (builds.get(key) === pending) builds.delete(key);
-        remember(shared, key, value, SHARED_LIMIT);
-      },
-      () => {
-        if (builds.get(key) === pending) builds.delete(key);
-      },
-    );
-  }
-  return pending;
 }
 
 function remember(map, key, value, limit) {

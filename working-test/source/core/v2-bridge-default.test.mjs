@@ -52,6 +52,7 @@ function harness() {
     settings: {},
     appConfig: {},
     syncState: { errors: {}, everConnected: {}, fromCache: {}, docCount: {}, pendingWrites: {} },
+    initialized: false,
     document: {
       baseURI: 'https://stand.test/index-working-test.html',
       hidden: false,
@@ -82,9 +83,12 @@ function harness() {
 // Мост поднимается вручную: фейковые store и транспорт повторяют контракт
 // 40-shift-contexts.js / 41-v2-transport.js только в той части, которую читает
 // 21-nas-runtime.js (visibleShifts и подписка с колбэками).
-function bridge(h, { rows = [] } = {}) {
-  const state = { rows, handlers: null, closed: false };
-  const store = { visibleShifts: () => state.rows.slice() };
+function bridge(h, { rows = [], context = null } = {}) {
+  const state = { rows, context, handlers: null, closed: false };
+  const store = {
+    visibleShifts: () => state.rows.slice(),
+    visibleContext: () => state.context
+  };
   h.c.WorkingTestShiftContexts = { createShiftContextStore: () => store };
   h.c.WorkingTestV2Transport = {
     createV2Transport: () => ({
@@ -160,4 +164,55 @@ test('снимок смены тоже считается успехом мос�
   assert.equal(h.c.syncState.errors['nas-shifts'], undefined);
   assert.equal(h.events[0].type, 'samosval-working-test-shift-snapshot');
   assert.equal(h.events[0].detail.generation, 4);
+});
+
+// Пока открыто две смены, legacy-чтение линии отвечает 409 multiple-active-shifts,
+// поэтому markSync('nas'|'shift'|'status'|'logs') не вызывался вовсе: шапка
+// навсегда оставалась «Загрузка данных и прав…», а любая случайная ошибка
+// превращалась в неснимаемую плашку «Ошибка загрузки: nas» (жалоба владельца
+// 28.11.2026). Снимок выбранной смены v2 — такой же подтверждённый ответ
+// сервера, и он обязан подтверждать эти источники.
+test('снимок выбранной смены v2 подтверждает линию и снимает ошибку «nas»', () => {
+  const h = harness();
+  h.c.WORKING_TEST_V2_SHIFTS = true;
+  const context = {
+    shiftId: 'shift_a',
+    shift: { shiftId: 'shift_a', state: 'active' },
+    snapshot: { logs: [{ id: 'l1' }, { id: 'l2' }], statuses: [{ id: 't1' }] }
+  };
+  const fake = bridge(h, { rows: [{ shiftId: 'shift_a', state: 'active' }], context });
+  h.c.syncState.errors.nas = { code: 'api-timeout', message: 'api-timeout: response-headers', at: 1 };
+  h.c.syncState.errors.shift = { code: 'api-timeout', message: 'api-timeout: response-headers', at: 1 };
+  fake.state.handlers.onSnapshot({ generation: 4, shiftId: 'shift_a', revision: 2, applied: true, visible: true });
+  const marked = Object.fromEntries(h.marked.map(entry => [entry.source, entry.count]));
+  for (const source of ['shift', 'status', 'logs', 'nas']) {
+    assert.ok(source in marked, 'источник ' + source + ' подтверждён снимком v2');
+  }
+  assert.equal(marked.logs, 2, 'количество рейсов берётся из снимка');
+  assert.equal(marked.status, 1, 'количество статусов берётся из снимка');
+  assert.equal(h.c.syncState.errors.nas, undefined, 'ошибка «nas» снимается успешным снимком v2');
+  assert.equal(h.c.initialized, true, 'первый подтверждённый снимок завершает первичную загрузку');
+});
+
+test('снимок невыбранной смены не подтверждает линию', () => {
+  const h = harness();
+  h.c.WORKING_TEST_V2_SHIFTS = true;
+  const context = {
+    shiftId: 'shift_a',
+    shift: { shiftId: 'shift_a', state: 'active' },
+    snapshot: { logs: [{ id: 'l1' }], statuses: [] }
+  };
+  const fake = bridge(h, { rows: [{ shiftId: 'shift_a', state: 'active' }], context });
+  fake.state.handlers.onSnapshot({ generation: 4, shiftId: 'shift_b', revision: 2, applied: true, visible: false });
+  assert.deepEqual(h.marked, [], 'снимок соседней смены не выдаётся за линию');
+  assert.equal(h.c.initialized, false);
+});
+
+test('непринятый снимок v2 не подтверждает линию', () => {
+  const h = harness();
+  h.c.WORKING_TEST_V2_SHIFTS = true;
+  const context = { shiftId: 'shift_a', shift: { shiftId: 'shift_a' }, snapshot: { logs: [], statuses: [] } };
+  const fake = bridge(h, { rows: [{ shiftId: 'shift_a', state: 'active' }], context });
+  fake.state.handlers.onSnapshot({ generation: 4, shiftId: 'shift_a', revision: 2, applied: false, visible: true });
+  assert.deepEqual(h.marked, [], 'отказ применения (устаревшая ревизия) не считается подтверждением');
 });

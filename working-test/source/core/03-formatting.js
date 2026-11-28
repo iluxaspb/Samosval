@@ -77,6 +77,10 @@
     }
   }
   function reportSyncError(source, error) {
+    // Обрыв по нашей собственной команде (возврат на экран, смена сети,
+    // перезапуск подписки) — не сбой связи. Иначе каждое пробуждение телефона
+    // записывало «api-timeout: response-headers» и показывало «Ошибка загрузки».
+    if (error && error.code === 'api-aborted') return;
     syncState.errors = syncState.errors || {};
     syncState.errors[source] = { code: error?.code || 'unknown', message: error?.message || String(error), at: Date.now() }; if(offlineTransportError(error))offlineTransportFailed(error);try{if(offlineTransportError(error))nasConnectionHeart(false,error);}catch(_){}
     console.error('[sync:' + source + ']', error);

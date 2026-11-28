@@ -32,7 +32,12 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
   // После сворачивания приложения сокет и таймеры могут «умереть»: снаружи
   // нужен способ разорвать зависшие запросы и разбудить текущую подписку.
   let subscriptionWake=null;
-  function abortInflight(){for(const controller of controllers)controller.abort();}
+  function abortInflight(){
+    // Наш собственный обрыв (возврат на экран, смена сети) — не сбой связи.
+    // Помечаем контроллеры, чтобы request() не выдавал его за api-timeout:
+    // иначе каждое пробуждение телефона показывало «Ошибка загрузки».
+    for(const controller of controllers){controller.deliberateAbort=true;controller.abort();}
+  }
   function wake(){if(subscriptionWake)subscriptionWake();}
   // Generation of the single-writer authority, learned from every session read.
   // A phone that lags behind is refused by the server instead of writing blind.
@@ -133,7 +138,14 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
       }
     }catch(error){
       guard();
-      if(controller.signal.aborted){const timeout=new NasClientError('api-timeout',{retryable:true,uncertain:write});timeout.phase=phase;timeout.message+=': '+phase;throw timeout;}
+      if(controller.signal.aborted){
+        if(controller.deliberateAbort){
+          const aborted=new NasClientError('api-aborted',{retryable:true,uncertain:write});
+          aborted.phase=phase;aborted.message+=': '+phase;throw aborted;
+        }
+        const timeout=new NasClientError('api-timeout',{retryable:true,uncertain:write});
+        timeout.phase=phase;timeout.message+=': '+phase;throw timeout;
+      }
       if(error instanceof NasClientError)throw error;
       const failure=new NasClientError('api-unreachable',{retryable:true,uncertain:write});
       const detail=['Failed to fetch','Illegal invocation','Load failed'].includes(error?.message)?error.message:error?.name||'network-error';
@@ -261,7 +273,13 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
       applyAuthority(data);return data;
     }catch(error){
       guard();
-      if(controller.signal.aborted){const failure=new NasClientError('api-timeout',{retryable:true,uncertain:false});failure.phase=phase;failure.message+=': '+phase;throw failure;}
+      if(controller.signal.aborted){
+        if(controller.deliberateAbort){
+          const aborted=new NasClientError('api-aborted',{retryable:true,uncertain:false});
+          aborted.phase=phase;aborted.message+=': '+phase;throw aborted;
+        }
+        const failure=new NasClientError('api-timeout',{retryable:true,uncertain:false});failure.phase=phase;failure.message+=': '+phase;throw failure;
+      }
       if(error instanceof NasClientError)throw error;
       const failure=new NasClientError('api-unreachable',{retryable:true,uncertain:false});
       const detail=['Failed to fetch','Illegal invocation','Load failed'].includes(error?.message)?error.message:error?.name||'network-error';
@@ -275,9 +293,13 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     const captured={id:operation.id,actionId:operation.actionId,direction:operation.direction,expectedRevision:operation.expectedRevision};
     return request('/api/v1/history',{operation:captured,validate:x=>record(x)&&x.outcome==='confirmed'&&x.actionId===captured.actionId&&x.direction===captured.direction&&Number.isSafeInteger(x.revision)&&x.revision>captured.expectedRevision&&record(x.status)});
   }
-  function subscribeLine({onSession,onSnapshot,onError,intervalMs=4000}={}) {
+  // lineEnabled — политика вызывающего слоя: спрашивать ли снимок линии.
+  // В режиме параллельных смен линию ведёт v2-мост, а v1-снимок описывает
+  // ровно одну смену и законно отказывает при двух открытых. Сеанс читается
+  // всегда: на нём держатся профиль, права и признак живой связи.
+  function subscribeLine({onSession,onSnapshot,onError,intervalMs=4000,lineEnabled=()=>true}={}) {
     guard();
-    if(![onSession,onSnapshot,onError].every(f=>typeof f==='function')||!Number.isSafeInteger(intervalMs)||intervalMs<1000||intervalMs>60000)throw TypeError('invalid-subscription-options');
+    if(![onSession,onSnapshot,onError].every(f=>typeof f==='function')||typeof lineEnabled!=='function'||!Number.isSafeInteger(intervalMs)||intervalMs<1000||intervalMs>60000)throw TypeError('invalid-subscription-options');
     let closed=false,timer,inFlight=false,wakeRequested=false,recoveryAttempts=0,rescheduled=false;
     const teardowns=[];
     const close=()=>{closed=true;clearTimeout(timer);if(subscriptionWake===wake)subscriptionWake=null;for(const off of teardowns)off();teardowns.length=0;subscriptions.delete(close);}; subscriptions.add(close);
@@ -307,7 +329,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
           const session=await readSession(); if(closed)return;
           onSession(session); guard(); if(closed)return;
           // Publish profile changes even when line access has just been revoked.
-          if(session.identityReady&&session.profile?.status==='active'&&!session.profile.deleted&&session.permissions.tabs.includes('line')){
+          if(session.identityReady&&session.profile?.status==='active'&&!session.profile.deleted&&session.permissions.tabs.includes('line')&&lineEnabled()){
             const line=await readLine(); guard();if(!closed)onSnapshot(line);
           }
         })();
@@ -338,7 +360,7 @@ export function createNasClient({baseUrl='https://samosval-test.iluxa.pro:18443'
     }
     subscriptionWake=wake;void tick();return close;
   }
-  function stop(){stopped=true;readCache.clear();for(const close of subscriptions)close();for(const controller of controllers)controller.abort();}
+  function stop(){stopped=true;readCache.clear();for(const close of subscriptions)close();for(const controller of controllers){controller.deliberateAbort=true;controller.abort();}}
   const validatePhones=x=>record(x)&&x.source==='ubuntu'&&Array.isArray(x.phones)&&x.phones.every(r=>record(r)&&typeof r.truckId==='string'&&/^\+[1-9][0-9]{7,14}$/.test(r.phone)&&(r.driverName===undefined||r.driverName===null||typeof r.driverName==='string'));
   const readTruckPhones=()=>request('/api/v1/truck-phones',{validate:validatePhones});
   const submitTruckPhone=operation=>request('/api/v1/truck-phones',{operation,validate:validatePhones});

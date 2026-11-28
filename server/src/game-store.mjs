@@ -1,4 +1,5 @@
 import {fail,map} from './tabel-access.mjs';
+import {moscowTime} from './moscow-time.mjs';
 import {serviceActor,serviceCommand,validId} from './service-command.mjs';
 import {calculate} from './game-economy.mjs';
 import {settle,initialHead,initialPlayer,roundId,dayKey} from './arcade-rules.mjs';
@@ -109,7 +110,7 @@ export function submitGame(pool,uid,input,ws=WS){
   const op=normalizeGame(input);
   return serviceCommand(pool,uid,op,ws,(client,user)=>serviceActor(client,user,null,{admin:op.type==='game.grant'}),async(client,actor)=>{
     const data=await gameData(client,ws),now=Date.now();
-    const author={userUid:uid,userEmail:actor.email,createdByEmail:actor.email,userName:actor.display_name,timestamp:now,timeStr:new Date(now).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})};
+    const author={userUid:uid,userEmail:actor.email,createdByEmail:actor.email,userName:actor.display_name,timestamp:now,timeStr:moscowTime(now)};
     if(op.type==='game.grant'){
       const target=await serviceActor(client,op.targetUid);const entry={...author,eventType:'game_coin_adjustment',amount:op.amount,targetUid:target.uid,targetEmail:target.email,targetName:target.display_name,reason:op.reason,createdByUid:uid,text:'Начисление +'+op.amount+' монет: '+op.reason};
       await client.query("INSERT INTO game_records(workspace_id,record_id,collection,payload) VALUES ($1,$2,'coinTransactions',$3)",[ws,'coin_grant_'+op.id,entry]);

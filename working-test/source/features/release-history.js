@@ -1,7 +1,34 @@
-window.WORKING_TEST_RELEASE={version:'1.9.0',label:'Рабочая тестовая версия 1.9.0',channel:'working-test'};
+window.WORKING_TEST_RELEASE={version:'1.10.1',label:'Рабочая тестовая версия 1.10.1',channel:'working-test'};
 
 (function(){
   const releases=[
+{version:'1.10.1',date:'2026-11-28',title:'Ложная «Ошибка загрузки» убрана: линия и шапка честно показывают состояние',items:[
+    'Исправлено: когда открыто две смены сразу, шапка показывала «Ошибка загрузки: nas», хотя данные линии были на месте. Старый способ чтения линии не может выбрать одну смену и отвечает отказом, а приложение считало этот отказ сбоем связи.',
+    'Исправлено: при возврате на экран телефона приложение само обрывало фоновые чтения и записывало это как таймаут — после каждого пробуждения появлялась «Ошибка загрузки». Теперь собственный обрыв не считается ошибкой связи.',
+    'Исправлено: пока линия приходила из нового режима смен, шапка навсегда оставалась на «Загрузка данных и прав…». Теперь подтверждённый снимок выбранной смены завершает загрузку и снимает прежние ошибки.',
+    'Исправлено: приложение больше не запрашивает старый способ чтения линии, когда линию уже ведёт режим параллельных смен. Раньше каждый такой запрос заканчивался отказом и лишней записью в журнале браузера.',
+    'Проверено в браузере: четыре пользователя одновременно (администратор и три прораба) видят одну смену, тот же самосвал и тот же рейс; изменение, сделанное администратором, появляется у остальных примерно за 2 секунды без перезагрузки.',
+    'Рабочая версия не менялась: всё перечисленное действует только в тестовом канале.',
+  ]},
+{version:'1.10.0',date:'2026-11-28',title:'Параллельные смены включены: две смены сразу, перевод самосвалов, участники',items:[
+    'В тестовой версии включены параллельные смены. В шапке появилась полоса смен: видно, какие смены идут сейчас, какая выбрана и сколько в ней ждут отправки действий. Можно открыть вторую смену на другом объекте и работать в ней, не закрывая первую.',
+    'Самосвал можно перевести из одной смены в другую: приложение крупно переспрашивает и показывает, из какой смены и в какую он переходит. Если у самосвала остался незавершённый рейс, приложение честно говорит, что сначала нужно его завершить, и не теряет данные.',
+    'Администратор управляет сменами из листа управления: создаёт смену, добавляет и убирает участников. Прораб видит только те смены, где он участник. Выбранная смена и её линия сохраняются после перезагрузки страницы.',
+    'Исправлено: после прибытия самосвала погрузка больше не отвечала ошибкой «Погрузка уже учтена или прибытие изменилось» и рейс больше не терялся. Причина была в том, что старый путь записи обновлял только данные, а счётчик ревизии оставлял прежним.',
+    'Исправлено: экран мини-игр больше не закрывается сам через несколько секунд после открытия и не перекидывает на линию. Экран видит, что смена активна, так же, как это видела версия 1.7.23.',
+    'Рабочая версия не менялась: всё перечисленное действует только в тестовом канале.',
+  ]},
+{version:'1.9.2',date:'2026-11-28',title:'Нажатие на номер версии в шапке снова открывает историю изменений',items:[
+    'Исправлено: после входа нажатие на номер версии в шапке приложения ничего не открывало. Кнопкой становился только номер версии на экране входа, а номер в шапке оставался простым текстом.',
+    'Теперь номер версии в шапке — такая же кнопка: администратор и прораб нажимают его и видят историю изменений с текущей версией первой строкой.',
+    'Добавлена проверка, которая ловит эту поломку: каждый номер версии в приложении обязан быть кнопкой и открывать историю, а без права на историю — быть выключенным.',
+  ]},
+{version:'1.9.1',date:'2026-11-28',title:'Синхронизация стала ещё легче: сервер не пересчитывает одно и то же для каждого телефона',items:[
+    'Сервер перестал делать лишнюю работу на каждый опрос: одинаковый для всех снимок игры и журнала собирается один раз и раздаётся всем телефонам, а очистка служебных полей журнала (3,5 МБ) считается один раз на изменение данных, а не на каждого человека.',
+    'Пока данные не менялись, телефон получает ответ мгновенно — без повторной сборки и передачи журнала. На стенде пять одновременных вращений автомата вызывают две сборки вместо пяти.',
+    'Время в журнале и карточках считается тем же способом, но в десятки раз быстрее: формат даты не создаётся заново для каждой строки (проверено — строка совпадает байт-в-байт).',
+    'Ответы сервера не изменились ни на байт: проверено сравнением со старой версией для всех ролей. Правила линии, смен, рейсов, монет и журнала не тронуты.',
+  ]},
 {version:'1.9.0',date:'2026-11-28',title:'Синхронизация стала быстрой: автомат, табель, линия и журнал не подвисают',items:[
     'Автомат монет, табель, линия и журнал теперь обновляются быстро. Раньше сервер на каждый опрос каждого телефона заново собирал и передавал весь журнал — 3,5 МБ и 2,8 МБ. Теперь, если данные не изменились, ответ приходит мгновенно, а сами ответы сжимаются примерно в десять раз.',
     'Пять телефонов одновременно больше не перегружают сервер: в проверке они работали без единой ошибки и без «подвисаний», нагрузка на сервер упала с 23% до 7%.',
@@ -394,15 +421,22 @@ window.WORKING_TEST_RELEASE={version:'1.9.0',label:'Рабочая тестов�
     .release-body{padding:0 20px 20px;overflow-y:auto;max-height:65dvh}.release-body section{padding:18px 0;border-bottom:1px solid var(--border,#475569)}
     .release-body h3{font-size:16px;margin:0 0 10px}.release-body ul{padding-left:19px;margin:0;font-size:13px;line-height:1.6}.release-note{font-size:12px;color:var(--muted,#94a3b8);margin-top:16px}
   `;document.head.appendChild(css);
-  const label=document.querySelector('.version-text');if(!label)return;
+  // Номер версии есть в двух местах: на экране входа и в шапке приложения.
+  // Раньше кнопкой становился только первый найденный элемент, поэтому после
+  // входа нажатие на версию в шапке ничего не открывало. Превращаем в кнопку
+  // каждый номер версии — обработчик один и тот же.
+  const labels=Array.from(document.querySelectorAll('.version-text'));if(!labels.length)return;
   const metaVersion=document.querySelector('meta[name="working-test-version"]')?.content||document.querySelector('meta[name="test-app-version"]')?.content||releases[0].version;
-  const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия: '+metaVersion;button.setAttribute('aria-haspopup','dialog');button.title=canViewReleaseHistory()?'История изменений':'Номер сборки';button.disabled=!canViewReleaseHistory();label.replaceWith(button);
-  button.addEventListener('click',()=>{
+  const openHistory=(button)=>{
     if (!canViewReleaseHistory()) return;
     if(document.getElementById('releaseHistoryDialog'))return;
     const dialog=document.createElement('dialog');dialog.id='releaseHistoryDialog';dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','releaseHistoryTitle');
     const header=document.createElement('div');header.className='release-heading';const title=document.createElement('h2');title.id='releaseHistoryTitle';title.textContent='История версий';const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Закрыть историю версий');close.onclick=()=>dialog.close();header.append(title,close);dialog.append(header);
     const body=document.createElement('div');body.className='release-body';for(const release of releases){const section=document.createElement('section'),h=document.createElement('h3'),ul=document.createElement('ul');h.textContent=release.version+' — '+release.title;for(const item of release.items){const li=document.createElement('li');li.textContent=item;ul.append(li);}section.append(h,ul);body.append(section);}
     const note=document.createElement('p');note.className='release-note';note.textContent='Указаны версии и изменения, подтверждённые сохранённым кодом. История более ранних обновлений неполная.';body.append(note);dialog.append(body);document.body.append(dialog);dialog.addEventListener('close',()=>{dialog.remove();button.focus();},{once:true});dialog.showModal();close.focus();
-  });
+  };
+  for(const label of labels){
+    const button=document.createElement('button');button.type='button';button.className='version-text';button.textContent='Версия: '+metaVersion;button.setAttribute('aria-haspopup','dialog');button.title=canViewReleaseHistory()?'История изменений':'Номер сборки';button.disabled=!canViewReleaseHistory();label.replaceWith(button);
+    button.addEventListener('click',()=>openHistory(button));
+  }
 })();
