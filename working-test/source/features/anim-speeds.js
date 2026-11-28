@@ -57,8 +57,15 @@
       border-color: var(--warning) !important;
       box-shadow: 0 0 0 1px var(--warning), 0 0 10px rgba(245, 158, 11, 0.35) !important;
     }
-    .truck-card.faded:not(.arrived) {
-      opacity: 0.35 !important; filter: grayscale(50%) !important; background: #131b2e !important;
+    /* Затемняется всё, кроме ряда кнопок: активное состояние («выполнено»)
+       должно остаться зелёным и читаемым, а не серым под общей прозрачностью. */
+    .truck-card.faded:not(.arrived) { background: #131b2e !important; }
+    .truck-card.faded:not(.arrived) > :not(.action-row) {
+      opacity: 0.35 !important; filter: grayscale(50%) !important;
+    }
+    .truck-card.faded .action-row > .btn-arrive,
+    .truck-card.faded .action-row > .btn-quick {
+      opacity: 0.35 !important; filter: grayscale(50%) !important;
     }
     .truck-card .truck-top { flex: 1 1 auto !important; display: flex !important; gap: 12px !important; min-height: 0 !important; overflow: hidden !important; }
     .truck-card .truck-identity {
@@ -109,22 +116,34 @@
     }
     .truck-card .btn-arrive .idle-timer { font-size: 14px !important; }
     .truck-card .btn-arrive .idle-label { font-size: 8px !important; }
-    /* Значки — векторные (core/35-line-icons.js), поэтому размер задаётся в px,
-       а не в font-size. --icon-hole совпадает с фоном кнопки: «дырки» в значке
-       самосвала не должны читаться как отдельные пятна. */
+    /* Значки — векторные (core/35-line-icons.js), поэтому размер задаётся не
+       в font-size: значок растягивается на всю площадь кнопки (сама кнопка
+       46×46 не меняется), цвет внутри SVG задан самим значком. */
     .truck-card .btn-ttn, .truck-card .btn-no-return {
-      font-size: 0 !important; padding: 0 !important; background: #4b5563 !important;
-      color: #ef4444 !important; --icon-hole: #4b5563;
+      font-size: 0 !important; padding: 2px !important; background: #4b5563 !important;
+      color: #fff !important;
     }
     .truck-card .btn-ttn { border: 1px solid #94a3b8 !important; }
-    .truck-card .btn-no-return { border: 1px solid #ef4444 !important; }
-    .truck-card .btn-ttn svg, .truck-card .btn-no-return svg { width: 26px !important; height: 26px !important; display: block !important; }
-    .truck-card .btn-ttn.active-ttn { background: #166534 !important; color: #dcfce7 !important; border: 1px solid #4ade80 !important; }
+    .truck-card .btn-no-return { border: 1px solid #6b7280 !important; }
+    .truck-card .btn-ttn svg, .truck-card .btn-no-return svg {
+      width: 100% !important; height: 100% !important; display: block !important;
+    }
+    .truck-card .btn-ttn.active-ttn, .truck-card .btn-no-return.active-no-return {
+      background: #166534 !important; border: 1px solid #4ade80 !important;
+    }
     /* Выключенная кнопка не должна сохранять свой цвет: у ТТН и «не приедет»
-       цвет задан с !important, поэтому серый disabled повторяется здесь. */
+       цвет задан с !important, поэтому серый disabled повторяется здесь.
+       Исключение — выполненное действие: зелёный остаётся, меняется только
+       прозрачность, иначе «ТТН забрана» и «самосвал больше не приедет»
+       выглядели бы выключенными. */
     .truck-card .btn:disabled {
       background: #475569 !important; color: #cbd5e1 !important;
-      border-color: transparent !important; opacity: 0.6 !important; --icon-hole: #475569;
+      border-color: transparent !important; opacity: 0.6 !important;
+    }
+    .truck-card .btn-ttn.active-ttn:disabled,
+    .truck-card .btn-no-return.active-no-return:disabled {
+      background: #166534 !important; border: 1px solid #4ade80 !important;
+      opacity: 1 !important;
     }
     .truck-card.anim-up { z-index: 100 !important; }
     .truck-card.anim-down { z-index: 1 !important; }
@@ -428,7 +447,7 @@
           ${arrBtn}
           <button class="btn btn-quick" ${!canEditLoad || !isA ? 'disabled' : ''} ${canEditLoad && isA ? `onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${loadBtnTxt}</button>
           <button class="btn btn-ttn ${ttn ? 'active-ttn' : ''}" aria-label="${ttnAria}" ${!canEditTtn || absent ? 'disabled' : ''} ${canEditTtn && !absent ? `onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${ttnTxt}</button>
-          <button class="btn btn-no-return" aria-label="Самосвал больше не приедет" ${!canEditNoReturn || absent ? 'disabled' : ''} ${canEditNoReturn && !absent ? `onpointerdown="startNoReturnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${svgNoReturnIcon()}</button>
+          <button class="btn btn-no-return ${absent ? 'active-no-return' : ''}" aria-label="Самосвал больше не приедет" ${!canEditNoReturn || absent || ttn ? 'disabled' : ''} ${canEditNoReturn && !absent && !ttn ? `onpointerdown="startNoReturnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${svgNoReturnIcon(absent === true)}</button>
         </div>
       </div>`;
     }).join('');
