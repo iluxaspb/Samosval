@@ -13,6 +13,7 @@ import {assignTruck} from '../src/shift-trucks-v2.mjs';
 import {submitLineOperationV2} from '../src/line-store-v2.mjs';
 import {readArchiveRevision, readLatestFinalizedArchive} from '../src/archive-latest.mjs';
 import {confirmShiftMaterial, prepareShiftClose, finishShiftClose} from '../src/shift-close-v2.mjs';
+import {closeShiftOperation} from '../src/shift-close.mjs';
 
 // Two-phase close and the material marker (design §3.1, §4.5, §4.6, §5.5, §7,
 // §11, §15, plan Task 22).
@@ -1107,6 +1108,50 @@ test('v2 two-phase shift close and material marker', {skip: !process.env.TEST_DA
       const aAfter = await shiftRow(shiftA);
       assert.equal(aAfter.state, 'closed');
       assert.equal(aAfter.closed_by_uid, ids.admin);
+    });
+
+    // Regression for the owner's 28.11.2026 report: the legacy close writer
+    // (`/api/v1/shifts/close`) passed `is_active=false` together with a
+    // `closing:true` payload. Migration 025's strict bridge rejects that with
+    // check_violation 23514, so the shift could not be closed at all. A closing
+    // shift occupies the line (D1), and the writer must not touch the bridge
+    // column.
+    await t.test('legacy close writer accepts a strict v2 shift without bridge-column drift', async () => {
+      const objectId = `${prefix}_object_legacy`;
+      await pool.query(
+        'INSERT INTO workspace_objects(workspace_id,object_id,payload) VALUES($1,$2,$3)',
+        [WORKSPACE, objectId, {id: objectId, name: 'Object legacy'}],
+      );
+      const shiftId = await create(objectId);
+      const prepared = await closeShiftOperation(pool, ids.admin, {
+        id: `${prefix}_legacy_prepare`, type: 'prepare', shiftId,
+      });
+      assert.equal(prepared.phase, 'awaiting-material');
+      const closing = (await pool.query(
+        'SELECT state,is_active,closing_started_at,closing_by_uid,payload FROM shifts WHERE workspace_id=$1 AND shift_id=$2',
+        [WORKSPACE, shiftId],
+      )).rows[0];
+      assert.equal(closing.state, 'closing');
+      assert.equal(closing.is_active, true, 'closing occupies the line');
+      assert.ok(closing.closing_started_at);
+      assert.equal(closing.closing_by_uid, ids.admin);
+      assert.equal(closing.payload.closing, true);
+      assert.equal(closing.payload.payloadSchemaVersion, 2);
+      const finished = await closeShiftOperation(pool, ids.admin, {
+        id: `${prefix}_legacy_finish`, type: 'finish', shiftId,
+      });
+      assert.equal(finished.phase, 'closed');
+      const closed = (await pool.query(
+        'SELECT state,is_active,closed_at,closed_by_uid,payload FROM shifts WHERE workspace_id=$1 AND shift_id=$2',
+        [WORKSPACE, shiftId],
+      )).rows[0];
+      assert.equal(closed.is_active, false);
+      // The legacy writer proves only a display name, so the row is historical,
+      // never a forged `closed` with a guessed actor (lesson 22).
+      assert.equal(closed.state, 'historical');
+      assert.equal(closed.closed_at, null);
+      assert.equal(closed.closed_by_uid, null);
+      assert.equal(closed.payload.closing, false);
     });
   } finally {
     await pool.end();

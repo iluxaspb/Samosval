@@ -28,7 +28,7 @@ export async function closeShiftOperation(pool,uid,input) {
     let result;
     if(op.type==='prepare'){
       if(!row.is_active&&!shift.closing)throw fail('shift-already-closed',409);
-      if(!shift.closing)shift={...shift,isActive:false,closing:true,closeArchiveId:archiveId,closingStartedAt:Date.now(),closingBy:profile.display_name};
+      if(!shift.closing)shift={...shift,isActive:false,closing:true,closeArchiveId:archiveId,closingStartedAt:Date.now(),closingBy:profile.display_name,closingByUid:uid};
       if(shift.closeArchiveId!==archiveId)throw fail('archive-id-conflict',409);
       const logs=(await client.query('SELECT log_id,payload FROM line_logs WHERE workspace_id=$1 AND shift_id=$2 ORDER BY log_id',[WS,op.shiftId])).rows.map(r=>({...r.payload,id:r.log_id}));
       const statuses=Object.fromEntries((await client.query('SELECT truck_id,payload FROM line_truck_statuses WHERE workspace_id=$1 AND shift_id=$2 ORDER BY truck_id',[WS,op.shiftId])).rows.map(r=>[r.truck_id,r.payload]));
@@ -38,10 +38,16 @@ export async function closeShiftOperation(pool,uid,input) {
         archive=candidate;
         await client.query('INSERT INTO shift_archives(workspace_id,archive_id,shift_id,payload) VALUES ($1,$2,$3,$4)',[WS,archiveId,op.shiftId,archive]);
       }
-      await client.query('UPDATE shifts SET is_active=false,payload=$3 WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId,shift]);
+      // D1 (025): a closing shift still occupies the line, so `is_active` stays
+      // true. The strict v2 bridge derives that column from the payload and
+      // rejects an explicit `is_active=false` next to `closing:true`
+      // (check_violation 23514); never pass the bridge column here.
+      await client.query('UPDATE shifts SET payload=$3 WHERE workspace_id=$1 AND shift_id=$2',[WS,op.shiftId,shift]);
       result={outcome:'confirmed',phase:'awaiting-material',shift,archive,archiveId:archive?archiveId:null};
     } else {
-      if(row.is_active||!shift.closing)throw fail('shift-not-prepared',409);
+      // A closing shift keeps is_active=true (D1): the line is still occupied
+      // until finish. Only the closing marker proves that prepare happened.
+      if(!shift.closing)throw fail('shift-not-prepared',409);
       // Восстановленная архивная смена уже переносила материал при исходном
       // закрытии: повторного подтверждения табеля не требуется.
       let materialImport=null;

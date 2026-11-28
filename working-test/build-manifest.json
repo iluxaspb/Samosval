@@ -1,11 +1,11 @@
 {
-  "version": "cd358626b71e05bb",
-  "channel": "working-1.10.4",
+  "version": "cc90c9cf852367ad",
+  "channel": "working-1.10.5",
   "baseline_commit": "ff4e9a8c97526e557e6bb38607e606e88b4df2ee",
   "assets": [
     {
       "url": "./index-working-test.html",
-      "sha256": "d0c27ca5078453f3420cc900666411e829f8e9a45c35daa10b753d56e72ba13c"
+      "sha256": "97d3cc1d3f598daade6da6987092f11b56db5112872bce073a6e40696eb862d5"
     },
     {
       "url": "./manifest-working-test.webmanifest",
@@ -452,128 +452,128 @@
       "sha256": "57ec8efe1d2e4f631388a0ef3fbf3a654e6fc2f160bcb3225d2a35c287813548"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/admin-compact.js",
+      "url": "./working-test/build/cc90c9cf852367ad/admin-compact.js",
       "sha256": "b1e486079ebefc26e2a7da884368700d97212369dc3b6f35e56503970dca2ba3"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/analytics-v2.js",
+      "url": "./working-test/build/cc90c9cf852367ad/analytics-v2.js",
       "sha256": "af3f3dfeba84508c872e0f9c6004bd07891a2a6e4f308dbcc6e34f210147554e"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/anim-speeds.js",
+      "url": "./working-test/build/cc90c9cf852367ad/anim-speeds.js",
       "sha256": "ad51852599ec7101ff5813dd960e291954eeb113e9646307d882661ec06f0cb5"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/auto-backup.js",
+      "url": "./working-test/build/cc90c9cf852367ad/auto-backup.js",
       "sha256": "c04e222b588b5a67cc9cc95436637288a4afd5b8d6971997d71ddae159f9a317"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/closed-shift-duplicates.js",
+      "url": "./working-test/build/cc90c9cf852367ad/closed-shift-duplicates.js",
       "sha256": "8f49eecc63385ed402d789c811458e8a15dc400208c68d99b81f15e350b07155"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/confirm-bridge.js",
+      "url": "./working-test/build/cc90c9cf852367ad/confirm-bridge.js",
       "sha256": "c8649b01fe4060878492f0723080f0f41f88a0adce8a08b3c32bcbf2a99f588e"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/core.js",
+      "url": "./working-test/build/cc90c9cf852367ad/core.js",
       "sha256": "14a20e1b8933953710b76e6ae8108118e74f7cc0e622e15543d3ad663bd09b2f"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/fix-log-delete.js",
+      "url": "./working-test/build/cc90c9cf852367ad/fix-log-delete.js",
       "sha256": "f1e5cd94d94a0187d96aa942e23aa22a79acd72d2491e3966022932d23003cd9"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/gai-report-toggle.js",
+      "url": "./working-test/build/cc90c9cf852367ad/gai-report-toggle.js",
       "sha256": "584a1b9bfb8c3edd8229fe73be5db55788dc251c182b545c27a4cac1b9c1455a"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/game-coins-v2.js",
+      "url": "./working-test/build/cc90c9cf852367ad/game-coins-v2.js",
       "sha256": "fed591b2a21131883724a33d9ce97f55c4d90738ca8b2efeb83a32828d5256aa"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/global-interface-haptics.js",
+      "url": "./working-test/build/cc90c9cf852367ad/global-interface-haptics.js",
       "sha256": "f1b8613f85be1745740cecd2c7f57287a8408644a1109360972897ef8401578b"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/history-recorder.js",
+      "url": "./working-test/build/cc90c9cf852367ad/history-recorder.js",
       "sha256": "e8712ee58da70e891d040de339d126a5b23f012eb033c18af08a80202a55299d"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/line-card-layers.js",
+      "url": "./working-test/build/cc90c9cf852367ad/line-card-layers.js",
       "sha256": "b3049b4af37f4ec202fb4685b9008dd7fa290057df5c91717cdc4c60ad343ba0"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/nav-sort.js",
+      "url": "./working-test/build/cc90c9cf852367ad/nav-sort.js",
       "sha256": "f3dcd96edb1d4d7cdb73821b87f903ded07fcae820ad2c9616e3c8cbe533ddf3"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/offline-feedback.js",
+      "url": "./working-test/build/cc90c9cf852367ad/offline-feedback.js",
       "sha256": "e1b849e3afc04b839e0115171fade2b2d9e7dec78d42e571d2970fbdc3b55641"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/paper-viewer.js",
+      "url": "./working-test/build/cc90c9cf852367ad/paper-viewer.js",
       "sha256": "a11843daf6115d4113ad058c5599d190ceeb3ff7758a3f33ede7c437d09e091d"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/pretty-confirm.js",
+      "url": "./working-test/build/cc90c9cf852367ad/pretty-confirm.js",
       "sha256": "8018b09383b4dbac66f49ffde12da2f4e1a18691ebf300870fea99e793db955d"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/release-history.js",
-      "sha256": "665a549c8ebb2f9927c4dcbd410b2808e1977e6a00ce2b8358a0922592ce5306"
+      "url": "./working-test/build/cc90c9cf852367ad/release-history.js",
+      "sha256": "422384538c18b6c14879fc95ef73187b23a5ce74975185eb0379c43a138297f6"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/reset-hold.js",
+      "url": "./working-test/build/cc90c9cf852367ad/reset-hold.js",
       "sha256": "926eb9b879ae490384d17fc54c28d49061d3182b1daf9f72739dfaca7b16c674"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/reset-settings.js",
+      "url": "./working-test/build/cc90c9cf852367ad/reset-settings.js",
       "sha256": "45bd5eba801d2d67758dfac630657ce95666c83fd187d80b58349a450b507775"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/road-arcade-core.js",
+      "url": "./working-test/build/cc90c9cf852367ad/road-arcade-core.js",
       "sha256": "3a67b434412880843eb6bec89e33b0da2aa55940806d18787451fb20c72d0ae2"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/road-arcade-runtime.js",
+      "url": "./working-test/build/cc90c9cf852367ad/road-arcade-runtime.js",
       "sha256": "a46e9bb06ca605d3919bcd04b415d7c0ffd8b1623a7c92733d1a103d35a2e63a"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/road-arcade-ui.js",
+      "url": "./working-test/build/cc90c9cf852367ad/road-arcade-ui.js",
       "sha256": "f61a5bfd335f2213d8da3d75f69c51e18b3e0317de73fefc4d2d87e835982a5a"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/road-jokes-v1.js",
+      "url": "./working-test/build/cc90c9cf852367ad/road-jokes-v1.js",
       "sha256": "a25b2e30bfd8a2c8c3bf9665b3c8aa3ec2768df99085b0df90ed637c155d1bfa"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/road-season-effects-v1.js",
+      "url": "./working-test/build/cc90c9cf852367ad/road-season-effects-v1.js",
       "sha256": "1447fe55145ad75200008647e0071d8b65d8bf9c9eaa2eef10a6a5b86f7e1592"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/road-shop-v1.js",
+      "url": "./working-test/build/cc90c9cf852367ad/road-shop-v1.js",
       "sha256": "37279a9991c2dff3a4434eae11ebb8974dde0b91c59bd28e105383b86345c821"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/settings-hub.js",
+      "url": "./working-test/build/cc90c9cf852367ad/settings-hub.js",
       "sha256": "2dc9114447d2ebcfe4f0b1ee9927fac170a1c70e83449229329ae74ef5592bcd"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/ticker-name.js",
+      "url": "./working-test/build/cc90c9cf852367ad/ticker-name.js",
       "sha256": "1bf5425f9f46b97b7788ec362dcfc7cf63d417f6331ba321402d01da1ae036f4"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/trip-analytics.js",
+      "url": "./working-test/build/cc90c9cf852367ad/trip-analytics.js",
       "sha256": "2d16315e037c948907a52fa579f159f2dc67412a2221c72ac33ba55e07d1a35b"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/undo-redo.js",
+      "url": "./working-test/build/cc90c9cf852367ad/undo-redo.js",
       "sha256": "90f20a8c66026d89181aa7a20a927bc15c90bafe8ee9bc08d0e490aab0a1a9ae"
     },
     {
-      "url": "./working-test/build/cd358626b71e05bb/working-test-release.js",
-      "sha256": "2b16ad7d7d834e9d1b07f17c1b2a3a54d346fb117e3c913767b495f04caf7795"
+      "url": "./working-test/build/cc90c9cf852367ad/working-test-release.js",
+      "sha256": "44bde6bac5631b2b1a7169cd95d2fcbe609172658bb1ac8dde1071380ae49bab"
     }
   ]
 }
