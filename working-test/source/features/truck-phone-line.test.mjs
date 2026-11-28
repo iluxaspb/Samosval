@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const read=path=>fs.readFileSync(new URL(path,import.meta.url),'utf8');
 const phone=read('../core/36-truck-phone.js');
+const icons=read('../core/35-line-icons.js');
 const core=read('../core/18-line-ui.js').split("  window.addEventListener(")[0];
 const animated=read('./anim-speeds.js').split('  // ===== renderLine =====')[1].split('  // ===== UI в настройках =====')[0];
 
@@ -24,6 +25,7 @@ function render(source,entry,permissions){
  });
  context.window=context;
  vm.runInContext(phone,context);
+ vm.runInContext(icons,context);
  context.entry=entry;
  vm.runInContext('truckPhoneRows.set("synthetic_truck",entry)',context);
  vm.runInContext(source,context);

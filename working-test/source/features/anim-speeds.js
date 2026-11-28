@@ -109,14 +109,22 @@
     }
     .truck-card .btn-arrive .idle-timer { font-size: 14px !important; }
     .truck-card .btn-arrive .idle-label { font-size: 8px !important; }
-    .truck-card .btn-ttn { font-size: 17px !important; padding: 0 !important; background: #ef9a9a !important; color: #4c0d0d !important; border: 1px solid #f8c9c9 !important; }
-    .truck-card .btn-ttn.active-ttn { background: #166534 !important; color: #f0fdf4 !important; border: 1px solid #4ade80 !important; }
-    .truck-card .btn-no-return { font-size: 18px !important; padding: 0 !important; background: #4b5563 !important; color: #ef4444 !important; border: 1px solid #6b7280 !important; }
+    /* Значки — векторные (core/35-line-icons.js), поэтому размер задаётся в px,
+       а не в font-size. --icon-hole совпадает с фоном кнопки: «дырки» в значке
+       самосвала не должны читаться как отдельные пятна. */
+    .truck-card .btn-ttn, .truck-card .btn-no-return {
+      font-size: 0 !important; padding: 0 !important; background: #4b5563 !important;
+      color: #ef4444 !important; --icon-hole: #4b5563;
+    }
+    .truck-card .btn-ttn { border: 1px solid #94a3b8 !important; }
+    .truck-card .btn-no-return { border: 1px solid #ef4444 !important; }
+    .truck-card .btn-ttn svg, .truck-card .btn-no-return svg { width: 26px !important; height: 26px !important; display: block !important; }
+    .truck-card .btn-ttn.active-ttn { background: #166534 !important; color: #dcfce7 !important; border: 1px solid #4ade80 !important; }
     /* Выключенная кнопка не должна сохранять свой цвет: у ТТН и «не приедет»
        цвет задан с !important, поэтому серый disabled повторяется здесь. */
     .truck-card .btn:disabled {
-      background: #475569 !important; color: #94a3b8 !important;
-      border-color: transparent !important; opacity: 0.6 !important;
+      background: #475569 !important; color: #cbd5e1 !important;
+      border-color: transparent !important; opacity: 0.6 !important; --icon-hole: #475569;
     }
     .truck-card.anim-up { z-index: 100 !important; }
     .truck-card.anim-down { z-index: 1 !important; }
@@ -386,9 +394,10 @@
         arrBtn = `<button class="btn btn-arrive" ${canEditArrive ? `onpointerdown="startArriveHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''} ${!canEditArrive ? 'disabled' : ''}>🚛 Приехал</button>`;
       }
 
-      // Значок листка без слова: кнопка узкая, смысл держат цвет и подпись
-      // для экранного диктора. Собранная ТТН — зелёная кнопка (active-ttn).
-      const ttnTxt = '<span aria-hidden="true">📄</span>';
+      // Значки векторные (core/35-line-icons.js): в узкой квадратной кнопке
+      // эмодзи рендерятся по-разному на разных телефонах. Смысл держит
+      // aria-label, собранная ТТН — зелёная кнопка (active-ttn).
+      const ttnTxt = svgTtnIcon(ttn === true);
       const ttnAria = ttn ? 'ТТН забрана' : 'Забрать ТТН';
       const loadBtnTxt = '⚡ Погрузка';
 
@@ -419,7 +428,7 @@
           ${arrBtn}
           <button class="btn btn-quick" ${!canEditLoad || !isA ? 'disabled' : ''} ${canEditLoad && isA ? `onpointerdown="startQuickLoadHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${loadBtnTxt}</button>
           <button class="btn btn-ttn ${ttn ? 'active-ttn' : ''}" aria-label="${ttnAria}" ${!canEditTtn || absent ? 'disabled' : ''} ${canEditTtn && !absent ? `onpointerdown="startTtnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${ttnTxt}</button>
-          <button class="btn btn-no-return" aria-label="Самосвал больше не приедет" ${!canEditNoReturn || absent ? 'disabled' : ''} ${canEditNoReturn && !absent ? `onpointerdown="startNoReturnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}><span aria-hidden="true">🚫</span></button>
+          <button class="btn btn-no-return" aria-label="Самосвал больше не приедет" ${!canEditNoReturn || absent ? 'disabled' : ''} ${canEditNoReturn && !absent ? `onpointerdown="startNoReturnHold(event, '${t.id}')" onpointerup="cancelHold(this)"` : ''}>${svgNoReturnIcon()}</button>
         </div>
       </div>`;
     }).join('');

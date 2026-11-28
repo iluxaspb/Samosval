@@ -284,6 +284,7 @@ function runRenderLineHarness() {
     findTruck: id => state.trucks.find(t => t.id === id),
     offlinePendingForTruck: () => null,
     truckPhoneIcon: () => '', escapeHtml: s => String(s), renderRussianPlate: () => '',
+    svgTtnIcon: () => '<svg></svg>', svgNoReturnIcon: () => '<svg></svg>',
     formatIdleDuration: () => '0:00', formatTimeAgo: () => 'только что',
     setTimeout: fn => { timeouts.push(fn); return 1; }, clearTimeout: () => {},
     requestAnimationFrame: fn => fn(),

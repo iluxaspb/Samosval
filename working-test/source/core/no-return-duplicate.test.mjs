@@ -5,8 +5,9 @@
 // 1) право action_no_return есть в матрице и включено мастеру, прорабу и
 //    старшему прорабу; у лопатёра и наблюдателя его нет;
 // 2) кнопка нарисована в ОБОИХ рендерерах линии (ядро и анимационный
-//    anim-speeds), с удержанием 0,5 с по умолчанию; на кнопках только значки
-//    (📄 у ТТН и 🚫 у «больше не приедет»), слова не помещаются в ряд;
+//    anim-speeds), с удержанием 0,5 с по умолчанию; на кнопках векторные
+//    значки (листок у ТТН и перечёркнутый самосвал у отметки), слова и эмодзи
+//    не помещаются в ряд;
 // 3) статус noReturn затемняет карточку и уводит её в самый конец списка;
 // 4) «Приехал» снимает статус и не запирается кулдауном ходки;
 // 5) в листках Д — русская, красная, крупная после последнего рейса и
@@ -62,15 +63,31 @@ test('кнопка «больше не приедет» нарисована в 
   assert.match(actionsSrc, /function toggleNoReturn/, 'действие уходит через очередь линии');
 });
 
-test('на кнопках только значки, слова не занимают место в ряду', () => {
+test('на кнопках векторные значки, эмодзи и слова не занимают место в ряду', () => {
   for (const [name, src] of [['18-line-ui.js', lineUiSrc], ['anim-speeds.js', animSrc]]) {
     assert.doesNotMatch(src, />Дубликат</, `${name}: слово «Дубликат» с кнопки убрано`);
     assert.doesNotMatch(src, /Забрать ТТН<\/button>|📄 ТТН/, `${name}: подпись ТТН с кнопки убрана`);
+    assert.doesNotMatch(src, /aria-hidden="true">(🚫|📄)</, `${name}: эмодзи с кнопок убраны`);
     assert.match(src, /btn-no-return"[^>]*aria-label="Самосвал больше не приедет"/, `${name}: знак назван для диктора`);
     assert.match(src, /btn-ttn[^>]*aria-label="\$\{ttnAria\}"/, `${name}: ТТН названа для диктора`);
-    assert.match(src, /aria-hidden="true">🚫</, `${name}: знак «не приедет» — пиктограмма`);
-    assert.match(src, /aria-hidden="true">📄</, `${name}: знак ТТН — пиктограмма`);
+    assert.match(src, /svgTtnIcon\(ttn === true\)/, `${name}: листок ТТН — вектор`);
+    assert.match(src, /\$\{svgNoReturnIcon\(\)\}/, `${name}: перечёркнутый самосвал — вектор`);
   }
+});
+
+test('модуль значков объявлен и грузится до рендереров линии', () => {
+  const spec = JSON.parse(readFileSync(path.join(here, '..', '..', 'modules.json'), 'utf8'));
+  const core = spec.modules.find(m => m.name === 'core');
+  assert.ok(core, 'модуль core объявлен');
+  const icons = core.sources.indexOf('core/35-line-icons.js');
+  const ui = core.sources.indexOf('core/18-line-ui.js');
+  assert.ok(icons !== -1, '35-line-icons.js объявлен в modules.json');
+  assert.ok(ui !== -1);
+  assert.ok(icons < ui, 'значки объявлены до ядра линии');
+  const iconsSrc = read('35-line-icons.js');
+  assert.match(iconsSrc, /svgTtnIcon/, 'функция листка');
+  assert.match(iconsSrc, /svgNoReturnIcon/, 'функция перечёркнутого самосвала');
+  assert.match(iconsSrc, /aria-hidden/, 'значки скрыты от диктора');
 });
 
 test('статус noReturn затемняет карточку и уводит её в конец списка', () => {

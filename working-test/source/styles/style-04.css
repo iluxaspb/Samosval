@@ -142,18 +142,21 @@
 
     .btn-arrive { background: var(--warning); color: #000; font-size: 12px; padding: 8px 10px; }
     .btn-arrive.active-arrive { background: #d97706; color: #fff; border: 1px solid #fcd34d; padding: 4px 8px; }
-    .btn-arrive:disabled, .btn-quick:disabled, .btn-ttn:disabled, .btn-no-return:disabled { background: #475569; color: #94a3b8; border-color: transparent; cursor: not-allowed; opacity: 0.6; pointer-events: none; }
+    .btn-arrive:disabled, .btn-quick:disabled, .btn-ttn:disabled, .btn-no-return:disabled { background: #475569; color: #cbd5e1; border-color: transparent; cursor: not-allowed; opacity: 0.6; pointer-events: none; --icon-hole: #475569; }
 
     .idle-label { font-size: 9px; opacity: 0.85; font-weight: 600; letter-spacing: 0.2px; line-height: 1; }
     .idle-timer { font-size: 16px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
 
     .btn-quick { background: var(--success); font-size: 14px; }
-    /* ТТН — бледно-красная: документ, а не тревога. Собранная ТТН зеленеет. */
-    .btn-ttn { background: #ef9a9a; color: #4c0d0d; border: 1px solid #f8c9c9; font-size: 19px; padding: 0; }
-    /* «Самосвал больше не приедет» — серый фон и красный знак: заметно, но
-       не спорит с красной буквой Д в листках. */
-    .btn-no-return { background: #4b5563; color: #ef4444; border: 1px solid #6b7280; font-size: 20px; padding: 0; }
-    .btn-ttn.active-ttn { background: #166534; border: 1px solid #4ade80; color: #f0fdf4; }
+    /* Обе служебные кнопки серые, значки красные и крупные: заметно, но не
+       спорит с красной буквой Д в листках. Различаются рамкой: у ТТН светлая
+       нейтральная, у «больше не приедет» красная. Собранная ТТН зеленеет.
+       --icon-hole — цвет «дырок» в значке самосвала, он же фон кнопки. */
+    .btn-ttn, .btn-no-return { background: #4b5563; color: #ef4444; font-size: 0; padding: 0; --icon-hole: #4b5563; }
+    .btn-ttn { border: 1px solid #94a3b8; }
+    .btn-no-return { border: 1px solid #ef4444; }
+    .btn-ttn svg, .btn-no-return svg { width: 26px; height: 26px; display: block; }
+    .btn-ttn.active-ttn { background: #166534; border: 1px solid #4ade80; color: #dcfce7; }
 
     .btn-danger { background: var(--danger); }
     .btn-secondary { background: var(--border); color: var(--text); }

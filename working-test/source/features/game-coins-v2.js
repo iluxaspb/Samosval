@@ -276,7 +276,9 @@
         const kind=button.classList.contains('btn-quick')?'load':button.classList.contains('btn-ttn')?'ttn':'arrive',amount=rewardsAt(appConfig)[kind];
         const earns=enabled()&&!button.disabled&&amount>0&&(kind==='load'||kind==='ttn'&&!st.ttnStatus||kind==='arrive'&&!st.arriveStatus&&!!st.lastLoadTimestamp);
         const icon=button.querySelector('.game-button-coin');
-        if(earns&&!icon){const span=document.createElement('span');span.className='game-button-coin';span.textContent='🪙';span.setAttribute('aria-hidden','true');button.append(span);}
+        // На узкой квадратной кнопке ТТН монета в строку не помещается и
+        // обрезается: там она становится уголком, а значок остаётся по центру.
+        if(earns&&!icon){const span=document.createElement('span');span.className='game-button-coin'+(kind==='ttn'?' game-button-coin--corner':'');span.textContent='🪙';span.setAttribute('aria-hidden','true');button.append(span);}
         else if(!earns&&icon)icon.remove();
       });
     });
