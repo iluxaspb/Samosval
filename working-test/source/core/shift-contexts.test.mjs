@@ -359,6 +359,47 @@ test('legacy projection is a read-only view of the selected context', () => {
   assert.equal(store.context('shift_a').shift.objectName, 'Невский проспект');
 });
 
+test('legacy projection gives old code the flat shift fields it reads', () => {
+  const store = makeStore();
+  store.replaceVisibleShifts([shiftA, shiftC]);
+  loadSnapshot(store, shiftA, {});
+  loadSnapshot(store, shiftC, {});
+  store.selectShift('shift_a');
+
+  const legacy = { shift: null, logs: [], truckStatus: {} };
+  store.projectActiveContextToLegacyState(legacy);
+  // Экран игр и авто-бэкап спрашивают `isActive`, отчёты — `startDate`.
+  assert.equal(legacy.shift.isActive, true);
+  assert.equal(legacy.shift.closing, false);
+  assert.equal(legacy.shift.startDate, '23.11.2026');
+  assert.equal(legacy.shift.workShift, 'day');
+  assert.equal(legacy.shift.type, 'day');
+
+  store.selectShift('shift_c');
+  store.projectActiveContextToLegacyState(legacy);
+  assert.equal(legacy.shift.isActive, true, 'closing shift is still active for the old code');
+  assert.equal(legacy.shift.closing, true);
+});
+
+test('legacy projection prefers payload dates and timestamps of the v2 snapshot', () => {
+  const store = makeStore();
+  store.replaceVisibleShifts([shiftA]);
+  loadSnapshot(store, shiftA, {
+    shift: {
+      ...shiftA,
+      shiftRevision: 3,
+      openedAt: '2026-11-23T04:00:00.000Z',
+      payload: { startDate: '23.11.2026', workShift: 'day', startedAt: 1795416000000 }
+    }
+  });
+  store.selectShift('shift_a');
+
+  const legacy = { shift: null, logs: [], truckStatus: {} };
+  store.projectActiveContextToLegacyState(legacy);
+  assert.equal(legacy.shift.startDate, '23.11.2026');
+  assert.equal(legacy.shift.startedAt, 1795416000000, 'startedAt stays in milliseconds for analytics');
+});
+
 test('detached trips are addressed by source shift and cycle', () => {
   const store = makeStore();
   store.replaceVisibleShifts([shiftA, shiftB, shiftC]);

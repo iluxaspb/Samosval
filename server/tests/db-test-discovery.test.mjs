@@ -40,7 +40,10 @@ test('discovered_equals_manifest_including_existing_replica_root', async () => {
   // 105 = 102 + the three unit roots of the 1.9.0 sync work (shared snapshot
   // serialization, byte-for-byte response text, and the Moscow time format
   // that the journal and cards ship as a string).
-  assert.equal(discovery.roots.length, 105);
+  // 106 = 105 + the 1.10.0 root that proves payload revisions mirror into the
+  // normalized status columns (migration 030).
+  assert.equal(discovery.roots.length, 106);
+  assert.ok(discovery.roots.some(item => item.file === 'tests/line-status-mirror-db.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/snapshot-cache.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/snapshot-text.test.mjs'));
   assert.ok(discovery.roots.some(item => item.file === 'tests/moscow-time.test.mjs'));

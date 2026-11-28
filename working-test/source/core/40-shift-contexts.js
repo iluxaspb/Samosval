@@ -35,6 +35,14 @@
     return Number.isFinite(number) ? number : 0;
   }
 
+  // '2026-11-28' → '28.11.2026' — формат, который старый код показывает в
+  // отчётах и печатных формах (`state.shift.startDate`).
+  function moscowDateText(value) {
+    if (typeof value !== 'string') return undefined;
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    return match ? `${match[3]}.${match[2]}.${match[1]}` : undefined;
+  }
+
   function normalizeShift(row) {
     if (!row || typeof row !== 'object') return null;
     const shiftId = typeof row.shiftId === 'string' && row.shiftId
@@ -408,6 +416,37 @@
       writeSelection(null);
     }
 
+    // Старый код читает смену плоскими полями (`isActive`, `startDate`,
+    // `workShift`, `startedAt`), а v2-снимок отдаёт `state` и вложенный
+    // `payload`. Без совместимых полей экран игр считает смену закрытой,
+    // отчёты печатают пустую дату, авто-бэкап не видит активную смену.
+    // Дополняются только отсутствующие поля: значения v2 не перезаписываются.
+    function legacyShiftView(shift, shiftId) {
+      const view = copy(shift);
+      const payload = view.payload && typeof view.payload === 'object' ? view.payload : {};
+      const fill = (key, value) => {
+        if (view[key] === undefined || view[key] === null) view[key] = value;
+      };
+      view.id = shiftId;
+      const shiftState = typeof view.state === 'string' ? view.state : (payload.state || '');
+      fill('isActive', shiftState === 'active' || shiftState === 'closing');
+      fill('closing', shiftState === 'closing' || payload.closing === true);
+      fill('startDate', payload.startDate || moscowDateText(view.workDate || payload.workDate));
+      fill('date', payload.date || view.workDate);
+      fill('workShift', view.shiftType || payload.workShift || payload.type);
+      fill('type', view.shiftType || payload.type || payload.workShift);
+      // analytics-v2 считает длительность как `Date.now() - startedAt`, то есть
+      // ждёт миллисекунды, а не ISO-строку `openedAt`.
+      if (typeof view.startedAt !== 'number') {
+        const started = Number(payload.startedAt);
+        const opened = Date.parse(view.openedAt || '');
+        view.startedAt = Number.isFinite(started) && started > 0
+          ? started
+          : (Number.isFinite(opened) ? opened : null);
+      }
+      return view;
+    }
+
     // Единственная совместимая проекция для старого кода. Пишет копии, а не
     // ссылки: изменить store через legacy-объект нельзя. Источник истины —
     // контекст выбранной смены, а не state.
@@ -419,7 +458,7 @@
       // офлайн-очередь). v2-документ несёт `shiftId`, поэтому проекция обязана
       // дать оба поля: иначе выбранная смена выглядит «без id» и действия
       // уходят без shiftId.
-      legacyState.shift = target ? Object.assign(copy(target.shift), { id: target.shiftId }) : null;
+      legacyState.shift = target ? legacyShiftView(target.shift, target.shiftId) : null;
       legacyState.logs = snapshot && Array.isArray(snapshot.logs) ? copy(snapshot.logs) : [];
       const truckStatus = {};
       const statuses = snapshot && Array.isArray(snapshot.statuses) ? snapshot.statuses : [];

@@ -671,19 +671,19 @@ function runShellFlagScript(preset) {
   return window.WORKING_TEST_V2_SHIFTS;
 }
 
-test('канал выключает параллельные смены по умолчанию, но не перезаписывает заданное значение', () => {
+test('канал включает параллельные смены по умолчанию, но не перезаписывает заданное значение', () => {
   const shell = readFileSync(new URL('../shell.html', import.meta.url), 'utf8');
   const flagAt = shell.indexOf('WORKING_TEST_V2_SHIFTS');
   assert.ok(flagAt > 0, 'флаг упоминается в оболочке канала');
   assert.ok(flagAt < shell.indexOf('working-test/src/storage.js'), 'флаг выставляется до storage.js');
   assert.ok(flagAt < shell.indexOf('<!-- TEST-MODULE:core -->'), 'флаг выставляется до модулей ядра');
-  // Решение владельца 28.11.2026: в канале работает прежняя логика линии, как в
-  // рабочей 1.7.23, поэтому v2 по умолчанию выключен. Стенд включает его сам
-  // через window.WORKING_TEST_V2_SHIFTS=true; переключателей через адрес
-  // страницы и localStorage нет.
-  assert.match(shell, /if \(typeof window\.WORKING_TEST_V2_SHIFTS === 'undefined'\) window\.WORKING_TEST_V2_SHIFTS = false;/);
+  // Решение владельца 28.11.2026: канал проверяет новую линию смен, поэтому v2
+  // включён по умолчанию. Стенд может выключить его через
+  // window.WORKING_TEST_V2_SHIFTS=false; переключателей через адрес страницы и
+  // localStorage нет.
+  assert.match(shell, /if \(typeof window\.WORKING_TEST_V2_SHIFTS === 'undefined'\) window\.WORKING_TEST_V2_SHIFTS = true;/);
   assert.doesNotMatch(shell, /WORKING_TEST_V2_SHIFTS[^\n]*(localStorage|URLSearchParams)/, 'нет переключателя через localStorage или адрес');
-  assert.equal(runShellFlagScript(), false, 'по умолчанию в канале флаг выключен — логика линии как в 1.7.23');
+  assert.equal(runShellFlagScript(), true, 'по умолчанию в канале флаг включён');
   assert.equal(runShellFlagScript(false), false, 'заранее выставленное false не перезаписывается');
   assert.equal(runShellFlagScript(true), true, 'заранее выставленное true остаётся true');
 });
