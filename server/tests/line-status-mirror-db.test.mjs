@@ -27,6 +27,9 @@ if (connectionString && process.env.SAMOSVAL_ISOLATED_TEST === '1') {
 
 test('payload revisions mirror into normalized status columns', {skip: approved ? false : 'needs the isolated cluster'}, async () => {
   const suffix = 'mirror_' + randomUUID().replaceAll('-', '').slice(0, 12);
+  // applyMigrationsThrough(24) идемпотентен на базовой схеме и, главное,
+  // выдаёт app-роли права на public — без этого фикстура не запишет смены.
+  await applyMigrationsThrough(24);
   // Фикстура пишет смены в форме 024: схема 025 ставит guard на payload,
   // поэтому порядок как в legacy-тестах — сначала данные, потом 025.
   const ids = await seedParallelShiftFixture({suffix, workspaceId: WORKSPACE});
