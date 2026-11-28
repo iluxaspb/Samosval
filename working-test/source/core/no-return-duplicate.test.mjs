@@ -87,8 +87,13 @@ test('выполненное действие: зелёный фон и обща
   // Цветной самосвал: кузов и кабина красятся заливкой, а не currentColor.
   assert.match(iconsSrc, /fill="#dbe3ec"/, 'кузов самосвала цветной');
   assert.match(iconsSrc, /fill="#3b82f6"/, 'кабина самосвала синяя');
-  // Красный запрет есть только в спокойном состоянии.
+  // Красный запрет остаётся в обоих состояниях: после нажатия к нему
+  // добавляется галочка, значок не меняется.
   assert.match(iconsSrc, /stroke="#ef4444"/, 'знак запрета красный');
+  const noReturnBody = /svgNoReturnIcon = function\(done\)[\s\S]*?\n  \};/.exec(iconsSrc);
+  assert.ok(noReturnBody, 'функция значка отметки');
+  assert.match(noReturnBody[0], /stroke="#ef4444"/, 'запрет не убирается в активном состоянии');
+  assert.match(noReturnBody[0], /done \? svgDoneCheck\(\) : ''/, 'галочка добавляется поверх значка');
   for (const [name, src] of [['18-line-ui.js', lineUiSrc], ['anim-speeds.js', animSrc]]) {
     assert.match(src, /active-no-return/, `${name}: активный класс отметки`);
     assert.match(src, /btn-ttn[^`]*active-ttn/, `${name}: активный класс ТТН`);

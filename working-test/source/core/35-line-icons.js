@@ -44,16 +44,16 @@
       + '<circle cx="15.4" cy="16.6" r="1.8" fill="#1f2937"/><circle cx="15.4" cy="16.6" r="0.65" fill="#9ca3af"/>';
   }
 
-  // Спокойное состояние — самосвал под красным знаком запрета (круг + диагональ):
-  // знак лежит поверх машины, композиция единая, кузов остаётся цветным.
-  // Активное состояние — тот же самосвал без запрета и та же галочка, что у ТТН.
+  // Самосвал под красным знаком запрета (круг + диагональ): знак лежит поверх
+  // машины, композиция единая, кузов остаётся цветным. Значок одинаков в обоих
+  // состояниях — после нажатия меняется только фон кнопки и добавляется
+  // галочка поверх значка (решение владельца 28.11.2026).
   window.svgNoReturnIcon = function(done) {
     return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">'
       + svgTruck()
-      + (done
-        ? svgDoneCheck()
-        : '<circle cx="12" cy="12" r="9.3" fill="none" stroke="#ef4444" stroke-width="2"/>'
-          + '<path d="M5.4 18.6 18.6 5.4" stroke="#ef4444" stroke-width="2" stroke-linecap="round"/>')
+      + '<circle cx="12" cy="12" r="9.3" fill="none" stroke="#ef4444" stroke-width="2"/>'
+      + '<path d="M5.4 18.6 18.6 5.4" stroke="#ef4444" stroke-width="2" stroke-linecap="round"/>'
+      + (done ? svgDoneCheck() : '')
       + '</svg>';
   };
 })();
