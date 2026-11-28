@@ -14,6 +14,18 @@
   let nasV2Bridge = null;
   // Сбой моста до первого успешного ответа пишется в консоль один раз.
   let nasV2BridgeErrorLogged = false;
+  // Мост уже ответил хотя бы одним списком смен: с этого момента линию ведёт
+  // v2, а v1-снимок (ровно одна смена по контракту) больше не спрашиваем.
+  let nasV2BridgeLive = false;
+  // Сервер уже отказал v1-снимку линии кодом multiple-active-shifts: это не
+  // временный сбой, а контракт (линия одна). Повторять запрос бессмысленно,
+  // даже если мост ещё не подтвердился.
+  let nasV2LineRefused = false;
+  // Мост поднят и отвечает за линию. v1-снимок в этом режиме не запрашивается
+  // вовсе: иначе первая же секунда после входа давала лишний 409 в консоли.
+  let nasV2BridgeActive = false;
+  // Сервер не знает маршрутов v2 (старый релиз): линия возвращается на v1.
+  let nasV2Unsupported = false;
   // Пробуждение после смены сети: обработчики событий и защита от наложения.
   let nasWakeStop=null, nasWakeInFlight=false, nasWakeAt=0;
   // Активное обновление: пока приложение на экране, данные читаются сами.
@@ -381,9 +393,21 @@
     return typeof WORKING_TEST_V2_SHIFTS!=='undefined'&&WORKING_TEST_V2_SHIFTS===true;
   }
   function nasV2Shifts(){return nasV2Bridge;}
+  // Кто владеет линией. Пока v2-мост жив, v1-снимок линии спрашивать нельзя:
+  // при двух открытых сменах сервер честно отвечает 409 multiple-active-shifts,
+  // и каждый такой отказ — лишний запрос и шум в консоли каждые 4 секунды.
+  // Без живого моста (старый сервер, выключенный флаг) работает прежний путь.
+  function nasLegacyLineReadAllowed(){
+    if(!nasV2ShiftsEnabled())return true;
+    // v2 включён и мост поднят — линия его. Отказ сервера «маршрута нет»
+    // возвращает прежний путь, чтобы канал не остался без линии вовсе.
+    if(nasV2BridgeActive&&!nasV2Unsupported)return false;
+    return !nasV2BridgeLive&&!nasV2LineRefused;
+  }
   function nasStopV2Shifts(){
     try{nasV2Bridge?.handle?.close?.();}catch(_){}
-    nasV2Bridge=null;nasV2BridgeErrorLogged=false;
+    nasV2Bridge=null;nasV2BridgeErrorLogged=false;nasV2BridgeLive=false;nasV2LineRefused=false;
+    nasV2BridgeActive=false;nasV2Unsupported=false;
     nasRestoredV1=[];nasRestoredContexts=[];nasRestoredRead=null;nasRestoredReadAt=0;
   }
 
@@ -613,6 +637,10 @@
   // «Ошибка загрузки: nas-shifts»: пока мост ни разу не отдал данные, экран
   // живёт на v1 и работает как раньше, а причина остаётся в консоли.
   function nasV2BridgeError(store,error){
+    // 404/405/426/501 — сервер этого канала ещё не знает v2-маршрутов.
+    // Это не сбой связи: линию честно продолжает вести v1, как до перехода.
+    const status=Number(error?.status)||0;
+    if(status===404||status===405||status===426||status===501)nasV2Unsupported=true;
     let rows=null;
     try{rows=store?.visibleShifts?.();}catch(_){rows=null;}
     if(!Array.isArray(rows)||rows.length===0){
@@ -625,7 +653,7 @@
   // оставлял «Перечитываем: nas-shifts» навсегда, потому что v1-источники
   // снимают только свои записи в syncState.errors.
   function nasV2BridgeSynced(store){
-    nasV2BridgeErrorLogged=false;
+    nasV2BridgeErrorLogged=false;nasV2BridgeLive=true;
     try{
       if(typeof syncState==='undefined'||!syncState||!syncState.errors||!syncState.errors['nas-shifts'])return;
       if(typeof markSync!=='function')return;
@@ -653,11 +681,28 @@
       },
       onSnapshot:result=>{if(!live())return;
         nasV2BridgeSynced(store);
+        if(result?.applied===true&&result?.visible===true){
+          const context=store.visibleContext?.();
+          const snapshot=context?.snapshot;
+          if(snapshot&&context.shiftId===result.shiftId){
+            const logs=Array.isArray(snapshot.logs)?snapshot.logs:[];
+            const statuses=Array.isArray(snapshot.statuses)?snapshot.statuses:[];
+            for(const [source,count] of [['shift',context.shift?1:0],['status',statuses.length],['logs',logs.length]])markSync(source,false,false,count);
+            // V2-снимок — авторитетная линия, когда legacy single-line API
+            // закономерно отвечает multiple-active-shifts. Он подтверждает
+            // начальную загрузку и очищает ошибки старого чтения: без этого
+            // шапка навсегда оставалась «Загрузка данных и прав…», а любая
+            // случайная ошибка — неснимаемой плашкой «Ошибка загрузки: nas».
+            markSync('nas',false,false,logs.length);
+            initialized=true;
+          }
+        }
         try{window.dispatchEvent(new CustomEvent('samosval-working-test-shift-snapshot',{detail:{generation:result.generation,shiftId:result.shiftId,revision:result.revision,applied:result.applied,visible:result.visible}}));}catch(_){}
       },
       onError:error=>{if(!live())return;nasV2BridgeError(store,error);}
     });
     nasV2Bridge={store,transport,handle,epoch};
+    nasV2BridgeActive=true;
     return nasV2Bridge;
   }
   async function startNasRuntime(user) {
@@ -681,6 +726,7 @@
       for(const name of ['plugins','patches','audit','notifications'])refs[name]=nasAuxCollection(name,client,epoch);
       let registering=false;
       nasResumePolling=()=>{if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||nasPollHolds)return;nasRuntimeStop?.();nasRuntimeStop=client.subscribeLine({
+        lineEnabled:nasLegacyLineReadAllowed,
         onSession:session=>{if(epoch!==nasRuntimeEpoch)return;
           // Отмечаем живой ответ сервера: по этой метке надзиратель понимает,
           // что подписка молчит слишком долго.
@@ -702,7 +748,7 @@
           // владельца сервер не имеет права. Линию в этом режиме ведёт v2-мост,
           // поэтому постоянная плашка «Перечитываем: nas» была бы ложью о сбое.
           // Без моста (старый клиент) отказ остаётся видимым: там он настоящий.
-          if(nasV2Shifts()&&(error?.serverCode||error?.code)==='multiple-active-shifts')return;
+          if(nasV2Shifts()&&(error?.serverCode||error?.code)==='multiple-active-shifts'){nasV2LineRefused=true;return;}
           reportSyncError('nas',error);}
       });};nasResumePolling();
       // Отсчёт тишины подписки начинается сразу: иначе до первого сеанса
@@ -910,7 +956,12 @@
     const work=(async()=>{const catalog=await client.readCatalog();if(epoch!==nasRuntimeEpoch||nasRuntimeClient!==client||currentUserStatus!=='active'||!hasTabAccess('line')&&!hasTabAccess('trucks')&&!hasTabAccess('timesheet'))return;
       markSync('nas-objects',false,false,catalog.objects.length);nasCatalogSnapshot=catalog;state.trucks=catalog.trucks.map(row=>({...row.data,id:row.id,revision:row.revision}));state.objects=catalog.objects.map(row=>({...row.data,id:row.id,revision:row.revision}));if(state.shift?.objectId)state.shift.objectName=objectTitle(state.shift.objectId,state.shift.objectName);
       void refreshTruckPhones();
-      markSync('objects',false,false,state.objects.length);saveCache();window.dispatchEvent(new Event('samosval-working-test-objects-changed'));
+      markSync('objects',false,false,state.objects.length);
+      // Справочник техники — единственный источник списка машин в режиме v2:
+      // legacy-снимок линии недоступен (две смены → 409), а индикатор считает
+      // источник «trucks» обязательным для подтверждённой загрузки.
+      markSync('trucks',false,false,state.trucks.length);
+      saveCache();window.dispatchEvent(new Event('samosval-working-test-objects-changed'));
     })();nasCatalogRead=work;try{return await work;}finally{if(nasCatalogRead===work)nasCatalogRead=null;}
   }
   function nasTabelHost(){
@@ -1086,6 +1137,11 @@
     return rows?.find(row=>row.id===id)?.revision;
   }
   async function nasRefreshLine(){
+    // Линию ведёт v2-мост: v1-снимок в этом режиме законно отказывает, и
+    // повторять его — значит выдавать ожидаемый отказ за сбой синхронизации.
+    // Вместо этого будим подписку v2: она перечитает список и снимок
+    // выбранной смены, то есть сделает ровно то, чего ждёт вызывающий слой.
+    if(!nasLegacyLineReadAllowed()){try{nasV2Bridge?.handle?.wake?.();}catch(_){}return;}
     const client=nasRuntimeClient,epoch=nasRuntimeEpoch,generation=++nasReadGeneration;if(!client)return;
     const snapshot=await client.readLine();if(client===nasRuntimeClient&&epoch===nasRuntimeEpoch&&generation===nasReadGeneration)acceptNasLineSnapshot(snapshot);
   }

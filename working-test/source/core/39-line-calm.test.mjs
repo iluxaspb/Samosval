@@ -78,9 +78,20 @@ function runGetSyncStatus({ errors, everConnected, queued = 0, offline = false, 
   return result;
 }
 
-test('v2: ожидаемый отказ legacy-снимка при двух сменах не рисует вечный сбой синхронизации', () => {
-  assert.match(runtimeSrc, /nasV2Shifts\(\)&&\(error\?\.serverCode\|\|error\?\.code\)==='multiple-active-shifts'\)return;/,
-    'при активном v2-мосте 409 multiple-active-shifts — ожидаемый отказ старого single-line чтения');
+test('v2: legacy-снимок выключается сразу после старта моста', () => {
+  assert.match(runtimeSrc, /lineEnabled:nasLegacyLineReadAllowed/, 'v1-подписка проверяет владельца линии');
+  assert.match(runtimeSrc, /function nasLegacyLineReadAllowed\(\)[\s\S]*?if\(nasV2BridgeActive&&!nasV2Unsupported\)return false;/,
+    'пока мост поднят, v1-снимок не запрашивается даже до первого ответа');
+  assert.match(runtimeSrc, /nasV2BridgeActive=true/,
+    'мост объявляет себя владельцем линии при старте');
+  assert.match(runtimeSrc, /status===404\|\|status===405\|\|status===426\|\|status===501\)nasV2Unsupported=true/,
+    'старый сервер без v2-маршрутов возвращает линию на v1');
+  assert.match(runtimeSrc, /nasV2BridgeLive=false;nasV2LineRefused=false;\n\s*nasV2BridgeActive=false;nasV2Unsupported=false;/,
+    'при остановке моста политика сбрасывается');
+  assert.match(runtimeSrc, /nasV2LineRefused=true/,
+    'ожидаемый отказ v1 фиксируется, чтобы не повторять бессмысленный запрос');
+  assert.match(runtimeSrc, /function nasRefreshLine\(\)[\s\S]*?if\(!nasLegacyLineReadAllowed\(\)\)[\s\S]*?nasV2Bridge\?\.handle\?\.wake\?\.\(\)/,
+    'ручное обновление будит v2-мост вместо заведомо конфликтного v1-запроса');
   assert.match(runtimeSrc, /reportSyncError\('nas',error\)/,
     'остальные ошибки legacy-снимка по-прежнему видны пользователю');
 });
@@ -115,6 +126,33 @@ test('updateSyncUI скрывает жёлтый баннер для degraded и
 test('диагностика: ошибки источников по-прежнему перечисляются (showSyncDiagnostics)', () => {
   const body = functionBody(formattingSrc, 'showSyncDiagnostics');
   assert.match(body, /ОШИБКА /, 'ошибки остаются видимыми в диагностике точки синхронизации');
+});
+
+// Возврат на экран обрывает текущие чтения (abortInflight) — это наша команда,
+// а не сбой связи. До исправления такой обрыв записывался как api-timeout и
+// после каждого пробуждения телефона показывал «Ошибка загрузки: nas».
+function runReportSyncError(error) {
+  const context = {
+    syncState: { errors: {} },
+    offlineTransportError: () => false,
+    offlineTransportFailed: () => {},
+    nasConnectionHeart: () => {},
+    console: { error() {}, warn() {} },
+    updateSyncUI() {},
+  };
+  const report = vm.runInNewContext(functionBody(formattingSrc, 'reportSyncError') + '\nreportSyncError', context);
+  report('nas', error);
+  return context.syncState.errors;
+}
+
+test('обрыв по нашей команде не записывается как ошибка синхронизации', () => {
+  const errors = runReportSyncError(Object.assign(new Error('api-aborted: response-headers'), { code: 'api-aborted', retryable: true }));
+  assert.deepEqual(errors, {}, 'abortInflight при возврате на экран не рисует «Ошибка загрузки»');
+});
+
+test('настоящий таймаут остаётся видимой ошибкой источника', () => {
+  const errors = runReportSyncError(Object.assign(new Error('api-timeout: response-headers'), { code: 'api-timeout', retryable: true }));
+  assert.equal(errors.nas.code, 'api-timeout', 'настоящий сбой связи по-прежнему виден');
 });
 
 // ===== Часть 2: перерисовка линии только при изменениях =====
