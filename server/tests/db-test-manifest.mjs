@@ -633,7 +633,7 @@ const dbEntries = dbFiles.map(name => ({
   // `v2-shift-close-db` also starts from S25 and applies 026–029 itself: the
   // close gate needs the 028 detached table and its own 029 marker/token schema.
   baseline: ['v2-shift-access', 'v2-shift-members-db'].includes(name) ? 'S25' : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db', 'v2-derived-effects-db', 'v2-shift-close-db', 'v2-query-isolation-db', 'v2-parallel-acceptance-db'].includes(name) ? 'S25' : name === 'isolated-db-s26-fixtures' ? 'S25' : 'S24',
-migrationsThrough: name === 'line-status-mirror-db' ? 30 : ['v2-shift-close-db', 'v2-derived-effects-db', 'v2-query-isolation-db', 'v2-parallel-acceptance-db', 'v2-archive-restore-db'].includes(name) ? 29 : ['v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db'].includes(name) ? 27 : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db'].includes(name) ? 28 : ['replica-stream-026', 'replica-store', 'replica-pending-materialize', 'replica-exact-backup'].includes(name) ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : name === 'parallel-shifts-maintenance-db' ? 27 : null,
+migrationsThrough: name === 'line-status-mirror-db' ? 24 : ['v2-shift-close-db', 'v2-derived-effects-db', 'v2-query-isolation-db', 'v2-parallel-acceptance-db', 'v2-archive-restore-db'].includes(name) ? 29 : ['v2-shift-access', 'v2-shift-members-db', 'v2-shift-read-db'].includes(name) ? 27 : ['v2-truck-transfer-db', 'v2-detached-completion-db', 'v2-line-operations-db'].includes(name) ? 28 : ['replica-stream-026', 'replica-store', 'replica-pending-materialize', 'replica-exact-backup'].includes(name) ? 26 : name === 'parallel-shifts-migration-core' || name === 'replica-materialize-parallel-shifts' || name === 'parallel-shifts-historicalization' || name === 'legacy-shift-resolution' || name === 'archive-schema-025' || name === 'restored-context-migration' || name === 'restored-context-store' || name === 'archive-consumers-latest' || name === 'archive-revisions' ? 25 : name === 'parallel-shifts-maintenance-db' ? 27 : null,
   customSchema: [],
   importTables: importTablesByFile[name] ?? [],
   fixtures: fixturesByFile[name] ?? [],
@@ -690,7 +690,10 @@ const harnessEntries = harnessFiles.map(name => ({
     // which a db child never gets as samosval_test_app, so the root is a
     // harness contract like isolated-db-fixtures.
     'migration-registry': ['bootstrap-url'],
-    'parallel-shifts-runtime-roles': ['bootstrap-url', 'runtime-password', 'maintenance-password']
+    'parallel-shifts-runtime-roles': ['bootstrap-url', 'runtime-password', 'maintenance-password'],
+    // 030 ставит сам тест (baseline S25), поэтому ему нужен привилегированный
+    // bootstrap-доступ: db-ребёнок работает как samosval_test_app и схемы не меняет.
+    'line-status-mirror-db': ['bootstrap-url']
   }[name] ?? []
 }));
 
