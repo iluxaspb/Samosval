@@ -50,7 +50,7 @@ RELEASE_MODULE = SOURCE_DIR / 'features' / 'working-test-release.js'
 HISTORY_MODULE = SOURCE_DIR / 'features' / 'release-history.js'
 REFERENCE_MODEL = ROOT / 'test-app' / 'modules.json'
 
-REQUIRED_VERSION = '1.10.8'
+REQUIRED_VERSION = '1.10.9'
 REQUIRED_HEADER = 'Рабочая тестовая версия'
 FIREBASE_PROJECT = 'samosval-test'
 FIREBASE_APP_NAME = 'working-test'
@@ -407,6 +407,9 @@ def check_modules(entry_text, model, manifest, build_id):
         'undo-redo', 'analytics-v2', 'reset-hold', 'pretty-confirm',
         'ticker-name', 'nav-sort', 'fix-log-delete', 'anim-speeds',
         'admin-compact', 'nas-connection',
+        # Отладочная смена аккаунта — только в тестовом канале, в рабочей
+        # версии её нет и быть не должно.
+        'debug-accounts',
     }
     WT_REMOVED_MODULES = {
         'built-in-patches',

@@ -6,8 +6,8 @@ import {registerPending,readSession,readAdministration,identityOperation,readMem
 import {submitLineOperation} from '../src/line-store.mjs';
 test('PostgreSQL identity lifecycle validates verified UID, decisions, admin protection and revocations',{skip:!process.env.TEST_DATABASE_URL},async t=>{
   const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL,max:6}),prefix='ident_'+randomUUID().replaceAll('-','');
-  const owner=prefix+'_owner',second=prefix+'_second',worker=prefix+'_worker',applicant=prefix+'_applicant',rejected=prefix+'_rejected',legacy=prefix+'_legacy';
-  const ids=[owner,second,worker,applicant,rejected,legacy];let sequence=0,ready=false,state,oldPerms,oldVersion;
+  const owner=prefix+'_owner',second=prefix+'_second',worker=prefix+'_worker',applicant=prefix+'_applicant',rejected=prefix+'_rejected',legacy=prefix+'_legacy',debug=prefix+'_debug';
+  const ids=[owner,second,worker,applicant,rejected,legacy,debug];let sequence=0,ready=false,state,oldPerms,oldVersion;
   const send=(type,data,actor=owner)=>identityOperation(pool,actor,{id:prefix+'_'+(++sequence),type,...data});
   const current=async uid=>(await readSession(pool,uid)).profile;
   try{
@@ -90,6 +90,16 @@ test('PostgreSQL identity lifecycle validates verified UID, decisions, admin pro
       await send('registration.approve',{uid:legacy,expectedRevision:0,expectedProfileRevision:1,role:'viewer'});
       assert.equal((await current(legacy)).status,'active');
       const members=await readMembers(pool,worker);assert.equal(members.members.some(r=>r.uid===legacy),true);assert.equal(JSON.stringify(members).includes('privateImportField'),false);
+    });
+    await t.test('debug role accounts stay out of the member list but remain in administration',async()=>{
+      const debugUid=prefix+'_debug_lopater';
+      await pool.query("INSERT INTO app_users(uid,email,display_name,role,status,profile) VALUES ($1,$2,'Debug lopater','lopater','active',$3)",
+        [debugUid,prefix+'_debug@example.test',{debugAccount:true}]);
+      const members=await readMembers(pool,worker);
+      assert.equal(members.members.some(r=>r.uid===debugUid),false,'обычный пользователь не видит отладочную учётку');
+      assert.equal(members.members.some(r=>r.uid===legacy),true,'обычные учётки остаются на месте');
+      const admin=await readAdministration(pool,owner);
+      assert.equal(admin.users.some(u=>u.uid===debugUid),true,'администратор видит отладочную учётку в панели доступа');
     });
     await t.test('revoked admin cannot replay its earlier successful operation',async()=>{
       const op={id:prefix+'_before_revoke',type:'user.nickname',uid:worker,expectedRevision:5,nickname:'Final'};

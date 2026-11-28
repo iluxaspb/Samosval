@@ -225,7 +225,10 @@ export async function readMembers(pool,uid){
   try{
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     if(!active(await profile(client,uid)))throw fail('forbidden',403);
-    const rows=(await client.query("SELECT uid,email,display_name,role,status FROM app_users WHERE status IN ('active','disabled') AND profile->>'deleted' IS DISTINCT FROM 'true' ORDER BY uid")).rows;
+    // Отладочные учётки ролей (profile.debugAccount) существуют только на
+    // тестовой линии и не должны попадать в общий список пользователей: их
+    // видит лишь администратор в панели доступа (readAdministration).
+    const rows=(await client.query("SELECT uid,email,display_name,role,status FROM app_users WHERE status IN ('active','disabled') AND profile->>'deleted' IS DISTINCT FROM 'true' AND COALESCE(profile->>'debugAccount','false')<>'true' ORDER BY uid")).rows;
     await client.query('COMMIT');return {format:'samosval-members',version:1,source:'ubuntu',members:rows.map(r=>({uid:r.uid,email:r.email,nickname:r.display_name,role:r.role,status:r.status}))};
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }

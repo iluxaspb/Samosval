@@ -326,8 +326,11 @@
       if (button) button.disabled = false;
     }
   }
-  async function handleLogout() {
-    if (!(await appConfirm('Выйти?'))) return;
+  // Завершение текущей сессии без вопроса и без перезагрузки: вопрос и
+  // перезагрузку оставляет за собой handleLogout. Отладочная смена аккаунта
+  // этот путь не использует — она входит под тестовой учёткой и гасит прежний
+  // токен только после успешного входа (features/debug-accounts.js).
+  async function wtEndSessionQuietly() {
     const refreshToken = wtSession ? wtSession.refreshToken : wtStoredRefreshToken();
     try { if (typeof isNasRuntime === 'function' && isNasRuntime()) await leaveNasPresence(); } catch (_) {}
     // Сессию на сервере отзываем, но локальный выход выполняем в любом случае.
@@ -335,11 +338,24 @@
     wtClearSession();
     try { localStorage.removeItem(WT_AUTH_EMAIL_KEY); } catch (_) {}
     wtNotifySession(null);
+  }
+  async function handleLogout() {
+    if (!(await appConfirm('Выйти?'))) return;
+    await wtEndSessionQuietly();
     wtShowAuthScreens('signed-out');
     // Перезагрузка только после очистки токенов и экранов: если она не
     // выполнится, приложение всё равно останется на экране входа, а не
     // вернётся в прежнюю сессию.
     location.reload();
+  }
+  // Бейдж пользователя в шапке: администратору открывается окно аккаунта
+  // (выход и отладочная смена аккаунта), остальным — прежний выход.
+  function handleUserBadgeClick() {
+    if (typeof window.openDebugAccounts === 'function' && typeof canAdmin === 'function' && canAdmin()) {
+      window.openDebugAccounts();
+      return;
+    }
+    handleLogout();
   }
   // === ВОССТАНОВЛЕНИЕ ПАРОЛЯ ===
   // Экран входа не переписывается: блок восстановления создаётся рядом с полями

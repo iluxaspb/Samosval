@@ -237,6 +237,13 @@
       ]
     },
     {
+      "kind": "script",
+      "name": "debug-accounts",
+      "sources": [
+        "features/debug-accounts.js"
+      ]
+    },
+    {
       "name": "reset-settings",
       "kind": "script",
       "attributes": "",
