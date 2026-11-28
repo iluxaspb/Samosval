@@ -23,8 +23,9 @@ class FakeElement {
   querySelectorAll() { return []; }
 }
 
-function loadSheet(cycleMinutes) {
+function loadSheet(cycleMinutes, options = {}) {
   const calls = [];
+  const objectSaves = [];
   const ids = {
     shiftManagementModal: new FakeElement('div'),
     shiftManagementBody: new FakeElement('div'),
@@ -47,7 +48,11 @@ function loadSheet(cycleMinutes) {
       createElement: tag => new FakeElement(tag),
       querySelectorAll: () => []
     },
-    state: { objects: [{ id: 'object_1', name: 'Объект' }], users: [] },
+    state: { objects: options.objects || [{ id: 'object_1', name: 'Объект' }], users: [] },
+    nasSaveRecord: async (kind, id, data, revision) => {
+      objectSaves.push({ kind, id, data, revision });
+      return { result: { id: 'object_new' } };
+    },
     settings: { cycleMinutes },
     nasV2Shifts: () => bridge,
     WorkingTestShiftSelector: { createShiftSelector: () => ({ render() {}, switchTo() { return true; }, refreshBadges() {}, activeShiftId: () => null, destroy() {} }) },
@@ -80,7 +85,9 @@ function loadSheet(cycleMinutes) {
   const body = ids.shiftManagementBody;
   const createBox = body.children.find(child => child.className === 'shift-management-section');
   const button = createBox.children.find(child => child.tagName === 'button');
-  return { button, calls };
+  const objectSelect = createBox.children.find(child => child.tagName === 'select');
+  const newObjectInput = createBox.children.find(child => child.tagName === 'input' && child.type === 'text');
+  return { button, calls, objectSaves, objectSelect, newObjectInput, createBox };
 }
 
 test('создание смены отправляет целое cycleMinutes в границах 15…10080', async () => {
@@ -99,4 +106,35 @@ test('границы цикла сохраняются, а мусор в нас�
     assert.equal(calls[0].cycleMinutes, expected, 'cycleMinutes для ' + String(configured));
     assert.ok(Number.isSafeInteger(calls[0].cycleMinutes));
   }
+});
+
+// Жалоба владельца (28.11.2026): когда смены уже открыты, добавить смену на
+// объект, которого нет в списке, было нечем — пункта «Новый объект» не было.
+test('в списке объектов есть пункт «Новый объект» для права manage_objects', () => {
+  const { objectSelect } = loadSheet(15);
+  const labels = objectSelect.children.map(option => option.textContent);
+  assert.ok(labels.some(label => String(label).includes('Новый объект')), 'пункт создания объекта на месте');
+});
+
+test('создание смены на новый объект сначала сохраняет объект, затем смену', async () => {
+  const { button, calls, objectSaves, objectSelect, newObjectInput } = loadSheet(15);
+  objectSelect.value = '__new_object__';
+  newObjectInput.value = '  Киевское шоссе  ';
+  await button.listeners.click[0]();
+  assert.equal(objectSaves.length, 1, 'объект сохраняется в базу один раз');
+  assert.equal(objectSaves[0].kind, 'object');
+  assert.equal(objectSaves[0].data.name, 'Киевское шоссе', 'имя обрезается от пробелов');
+  assert.equal(objectSaves[0].revision, 0, 'новый объект создаётся без ревизии');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].objectId, 'object_new', 'смена создаётся на только что созданный объект');
+  assert.equal(newObjectInput.value, '', 'поле имени очищается после создания');
+});
+
+test('пустое имя нового объекта не создаёт ни объекта, ни смены', async () => {
+  const { button, calls, objectSaves, objectSelect, newObjectInput } = loadSheet(15);
+  objectSelect.value = '__new_object__';
+  newObjectInput.value = '   ';
+  await button.listeners.click[0]();
+  assert.equal(objectSaves.length, 0);
+  assert.equal(calls.length, 0, 'смена без объекта не отправляется');
 });

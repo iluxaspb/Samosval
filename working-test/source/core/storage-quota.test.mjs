@@ -62,11 +62,14 @@ function runJournalSandbox(storage) {
   return sandbox;
 }
 
-test('saveCache: audit и lineAudit режутся до 200 записей', () => {
+test('saveCache: аудит урезан, рейсы архива не дублируются, размер ограничен бюджетом', () => {
   const formatting = readFileSync(join(here, '03-formatting.js'), 'utf8');
-  const body = formatting.slice(formatting.indexOf('function saveCache'), formatting.indexOf('function loadCache'));
-  assert.match(body, /audit:\s*state\.audit\.slice\(0,\s*200\)/, 'audit ограничен 200');
-  assert.match(body, /lineAudit:\s*\(state\.lineAudit \|\| \[\]\)\.slice\(0,\s*200\)/, 'lineAudit ограничен 200, а не пишется целиком');
+  const body = formatting.slice(formatting.indexOf('function cachePayload'), formatting.indexOf('function loadCache'));
+  assert.match(body, /audit:\s*\(state\.audit \|\| \[\]\)\.slice\(-50\)/, 'audit ограничен 50 последними записями');
+  assert.match(body, /lineAudit:\s*\(state\.lineAudit \|\| \[\]\)\.slice\(-50\)/, 'lineAudit ограничен 50, а не пишется целиком');
+  assert.match(formatting, /const SESSION_CACHE_BUDGET\s*=\s*\d+\s*\*\s*1024/, 'у кеша сессии есть бюджет в килобайтах');
+  assert.match(body, /compactArchiveCards\(state\.archive\)/, 'рейсы архива в кеш не попадают: они приходят с сервера');
+  assert.match(formatting, /catch\(e\)\s*\{[\s\S]*?localStorage\.removeItem\(sessionCacheKey\(\)\)/, 'при отказе записи старая раздутая запись не остаётся');
 });
 
 test('подтверждённое действие покидает журнал сразу после доставки уведомления/аудита', () => {
@@ -173,8 +176,8 @@ test('миграция при старте чистит раздутый жур�
   assert.equal(journal.filter(x => x.status === 'confirmed').length, 0, 'подтверждённые записи срезаны миграцией');
   assert.equal(journal.filter(x => x.status === 'rejected').length, 30, 'непросмотренные отказы уложены в лимит 50');
   const cache = JSON.parse(storage.getItem(CACHE));
-  assert.ok(cache.audit.length <= 200, 'audit в кеше сессии урезан до 200');
-  assert.ok(cache.lineAudit.length <= 200, 'lineAudit в кеше сессии урезан до 200');
+  assert.ok(cache.audit.length <= 50, 'audit в кеше сессии урезан до 50');
+  assert.ok(cache.lineAudit.length <= 50, 'lineAudit в кеше сессии урезан до 50');
   assert.equal(storage.getItem('unrelated-key'), 'untouched', 'посторонние ключи не тронуты');
 });
 

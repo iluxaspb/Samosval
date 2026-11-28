@@ -164,6 +164,7 @@
             // Команда обновила контексты store, а линия рисуется из проекции.
             // Без этого шага карточки самосвалов ждали бы следующего опроса.
             try { bridge.store.projectActiveContextToLegacyState(state); } catch (_) { /* проекция не критична для отчёта */ }
+            try { if (typeof offlineAdoptShiftProjection === 'function') offlineAdoptShiftProjection(); } catch (_) { /* основа не критична для показа */ }
             renderAll();
           }
         })
@@ -251,11 +252,26 @@
     const createBox = section('Создать смену');
     const objectSelect = document.createElement('select');
     objectSelect.className = 'form-control';
+    const canManageObjects = typeof hasPermission === 'function' && hasPermission('manage_objects');
     for (const object of (state.objects || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)))) {
       const option = document.createElement('option');
       option.value = object.id;
       option.textContent = object.name;
       objectSelect.appendChild(option);
+    }
+    let newObjectInput = null;
+    const newObjectOption = document.createElement('option');
+    newObjectOption.value = '__new_object__';
+    newObjectOption.textContent = '➕ Новый объект…';
+    newObjectOption.hidden = !canManageObjects;
+    if (canManageObjects) objectSelect.appendChild(newObjectOption);
+    if (canManageObjects) {
+      newObjectInput = document.createElement('input');
+      newObjectInput.type = 'text';
+      newObjectInput.className = 'form-control';
+      newObjectInput.placeholder = 'Название нового объекта';
+      newObjectInput.hidden = true;
+      objectSelect.addEventListener('change', () => { newObjectInput.hidden = objectSelect.value !== '__new_object__'; });
     }
     const dateInput = document.createElement('input');
     dateInput.type = 'date';
@@ -277,8 +293,33 @@
     createButton.addEventListener('click', async () => {
       createButton.disabled = true;
       try {
+        // Новый объект создаётся до смены: если нужного объекта нет в списке,
+        // раньше приходилось уходить в базу и возвращаться — при уже открытых
+        // сменах это единственный путь, и его не было.
+        let objectId = objectSelect.value;
+        if (objectId === '__new_object__') {
+          const name = String(newObjectInput && newObjectInput.value || '').trim();
+          if (!name) { report({ ok: false, code: 'invalid-object-name' }, ''); return; }
+          let created;
+          try {
+            created = await nasSaveRecord('object', '', { name }, 0);
+          } catch (error) {
+            report({ ok: false, code: 'object-create-failed' }, '');
+            if (typeof showError === 'function') showError(error && error.message ? error.message : 'Не удалось создать объект');
+            return;
+          }
+          const createdId = created && created.result && created.result.id;
+          if (!createdId) { report({ ok: false, code: 'object-create-failed' }, ''); return; }
+          const option = document.createElement('option');
+          option.value = createdId;
+          option.textContent = name;
+          objectSelect.appendChild(option);
+          objectSelect.value = createdId;
+          if (newObjectInput) { newObjectInput.value = ''; newObjectInput.hidden = true; }
+          objectId = createdId;
+        }
         const result = await management.createShift({
-          objectId: objectSelect.value, workDate: dateInput.value, shiftType: typeSelect.value,
+          objectId, workDate: dateInput.value, shiftType: typeSelect.value,
           // `cycleMinutes` is a required field of the documented creation body
           // (§5.2). Without it the server refuses every creation as
           // `invalid-command`, so the sheet passes the configured cycle. The
@@ -294,6 +335,7 @@
       }
     });
     createBox.appendChild(objectSelect);
+    if (newObjectInput) createBox.appendChild(newObjectInput);
     createBox.appendChild(dateInput);
     createBox.appendChild(typeSelect);
     createBox.appendChild(createButton);
@@ -449,6 +491,10 @@
     if (!detail || detail.applied !== true) return;
     if (detail.shiftId !== ui.selector.activeShiftId()) return;
     ui.bridge.store.projectActiveContextToLegacyState(state);
+    // Основа офлайн-проекции := этот снимок. Без этого следующая перерисовка
+    // начинала бы с пустой основы (карточки на миг исчезали) или с данных
+    // прежней смены.
+    try { if (typeof offlineAdoptShiftProjection === 'function') offlineAdoptShiftProjection(); } catch (_) { /* основа не критична для показа */ }
     // Перерисовывается только то, что зависит от проекции: карточки линии и
     // сводка шапки. Полный renderAll на каждый снимок гонял бы все вкладки
     // каждые 4 секунды, а renderLine сам пропускает неизменные данные.

@@ -27,7 +27,12 @@ test('интеграция: без моста скрывает полосу, б�
   assert.match(navigation, /window\.shiftStripSelect\s*=/);
   assert.match(navigation, /__wtRenderShiftStrip/);
   assert.match(lineUi, /window\.__wtRenderShiftStrip\?\.\(\)/);
-  assert.doesNotMatch(navigation, /nasSaveRecord\(|startShiftWithObject\(|nasCloseCurrentShift\(/);
+  // Лист смен не подменяет v2-команды старым клиентом. nasSaveRecord здесь
+  // допустим только для создания объекта из пункта «Новый объект…», но не для
+  // самой смены: закрытие и старт идут через v2-мост.
+  assert.doesNotMatch(navigation, /startShiftWithObject\(|nasCloseCurrentShift\(/);
+  const saveCalls = navigation.match(/nasSaveRecord\([^)]*/g) || [];
+  assert.ok(saveCalls.every(call => /nasSaveRecord\('object'/.test(call)), 'nasSaveRecord вызывается только для объекта: ' + saveCalls.join('; '));
 });
 
 test('интеграция: снимок активной смены перерисовывает линию, а чужой — нет', () => {
@@ -41,8 +46,17 @@ test('интеграция: снимок активной смены перер�
   assert.match(handler, /scheduleRenderLine\(\)/);
 });
 
-test('интеграция: горизонтальная полоса участвует в раскладке и не перекрывает карточки', () => {
-  assert.match(style, /\.shift-strip\s*\{[^}]*position:\s*sticky/s);
+test('интеграция: полоса прижата к низу и не перекрывает ни модалки, ни карточки', () => {
+  // Жалоба владельца (28.11.2026): при короткой линии sticky-полоса висела
+  // под последней карточкой, а при открытии «Выбор самосвалов» оказывалась
+  // поверх окна. Полоса — fixed над меню, ниже модалок, с запасом под неё.
+  assert.match(style, /\.shift-strip\s*\{[^}]*position:\s*fixed/s);
+  assert.match(style, /\.shift-strip\s*\{[^}]*bottom:\s*56px/s);
+  const stripZ = Number(/\.shift-strip\s*\{[^}]*z-index:\s*(\d+)/s.exec(style)[1]);
+  const modalZ = Number(/\.modal\s*\{[^}]*z-index:\s*(\d+)/s.exec(readFileSync(new URL('../styles/style-04.css', import.meta.url), 'utf8'))[1]);
+  assert.ok(stripZ < modalZ, 'модалка обязана быть выше полосы: ' + stripZ + ' < ' + modalZ);
+  assert.match(style, /body\.shift-strip-open\s*\{[^}]*padding-bottom:\s*calc\(/s);
+  assert.match(style, /--shift-strip-h/);
   assert.match(style, /overflow-x:\s*auto/);
   assert.match(style, /scroll-snap-type:\s*x\s+proximity/);
   assert.match(style, /\.shift-tab\s*\{[^}]*flex:\s*0\s+0\s+auto/s);

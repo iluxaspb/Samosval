@@ -36,6 +36,8 @@ class FakeElement {
     this._text = '';
     this.parentNode = null;
     this.hidden = false;
+    this.offsetHeight = 51;
+    this.classList = { names: new Set(), add: name => this.classList.names.add(name), remove: name => this.classList.names.delete(name), contains: name => this.classList.names.has(name) };
     this.scrollTop = 0;
     this.scrollIntoViewCalls = [];
   }
@@ -65,7 +67,8 @@ class FakeElement {
 }
 
 function makeDoc() {
-  return { createElement: tag => new FakeElement(tag) };
+  const body = new FakeElement('body');
+  return { createElement: tag => new FakeElement(tag), body };
 }
 
 const shiftA = {
@@ -527,4 +530,31 @@ test('простой перерендер не перезаписывает вр
   selector.refreshBadges();
   assert.equal(seen.shift_a, viewedAt, 'рендер бейджей не сдвигает просмотр без нового действия');
   assert.ok(actionDot(tabOf(mount, 'shift_b')), 'точка другой смены осталась');
+});
+
+test('полоса резервирует место под собой и сообщает свою высоту', () => {
+  // Полоса fixed поверх контента: без запаса последняя карточка и её кнопки
+  // уходили под неё (жалоба владельца 28.11.2026).
+  const { doc, mount, selector } = setup({ rows: [shiftA, shiftB], active: 'shift_a' });
+  mount.getBoundingClientRect = () => ({ height: 57 });
+  selector.render();
+  assert.equal(doc.body.classList.contains('shift-strip-open'), true, 'запас под полосу включён');
+  assert.equal(doc.body.style['--shift-strip-h'], '57px', 'высота взята фактическая, а не выдуманная');
+});
+
+test('без полосы (одна смена) запас под неё снимается', () => {
+  const { doc, mount, selector } = setup({ rows: [shiftA] });
+  mount.getBoundingClientRect = () => ({ height: 57 });
+  selector.render();
+  assert.equal(mount.hidden, true);
+  assert.equal(doc.body.classList.contains('shift-strip-open'), false, 'лишний отступ внизу не остаётся');
+});
+
+test('уничтожение полосы снимает запас и не оставляет отступ', () => {
+  const { doc, mount, selector } = setup({ rows: [shiftA, shiftB], active: 'shift_a' });
+  mount.getBoundingClientRect = () => ({ height: 60 });
+  selector.render();
+  assert.equal(doc.body.classList.contains('shift-strip-open'), true);
+  selector.destroy();
+  assert.equal(doc.body.classList.contains('shift-strip-open'), false);
 });

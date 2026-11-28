@@ -59,7 +59,52 @@
   }
 
   function sessionCacheKey() { if(isNasRuntime())return 'samosval-working-test-cache-nas-v1:'+nasStorageScope(); return 'samosval-working-test-cache-v1:' + firebaseConfig.projectId + ':' + location.pathname + ':' + WORKSPACE_ID + ':' + (currentUid || 'signed-out'); }
-  function saveCache() { try { localStorage.setItem(sessionCacheKey(), JSON.stringify({ trucks: state.trucks, objects: state.objects, logs: offlinePendingCount()?offlineRemoteLogs:state.logs, truckStatus: offlinePendingCount()?offlineRemoteStatuses:state.truckStatus, shift: state.shift, restoredShifts: state.restoredShifts||[], archive: state.archive, trash: state.trash, audit: state.audit.slice(0, 200), lineAudit: (state.lineAudit || []).slice(0, 200), notifications: (state.notifications || []).slice(0, 10), savedAt: Date.now() })); } catch(e) {} }
+  const SESSION_CACHE_BUDGET = 160 * 1024;
+  function compactArchiveCards(rows) {
+    return (Array.isArray(rows) ? rows : []).map(row => {
+      if (!row || typeof row !== 'object') return row;
+      const { logs, ...card } = row;
+      return card;
+    });
+  }
+  function cachePayload() {
+    return {
+      trucks: state.trucks, objects: state.objects,
+      // Полные рейсы архива доступны из серверного архива; хранить их дублем
+      // в localStorage не нужно. Активная смена и её локальные pending-рейсы
+      // остаются, иначе офлайн-действие нельзя было бы восстановить.
+      logs: offlinePendingCount() ? offlineRemoteLogs : state.logs,
+      truckStatus: offlinePendingCount() ? offlineRemoteStatuses : state.truckStatus,
+      shift: state.shift, restoredShifts: [], archive: compactArchiveCards(state.archive), trash: [],
+      audit: (state.audit || []).slice(-50), lineAudit: (state.lineAudit || []).slice(-50),
+      notifications: (state.notifications || []).slice(-10), savedAt: Date.now()
+    };
+  }
+  function cachePayloadText(payload) {
+    let text = JSON.stringify(payload);
+    if (text.length <= SESSION_CACHE_BUDGET) return text;
+    payload.audit = [];
+    payload.lineAudit = [];
+    payload.notifications = [];
+    text = JSON.stringify(payload);
+    if (text.length <= SESSION_CACHE_BUDGET) return text;
+    payload.logs = (payload.logs || []).slice(0, 300);
+    text = JSON.stringify(payload);
+    if (text.length <= SESSION_CACHE_BUDGET) return text;
+    // В обычной сети источники истины остаются на сервере. Минимальная
+    // страховка офлайн-режима — смена, машины и статусы, не старые отчёты.
+    payload.archive = [];
+    payload.logs = offlinePendingCount() ? (offlineRemoteLogs || []).filter(log => log && log.offlinePending) : [];
+    return JSON.stringify(payload);
+  }
+  function saveCache() {
+    try { localStorage.setItem(sessionCacheKey(), cachePayloadText(cachePayload())); }
+    catch(e) {
+      // Не затираем журнал действий: кеш — только ускоритель загрузки и его
+      // можно удалить целиком, если браузер отказал даже в урезанной записи.
+      try { localStorage.removeItem(sessionCacheKey()); localStorage.setItem(sessionCacheKey(), cachePayloadText(cachePayload())); } catch(_) {}
+    }
+  }
   function loadCache() { try { if (!currentUid) return; let raw = localStorage.getItem(sessionCacheKey()); if (!raw) return; let c = JSON.parse(raw); state.trucks = c.trucks||[]; state.objects = c.objects||[]; state.logs = c.logs||[]; state.truckStatus = c.truckStatus||{}; state.shift = c.shift||null; state.restoredShifts = c.restoredShifts||[]; state.archive = c.archive||[]; state.trash = c.trash||[]; state.audit = c.audit||[]; state.lineAudit = c.lineAudit||[]; state.notifications = c.notifications||[]; } catch(e) {} }
 
   function markSync(source, fromCache, hasPendingWrites, docCount) {

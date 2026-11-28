@@ -203,6 +203,30 @@
       entry.tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
 
+    // Полоса прижата к низу экрана поверх контента. Место под неё резервирует
+    // body.shift-strip-open, а фактическую высоту несёт --shift-strip-h:
+    // высота зависит от числа бейджей и переноса, поэтому не выдумывается.
+    function reserveSpace(visible) {
+      const body = doc && doc.body;
+      if (!body) return;
+      const classes = body.classList;
+      if (!visible) {
+        if (classes && typeof classes.remove === 'function') classes.remove('shift-strip-open');
+        return;
+      }
+      if (classes && typeof classes.add === 'function') classes.add('shift-strip-open');
+      let height = 0;
+      try {
+        if (typeof mount.getBoundingClientRect === 'function') height = Number(mount.getBoundingClientRect().height) || 0;
+      } catch (_) { height = 0; }
+      if (!height) height = Number(mount.offsetHeight) || 0;
+      if (height <= 0) return;
+      const style = body.style || {};
+      const value = Math.round(height) + 'px';
+      if (typeof style.setProperty === 'function') style.setProperty('--shift-strip-h', value);
+      else style['--shift-strip-h'] = value;
+    }
+
     function render() {
       const rows = visibleRows();
       selectedId = chooseSelection(rows);
@@ -210,6 +234,7 @@
       entries = [];
       if (rows.length < minShifts) {
         mount.hidden = true;
+        reserveSpace(false);
         return;
       }
       mount.hidden = false;
@@ -235,6 +260,7 @@
       }
       syncVisuals();
       revealSelected();
+      reserveSpace(true);
     }
 
     // Проекция старого кода стирается целиком: под новой шапкой не может
@@ -253,6 +279,9 @@
       if (store.selectShift(shiftId) === false) return false;
       clearProjection();
       store.projectActiveContextToLegacyState(legacyState);
+      // Основа офлайн-проекции переезжает вместе с выбором: иначе первая же
+      // перерисовка линии началась бы с карточек прежней смены.
+      try { if (typeof offlineAdoptShiftProjection === 'function') offlineAdoptShiftProjection(); } catch (_) { /* основа не критична для выбора */ }
       selectedId = shiftId;
       render();
       onSwitch(shiftId);
@@ -261,6 +290,9 @@
 
     function refreshBadges() {
       for (const entry of entries) syncBadges(entry);
+      // Бейджи меняют высоту полосы (перенос строк), поэтому запас под неё
+      // пересчитывается вместе с ними.
+      if (entries.length && !mount.hidden) reserveSpace(true);
     }
 
     function activeShiftId() {
@@ -274,6 +306,7 @@
       entries = [];
       selectedId = null;
       mount.hidden = true;
+      reserveSpace(false);
     }
 
     return { render, switchTo, refreshBadges, activeShiftId, destroy };

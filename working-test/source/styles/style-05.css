@@ -6,12 +6,17 @@
 .restored-shift-note { font-size: 12px; color: var(--muted, #64748b); margin-top: 2px; }
 .restored-shift-stats { font-size: 13px; margin-top: 6px; }
 
-/* Полоса смен находится в потоке страницы над нижней навигацией: она не
-   перекрывает карточки, а широкие смены прокручиваются только по горизонтали. */
+/* Полоса смен прижата к нижней части вкладки над меню, а не к последней
+   карточке: при короткой линии sticky оставался там, где кончился контент, и
+   висел посреди экрана. z-index ниже модалок (100): окно «Выбор самосвалов»
+   должно закрывать полосу, а не наоборот. Место под полосу резервирует
+   body.shift-strip-open, иначе последняя карточка уходит под неё. */
 .shift-strip {
-  position: sticky;
+  position: fixed;
+  left: 0;
+  right: 0;
   bottom: 56px;
-  z-index: 10050;
+  z-index: 60;
   display: flex;
   align-items: stretch;
   gap: 8px;
@@ -26,6 +31,12 @@
   -webkit-overflow-scrolling: touch;
 }
 .shift-strip[hidden] { display: none !important; }
+/* Высота полосы неизвестна заранее (зависит от числа бейджей и переноса),
+   поэтому её пишет сам селектор в --shift-strip-h. Без запаса последняя
+   карточка и её кнопки уходили под полосу. */
+body.shift-strip-open {
+  padding-bottom: calc(56px + var(--shift-strip-h, 54px) + 16px + env(safe-area-inset-bottom, 0px));
+}
 .shift-tab {
   flex: 0 0 auto;
   display: flex;

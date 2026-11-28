@@ -275,11 +275,71 @@
     return keep.reverse();
   }
   function offlineQuotaError(e){return !!(e&&(e.name==='QuotaExceededError'||e.code===22||/quota/i.test(String(e.message||''))));}
+  // Место на устройстве. Восстановимые производные данные (кеш сессии, история
+  // отмены, журналы других аккаунтов) освобождаются первыми: без этого шага
+  // единственным ответом на переполнение была панель «Память телефона
+  // переполнена», а погрузка не сохранялась (инцидент 28.11.2026).
+  // Незавершённые действия текущего uid, вход и настройки не трогаются.
+  function offlineStorageFreeRoom(){
+    const journalKey=offlineJournalKey();
+    let freed=0;
+    const keys=[];
+    try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k)keys.push(k);}}catch(_){return 0;}
+    for(const key of keys){
+      try{
+        if(key===journalKey)continue;
+        if(key.startsWith(SESSION_CACHE_KEY_PREFIX)){
+          const raw=localStorage.getItem(key)||'';
+          if(raw.length<=4096)continue;
+          let value=null;try{value=JSON.parse(raw);}catch(_){value=null;}
+          if(value&&typeof value==='object'){
+            // Кеш — ускоритель загрузки: оставляем только линию выбранной
+            // смены. Архив, аудит и журналы придут с сервера.
+            const minimal={trucks:value.trucks,objects:value.objects,shift:value.shift,truckStatus:value.truckStatus,savedAt:Date.now()};
+            const packed=JSON.stringify(minimal);
+            localStorage.setItem(key,packed);freed+=Math.max(0,raw.length-packed.length);
+          }else{
+            localStorage.removeItem(key);freed+=raw.length;
+          }
+          continue;
+        }
+        if(key.startsWith(OFFLINE_JOURNAL_KEY_PREFIX)){
+          const raw=localStorage.getItem(key)||'';
+          const items=JSON.parse(raw||'[]');
+          if(!Array.isArray(items)){localStorage.removeItem(key);freed+=raw.length;continue;}
+          const dependencies=new Set(items.filter(x=>x&&x.status==='pending'&&x.dependencyId).map(x=>x.dependencyId));
+          const keep=items.filter(x=>x&&(x.status==='pending'||dependencies.has(x.id)));
+          const packed=JSON.stringify(keep);
+          if(packed.length<raw.length){
+            if(keep.length)localStorage.setItem(key,packed);else localStorage.removeItem(key);
+            freed+=raw.length-packed.length;
+          }
+          continue;
+        }
+        if(key.startsWith('wt_undo_redo_')){
+          const raw=localStorage.getItem(key)||'';
+          const data=JSON.parse(raw||'null');
+          if(!data||typeof data!=='object')continue;
+          const packed=JSON.stringify({undo:(Array.isArray(data.undo)?data.undo:[]).slice(-5),redo:(Array.isArray(data.redo)?data.redo:[]).slice(-5)});
+          if(packed.length<raw.length){localStorage.setItem(key,packed);freed+=raw.length-packed.length;}
+        }
+      }catch(_){/* один ключ не должен мешать остальным */}
+    }
+    return freed;
+  }
   function offlineJournalWrite(items){
     const pruned=offlineJournalCompact(items),key=offlineJournalKey();
     try{localStorage.setItem(key,JSON.stringify(pruned));}
     catch(e){
       if(!offlineQuotaError(e))throw e;
+      // Память телефона переполнена. Сначала освобождаем место за счёт
+      // восстановимых данных и пробуем записать очередь ещё раз; только если
+      // места всё равно нет — режем сам журнал.
+      const freed=offlineStorageFreeRoom();
+      if(freed>0){
+        try{localStorage.setItem(key,JSON.stringify(pruned));updateSyncUI();return;}
+        catch(_){/* места всё ещё нет — переходим к аварийной чистке */}
+      }
       // Память телефона переполнена. Пошаговая аварийная чистка: сначала
       // старые отказы и строки без незавершённых эффектов, затем — всё, кроме
       // неотправленных действий и их зависимостей (их терять нельзя).
@@ -303,11 +363,25 @@
   // первом же открытии новой версии.
   const OFFLINE_JOURNAL_KEY_PREFIX='samosval_working_test_offline_';
   const SESSION_CACHE_KEY_PREFIX='samosval-working-test-cache-';
-  const STORAGE_AUDIT_LIMIT=200;
+  const STORAGE_AUDIT_LIMIT=50;
   function storageShrinkAudit(value){
-    if(Array.isArray(value.audit))value.audit=value.audit.slice(0,STORAGE_AUDIT_LIMIT);
-    if(Array.isArray(value.lineAudit))value.lineAudit=value.lineAudit.slice(0,STORAGE_AUDIT_LIMIT);
+    if(Array.isArray(value.audit))value.audit=value.audit.slice(-STORAGE_AUDIT_LIMIT);
+    if(Array.isArray(value.lineAudit))value.lineAudit=value.lineAudit.slice(-STORAGE_AUDIT_LIMIT);
     return value;
+  }
+  // Кеш сессии приводится к тому же бюджету, что пишет saveCache: полные рейсы
+  // архива, корзина и восстановленные смены в localStorage не нужны — они
+  // приходят с сервера. Без этой чистки старая раздутая запись оставалась на
+  // устройстве и занимала место, которого не хватало журналу действий.
+  function storageShrinkCache(value){
+    const next=storageShrinkAudit(value&&typeof value==='object'?value:{});
+    if(Array.isArray(next.archive))next.archive=next.archive.map(card=>{
+      if(!card||typeof card!=='object')return card;
+      const {logs,...rest}=card;return rest;
+    });
+    next.trash=[];next.restoredShifts=[];
+    if(Array.isArray(next.notifications))next.notifications=next.notifications.slice(-10);
+    return next;
   }
   function offlineStorageQuotaMigrate(){
     try{
@@ -326,7 +400,7 @@
         }else if(key.startsWith(SESSION_CACHE_KEY_PREFIX)){
           try{
             const raw=localStorage.getItem(key);if(!raw)continue;
-            const value=storageShrinkAudit(JSON.parse(raw));
+            const value=storageShrinkCache(JSON.parse(raw));
             const packed=JSON.stringify(value);
             if(packed!==raw)localStorage.setItem(key,packed);
           }catch(_){console.warn('[storage migrate] кеш не читается',key);}

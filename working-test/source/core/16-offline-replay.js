@@ -176,12 +176,68 @@
     }
     return {status:st};
   }
+  // Строки линии принадлежат одной смене. Общая основа `offlineRemoteStatuses`
+  // о сменах не знает: подтверждённый повтор действия соседней смены оставлял
+  // в ней её самосвал, и следующая перерисовка рисовала чужие карточки под
+  // выбранной сменой. Фильтр по shiftId — единственное место, где решается,
+  // чья это строка.
+  function offlineStatusesForShift(base, shiftId) {
+    const source = base && typeof base === 'object' ? base : {};
+    const rows = Object.keys(source).map(id => source[id]).filter(row => row && typeof row === 'object');
+    // Старый канал (v1) не писал shiftId вовсе: такие строки принадлежат
+    // единственной линии и не должны исчезать из-за фильтра.
+    const legacy = !rows.some(row => typeof row.shiftId === 'string' && row.shiftId);
+    const out = {};
+    for (const id of Object.keys(source)) {
+      const row = source[id];
+      if (!row || typeof row !== 'object') continue;
+      const owner = typeof row.shiftId === 'string' ? row.shiftId : '';
+      if (!owner) { if (legacy) out[id] = row; continue; }
+      if (owner === shiftId) out[id] = row;
+    }
+    return out;
+  }
+  // Основа проекции := снимок выбранной смены. Вызывается сразу после
+  // публикации v2-снимка и после переключения смены, когда `state` — это ещё
+  // ровно серверные данные без локальных ожиданий. Иначе следующая проекция
+  // начинала бы с чужой или пустой основы: карточки на миг исчезали («Нет
+  // машин») либо показывали самосвалы прежней смены.
+  function offlineAdoptShiftProjection() {
+    const next = {};
+    const statuses = state.truckStatus && typeof state.truckStatus === 'object' ? state.truckStatus : {};
+    for (const id of Object.keys(statuses)) {
+      const row = statuses[id];
+      if (!row || typeof row !== 'object') continue;
+      next[id] = { ...row, id };
+    }
+    offlineRemoteStatuses = next;
+    const logs = Array.isArray(state.logs) ? state.logs.slice() : [];
+    const known = new Set(logs.map(log => log && log.id).filter(Boolean));
+    // Восстановленные архивные смены живут параллельно выбранной: их рейсы
+    // нужны правкам из отчёта, иначе проекция затрёт их своим срезом.
+    for (const entry of (state.restoredShifts || [])) {
+      for (const log of (entry && entry.logs) || []) {
+        if (log && log.id && !known.has(log.id)) { known.add(log.id); logs.push(log); }
+      }
+    }
+    offlineRemoteLogs = logs;
+    for (const id of known) confirmedLoadIds.add(id);
+    return next;
+  }
   // Start from the remote snapshot every time: never apply the same pending load twice.
   function offlineProjectState(){
-    const statuses={...offlineRemoteStatuses},logs=offlineRemoteLogs.slice();
+    const shiftId=state.shift?.id||'';
+    let base=offlineStatusesForShift(offlineRemoteStatuses,shiftId);
+    // Страховка от пустой основы: если снимок ещё не приходил, но проекция уже
+    // есть, берём её — иначе первое же действие стирало бы линию целиком.
+    if(!Object.keys(base).length){
+      const current=offlineStatusesForShift(state.truckStatus,shiftId);
+      if(Object.keys(current).length){base=current;offlineRemoteStatuses={...current};}
+    }
+    const statuses={...base},logs=offlineRemoteLogs.slice();
     // Проекция читает очередь только выбранной смены: записи соседней смены
     // того же uid не попадают в её карточку.
-    for(const op of offlineShiftPending(state.shift?.id||'')){
+    for(const op of offlineShiftPending(shiftId)){
       if(!state.shift||!statuses[op.truckId])continue;
       if(op.type==='reset'&&statuses[op.truckId].lastResetOperationId===op.id)continue;
       if(op.type==='load'&&(statuses[op.truckId].lastLoadLogId===op.logId||logs.some(l=>l.id===op.logId)))continue;
@@ -260,12 +316,16 @@
       +'<div class="error-panel-tech">'+escapeHtml((e&&e.message)||String(e))+'</div>');
   }
   function offlineAdoptResult(op,result){
-    if(result.status){
+    // Результат чужой смены в основу выбранной не попадает: она сама придёт
+    // своим снимком, а подмешивание рисовало бы её самосвал под текущей.
+    const current=state.shift&&state.shift.id;
+    const belongs=!!current&&op.shiftId===current;
+    if(result.status&&belongs){
       const old=offlineRemoteStatuses[op.truckId];
       if(!old||old.shiftId!==op.shiftId||Number(old.cycleRevision||0)<=Number(result.status.cycleRevision||0))
         offlineRemoteStatuses[op.truckId]={id:op.truckId,...result.status};
     }
-    if(result.log&&!offlineRemoteLogs.some(l=>l.id===result.log.id)){
+    if(result.log&&belongs&&!offlineRemoteLogs.some(l=>l.id===result.log.id)){
       offlineRemoteLogs.push(result.log);confirmedLoadIds.add(result.log.id);
     }
     offlineProjectState();refreshLineViews();
