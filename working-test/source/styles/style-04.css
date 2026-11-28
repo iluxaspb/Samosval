@@ -123,7 +123,13 @@
 
     .truck-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; transition: opacity 0.2s, border-color 0.2s, background 0.2s; will-change: transform; }
     .truck-card.arrived { border: 2px solid var(--warning); background: #332611; box-shadow: 0 0 10px rgba(245, 158, 11, 0.2); }
-    .truck-card.faded { opacity: 0.35; filter: grayscale(50%); background: #131b2e; }
+    .truck-card.faded { background: #131b2e; }
+    .truck-card.faded > :not(.action-row) { opacity: 0.35; filter: grayscale(50%); }
+    /* Кнопки «Приехал» и «Погрузка» гаснут как раньше, а служебные ТТН и
+       «больше не приедет» остаются яркими: на них держится отметка
+       «действие выполнено», и зелёный не должен выглядеть серым. */
+    .truck-card.faded .action-row > .btn-arrive,
+    .truck-card.faded .action-row > .btn-quick { opacity: 0.35; filter: grayscale(50%); }
     .absent-mark { color: #ef4444; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .02em; }
     .truck-card.faded .absent-mark { color: #f87171; }
 
@@ -142,21 +148,20 @@
 
     .btn-arrive { background: var(--warning); color: #000; font-size: 12px; padding: 8px 10px; }
     .btn-arrive.active-arrive { background: #d97706; color: #fff; border: 1px solid #fcd34d; padding: 4px 8px; }
-    .btn-arrive:disabled, .btn-quick:disabled, .btn-ttn:disabled, .btn-no-return:disabled { background: #475569; color: #cbd5e1; border-color: transparent; cursor: not-allowed; opacity: 0.6; pointer-events: none; --icon-hole: #475569; }
+    .btn-arrive:disabled, .btn-quick:disabled, .btn-ttn:disabled, .btn-no-return:disabled { background: #475569; color: #cbd5e1; border-color: transparent; cursor: not-allowed; opacity: 0.6; pointer-events: none; }
 
     .idle-label { font-size: 9px; opacity: 0.85; font-weight: 600; letter-spacing: 0.2px; line-height: 1; }
     .idle-timer { font-size: 16px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
 
     .btn-quick { background: var(--success); font-size: 14px; }
-    /* Обе служебные кнопки серые, значки красные и крупные: заметно, но не
-       спорит с красной буквой Д в листках. Различаются рамкой: у ТТН светлая
-       нейтральная, у «больше не приедет» красная. Собранная ТТН зеленеет.
-       --icon-hole — цвет «дырок» в значке самосвала, он же фон кнопки. */
-    .btn-ttn, .btn-no-return { background: #4b5563; color: #ef4444; font-size: 0; padding: 0; --icon-hole: #4b5563; }
+    /* Обе служебные кнопки: серый фон в спокойном состоянии, зелёный — когда
+       действие выполнено. Значок векторный и занимает всю площадь кнопки
+       (сама кнопка 46×46 не расширяется), поэтому размер задан в процентах. */
+    .btn-ttn, .btn-no-return { background: #4b5563; color: #fff; font-size: 0; padding: 2px; }
     .btn-ttn { border: 1px solid #94a3b8; }
-    .btn-no-return { border: 1px solid #ef4444; }
-    .btn-ttn svg, .btn-no-return svg { width: 26px; height: 26px; display: block; }
-    .btn-ttn.active-ttn { background: #166534; border: 1px solid #4ade80; color: #dcfce7; }
+    .btn-no-return { border: 1px solid #6b7280; }
+    .btn-ttn svg, .btn-no-return svg { width: 100%; height: 100%; display: block; }
+    .btn-ttn.active-ttn, .btn-no-return.active-no-return { background: #166534; border: 1px solid #4ade80; color: #fff; }
 
     .btn-danger { background: var(--danger); }
     .btn-secondary { background: var(--border); color: var(--text); }
